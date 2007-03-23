@@ -217,6 +217,11 @@ typedef struct {
 #define MAKE_KEY_NAME3(PREFIX, MID, MID2, SUFFIX) \
   PREFIX MID MID2 SUFFIX
 
+// The DefaultIcon registry key value should never be used (e.g. NON_ESSENTIAL)
+// when checking if Firefox is the default browser since other applications
+// (e.g. MS Office) may modify the DefaultIcon registry key value to add Icon
+// Handlers.
+// see http://msdn2.microsoft.com/en-us/library/aa969357.aspx for more info.
 static SETTING gSettings[] = {
   // Extension Manager Keys
   { MAKE_KEY_NAME1(CLS, "MIME\\Database\\Content Type\\application/x-xpinstall;app=firefox"),
