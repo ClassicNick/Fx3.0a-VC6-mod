@@ -2104,14 +2104,13 @@ PrintDocTree(nsIDocShellTreeNode * aParentNode, int aLevel)
   if (vm) {
     vm->GetWidget(getter_AddRefs(widget));
   }
-  nsCOMPtr<nsIContent> rootContent;
-  doc->GetRootContent(getter_AddRefs(rootContent));
+  nsIContent* rootContent = doc->GetRootContent();
 
   printf("DS %p  Ty %s  Doc %p DW %p EM %p CN %p\n",  
-    parentAsDocShell.get(), 
+    (void*)parentAsDocShell.get(), 
     type==nsIDocShellTreeItem::typeChrome?"Chr":"Con", 
-     doc.get(), domwin.get(),
-     presContext->EventStateManager(), rootContent.get());
+     (void*)doc, (void*)domwin.get(),
+     (void*)presContext->EventStateManager(), (void*)rootContent);
 
   if (childWebshellCount > 0) {
     for (PRInt32 i=0;i<childWebshellCount;i++) {
@@ -3798,7 +3797,7 @@ NS_IMETHODIMP
 nsDocShell::SetFocus()
 {
 #ifdef DEBUG_DOCSHELL_FOCUS
-  printf("nsDocShell::SetFocus %p\n", (nsIDocShell*)this);
+  printf("nsDocShell::SetFocus %p\n", (void*)this);
 #endif
 
   // Tell itself (and the DocShellFocusController) who has focus
@@ -8581,7 +8580,8 @@ NS_IMETHODIMP
 nsDocShell::SetHasFocus(PRBool aHasFocus)
 {
 #ifdef DEBUG_DOCSHELL_FOCUS
-    printf(">>>>>>>>>> nsDocShell::SetHasFocus: %p  %s\n", this, aHasFocus?"Yes":"No");
+    printf(">>>>>>>>>> nsDocShell::SetHasFocus: %p  %s\n", (void*)this,
+           aHasFocus?"Yes":"No");
 #endif
 
   mHasFocus = aHasFocus;
@@ -8755,7 +8755,8 @@ void
 nsDocShellFocusController::Focus(nsIDocShell* aDocShell)
 {
 #ifdef DEBUG_DOCSHELL_FOCUS
-  printf("****** nsDocShellFocusController Focus To: %p  Blur To: %p\n", aDocShell, mFocusedDocShell);
+  printf("****** nsDocShellFocusController Focus To: %p  Blur To: %p\n",
+         (void*)aDocShell, (void*)mFocusedDocShell);
 #endif
 
   if (aDocShell != mFocusedDocShell) {
