@@ -1,4 +1,4 @@
-# 
+#
 # ***** BEGIN LICENSE BLOCK *****
 # Version: MPL 1.1/GPL 2.0/LGPL 2.1
 #
@@ -12,18 +12,19 @@
 # for the specific language governing rights and limitations under the
 # License.
 #
-# The Original Code is the Netscape security libraries.
+# The Original Code is mozilla.org code.
 #
 # The Initial Developer of the Original Code is
 # Netscape Communications Corporation.
-# Portions created by the Initial Developer are Copyright (C) 1994-2000
+# Portions created by the Initial Developer are Copyright (C) 1998
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
+#   John Gaunt (jgaunt@netscape.com)
 #
 # Alternatively, the contents of this file may be used under the terms of
-# either the GNU General Public License Version 2 or later (the "GPL"), or
-# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+# either of the GNU General Public License Version 2 or later (the "GPL"),
+# or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
 # in which case the provisions of the GPL or the LGPL are applicable instead
 # of those above. If you wish to allow use of your version of this file only
 # under the terms of either the GPL or the LGPL, and not to allow others to
@@ -34,29 +35,53 @@
 # the terms of any one of the MPL, the GPL or the LGPL.
 #
 # ***** END LICENSE BLOCK *****
-MAKEFILE_CVS_ID = "@(#) $RCSfile: Makefile,v $ $Revision: 1.8 $ $Date: 2005/12/16 00:48:01 $"
 
-include manifest.mn
-include $(CORE_DEPTH)/coreconf/config.mk
-include config.mk
-include $(CORE_DEPTH)/coreconf/rules.mk
+DEPTH = ../../..
+topsrcdir = /r/browsers/vc5compat/mozilla-vc5-dev
+srcdir = /r/browsers/vc5compat/mozilla-vc5-dev/accessible/src/html
+VPATH = /r/browsers/vc5compat/mozilla-vc5-dev/accessible/src/html
 
-# This'll need some help from a build person.
+include $(DEPTH)/config/autoconf.mk
 
-# The generated files are checked in, and differ from what ckapi.perl
-# will produce.  ckapi.perl is currently newer than the targets, so
-# these rules are invoked, causing the wrong files to be generated.
-# Turning off to fix builds.
-#
-# nssckepv.h: ck.api ckapi.perl
-# nssckft.h: ck.api ckapi.perl
-# nssckg.h: ck.api ckapi.perl
-# nssck.api: ck.api ckapi.perl
-# 	perl ckapi.perl ck.api
+MODULE = accessibility
+LIBRARY_NAME = accessibility_html_s
+LIBXUL_LIBRARY = 1
 
-export:: private_export
+REQUIRES	= content \
+		  docshell \
+		  dom \
+		  gfx \
+		  imglib2 \
+		  intl \
+		  layout \
+		  locale \
+		  necko \
+		  string \
+		  widget \
+		  xpcom \
+		  $(NULL)
 
-# can't do this in manifest.mn because OS_TARGET isn't defined there.
-ifeq (,$(filter-out WIN%,$(OS_TARGET)))
-DIRS += capi
+ifeq ($(MOZ_WIDGET_TOOLKIT),gtk2)
+REQUIRES += editor
 endif
+
+CPPSRCS = \
+  nsHTMLAreaAccessible.cpp \
+  nsHTMLFormControlAccessible.cpp \
+  nsHTMLImageAccessible.cpp \
+  nsHTMLLinkAccessible.cpp \
+  nsHTMLSelectAccessible.cpp \
+  nsHTMLTableAccessible.cpp \
+  nsHTMLTextAccessible.cpp \
+  $(NULL)
+
+# we don't want the shared lib, but we want to force the creation of a static lib.
+FORCE_STATIC_LIB = 1
+
+include $(topsrcdir)/config/rules.mk
+
+LOCAL_INCLUDES = \
+  -I$(srcdir)/../base \
+  -I$(srcdir)/../../../layout/generic \
+  -I$(srcdir)/../../../layout/xul/base/src \
+  $(NULL)

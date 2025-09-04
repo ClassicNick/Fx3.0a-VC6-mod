@@ -240,6 +240,7 @@ nsTableOuterFrame::InsertFrames(nsIAtom*        aListName,
   if (nsLayoutAtoms::captionList == aListName) {
     mCaptionFrames.InsertFrames(nsnull, aPrevFrame, aFrameList);
     mCaptionFrame = mCaptionFrames.FirstChild();
+	return NS_OK;
   }
   else {
     NS_PRECONDITION(!aPrevFrame, "invalid previous frame");

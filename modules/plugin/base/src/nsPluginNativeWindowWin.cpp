@@ -313,8 +313,13 @@ static LRESULT CALLBACK PluginWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
       // Make sure setfocus and killfocus get through
       // even if they are eaten by the plugin
       WNDPROC prevWndProc = win->GetPrevWindowProc();
+	  #if defined (_MSC_VER) && _MSC_VER <= 1100
       if (prevWndProc)
+        ::CallWindowProc(((int (_stdcall*)(void)) prevWndProc), hWnd, msg, wParam, lParam);
+#else
+	  if (prevWndProc)
         ::CallWindowProc(prevWndProc, hWnd, msg, wParam, lParam);
+#endif
       break;
     }
 #endif
