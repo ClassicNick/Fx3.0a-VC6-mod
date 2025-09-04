@@ -360,6 +360,11 @@ function onInputKeyPress (e)
             onInputCompleteLine (e);
             break;
 
+        case 37: /* left */
+             if (e.altKey && e.metaKey)
+                 cycleView(-1);
+             break;
+
         case 38: /* up */
             if (e.ctrlKey || e.metaKey)
             {
@@ -382,6 +387,11 @@ function onInputKeyPress (e)
             }
             e.preventDefault();
             break;
+
+        case 39: /* right */
+             if (e.altKey && e.metaKey)
+                 cycleView(+1);
+             break;
 
         case 40: /* down */
             if (client.lastHistoryReferenced > 0)
@@ -2488,10 +2498,6 @@ function my_dccchat(e)
 CIRCDCCChat.prototype.onInit =
 function my_dccinit(e)
 {
-    /* FIXME: we're currently 'borrowing' the client views' prefs until we have
-     * our own pref manager.
-     */
-    this.prefs = client.prefs;
 }
 
 CIRCDCCChat.prototype._getParams =
@@ -2503,7 +2509,7 @@ function my_dccgetparams()
 CIRCDCCChat.prototype.onPrivmsg =
 function my_dccprivmsg(e)
 {
-    this.displayHere(e.line, "PRIVMSG", e.user, "ME!");
+    this.displayHere(toUnicode(e.line, this), "PRIVMSG", e.user, "ME!");
 }
 
 CIRCDCCChat.prototype.onCTCPAction =
