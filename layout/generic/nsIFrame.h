@@ -760,6 +760,11 @@ public:
                                            PRInt32&        aContentOffset,
                                            PRInt32&        aContentOffsetEnd,
                                            PRBool&         aBeginFrameContent) = 0;
+  // Helper for GetContentAndOffsetsFromPoint
+  NS_IMETHOD GetPositionHelper(const nsPoint&  aPoint,
+                               nsIContent **   aNewContent,
+                               PRInt32&        aContentOffset,
+                               PRInt32&        aContentOffsetEnd) = 0;
 
   /**
    * This structure holds information about a cursor. mContainer represents a
@@ -1456,6 +1461,12 @@ NS_PTR_TO_INT32(frame->GetProperty(nsLayoutAtoms::embeddingLevel))
 #endif
   NS_IMETHOD ChildrenMustHaveWidgets(PRBool& aMust) const=0;
   NS_IMETHOD GetIndexOf(nsIBox* aChild, PRInt32* aIndex)=0;
+
+  /**
+   * @return PR_TRUE if this text frame ends with a newline character.  It
+   * should return PR_FALSE if this is not a text frame.
+   */
+  virtual PRBool HasTerminalNewline() const;
 
   static PRBool AddCSSPrefSize(nsBoxLayoutState& aState, nsIBox* aBox, nsSize& aSize);
   static PRBool AddCSSMinSize(nsBoxLayoutState& aState, nsIBox* aBox, nsSize& aSize);

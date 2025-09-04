@@ -48,6 +48,7 @@
 #import "NSThread+Utils.h"
 #import "NSFileManager+Utils.h"
 #import "NSWorkspace+Utils.h"
+#import "NSPasteboard+Utils.h"
 
 #import "PreferenceManager.h"
 #import "BookmarkManager.h"
@@ -99,7 +100,7 @@ enum {
 // Reading bookmark files
 - (BOOL)readBookmarks;
 
-// these versions assume that we're readinog all the bookmarks from the file (i.e. not an import into a subfolder)
+// these versions assume that we're reading all the bookmarks from the file (i.e. not an import into a subfolder)
 - (BOOL)readPListBookmarks:(NSString *)pathToFile;    // camino or safari
 - (BOOL)readCaminoPListBookmarks:(NSDictionary *)plist;
 - (BOOL)readSafariPListBookmarks:(NSDictionary *)plist;
@@ -566,6 +567,25 @@ static BookmarkManager* gBookmarkManager = nil;
   }
 }
 
+//
+// -clearAllVisits:
+//
+// resets all bookmarks visit counts to zero as part of Reset Camino
+//
+
+-(void)clearAllVisits
+{
+  // XXX this will fire a lot of changed notifications.
+  NSEnumerator* bookmarksEnum = [[self rootBookmarks] objectEnumerator];
+  BookmarkItem* curItem;
+  while (curItem = [bookmarksEnum nextObject])
+  {
+    if ([curItem isKindOfClass:[Bookmark class]])
+      [(Bookmark*)curItem setNumberOfVisits:0];
+  }
+}
+
+
 -(NSArray *)resolveBookmarksKeyword:(NSString *)keyword
 {
   NSArray *resolvedArray = nil;
@@ -680,7 +700,18 @@ static BookmarkManager* gBookmarkManager = nil;
   menuItem = [[[NSMenuItem alloc] initWithTitle:menuTitle action:@selector(openBookmarkInNewTab:) keyEquivalent:@""] autorelease];
   [menuItem setTarget:target];
   [contextMenu addItem:menuItem];
-  
+
+  [contextMenu addItem:[NSMenuItem separatorItem]];
+
+  // copy URL(s) to clipboard
+  if (itemsContainsFolder || multipleItems)
+    menuTitle = NSLocalizedString(@"Copy URLs to Clipboard", @"");
+  else
+    menuTitle = NSLocalizedString(@"Copy URL to Clipboard", @"");
+  menuItem = [[[NSMenuItem alloc] initWithTitle:menuTitle action:@selector(copyURLs:) keyEquivalent:@""] autorelease];
+  [menuItem setTarget:target];
+  [contextMenu addItem:menuItem];
+
   if (!outlineView || ([items count] == 1)) {
     [contextMenu addItem:[NSMenuItem separatorItem]];
     menuTitle = NSLocalizedString(@"Get Info", @"");
@@ -697,11 +728,8 @@ static BookmarkManager* gBookmarkManager = nil;
   }
   
   BOOL allowNewFolder = NO;
-  if ([target isKindOfClass:[BookmarkViewController class]]) {
-    if (![[target activeCollection] isSmartFolder])
-      allowNewFolder = YES;
-  } else
-    allowNewFolder = YES;
+  if ([target isKindOfClass:[BookmarkViewController class]])
+    allowNewFolder = ![[target activeCollection] isSmartFolder];
 
   if (allowNewFolder) {
     // space
@@ -728,6 +756,28 @@ static BookmarkManager* gBookmarkManager = nil;
   }
   return contextMenu;
 }
+
+
+//
+// Copy a set of bookmarks URLs to the specified pasteboard.
+// We don't care about item titles here, nor do we care about format.
+//
+- (void)copyBookmarksURLs:(NSArray*)bookmarkItems toPasteboard:(NSPasteboard*)aPasteboard
+{
+  // handle URLs, and nothing else, for simplicity.
+  [aPasteboard declareTypes:[NSArray arrayWithObject:kCorePasteboardFlavorType_url] owner:nil];
+
+  NSMutableArray* urlList = [NSMutableArray array];
+  NSEnumerator* bookmarkItemsEnum = [bookmarkItems objectEnumerator];
+  BookmarkItem* curItem;
+  while (curItem = [bookmarkItemsEnum nextObject])
+  {
+    if ([curItem isKindOfClass:[Bookmark class]])
+      [urlList addObject:[(Bookmark*)curItem url]];
+  }
+  [aPasteboard setURLs:urlList withTitles:nil];
+}
+
 
 #pragma mark -
 
@@ -812,7 +862,7 @@ static BookmarkManager* gBookmarkManager = nil;
   if (!userInfo)
     return;
 
-	NSImage*  iconImage     = [userInfo objectForKey:SiteIconLoadImageKey];
+  NSImage*  iconImage    = [userInfo objectForKey:SiteIconLoadImageKey];
   NSString* siteIconURI  = [userInfo objectForKey:SiteIconLoadURIKey];
   NSString* pageURI      = [userInfo objectForKey:SiteIconLoadUserDataKey];
   pageURI = [BookmarkManager canonicalBookmarkURL:pageURI];
@@ -1383,10 +1433,18 @@ static BookmarkManager* gBookmarkManager = nil;
       }
       else if ([tokenTag isEqualToString:@"<A "]) {
         // adding a new bookmark to end of currentArray.
-        [fileScanner scanUpToString:@"</A>" intoString:&tokenString];
+        [fileScanner scanUpToString:@"</A>" intoString:&tokenString];  // fileScanner contains <A HREF="[URL]">[TITLE]</A>
         tokenScanner = [[NSScanner alloc] initWithString:tokenString];
-        [tokenScanner scanUpToString:@"href=\"" intoString:NULL];
-        // might be a menu spacer.  check to make sure.
+        [tokenScanner scanUpToString:@"href=\"" intoString:nil];  // tokenScanner now contains HREF="[URL]">[TITLE]
+        // check for a menu spacer, which will look like this: HREF="">&lt;Menu Spacer&gt; (bug 309008)
+        if ([[tokenString substringFromIndex:([tokenScanner scanLocation]+8)] isEqualToString:@"&lt;Menu Spacer&gt;"])  {
+          currentItem = [currentArray addBookmark];
+          [(Bookmark *)currentItem setIsSeparator:YES];
+          [tokenScanner release];
+          [tokenTag release];
+          [fileScanner setScanLocation:([fileScanner scanLocation]+1)];
+          continue;
+        }
         if (![tokenScanner isAtEnd]) {
           [tokenScanner setScanLocation:([tokenScanner scanLocation]+6)];
           [tokenScanner scanUpToString:@"\"" intoString:&tempItem];

@@ -35,6 +35,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsJavaInterfaces.h"
 #include "nsJavaWrapper.h"
 #include "nsJavaXPTCStub.h"
 #include "nsJavaXPCOMBindingUtils.h"
@@ -45,9 +46,6 @@
 #include "nsCRT.h"
 #include "prmem.h"
 #include "nsServiceManagerUtils.h"
-
-#define JAVAPROXY_NATIVE(func) \
-          Java_org_mozilla_xpcom_internal_XPCOMJavaProxy_##func
 
 static nsID nullID = {0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};
 
@@ -140,7 +138,7 @@ CreateJavaArray(JNIEnv* env, PRUint8 aType, PRUint32 aSize, const nsID& aIID,
     }
 
     case nsXPTType::T_VOID:
-      array = env->NewIntArray(aSize);
+      array = env->NewLongArray(aSize);
       break;
 
     default:
@@ -229,7 +227,7 @@ GetNativeArrayElement(PRUint8 aType, void* aArray, PRUint32 aIndex,
       break;
 
     case nsXPTType::T_VOID:
-      aResult->val.u32 = NS_STATIC_CAST(PRUint32*, aArray)[aIndex];
+      aResult->val.p = NS_STATIC_CAST(void**, aArray)[aIndex];
       break;
 
     default:
@@ -299,7 +297,7 @@ CreateNativeArray(PRUint8 aType, PRUint32 aSize, void** aResult)
       break;
 
     case nsXPTType::T_VOID:
-      array = PR_Malloc(aSize * sizeof(PRUint32));
+      array = PR_Malloc(aSize * sizeof(void*));
       break;
 
     default:
@@ -852,16 +850,16 @@ SetupParams(JNIEnv *env, const jobject aParam, PRUint8 aType, PRBool aIsOut,
       break;
     }
 
-    // handle "void *" as an "int" in Java
+    // handle "void *" as an "long" in Java
     case nsXPTType::T_VOID:
     {
-      LOG(("int (void*)\n"));
+      LOG(("long (void*)\n"));
       if (!aIsOut && !aIsArrayElement) {  // 'in'
-        aVariant.val.p = (void*) env->CallIntMethod(aParam, intValueMID);
+        aVariant.val.p = (void*) env->CallLongMethod(aParam, longValueMID);
       } else { // 'inout' & 'array'
-        jint value;
+        jlong value;
         if (aParam) {
-          env->GetIntArrayRegion((jintArray) aParam, aIndex, 1, &value);
+          env->GetLongArrayRegion((jlongArray) aParam, aIndex, 1, &value);
         }
 
         if (aIsOut) { // 'inout'
@@ -873,7 +871,7 @@ SetupParams(JNIEnv *env, const jobject aParam, PRUint8 aType, PRBool aIsOut,
           }
           aVariant.SetPtrIsData();
         } else {  // 'array'
-          NS_STATIC_CAST(PRUint32*, aVariant.val.p)[aIndex] = value;
+          NS_STATIC_CAST(void**, aVariant.val.p)[aIndex] = (void*) value;
         }
       }
       break;
@@ -1219,11 +1217,11 @@ FinalizeParams(JNIEnv *env, const nsXPTParamInfo &aParamInfo, PRUint8 aType,
     case nsXPTType::T_VOID:
     {
       if (NS_SUCCEEDED(aInvokeResult)) {
-        jint value = NS_REINTERPRET_CAST(jint, aVariant.val.p);
+        jlong value = NS_REINTERPRET_CAST(jlong, aVariant.val.p);
         if (aParamInfo.IsRetval() && !aIsArrayElement) {
-          *aParam = env->NewObject(intClass, intInitMID, value);
+          *aParam = env->NewObject(longClass, longInitMID, value);
         } else if ((aParamInfo.IsOut() || aIsArrayElement) && *aParam) {
-          env->SetIntArrayRegion((jintArray) *aParam, aIndex, 1, &value);
+          env->SetLongArrayRegion((jlongArray) *aParam, aIndex, 1, &value);
         }
       }
       break;
@@ -1383,7 +1381,7 @@ QueryMethodInfo(nsIInterfaceInfo* aIInfo, const char* aMethodName,
 /**
  *  org.mozilla.xpcom.XPCOMJavaProxy.internal.callXPCOMMethod
  */
-extern "C" JX_EXPORT jobject JNICALL
+extern "C" NS_EXPORT jobject
 JAVAPROXY_NATIVE(callXPCOMMethod) (JNIEnv *env, jclass that, jobject aJavaProxy,
                                    jstring aMethodName, jobjectArray aParams)
 {
@@ -1688,8 +1686,8 @@ GetXPCOMInstFromProxy(JNIEnv* env, jobject aJavaObject, void** aResult)
   if (!aResult)
     return NS_ERROR_NULL_POINTER;
 
-  long xpcom_obj = env->CallStaticLongMethod(xpcomJavaProxyClass,
-                                             getNativeXPCOMInstMID, aJavaObject);
+  jlong xpcom_obj = env->CallStaticLongMethod(xpcomJavaProxyClass,
+                                            getNativeXPCOMInstMID, aJavaObject);
 
   if (!xpcom_obj || env->ExceptionCheck()) {
     return NS_ERROR_FAILURE;
@@ -1711,11 +1709,10 @@ GetXPCOMInstFromProxy(JNIEnv* env, jobject aJavaObject, void** aResult)
 }
 
 /**
- *  org.mozilla.xpcom.internal.XPCOMJavaProxy.finalizeProxyNative
+ *  org.mozilla.xpcom.internal.XPCOMJavaProxy.finalizeProxy
  */
-extern "C" JX_EXPORT void JNICALL
-JAVAPROXY_NATIVE(finalizeProxyNative) (JNIEnv *env, jclass that,
-                                       jobject aJavaProxy)
+extern "C" NS_EXPORT void
+JAVAPROXY_NATIVE(finalizeProxy) (JNIEnv *env, jclass that, jobject aJavaProxy)
 {
 #ifdef DEBUG_JAVAXPCOM
   PRUint32 xpcom_addr = 0;

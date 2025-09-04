@@ -81,6 +81,7 @@ bin/components/dom_css.xpt
 bin/components/dom_events.xpt
 bin/components/dom_html.xpt
 bin/components/dom_range.xpt
+bin/components/dom_sidebar.xpt
 bin/components/dom_stylesheets.xpt
 bin/components/dom_traversal.xpt
 bin/components/dom_views.xpt
@@ -131,6 +132,7 @@ bin/components/necko_viewsource.xpt
 bin/components/necko.xpt
 bin/components/oji.xpt
 bin/components/passwordmgr.xpt
+bin/components/places.xpt
 bin/components/plugin.xpt
 bin/components/prefetch.xpt
 bin/components/pref.xpt
@@ -142,6 +144,7 @@ bin/components/satchel.xpt
 bin/components/search.xpt
 bin/components/shistory.xpt
 bin/components/sidebar.xpt
+bin/components/storage.xpt
 bin/components/profile.xpt
 bin/components/toolkitprofile.xpt
 bin/components/txtsvc.xpt
@@ -276,6 +279,13 @@ bin/res/entityTables/*
 ; svg
 bin/res/svg.css
 bin/components/dom_svg.xpt
+
+; spellchecker (may not be present)
+bin/components/libmyspell.so
+bin/components/spellchecker.xpt
+bin/components/libspellchecker.so
+;; XXX these two files are bogus, they should not be in components/myspell...
+bin/components/myspell/*
 
 ; [Personal Security Manager]
 ;

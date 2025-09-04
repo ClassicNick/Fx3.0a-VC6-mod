@@ -56,7 +56,7 @@ static NSString* const kProgressWindowFrameSaveName = @"ProgressWindow";
 -(void)rebuildViews;
 -(NSArray*)selectedProgressViewControllers;
 -(void)deselectDLInstancesInArray:(NSArray*)instances;
--(void)makeDLInstanceVisibleIfItsNotAlready:(ProgressViewController*)controller;
+-(void)scrollIntoView:(ProgressViewController*)controller;
 -(void)killDownloadTimer;
 -(void)setupDownloadTimer;
 -(BOOL)shouldAllowCancelAction;
@@ -67,6 +67,8 @@ static NSString* const kProgressWindowFrameSaveName = @"ProgressWindow";
 -(void)maybeCloseWindow;
 
 @end
+
+#pragma mark -
 
 @implementation ProgressDlgController
 
@@ -88,7 +90,8 @@ static id gSharedProgressController = nil;
 
 -(id)init
 {
-  if ((self == [super initWithWindowNibName:@"ProgressDialog"])) {
+  if ((self = [super initWithWindowNibName:@"ProgressDialog"]))
+  {
     mProgressViewControllers = [[NSMutableArray alloc] init];
     mDefaultWindowSize = [[self window] frame].size;
     // it would be nice if we could get the frame from the name, and then
@@ -100,13 +103,23 @@ static id gSharedProgressController = nil;
     mAwaitingTermination = NO;
     mShouldCloseWindow   = NO;
     
+    // we "know" that the superview of the stack view is a CHFlippedShrinkWrapView
+    // (it has to be, because NSScrollViews have to contain a flipped view)
+    if ([[mStackView superview] respondsToSelector:@selector(setNoIntrinsicPadding)])
+      [[mStackView superview] setNoIntrinsicPadding];
+
     // We provide the views for the stack view, from mProgressViewControllers
+    [mStackView setShowsSeparators:YES];
     [mStackView setDataSource:self];
+
     mSelectionPivotIndex = -1;
+
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(DLInstanceSelected:)
-                                                 name:@"DownloadInstanceSelected" object:nil];
+                                                 name:kDownloadInstanceSelectedNotificationName
+                                               object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(DLInstanceOpened:)
-                                                 name:@"DownloadInstanceOpened" object:nil];
+                                                 name:kDownloadInstanceOpenedNotificationName
+                                               object:nil];
     
   }
   return self;
@@ -360,7 +373,7 @@ static id gSharedProgressController = nil;
         {
           ProgressViewController* dlToSelect = [mProgressViewControllers objectAtIndex:instanceToSelect];
           [dlToSelect setSelected:YES];
-          [self makeDLInstanceVisibleIfItsNotAlready:dlToSelect];
+          [self scrollIntoView:dlToSelect];
           if (!shiftKeyDown)
             mSelectionPivotIndex = instanceToSelect;
         }
@@ -391,7 +404,7 @@ static id gSharedProgressController = nil;
         {
           ProgressViewController* dlToSelect = [mProgressViewControllers objectAtIndex:instanceToSelect];
           [dlToSelect setSelected:YES];
-          [self makeDLInstanceVisibleIfItsNotAlready:dlToSelect];
+          [self scrollIntoView:dlToSelect];
           if (!shiftKeyDown)
             mSelectionPivotIndex = instanceToSelect;
         }
@@ -411,14 +424,14 @@ static id gSharedProgressController = nil;
     case NSPageUpFunctionKey:
       if ([mProgressViewControllers count] > 0) {
         // make the first instance completely visible
-        [self makeDLInstanceVisibleIfItsNotAlready:((ProgressViewController*)[mProgressViewControllers objectAtIndex:0])];
+        [self scrollIntoView:((ProgressViewController*)[mProgressViewControllers objectAtIndex:0])];
       }
       break;
 
     case NSPageDownFunctionKey:
       if ([mProgressViewControllers count] > 0) {
         // make the last instance completely visible
-        [self makeDLInstanceVisibleIfItsNotAlready:((ProgressViewController*)[mProgressViewControllers lastObject])];
+        [self scrollIntoView:((ProgressViewController*)[mProgressViewControllers lastObject])];
       }
       break;
 
@@ -451,12 +464,12 @@ static id gSharedProgressController = nil;
   return selectedArray;
 }
 
--(void)makeDLInstanceVisibleIfItsNotAlready:(ProgressViewController*)controller
+-(void)scrollIntoView:(ProgressViewController*)controller
 {
-  NSRect instanceFrame = [[controller view] frame];
+  NSView* dlView = [controller view];
+  NSRect instanceFrame = [[mScrollView contentView] convertRect:[dlView bounds] fromView:dlView];
   NSRect visibleRect = [[mScrollView contentView] documentVisibleRect];
-  // for some reason there is a 1 pixel discrepancy we need to get rid of here
-  instanceFrame.size.width -= 1;
+
   if (!NSContainsRect(visibleRect, instanceFrame)) { // if instance isn't completely visible
     if (instanceFrame.origin.y < visibleRect.origin.y) { // if the dl instance is at least partly above visible rect
       // just go to the instance's frame origin point
@@ -465,7 +478,7 @@ static id gSharedProgressController = nil;
     else { // if the dl instance is at least partly below visible rect
       // take  instance's frame origin y, subtract content view height, 
       // add instance view height, no parenthesizing
-      NSPoint adjustedPoint = NSMakePoint(0,(instanceFrame.origin.y - [[mScrollView contentView] frame].size.height) + instanceFrame.size.height);
+      NSPoint adjustedPoint = NSMakePoint(0, (instanceFrame.origin.y - NSHeight([[mScrollView contentView] frame])) + NSHeight(instanceFrame));
       [[mScrollView contentView] scrollToPoint:adjustedPoint];
     }
     [mScrollView reflectScrolledClipView:[mScrollView contentView]];
@@ -486,7 +499,7 @@ static id gSharedProgressController = nil;
   [(ProgressViewController*)progressDisplay setSelected:YES];
   
   // make sure new download is visible
-  [self makeDLInstanceVisibleIfItsNotAlready:progressDisplay];
+  [self scrollIntoView:progressDisplay];
 }
 
 -(void)didEndDownload:(id <CHDownloadProgressDisplay>)progressDisplay withSuccess:(BOOL)completedOK statusCode:(nsresult)status
@@ -592,7 +605,7 @@ static id gSharedProgressController = nil;
 
 -(void)rebuildViews
 {
-  [mStackView reloadSubviews];
+  [mStackView adaptToSubviews];
 }
 
 -(int)numDownloadsInProgress
@@ -990,14 +1003,15 @@ static id gSharedProgressController = nil;
  CHStackView datasource methods
  */
 
--(int)subviewsForStackView:(CHStackView *)stackView
+- (NSArray*)subviewsForStackView:(CHStackView *)stackView
 {
-  return [mProgressViewControllers count];
-}
-
--(NSView *)viewForStackView:(CHStackView *)aResizingView atIndex:(int)index
-{
-  return [((ProgressViewController*)[mProgressViewControllers objectAtIndex:index]) view];
+  NSMutableArray* viewsArray = [NSMutableArray arrayWithCapacity:[mProgressViewControllers count]];
+  
+  unsigned int numViews = [mProgressViewControllers count];
+  for (unsigned int i = 0; i < numViews; i ++)
+    [viewsArray addObject:[((ProgressViewController*)[mProgressViewControllers objectAtIndex:i]) view]];
+  
+  return viewsArray;
 }
 
 #pragma mark -

@@ -52,3 +52,34 @@ function syncUIZoom() {
     var currentUILevel=gPref.getIntPref("browser.display.zoomui");
     document.styleSheets[1].cssRules[1].style.fontSize=currentUILevel+"px";
 }
+
+function loadBookmarks(storeStr) {
+
+	var aDOMParser = new DOMParser();
+	gBookmarksDoc = aDOMParser.parseFromString(storeStr,"text/xml");
+
+	if(gBookmarksDoc&&gBookmarksDoc.firstChild&&gBookmarksDoc.firstChild.nodeName=="bm") {
+		refreshBookmarks();
+	} else {
+		var bookmarkEmpty="<bm></bm>";
+		gPref.setCharPref("browser.bookmark.store",bookmarkEmpty);
+
+		gBookmarksDoc = aDOMParser.parseFromString(bookmarkEmpty,"text/xml");
+		refreshBookmarks();	
+	}
+}
+
+function refreshBookmarks() {
+	if(gBookmarksDoc.getElementsByTagName("li").length>0) {
+		document.getElementById("item-bookmark").hidden=false;
+	} 
+}
+
+function storeBookmarks() {
+	var bmSerializer = new XMLSerializer();
+	var encodedList=bmSerializer.serializeToString(gBookmarksDoc)
+      gPref.setCharPref("browser.bookmark.store",encodedList);
+}
+
+
+

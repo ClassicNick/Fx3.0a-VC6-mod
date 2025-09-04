@@ -38,7 +38,7 @@
 #ifndef nsHTMLTags_h___
 #define nsHTMLTags_h___
 
-#include "nsAString.h"
+#include "nsStringGlue.h"
 
 class nsIAtom;
 
@@ -78,5 +78,10 @@ public:
 };
 
 #define eHTMLTags nsHTMLTag
+
+#ifdef DEBUG
+// tag table verification function
+void TestTagTable();
+#endif // DEBUG
 
 #endif /* nsHTMLTags_h___ */

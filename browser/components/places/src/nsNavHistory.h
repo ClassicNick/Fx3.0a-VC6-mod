@@ -48,7 +48,7 @@
 #include "nsCOMPtr.h"
 #include "nsDataHashtable.h"
 #include "nsIAtom.h"
-#include "nsINavHistory.h"
+#include "nsINavHistoryService.h"
 #include "nsIAutoCompleteSearch.h"
 #include "nsIAutoCompleteResult.h"
 #include "nsIAutoCompleteResultTypes.h"
@@ -70,6 +70,8 @@
 #include "nsVoidArray.h"
 #include "nsWeakReference.h"
 #include "nsTArray.h"
+#include "nsINavBookmarksService.h"
+#include "nsMaybeWeakPtr.h"
 
 // Number of prefixes used in the autocomplete sort comparison function
 #define AUTOCOMPLETE_PREFIX_LIST_COUNT 6
@@ -109,8 +111,6 @@ protected:
   PRBool mOnlyBookmarked;
   PRBool mDomainIsHost;
   nsString mDomain;
-  PRInt32 mGroupingMode;
-  PRInt32 mSortingMode;
   nsTArray<PRInt64> mFolders;
   PRUint32 mItemTypes;
 };
@@ -122,7 +122,9 @@ class nsNavHistoryQueryOptions : public nsINavHistoryQueryOptions
 {
 public:
   nsNavHistoryQueryOptions() : mSort(0), mResultType(0),
-                               mGroupCount(0), mGroupings(nsnull), mExpandPlaces(PR_FALSE)
+                               mGroupCount(0), mGroupings(nsnull),
+                               mExpandPlaces(PR_FALSE),
+                               mForceOriginalTitle(PR_FALSE)
   { }
 
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_NAVHISTORYQUERYOPTIONS_IID)
@@ -136,6 +138,7 @@ public:
     *count = mGroupCount; return mGroupings;
   }
   PRBool ExpandPlaces() const { return mExpandPlaces; }
+  PRBool ForceOriginalTitle() const { return mForceOriginalTitle; }
 
   nsresult Clone(nsNavHistoryQueryOptions **aResult);
 
@@ -149,6 +152,7 @@ private:
   PRUint32 mGroupCount;
   PRInt32 *mGroupings;
   PRBool mExpandPlaces;
+  PRBool mForceOriginalTitle;
 };
 
 
@@ -156,6 +160,19 @@ private:
 
 #define NS_NAVHISTORYRESULTNODE_IID \
 {0x54b61d38, 0x57c1, 0x11da, {0x95, 0xb8, 0x00, 0x13, 0x21, 0xc9, 0xf6, 0x9e}}
+
+// Declare methods for implementing nsINavBookmarkObserver
+// and nsINavHistoryObserver (some methods overlap)
+
+#define NS_DECL_BOOKMARK_HISTORY_OBSERVER                               \
+  NS_DECL_NSINAVBOOKMARKOBSERVER                                        \
+  NS_IMETHOD OnAddURI(nsIURI *aURI, PRTime aTime);                      \
+  NS_IMETHOD OnDeleteURI(nsIURI *aURI);                                 \
+  NS_IMETHOD OnClearHistory();                                          \
+  NS_IMETHOD OnPageChanged(nsIURI *aURI, PRUint32 aWhat,                \
+                           const nsAString &aValue);
+
+class nsNavHistoryResult;
 
 class nsNavHistoryResultNode : public nsINavHistoryResultNode
 {
@@ -167,16 +184,38 @@ public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSINAVHISTORYRESULTNODE
 
+  // History/bookmark notifications.  Note that we don't actually inherit
+  // these interfaces since multiple-inheritance breaks nsCOMArray.
+  NS_DECL_BOOKMARK_HISTORY_OBSERVER
+
   // Generate the children for this node.
-  virtual nsresult BuildChildren() { return NS_OK; }
+  virtual nsresult BuildChildren(PRBool *aBuilt) {
+    *aBuilt = PR_FALSE;
+    return NS_OK;;
+  }
+
+  // Rebuild the node's data.  This only applies to nodes which have
+  // a URL or a folder ID, and does _not_ rebuild the node's children.
+  virtual nsresult Rebuild();
 
   // Non-XPCOM member accessors
   PRInt32 Type() const { return mType; }
   const nsCString& URL() const { return mUrl; }
   virtual PRInt64 GetFolderId() const { return 0; }
+  PRInt32 VisibleIndex() const { return mVisibleIndex; }
+  void SetVisibleIndex(PRInt32 aIndex) { mVisibleIndex = aIndex; }
+  PRInt32 IndentLevel() const { return mIndentLevel; }
+  void SetIndentLevel(PRInt32 aLevel) { mIndentLevel = aLevel; }
+  nsNavHistoryResultNode* Parent() { return mParent; }
+  void SetParent(nsNavHistoryResultNode *aParent) { mParent = aParent; }
+
+  nsNavHistoryResultNode* ChildAt(PRInt32 aIndex) { return mChildren[aIndex]; }
 
 protected:
   virtual ~nsNavHistoryResultNode() {}
+
+  // Find the top-level NavHistoryResult for this node
+  nsNavHistoryResult* GetResult();
 
   // parent of this element, NULL if no parent. Filled in by FilledAllResults
   // in the result set.
@@ -191,19 +230,13 @@ protected:
   PRInt32 mAccessCount;
   PRTime mTime;
   nsString mHost;
+  nsCString mFaviconURL;
 
   // Filled in by the result type generator in nsNavHistory
   nsCOMArray<nsNavHistoryResultNode> mChildren;
 
   // filled in by FillledAllResults in the result set.
   PRInt32 mIndentLevel;
-
-  // Index of this element into the flat mAllElements array in the result set.
-  // Filled in by FilledAllResults. DANGER, this does not necessarily mean that
-  // mAllElements[mFlatIndex] = this, because we could be collapsed.
-  // mAllElements[mFlatIndex] could be a duplicate of us. ALSO NOTE that the
-  // root element, although it is a node, has no flat index.
-  PRInt32 mFlatIndex;
 
   // index of this element into the mVisibleElements array in the result set
   PRInt32 mVisibleIndex;
@@ -223,26 +256,36 @@ class nsNavHistoryQueryNode : public nsNavHistoryResultNode
 {
 public:
   nsNavHistoryQueryNode()
-    : mQueries(nsnull), mQueryCount(0) {}
+    : mQueries(nsnull), mQueryCount(0), mBuiltChildren(PR_FALSE) {}
 
   // nsINavHistoryResultNode methods
   NS_IMETHOD GetFolderId(PRInt64 *aId)
   { *aId = nsNavHistoryQueryNode::GetFolderId(); return NS_OK; }
+  NS_IMETHOD GetFolderType(nsAString& aFolderType);
   NS_IMETHOD GetQueries(PRUint32 *aQueryCount,
                         nsINavHistoryQuery ***aQueries);
   NS_IMETHOD GetQueryOptions(nsINavHistoryQueryOptions **aOptions);
+  NS_IMETHOD GetChildrenReadOnly(PRBool *aResult);
+
+  NS_DECL_BOOKMARK_HISTORY_OBSERVER
 
   // nsNavHistoryResultNode methods
-  virtual nsresult BuildChildren();
+  virtual nsresult BuildChildren(PRBool *aBuilt);
   virtual PRInt64 GetFolderId() const;
+  virtual nsresult Rebuild();
 
 protected:
   virtual ~nsNavHistoryQueryNode();
   nsresult ParseQueries();
+  nsresult CreateNode(nsIURI *aURI, nsNavHistoryResultNode **aNode);
+  nsresult UpdateQuery();
+  PRBool HasFilteredChildren() const;
 
   nsINavHistoryQuery **mQueries;
   PRUint32 mQueryCount;
   nsCOMPtr<nsNavHistoryQueryOptions> mOptions;
+  PRBool mBuiltChildren;
+  nsString mFolderType;
 
   friend class nsNavBookmarks;
 };
@@ -256,8 +299,11 @@ class nsIDateTimeFormat;
 //    object initialization.
 
 class nsNavHistoryResult : public nsNavHistoryQueryNode,
+                           public nsSupportsWeakReference,
                            public nsINavHistoryResult,
-                           public nsITreeView
+                           public nsITreeView,
+                           public nsINavBookmarkObserver,
+                           public nsINavHistoryObserver
 {
 public:
   nsNavHistoryResult(nsNavHistory* aHistoryService,
@@ -275,16 +321,43 @@ public:
 
   nsresult BuildChildrenFor(nsNavHistoryResultNode *aNode);
 
+  // These methods are typically called by child nodes from one of the
+  // history or bookmark observer notifications.
+
+  // Notify the result that the entire contents of the tree have changed.
+  void Invalidate();
+
+  // Notify the result that a row has been added at index aIndex relative
+  // to aParent.
+  void RowAdded(nsNavHistoryResultNode* aParent, PRInt32 aIndex);
+
+  // Notify the result that the row with visible index aVisibleIndex has been
+  // removed from the tree.
+  void RowRemoved(PRInt32 aVisibleIndex);
+
+  // Notify the result that the contents of the row at visible index
+  // aVisibleIndex has been modified.
+  void RowChanged(PRInt32 aVisibleIndex);
+
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSINAVHISTORYRESULT
   NS_DECL_NSITREEVIEW
+  NS_FORWARD_NSINAVBOOKMARKOBSERVER(nsNavHistoryQueryNode::)
+  NS_IMETHOD OnAddURI(nsIURI *aURI, PRTime aTime)
+  { return nsNavHistoryQueryNode::OnAddURI(aURI, aTime); }
+  NS_IMETHOD OnDeleteURI(nsIURI *aURI)
+  { return nsNavHistoryQueryNode::OnDeleteURI(aURI); }
+  NS_IMETHOD OnClearHistory()
+  { return nsNavHistoryQueryNode::OnClearHistory(); }
+  NS_IMETHOD OnPageChanged(nsIURI *aURI, PRUint32 aWhat,
+                           const nsAString &aValue)
+  { return nsNavHistoryQueryNode::OnPageChanged(aURI, aWhat, aValue); }
 
   NS_FORWARD_NSINAVHISTORYRESULTNODE(nsNavHistoryQueryNode::)
 
 private:
   ~nsNavHistoryResult();
 
-protected:
   nsCOMPtr<nsIStringBundle> mBundle;
   nsCOMPtr<nsITreeBoxObject> mTree; // may be null if no tree has bound itself
   nsCOMPtr<nsITreeSelection> mSelection; // may be null
@@ -293,7 +366,7 @@ protected:
 
   PRBool mCollapseDuplicates;
 
-  nsCOMArray<nsINavHistoryResultViewObserver> mObservers;
+  nsMaybeWeakPtrArray<nsINavHistoryResultViewObserver> mObservers;
 
   // for locale-specific date formatting and string sorting
   nsCOMPtr<nsILocale> mLocale;
@@ -367,7 +440,7 @@ class AutoCompleteIntermediateResultSet;
 // nsNavHistory
 
 class nsNavHistory : public nsSupportsWeakReference,
-                     public nsINavHistory,
+                     public nsINavHistoryService,
                      public nsIObserver,
                      public nsIBrowserHistory,
                      public nsIAutoCompleteSearch
@@ -378,7 +451,7 @@ public:
 
   NS_DECL_ISUPPORTS
 
-  NS_DECL_NSINAVHISTORY
+  NS_DECL_NSINAVHISTORYSERVICE
   NS_DECL_NSIGLOBALHISTORY2
   NS_DECL_NSIBROWSERHISTORY
   NS_DECL_NSIOBSERVER
@@ -395,7 +468,7 @@ public:
   {
     if (! gHistoryService) {
       nsresult rv;
-      nsCOMPtr<nsINavHistory> serv(do_GetService("@mozilla.org/browser/nav-history;1", &rv));
+      nsCOMPtr<nsINavHistoryService> serv(do_GetService("@mozilla.org/browser/nav-history-service;1", &rv));
       NS_ENSURE_SUCCESS(rv, nsnull);
 
       // our constructor should have set the static variable. If it didn't,
@@ -433,17 +506,38 @@ public:
   static const PRInt32 kGetInfoIndex_PageID;
   static const PRInt32 kGetInfoIndex_URL;
   static const PRInt32 kGetInfoIndex_Title;
-  static const PRInt32 kGetInfoIndex_VisitCount;
-  static const PRInt32 kGetInfoIndex_VisitDate;
+  static const PRInt32 kGetInfoIndex_UserTitle;
   static const PRInt32 kGetInfoIndex_RevHost;
+  static const PRInt32 kGetInfoIndex_VisitCount;
+
+  // select a history row by URL, with visit date info (extra work)
+  mozIStorageStatement* DBGetURLPageInfoFull()
+  { return mDBGetURLPageInfoFull; }
+
+  // select a history row by id, with visit date info (extra work)
+  mozIStorageStatement* DBGetIdPageInfoFull()
+  { return mDBGetIdPageInfoFull; }
+
+  // Constants for the columns returned by the above statement
+  // (in addition to the ones above).
+  static const PRInt32 kGetInfoIndex_VisitDate;
+  static const PRInt32 kGetInfoIndex_FaviconURL;
 
   static nsIAtom* sMenuRootAtom;
   static nsIAtom* sToolbarRootAtom;
 
-  // Take a result returned from DBGetURLPageInfo and construct a
-  // ResultNode.
-  nsresult RowToResult(mozIStorageValueArray* aRow, PRBool aAsVisits,
+  // Take a row of kGetInfoIndex_* columns and construct a ResultNode.
+  // The row must contain the full set of columns.
+  nsresult RowToResult(mozIStorageValueArray* aRow,
+                       nsNavHistoryQueryOptions* aOptions,
                        nsNavHistoryResultNode** aResult);
+
+  // Take a row of kGetInfoIndex_* columns and fill in an existing ResultNode.
+  // The node's type must already be set, and the row must contain the full
+  // set of columns.
+  nsresult FillURLResult(mozIStorageValueArray* aRow,
+                         nsNavHistoryQueryOptions* aOptions,
+                         nsNavHistoryResultNode *aNode);
 
   // Construct a new HistoryResult object. You can give it null query/options.
   nsNavHistoryResult* NewHistoryResult(nsINavHistoryQuery** aQueries,
@@ -453,6 +547,18 @@ public:
     return new nsNavHistoryResult(this, mBundle, aQueries, aQueryCount,
                                   aOptions);
   }
+
+  // used by other places components to send history notifications (for example,
+  // when the favicon has changed)
+  void SendPageChangedNotification(nsIURI* aURI, PRUint32 aWhat,
+                                   const nsAString& aValue)
+  {
+    ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryObserver,
+                        OnPageChanged(aURI, aWhat, aValue));
+  }
+
+  // well-known annotations used by the history and bookmarks systems
+  static const char kAnnotationPreviousEncoding[];
 
 private:
   ~nsNavHistory();
@@ -476,13 +582,19 @@ protected:
   nsCOMPtr<mozIStorageService> mDBService;
   nsCOMPtr<mozIStorageConnection> mDBConn;
 
-  nsCOMPtr<mozIStorageStatement> mDBGetVisitPageInfo; // kGetInfoIndex_* results
+  //nsCOMPtr<mozIStorageStatement> mDBGetVisitPageInfo; // kGetInfoIndex_* results
   nsCOMPtr<mozIStorageStatement> mDBGetURLPageInfo;   // kGetInfoIndex_* results
+  nsCOMPtr<mozIStorageStatement> mDBGetURLPageInfoFull; // kGetInfoIndex_* results
+  nsCOMPtr<mozIStorageStatement> mDBGetIdPageInfoFull; // kGetInfoIndex_* results
   nsCOMPtr<mozIStorageStatement> mDBFullAutoComplete; // kAutoCompleteIndex_* results, 1 arg (max # results)
   static const PRInt32 kAutoCompleteIndex_URL;
   static const PRInt32 kAutoCompleteIndex_Title;
+  static const PRInt32 kAutoCompleteIndex_UserTitle;
   static const PRInt32 kAutoCompleteIndex_VisitCount;
   static const PRInt32 kAutoCompleteIndex_Typed;
+
+  nsCOMPtr<mozIStorageStatement> mDBRecentVisitOfURL; // converts URL into most recent visit ID
+  nsCOMPtr<mozIStorageStatement> mDBInsertVisit; // used by AddVisit
 
   nsresult InitDB();
 
@@ -493,17 +605,17 @@ protected:
 
   nsresult InitMemDB();
 
-  nsresult InternalAdd(nsIURI* aURI, PRInt64 aSessionID,
+  nsresult InternalAdd(nsIURI* aURI, nsIURI* aReferrer, PRInt64 aSessionID,
                        PRUint32 aTransitionType, const PRUnichar* aTitle,
                        PRTime aVisitDate, PRBool aRedirect,
                        PRBool aToplevel, PRInt64* aPageID);
   nsresult InternalAddNewPage(nsIURI* aURI, const PRUnichar* aTitle,
                               PRBool aHidden, PRBool aTyped,
                               PRInt32 aVisitCount, PRInt64* aPageID);
-  nsresult AddVisit(PRInt64 aFromStep, PRInt64 aPageID, PRTime aTime,
+  nsresult AddVisit(nsIURI* aReferrer, PRInt64 aPageID, PRTime aTime,
                     PRInt32 aTransitionType, PRInt64 aSessionID);
   PRBool IsURIStringVisited(const nsACString& url);
-  nsresult VacuumDB();
+  nsresult VacuumDB(PRTime aTimeAgo, PRBool aCompress);
   nsresult LoadPrefs();
 
   // Current time optimization
@@ -523,7 +635,8 @@ protected:
                                      nsINavHistoryQuery* aQuery,
                                      PRInt32* aParamCount);
 
-  nsresult ResultsAsList(mozIStorageStatement* statement, PRBool aAsVisits,
+  nsresult ResultsAsList(mozIStorageStatement* statement,
+                         nsNavHistoryQueryOptions* aOptions,
                          nsCOMArray<nsNavHistoryResultNode>* aResults);
 
   void TitleForDomain(const nsString& domain, nsAString& aTitle);
@@ -543,7 +656,7 @@ protected:
                            const nsString& aSearch);
 
   // observers
-  nsCOMArray<nsINavHistoryObserver> mObservers;
+  nsMaybeWeakPtrArray<nsINavHistoryObserver> mObservers;
   PRInt32 mBatchesInProgress;
 
   // string bundles

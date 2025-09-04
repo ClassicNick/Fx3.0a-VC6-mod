@@ -45,7 +45,7 @@
 #include "nsIChangeManager.h"
 #include "nsIMenuCommandDispatcher.h"
 #include "nsPresContext.h"
-#include "nsSupportsArray.h"
+#include "nsCOMArray.h"
 #include "nsHashtable.h"
 #include "nsWeakReference.h"
 #include "nsIContent.h"
@@ -63,6 +63,7 @@ namespace MenuHelpersX
   nsresult DocShellToPresContext(nsIDocShell* inDocShell, nsPresContext** outContext);
   nsEventStatus DispatchCommandTo(nsIWeakReference* aDocShellWeakRef,
                                   nsIContent* aTargetContent);
+  NSString* CreateTruncatedCocoaLabel(nsString itemLabel);
 }
 
 
@@ -136,7 +137,7 @@ protected:
     nsHashtable             mObserverTable;       // stores observers for content change notification
 
     PRUint32                mNumMenus;
-    nsSupportsArray         mMenusArray;          // holds refs
+    nsCOMArray<nsIMenu>     mMenusArray;          // holds refs
     nsCOMPtr<nsIContent>    mMenuBarContent;      // menubar content node, strong ref
     nsCOMPtr<nsIContent>    mPrefItemContent;     // on X, holds the content node for the prefs item that has
                                                   // been removed from the menubar

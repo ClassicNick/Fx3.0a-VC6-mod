@@ -419,14 +419,12 @@ GenericListenersHashEnum(nsHashKey *aKey, void *aData, void* closure)
       if (ls) {
         if (*scriptOnly) {
           if (ls->mFlags & NS_PRIV_EVENT_FLAG_SCRIPT) {
-            NS_RELEASE(ls->mListener);
-            //listeners->RemoveElement((void*)ls); we delete the entire array anyways, no need to RemoveElement
-            PR_DELETE(ls);
+            listeners->RemoveElement(ls);
+            delete ls;
           }
         }
         else {
-          NS_IF_RELEASE(ls->mListener);
-          PR_DELETE(ls);
+          delete ls;
         }
       }
     }
@@ -686,14 +684,12 @@ nsEventListenerManager::ReleaseListeners(nsVoidArray** aListeners,
       if (ls) {
         if (aScriptOnly) {
           if (ls->mFlags & NS_PRIV_EVENT_FLAG_SCRIPT) {
-            NS_RELEASE(ls->mListener);
-            //(*aListeners)->RemoveElement((void*)ls); We're going to delete the array anyways
-            PR_DELETE(ls);
+            (*aListeners)->RemoveElement(ls);
+            delete ls;
           }
         }
         else {
-          NS_IF_RELEASE(ls->mListener);
-          PR_DELETE(ls);
+          delete ls;
         }
       }
     }
@@ -765,7 +761,8 @@ nsEventListenerManager::AddEventListener(nsIDOMEventListener *aListener,
 
   for (PRInt32 i=0; i<listeners->Count(); i++) {
     ls = (nsListenerStruct*)listeners->ElementAt(i);
-    if (ls->mListener == aListener && ls->mFlags == aFlags &&
+    nsRefPtr<nsIDOMEventListener> iListener = ls->mListener.Get();
+    if (iListener == aListener && ls->mFlags == aFlags &&
         ls->mGroupFlags == group) {
       ls->mSubType |= aSubType;
       found = PR_TRUE;
@@ -774,17 +771,20 @@ nsEventListenerManager::AddEventListener(nsIDOMEventListener *aListener,
   }
 
   if (!found) {
-    ls = PR_NEW(nsListenerStruct);
-    if (ls) {
-      ls->mListener = aListener;
-      ls->mFlags = aFlags;
-      ls->mSubType = aSubType;
-      ls->mSubTypeCapture = NS_EVENT_BITS_NONE;
-      ls->mHandlerIsString = 0;
-      ls->mGroupFlags = group;
-      listeners->AppendElement((void*)ls);
-      NS_ADDREF(aListener);
+    ls = new nsListenerStruct;
+    if (!ls) {
+      return NS_ERROR_OUT_OF_MEMORY;
     }
+
+    nsCOMPtr<nsIDOMGCParticipant> participant = do_QueryInterface(mTarget);
+    NS_ASSERTION(participant, "must implement nsIDOMGCParticipant");
+    ls->mListener.Set(aListener, participant);
+    ls->mFlags = aFlags;
+    ls->mSubType = aSubType;
+    ls->mSubTypeCapture = NS_EVENT_BITS_NONE;
+    ls->mHandlerIsString = 0;
+    ls->mGroupFlags = group;
+    listeners->AppendElement((void*)ls);
   }
 
   return NS_OK;
@@ -805,18 +805,17 @@ nsEventListenerManager::RemoveEventListener(nsIDOMEventListener *aListener,
   }
 
   nsListenerStruct* ls;
-  PRBool listenerRemoved = PR_FALSE;
+  aFlags &= ~NS_PRIV_EVENT_UNTRUSTED_PERMITTED;
 
   for (PRInt32 i=0; i<listeners->Count(); i++) {
     ls = (nsListenerStruct*)listeners->ElementAt(i);
-    if (ls->mListener == aListener &&
+    nsRefPtr<nsIDOMEventListener> iListener = ls->mListener.Get();
+    if (iListener == aListener &&
         (ls->mFlags & ~NS_PRIV_EVENT_UNTRUSTED_PERMITTED) == aFlags) {
       ls->mSubType &= ~aSubType;
       if (ls->mSubType == NS_EVENT_BITS_NONE) {
-        NS_RELEASE(ls->mListener);
         listeners->RemoveElement((void*)ls);
-        PR_DELETE(ls);
-        listenerRemoved = PR_TRUE;
+        delete ls;
       }
       break;
     }
@@ -1377,8 +1376,8 @@ nsEventListenerManager::AddScriptEventListener(nsISupports *aObject,
         rv = context->CompileEventHandler(scriptObject, aName, eventName,
                                           aBody,
                                           url.get(), lineNo,
-                                          (handlerOwner != nsnull),
-                                          &handler);
+                                          PR_FALSE,
+                                          nsnull);
       }
       if (NS_FAILED(rv)) return rv;
     }
@@ -1403,14 +1402,12 @@ nsEventListenerManager::RemoveScriptEventListener(nsIAtom *aName)
   if (ls) {
     ls->mSubType &= ~flags;
     if (ls->mSubType == NS_EVENT_BITS_NONE) {
-      NS_RELEASE(ls->mListener);
-
       //Get the listeners array so we can remove ourselves from it
       nsVoidArray* listeners;
       listeners = GetListenersByType(arrayType, nsnull, PR_FALSE);
       NS_ENSURE_TRUE(listeners, NS_ERROR_FAILURE);
       listeners->RemoveElement((void*)ls);
-      PR_DELETE(ls);
+      delete ls;
     }
   }
 
@@ -1634,6 +1631,7 @@ nsEventListenerManager::CompileEventHandlerInternal(nsIScriptContext *aContext,
 
 nsresult
 nsEventListenerManager::HandleEventSubType(nsListenerStruct* aListenerStruct,
+                                           nsIDOMEventListener* aListener,
                                            nsIDOMEvent* aDOMEvent,
                                            nsIDOMEventTarget* aCurrentTarget,
                                            PRUint32 aSubType,
@@ -1659,7 +1657,7 @@ nsEventListenerManager::HandleEventSubType(nsListenerStruct* aListenerStruct,
     }
     if (aListenerStruct->mHandlerIsString & aSubType) {
 
-      nsCOMPtr<nsIJSEventListener> jslistener = do_QueryInterface(aListenerStruct->mListener);
+      nsCOMPtr<nsIJSEventListener> jslistener = do_QueryInterface(aListener);
       if (jslistener) {
         nsAutoString eventString;
         if (NS_SUCCEEDED(aDOMEvent->GetType(eventString))) {
@@ -1683,7 +1681,7 @@ nsEventListenerManager::HandleEventSubType(nsListenerStruct* aListenerStruct,
   if (NS_SUCCEEDED(result)) {
     nsCOMPtr<nsIPrivateDOMEvent> aPrivDOMEvent(do_QueryInterface(aDOMEvent));
     aPrivDOMEvent->SetCurrentTarget(aCurrentTarget);
-    result = aListenerStruct->mListener->HandleEvent(aDOMEvent);
+    result = aListener->HandleEvent(aDOMEvent);
     aPrivDOMEvent->SetCurrentTarget(nsnull);
   }
 
@@ -1772,19 +1770,23 @@ nsEventListenerManager::HandleEvent(nsPresContext* aPresContext,
             ls->mGroupFlags == currentGroup &&
             (NS_IS_TRUSTED_EVENT(aEvent) ||
              ls->mFlags & NS_PRIV_EVENT_UNTRUSTED_PERMITTED)) {
-          // Try the type-specific listener interface
-          PRBool hasInterface = PR_FALSE;
-          if (typeData)
-            DispatchToInterface(*aDOMEvent, ls->mListener,
-                                dispData->method, *typeData->iid,
-                                &hasInterface);
+          nsRefPtr<nsIDOMEventListener> eventListener = ls->mListener.Get();
+          NS_ASSERTION(eventListener, "listener wasn't preserved properly");
+          if (eventListener) {
+            // Try the type-specific listener interface
+            PRBool hasInterface = PR_FALSE;
+            if (typeData)
+              DispatchToInterface(*aDOMEvent, eventListener,
+                                  dispData->method, *typeData->iid,
+                                  &hasInterface);
 
-          // If it doesn't implement that, call the generic HandleEvent()
-          if (!hasInterface && (ls->mSubType == NS_EVENT_BITS_NONE ||
-                                ls->mSubType & dispData->bits)) {
-            HandleEventSubType(ls, *aDOMEvent, aCurrentTarget,
-                               dispData ? dispData->bits : NS_EVENT_BITS_NONE,
-                               aFlags);
+            // If it doesn't implement that, call the generic HandleEvent()
+            if (!hasInterface && (ls->mSubType == NS_EVENT_BITS_NONE ||
+                                  ls->mSubType & dispData->bits)) {
+              HandleEventSubType(ls, eventListener, *aDOMEvent, aCurrentTarget,
+                                 dispData ? dispData->bits : NS_EVENT_BITS_NONE,
+                                 aFlags);
+            }
           }
         }
       }
@@ -2212,12 +2214,42 @@ nsEventListenerManager::FixContextMenuEvent(nsPresContext* aPresContext,
                                             nsEvent* aEvent,
                                             nsIDOMEvent** aDOMEvent)
 {
+  nsIPresShell* shell = aPresContext->PresShell();
+  nsresult ret = NS_OK;
+
+  if (nsnull == *aDOMEvent) {
+    // If we're here because of the key-equiv for showing context menus, we
+    // have to twiddle with the NS event to make sure the context menu comes
+    // up in the upper left of the relevant content area before we create
+    // the DOM event. Since we never call InitMouseEvent() on the event, 
+    // the client X/Y will be 0,0. We can make use of that if the widget is null.
+    if (aEvent->message == NS_CONTEXTMENU_KEY) {
+      NS_IF_RELEASE(((nsGUIEvent*)aEvent)->widget);
+      aPresContext->GetViewManager()->GetWidget(&((nsGUIEvent*)aEvent)->widget);
+      aEvent->refPoint.x = 0;
+      aEvent->refPoint.y = 0;
+    }
+    ret = NS_NewDOMMouseEvent(aDOMEvent, aPresContext, NS_STATIC_CAST(nsInputEvent*, aEvent));
+    NS_ENSURE_SUCCESS(ret, ret);
+  }
+
+  // see if we should use the caret position for the popup
+  if (aEvent->message == NS_CONTEXTMENU_KEY) {
+    nsPoint caretPoint;
+    if (PrepareToUseCaretPosition(((nsGUIEvent*)aEvent)->widget,
+                                  shell, caretPoint)) {
+      // caret position is good
+      aEvent->refPoint.x = caretPoint.x;
+      aEvent->refPoint.y = caretPoint.y;
+      return NS_OK;
+    }
+  }
+
   // If we're here because of the key-equiv for showing context menus, we
   // have to reset the event target to the currently focused element. Get it
   // from the focus controller.
   nsCOMPtr<nsIDOMEventTarget> currentTarget(aCurrentTarget);
   nsCOMPtr<nsIDOMElement> currentFocus;
-  nsIPresShell* shell = aPresContext->PresShell();
 
   if (aEvent->message == NS_CONTEXTMENU_KEY) {
     nsIDocument *doc = shell->GetDocument();
@@ -2232,32 +2264,7 @@ nsEventListenerManager::FixContextMenuEvent(nsPresContext* aPresContext,
     }
   }
 
-  nsresult ret = NS_OK;
-
-  if (nsnull == *aDOMEvent) {        
-    // If we're here because of the key-equiv for showing context menus, we
-    // have to twiddle with the NS event to make sure the context menu comes
-    // up in the upper left of the relevant content area before we create
-    // the DOM event. Since we never call InitMouseEvent() on the event, 
-    // the client X/Y will be 0,0. We can make use of that if the widget is null.
-    if (aEvent->message == NS_CONTEXTMENU_KEY)
-      NS_IF_RELEASE(((nsGUIEvent*)aEvent)->widget);   // nulls out widget
-    ret = NS_NewDOMMouseEvent(aDOMEvent, aPresContext, NS_STATIC_CAST(nsInputEvent*, aEvent));
-    NS_ENSURE_SUCCESS(ret, ret);
-  }
-
-  // see if we should use the caret position for the popup
-  PRBool useCaretPosition = PR_FALSE;
-  nsPoint caretPoint;
-  if (aEvent->message == NS_CONTEXTMENU_KEY) {
-    useCaretPosition = PrepareToUseCaretPosition(((nsGUIEvent*)aEvent)->widget,
-                                                 shell, caretPoint);
-  }
-
-  if (useCaretPosition) {
-    aEvent->refPoint.x = caretPoint.x;
-    aEvent->refPoint.y = caretPoint.y;
-  } else if (currentFocus) {
+  if (currentFocus) {
     // Reset event coordinates relative to focused frame in view
     nsPoint targetPt;
     GetCoordinatesFor(currentFocus, aPresContext, shell, targetPt);
@@ -2373,6 +2380,7 @@ nsEventListenerManager::PrepareToUseCaretPosition(nsIWidget* aEventWidget,
   // in case the view used for caret coordinates was something else, we need
   // to bring those coordinates into the space of the widget view
   nsIView* widgetView = nsIView::GetViewFor(aEventWidget);
+  NS_ENSURE_TRUE(widgetView, PR_FALSE);
   nsPoint viewToWidget;
   widgetView->GetNearestWidget(&viewToWidget);
   nsPoint viewDelta = view->GetOffsetTo(widgetView) + viewToWidget;

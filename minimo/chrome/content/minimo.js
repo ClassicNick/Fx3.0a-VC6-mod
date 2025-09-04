@@ -39,7 +39,11 @@
 const nsIWebNavigation = Components.interfaces.nsIWebNavigation;
 const nsIWebProgressListener = Components.interfaces.nsIWebProgressListener;
 
+var gBookmarksDoc=null; 
 var gURLBar = null;
+var gClickSelectsAll = true;
+var gIgnoreFocus = false;
+var gIgnoreClick = false;
 var gBrowserStatusHandler;
 var gSelectedTab=null;
 var gFullScreen=false;
@@ -53,6 +57,7 @@ var gDeckMenuChecked=null; // to keep the state of the checked URLBAR selector m
 
 var gPref = null;                    // so far snav toggles on / off via direct access to pref.
                                      // See bugzilla.mozilla.org/show_bug.cgi?id=311287#c1
+var gPrefAdded=false; // shall be used to flush the pref. 
 
 var gSNAV=-1; 
 
@@ -173,12 +178,14 @@ nsBrowserStatusHandler.prototype =
 		}
 
      } else {
-      domWindow = aWebProgress.DOMWindow;
-      // Update urlbar only if there was a load on the root docshell
-      if (domWindow == domWindow.top) {
-        this.urlBar.value = aLocation.spec;
-      }
+        domWindow = aWebProgress.DOMWindow;
+        // Update urlbar only if there was a load on the root docshell
+        if (domWindow == domWindow.top) {
+          this.urlBar.value = aLocation.spec;
+        }
     }
+    
+    BrowserUpdateBackForwardState();
 
     BrowserUpdateFeeds();
 },
@@ -235,6 +242,8 @@ function MiniNavStartup()
   try {
 
     gURLBar = document.getElementById("urlbar");
+    gURLBar.setAttribute("completedefaultindex", "true");
+    
     var currentTab=getBrowser().selectedTab;
     browserInit(currentTab);
     gSelectedTab=currentTab;
@@ -260,12 +269,14 @@ function MiniNavStartup()
     gURIFixup = Components.classes["@mozilla.org/docshell/urifixup;1"]
                           .getService(Components.interfaces.nsIURIFixup);
 
+    var bookmarkstore=null; 
 
     try {
       gPref = Components.classes["@mozilla.org/preferences-service;1"]
                          .getService(Components.interfaces.nsIPrefBranch);
 
       var page = gPref.getCharPref("browser.startup.homepage");
+      var bookmarkstore = gPref.getCharPref("browser.bookmark.store");
 
       if (page != null)
       {
@@ -279,6 +290,7 @@ function MiniNavStartup()
   }
 
   loadURI(homepage);
+  loadBookmarks(bookmarkstore);
   
   /*
    * We add event handler to catch the right and left keys on the main_MenuPopup 
@@ -390,6 +402,25 @@ function BrowserUpdateFeeds() {
 
 //		feedButton.setAttribute("tooltiptext", gNavigatorBundle.getString("feedHasFeeds"));
 	}
+}
+
+/* 
+ * For now, this updates via DOM the top menu. Context menu should be here as well. 
+ */
+function BrowserUpdateBackForwardState() {
+
+       if(getBrowser().webNavigation.canGoBack) {
+            document.getElementById("back-button").setAttribute("disabled","false");
+        } else {
+            document.getElementById("back-button").setAttribute("disabled","true");
+        }
+        
+        if(getBrowser().webNavigation.canGoForward) {
+            document.getElementById("forward-button").setAttribute("disabled","false");
+        } else {
+            document.getElementById("forward-button").setAttribute("disabled","true");
+        }
+
 }
 
 
@@ -530,6 +561,15 @@ function browserInit(refTab)
 function MiniNavShutdown()
 {
   if (gBrowserStatusHandler) gBrowserStatusHandler.destroy();
+  if(gPrefAdded) {
+	try {
+		var psvc = Components.classes["@mozilla.org/preferences-service;1"]
+                         .getService(Components.interfaces.nsIPrefService);
+
+		psvc.savePrefFile(null);
+
+	} catch (e) { alert(e); }
+  } 
 }
 
 function getBrowser()
@@ -771,6 +811,30 @@ function BrowserPopupShowing () {
       }
     }
   }
+}
+
+
+/* Bookmarks */ 
+
+function BrowserBookmarkThis() {
+
+    var currentURI=getBrowser().selectedBrowser.webNavigation.currentURI.spec;
+    var newLi=gBookmarksDoc.createElement("li");
+    var bmContent=gBookmarksDoc.createTextNode(currentURI);
+    newLi.appendChild(bmContent);
+    gBookmarksDoc.getElementsByTagName("bm")[0].appendChild(newLi);
+    gPrefAdded=true;
+    
+    storeBookmarks();	
+	refreshBookmarks();
+}
+
+function BrowserBookmark() {
+    try {  
+      getBrowser().selectedTab = getBrowser().addTab('chrome://minimo/content/bookmarks/bmview.xhtml');   
+      browserInit(getBrowser().selectedTab);
+      } catch (e) {
+      }  
 }
 
 /* Toolbar specific code - to be removed from here */ 
@@ -1017,9 +1081,36 @@ function URLBarEntered()
   return true;
 }
 
-function URLBarFocusHandler()
+function PageProxyClickHandler(aEvent) {
+   document.getElementById("urlbarModeSelector").showPopup(document.getElementById("proxy-deck"),-1,-1,"popup","bottomleft", "topleft");
+}
+
+
+function URLBarFocusHandler(aEvent, aElt)
 {
-  gURLBar.showHistoryPopup();
+
+  if (gIgnoreFocus)
+    gIgnoreFocus = false;
+  else if (gClickSelectsAll)
+    aElt.select();
+
+ // gURLBar.setAttribute("open", "true"); 
+ // gURLBar.showHistoryPopup();
+
+
+}
+
+function URLBarMouseDownHandler(aEvent, aElt)
+{
+  gIgnoreFocus = true;
+  gIgnoreClick = false;
+  aElt.setSelectionRange(0, 0);
+}
+
+function URLBarClickHandler(aEvent, aElt)
+{
+  if (!gIgnoreClick && aElt.selectionStart == aElt.selectionEnd)
+    aElt.select();
 }
 
 var gRotationDirection = true;

@@ -87,17 +87,120 @@ function STACK(args) {
  *          The folderId of the parent container
  * @param   index
  *          The index within the container where we should insert
+ * @param   orientation
+ *          The orientation of the insertion. NOTE: the adjustments to the
+ *          insertion point to accommodate the orientation should be done by
+ *          the person who constructs the IP, not the user. The orientation
+ *          is provided for informational purposes only!
  * @constructor
  */
-function InsertionPoint(folderId, index) {
+function InsertionPoint(folderId, index, orientation) {
   this.folderId = folderId;
   this.index = index;
+  this.orientation = orientation;
 }
+
+/**
+ * Initialization Configuration for a View
+ * @constructor
+ */
+function ViewConfig(dropTypes, dropOnTypes, filterOptions, firstDropIndex) {
+  this.dropTypes = dropTypes;
+  this.dropOnTypes = dropOnTypes;
+  this.filterOptions = filterOptions;
+  this.firstDropIndex = firstDropIndex;
+}
+ViewConfig.GENERIC_DROP_TYPES = [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE,
+                                 TYPE_X_MOZ_URL];
+ViewConfig.GENERIC_FILTER_OPTIONS = Ci.nsINavHistoryQuery.INCLUDE_ITEMS +
+                                     Ci.nsINavHistoryQuery.INCLUDE_QUERIES;
+
+/**
+ * Manages grouping options for a particular view type. 
+ * @param   pref
+ *          The preference that stores these grouping options. 
+ * @param   defaultGroupings
+ *          The default groupings to be used for views of this type. 
+ * @param   serializable
+ *          An object bearing a serialize and deserialize method that
+ *          read and write the object's string representation from/to
+ *          preferences.
+ * @constructor
+ */
+function PrefHandler(pref, defaultValue, serializable) {
+  this._pref = pref;
+  this._defaultValue = defaultValue;
+  this._serializable = serializable;
+
+  this._pb = 
+    Cc["@mozilla.org/preferences-service;1"].
+    getService(Components.interfaces.nsIPrefBranch2);
+  this._pb.addObserver(this._pref, this, false);
+}
+PrefHandler.prototype = {
+  /**
+   * Clean up when the window is going away to avoid leaks. 
+   */
+  destroy: function PC_PH_destroy() {
+    this._pb.removeObserver(this._pref, this);
+  },
+
+  /** 
+   * Observes changes to the preferences.
+   * @param   subject
+   * @param   topic
+   *          The preference changed notification
+   * @param   data
+   *          The preference that changed
+   */
+  observe: function PC_PH_observe(subject, topic, data) {
+    if (topic == "nsPref:changed" && data == this._pref)
+      this._value = null;
+  },
+  
+  /**
+   * The cached value, null if it needs to be rebuilt from preferences.
+   */
+  _value: null,
+
+  /** 
+   * Get the preference value, reading from preferences if necessary. 
+   */
+  get value() { 
+    if (!this._value) {
+      if (this._pb.prefHasUserValue(this._pref)) {
+        var valueString = this._pb.getCharPref(this._pref);
+        this._value = this._serializable.deserialize(valueString);
+      }
+      else
+        this._value = this._defaultValue;
+    }
+    return this._value;
+  },
+  
+  /**
+   * Stores a value in preferences. 
+   * @param   value
+   *          The data to be stored. 
+   */
+  set value(value) {
+    if (value != this._value)
+      this._pb.setCharPref(this._pref, this._serializable.serialize(value));
+    return value;
+  },
+};
+
 
 /**
  * The Master Places Controller
  */
 var PlacesController = {
+  /**
+   * Makes a URI from a spec.
+   * @param   spec
+   *          The string spec of the URI
+   * @returns A URI object for the spec. 
+   */
   _uri: function PC__uri(spec) {
     var ios = 
         Cc["@mozilla.org/network/io-service;1"].
@@ -105,6 +208,9 @@ var PlacesController = {
     return ios.newURI(spec, null, null);
   },
   
+  /**
+   * The Bookmarks Service.
+   */
   __bms: null,
   get _bms() {
     if (!this.__bms) {
@@ -115,15 +221,53 @@ var PlacesController = {
     return this.__bms;
   },
 
+  /**
+   * The Nav History Service.
+   */
   __hist: null,
   get _hist() {
     if (!this.__hist) {
       this.__hist =
-        Cc["@mozilla.org/browser/nav-history;1"].getService(Ci.nsINavHistory);
+        Cc["@mozilla.org/browser/nav-history-service;1"].getService(Ci.nsINavHistoryService);
     }
     return this.__hist;
   },
-
+  
+  /**
+   * Generates a HistoryResult for the contents of a folder. 
+   * @param   folderId
+   *          The folder to open
+   * @param   filterOptions
+   *          Options regarding the type of items to be returned. See 
+   *          documentation in nsINavHistoryQuery for the |itemTypes| property.
+   * @returns A HistoryResult containing the contents of the folder. 
+   */
+  getFolderContents: function PC_getFolderContents(folderId, filterOptions) {
+    var query = this._hist.getNewQuery();
+    query.setFolders([folderId], 1);
+    query.itemTypes = filterOptions;
+    var options = this._hist.getNewQueryOptions();
+    options.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
+    return this._hist.executeQuery(query, options);
+  },
+  
+  /**
+   * Gets a place: URI for the given queries and options. 
+   * @param   queries
+   *          An array of NavHistoryQueries
+   * @param   options
+   *          A NavHistoryQueryOptions object
+   * @returns A place: URI encoding the parameters. 
+   */
+  getPlaceURI: function PC_getPlaceURI(queries, options) {
+    var queryString = this._hist.queriesToQueryString(queries, queries.length,
+                                                      options);
+    return this._uri(queryString);
+  },
+  
+  /**
+   * The currently active Places view. 
+   */
   _activeView: null,
   get activeView() {
     return this._activeView;
@@ -131,6 +275,18 @@ var PlacesController = {
   set activeView(activeView) {
     this._activeView = activeView;
     return this._activeView;
+  },
+  
+  /**
+   * The current groupable Places view.
+   */
+  _groupableView: null,
+  get groupableView() {
+    return this._groupableView;
+  },
+  set groupableView(groupableView) {
+    this._groupableView = groupableView;
+    return this._groupableView;
   },
   
   isCommandEnabled: function PC_isCommandEnabled(command) {
@@ -151,6 +307,13 @@ var PlacesController = {
     LOG("onEvent: " + eventName);
   },
   
+  /**
+   * Updates the enabled state of a command element. 
+   * @param   command
+   *          The id of the command element to update
+   * @param   enabled
+   *          Whether or not the command element should be enabled.
+   */
   _setEnabled: function PC__setEnabled(command, enabled) {
     var command = document.getElementById(command);
     // Prevents excessive setAttributes
@@ -221,8 +384,6 @@ var PlacesController = {
    * @returns true if the node is a Bookmark folder, false otherwise
    */
   nodeIsFolder: function PC_nodeIsFolder(node) {
-    if (!node)
-      STACK(arguments);
     return (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY &&
             node.folderId > 0);
   },
@@ -246,7 +407,27 @@ var PlacesController = {
    * @returns true if the node is a Query item, false otherwise
    */
   nodeIsQuery: function PC_nodeIsQuery(node) {
-    node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY;
+    return node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY;
+  },
+
+  /**
+   * Determines whether or not a ResultNode is a host folder or not
+   * @param   node
+   *          A NavHistoryResultNode
+   * @returns true if the node is a host item, false otherwise
+   */
+  nodeIsHost: function PC_nodeIsHost(node) {
+    return node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_HOST;
+  },
+
+  /**
+   * Determines whether or not a ResultNode is a container item or not
+   * @param   node
+   *          A NavHistoryResultNode
+   * @returns true if the node is a container item, false otherwise
+   */
+  nodeIsContainer: function PC_nodeIsContainer(node) {
+    return node.folderType != "";
   },
   
   /**
@@ -309,7 +490,7 @@ var PlacesController = {
    *    is-mutable    "mutable"
    *    is-removable  "removable"
    *    is-multiselect"multiselect"
-   *    is-livemark   "livemark"
+   *    is-container  "container"
    * @returns an object with each of the properties above set if the selection
    *          matches that rule. 
    */
@@ -322,6 +503,8 @@ var PlacesController = {
     var selectedNode = this._activeView.selectedNode;
     if (this.nodeIsFolder(selectedNode) && hasSingleSelection)
       metadata["folder"] = true;
+    if (this.nodeIsContainer(selectedNode) && hasSingleSelection)
+      metadata["container"] = true;
     
     var foundNonLeaf = false;
     var nodes = this._activeView.getSelectionNodes();
@@ -329,8 +512,7 @@ var PlacesController = {
       var node = nodes[i];
       if (node.type != Ci.nsINavHistoryResultNode.RESULT_TYPE_URL)
         foundNonLeaf = true;
-      // XXXben check for livemarkness
-      if (!node.readonly)
+      if (!node.readonly && node.folderType == "")
         metadata["mutable"] = true;
     }
     if (this._activeView.getAttribute("seltype") != "single")
@@ -484,27 +666,51 @@ var PlacesController = {
   },
   
   /**
+   * A hash of groupers that supply grouping options for queries of a given 
+   * type. This is an override of grouping options that might be encoded in
+   * a saved place: URI
+   */
+  groupers: { },
+  
+  /**
    * Rebuilds the view using a new set of grouping options.
-   * @param   options
+   * @param   groupings
    *          An array of grouping options, see nsINavHistoryQueryOptions
    *          for details.
    */
-  setGroupingMode: function PC_setGroupingOptions(options) {
-    var result = this._activeView.view.QueryInterface(Ci.nsINavHistoryResult);
+  setGroupingMode: function PC_setGroupingOptions(groupings) {
+    if (!this._groupableView)
+      return;
+    var result = this._groupableView.getResult();
     var queries = result.getQueries({ });
     var newOptions = result.queryOptions.clone();
-    newOptions.setGroupingMode(options, options.length);
     
-    this._activeView.load(queries, newOptions);
+    // Update the grouping mode only after persisting, so that the URI is not 
+    // changed. 
+    newOptions.setGroupingMode(groupings, groupings.length);
+    
+    // Persist this selection
+    if (this._groupableView.isBookmarks && "bookmark" in this.groupers)
+      this.groupers.bookmark.value = groupings;
+    else if ("generic" in this.groupers)
+      this.groupers.generic.value = groupings;
+
+    // Reload the view 
+    this._groupableView.load(queries, newOptions);
   },
   
   /**
    * Group the current content view by domain
    */
   groupBySite: function PC_groupBySite() {
-    var modes = [Ci.nsINavHistoryQueryOptions.GROUP_BY_DOMAIN, 
-    Ci.nsINavHistoryQueryOptions.GROUP_BY_HOST];
-    this.setGroupingMode(modes);
+    this.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_DOMAIN]);
+  },
+  
+  /**
+   * Group the current content view by folder
+   */
+  groupByFolder: function PC_groupByFolder() {
+    this.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER]);
   },
   
   /**
@@ -530,11 +736,9 @@ var PlacesController = {
     var value = { value: bundle.getString("newFolderDefault") };
     if (ps.prompt(window, title, text, value, null, { })) {
       var ip = view.insertionPoint;
-      this.willReloadView(RELOAD_ACTION_INSERT, this._activeView, ip, 1);
       var txn = new PlacesCreateFolderTransaction(value.value, ip.folderId, 
                                                   ip.index);
       this._hist.transactionManager.doTransaction(txn);
-      this.didReloadView(this._activeView);
       this._activeView.focus();
     }
   },
@@ -547,26 +751,38 @@ var PlacesController = {
    */
   remove: function PC_remove(txnName) {
     var nodes = this._activeView.getSelectionNodes();
-    var txns = [];
-    for (var i = 0; i < nodes.length; ++i) {
-      var node = nodes[i];
-      var index = this.getIndexOfNode(node);
-      if (this.nodeIsFolder(node)) {
-        txns.push(new PlacesRemoveFolderTransaction(node.folderId, 
-                                                    node.parent.folderId, 
+    if (this.activeView.isBookmarks) {
+      // delete bookmarks
+      var txns = [];
+      for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        var index = this.getIndexOfNode(node);
+        if (this.nodeIsFolder(node)) {
+          txns.push(new PlacesRemoveFolderTransaction(node.folderId, 
+                                                      node.parent.folderId, 
+                                                      index));
+        }
+        else {
+          txns.push(new PlacesRemoveItemTransaction(this._uri(node.url),
+                                                    node.parent.folderId,
                                                     index));
+        }
       }
-      else {
-        txns.push(new PlacesRemoveItemTransaction(this._uri(node.url),
-                                                  node.parent.folderId,
-                                                  index));
+      var txn = new PlacesAggregateTransaction(txnName || "RemoveItems", txns);
+      this._hist.transactionManager.doTransaction(txn);
+    } else {
+      // delete history items: these are unfortunately not undoable.
+      var hist = Cc["@mozilla.org/browser/nav-history-service;1"].
+              getService(Ci.nsIBrowserHistory);
+      for (var i = 0; i < nodes.length; ++i) {
+        var node = nodes[i];
+        if (this.nodeIsHost(node)) {
+          hist.removePagesFromHost(node.title, true);
+        } else {
+          hist.removePage(this._uri(node.url));
+        }
       }
     }
-    this.willReloadView(RELOAD_ACTION_REMOVE, this._activeView, null, 
-                        nodes.length);
-    var txn = new PlacesAggregateTransaction(txnName || "RemoveItems", txns);
-    this._hist.transactionManager.doTransaction(txn);
-    this.didReloadView(this._activeView);
   },
 
   /**
@@ -683,14 +899,9 @@ var PlacesController = {
         new PlacesCreateFolderTransaction(folderTitle, container, index);
       transactions.push(createTxn);
     
-      // set up a query for the folder's children
-      var query = hist.getNewQuery();
-      query.setFolders([folderId], 1);
-      var queryOptions = hist.getNewQueryOptions();
-      queryOptions.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
-      // queryOptions.setExpandPlaces(); ?
-
-      var kids = hist.executeQuery(query, options);
+      // Get the folder's children
+      var kids = this.getFolderContents(folderId, 
+                                        ViewConfig.GENERIC_FILTER_OPTIONS);
       var cc = kids.childCount;
       for (var i = 0; i < cc; ++i) {
         var node = kids.getChild(i);
@@ -896,38 +1107,8 @@ var PlacesController = {
       transactions.push(this.makeTransaction(data[i], type.value, 
                                              ip.folderId, ip.index, true));
     
-    this.willReloadView(RELOAD_ACTION_INSERT, this._activeView, ip, data.length);
     var txn = new PlacesAggregateTransaction("Paste", transactions);
     this._hist.transactionManager.doTransaction(txn);
-    this.didReloadView(this._activeView);
-  },
-  
-  _viewObservers: [],
-  addViewObserver: function PC_addTransactionObserver(observer) {
-    for (var i = 0; i < this._viewObservers.length; ++i) {
-      if (this._viewObservers[i] == observer)
-        return;
-    }
-    this._viewObservers.push(observer);
-  },
-  
-  removeViewObserver: function PC_removeTransactionObserver(observer) {
-    for (var i = 0; i < this._viewObservers.length; ++i) {
-      if (this._viewObservers[i] == observer)
-        this._viewObservers.splice(i, 1);
-    }
-  },
-  
-  willReloadView: function PC_willReloadView(action, view, insertionPoint, 
-                                             count) {
-    for (var i = 0; i < this._viewObservers.length; ++i)
-      this._viewObservers[i].willReloadView(action, view, insertionPoint, 
-                                            count);
-  },
-  
-  didReloadView: function PC_didReloadView(view) {
-    for (var i = 0; i < this._viewObservers.length; ++i)
-      this._viewObservers[i].didReloadView(view);
   },
 };
 
@@ -1009,20 +1190,20 @@ var PlacesControllerDragHelper = {
    *          The AVI-implementing object that received the drop. 
    * @param   insertionPoint
    *          The insertion point where the items should be dropped
-   * @param   orientation
-   *          The orientation of the drop
+   * @param   visibleInsertCount
+   *          The number of visible items to be inserted. This can be zero
+   *          even when items are dropped because this is how many items will
+   *          be _visible_ in the resulting tree. 
    */
   onDrop: function PCDH_onDrop(sourceView, targetView, insertionPoint, 
-                               orientation) {
+                               visibleInsertCount) {
     var session = this._getSession();
-    if (!session)
-      return;
-    
     var copy = session.dragAction & Ci.nsIDragService.DRAGDROP_ACTION_COPY;
     var transactions = [];
-    var xferable = this._initTransferable(targetView, orientation);
+    var xferable = this._initTransferable(targetView, 
+                                          insertionPoint.orientation);
     var dropCount = session.numDropItems;
-    for (var i = 0; i < dropCount; ++i) {
+    for (var i = dropCount - 1; i >= 0; --i) {
       session.getData(xferable, i);
     
       var data = { }, flavor = { };
@@ -1037,25 +1218,8 @@ var PlacesControllerDragHelper = {
                         insertionPoint.index, copy));
     }
     
-    if (sourceView == targetView) {
-      // When we're rearranging the contents of the current view, we 
-      // invoke separate handling that takes care not to count the 
-      // dropCount as added rows - they just changed index.
-      PlacesController.willReloadView(RELOAD_ACTION_MOVE, targetView,
-                                      insertionPoint, dropCount);
-    }
-    else {
-      if (sourceView)
-        sourceView.willReloadView(RELOAD_ACTION_REMOVE, sourceView, null, 
-                                  dropCount);
-      PlacesController.willReloadView(RELOAD_ACTION_INSERT, targetView, 
-                                      insertionPoint, dropCount);
-    }
     var txn = new PlacesAggregateTransaction("DropItems", transactions);
     PlacesController._hist.transactionManager.doTransaction(txn);
-    if (sourceView && sourceView != targetView)
-      sourceView.didReloadView(sourceView);
-    PlacesController.didReloadView(targetView);
   }
 };
 

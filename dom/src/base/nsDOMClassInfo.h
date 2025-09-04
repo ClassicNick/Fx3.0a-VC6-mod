@@ -53,6 +53,7 @@ class nsIForm;
 class nsIDOMNode;
 class nsIDOMNodeList;
 class nsIDOMDocument;
+class nsIDOMGCParticipant;
 class nsIHTMLDocument;
 class nsGlobalWindow;
 
@@ -174,22 +175,34 @@ public:
   }
 
   /**
-   * Note that the XPConnect wrapper should be preserved.  This will only
-   * preserve aWrapper if its native QIs to nsIDOMNode; otherwise it'll just
-   * return NS_OK.
+   * Note that the XPConnect wrapper should be protected from garbage
+   * collection as long as the GC participant is reachable.
+   *
+   * A preservation with a given key overwrites any previous
+   * preservation with that key.
    */
-  static nsresult PreserveWrapper(nsIXPConnectWrappedNative *aWrapper);
+  static nsresult PreserveWrapper(void* aKey,
+                                  nsIXPConnectJSObjectHolder* (*aKeyToWrapperFunc)(void* aKey),
+                                  nsIDOMGCParticipant *aParticipant);
+
 
   /**
-   * Undoes the effects of any prior |PreserveWrapper| calls on
-   * |aDOMNode|.
+   * Easier way to call the above just for DOM nodes (and better, since
+   * we get the performance benefits of having the same identity function).
+   * The call to |PreserveWrapper| is made with |aKey| == |aWrapper|.
    */
-  static void ReleaseWrapper(nsIDOMNode *aDOMNode);
+  static nsresult PreserveNodeWrapper(nsIXPConnectWrappedNative *aWrapper);
+
+  /**
+   * Undoes the effects of any prior |PreserveWrapper| calls made with
+   * |aKey|.
+   */
+  static void ReleaseWrapper(void* aKey);
 
   /**
    * Mark all preserved wrappers reachable from |aDOMNode| via DOM APIs.
    */
-  static void MarkReachablePreservedWrappers(nsIDOMNode *aDOMNode,
+  static void MarkReachablePreservedWrappers(nsIDOMGCParticipant *aParticipant,
                                              JSContext *cx, void *arg);
 
   /**
@@ -276,7 +289,6 @@ protected:
   static jsval sParent_id;
   static jsval sScrollbars_id;
   static jsval sLocation_id;
-  static jsval sComponents_id;
   static jsval sConstructor_id;
   static jsval s_content_id;
   static jsval sContent_id;
@@ -401,6 +413,10 @@ public:
                          PRBool *_retval);
   NS_IMETHOD AddProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                          JSObject *obj, jsval id, jsval *vp, PRBool *_retval);
+  NS_IMETHOD Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                      JSObject *obj);
+  NS_IMETHOD Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                  JSObject *obj, void *arg, PRUint32 *_retval);
 };
 
 
@@ -541,10 +557,6 @@ public:
                        JSObject *globalObj, JSObject **parentObj);
   NS_IMETHOD AddProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                          JSObject *obj, jsval id, jsval *vp, PRBool *_retval);
-  NS_IMETHOD Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                      JSObject *obj);
-  NS_IMETHOD Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                  JSObject *obj, void *arg, PRUint32 *_retval);
   NS_IMETHOD GetFlags(PRUint32 *aFlags);
 
   static nsIClassInfo *doCreate(nsDOMClassInfoData* aData)
@@ -1462,6 +1474,31 @@ public:
   NS_DECL_NSIXPCFUNCTIONTHISTRANSLATOR
 };
 
+class nsDOMConstructorSH : public nsDOMGenericSH
+{
+protected:
+  nsDOMConstructorSH(nsDOMClassInfoData* aData) : nsDOMGenericSH(aData)
+  {
+  }
+
+  virtual ~nsDOMConstructorSH()
+  {
+  }
+
+public:
+  NS_IMETHOD Construct(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                       JSObject *obj, PRUint32 argc, jsval *argv,
+                       jsval *vp, PRBool *_retval);
+
+  NS_IMETHOD HasInstance(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                         JSObject *obj, jsval val, PRBool *bp,
+                         PRBool *_retval);
+
+  static nsIClassInfo *doCreate(nsDOMClassInfoData* aData)
+  {
+    return new nsDOMConstructorSH(aData);
+  }
+};
 
 void InvalidateContextAndWrapperCache();
 

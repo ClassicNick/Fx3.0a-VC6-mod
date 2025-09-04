@@ -46,6 +46,7 @@
 #include "nsCOMPtr.h"
 #include "nsDateTimeFormatCID.h"
 #include "nsDebug.h"
+#include "nsFaviconService.h"
 #include "nsIComponentManager.h"
 #include "nsIDateTimeFormat.h"
 #include "nsIDOMElement.h"
@@ -64,6 +65,7 @@
 #include "nsUnicharUtils.h"
 #include "prtime.h"
 #include "prprf.h"
+#include "mozStorageHelper.h"
 
 // emulate string comparison (used for sorting) for PRTime and int
 inline PRInt32 ComparePRTime(PRTime a, PRTime b)
@@ -139,6 +141,13 @@ NS_IMETHODIMP nsNavHistoryResultNode::GetTitle(nsAString& aTitle)
   return NS_OK;
 }
 
+/* attribute string folderType; */
+NS_IMETHODIMP nsNavHistoryResultNode::GetFolderType(nsAString& aFolderType)
+{
+  aFolderType.Truncate(0);
+  return NS_OK;
+}
+
 /* attribute PRInt32 accessCount; */
 NS_IMETHODIMP nsNavHistoryResultNode::GetAccessCount(PRInt32 *aAccessCount)
 {
@@ -151,6 +160,14 @@ NS_IMETHODIMP nsNavHistoryResultNode::GetTime(PRTime *aTime)
 {
   *aTime = mTime;
   return NS_OK;
+}
+
+/* attribute nsIURI con; */
+NS_IMETHODIMP nsNavHistoryResultNode::GetIcon(nsIURI** aURI)
+{
+  nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
+  NS_ENSURE_TRUE(faviconService, NS_ERROR_NO_INTERFACE);
+  return faviconService->GetFaviconLinkForIconString(mFaviconURL, aURI);
 }
 
 /* attribute pRInt32 indentLevel; */
@@ -175,6 +192,197 @@ NS_IMETHODIMP nsNavHistoryResultNode::GetChild(PRInt32 aIndex,
     return NS_ERROR_INVALID_ARG;
   NS_ADDREF(*_retval = mChildren[aIndex]);
   return NS_OK;
+}
+
+/* readonly attribute boolean childrenReadOnly; */
+NS_IMETHODIMP nsNavHistoryResultNode::GetChildrenReadOnly(PRBool *aResult)
+{
+  *aResult = PR_TRUE;
+  return NS_OK;
+}
+
+// nsINavBookmarkObserver implementation
+
+/* void onBeginUpdateBatch(); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnBeginUpdateBatch()
+{
+  return NS_OK;
+}
+
+/* void onEndUpdateBatch(); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnEndUpdateBatch()
+{
+  return NS_OK;
+}
+
+/* readonly attribute boolean wantAllDetails; */
+NS_IMETHODIMP
+nsNavHistoryResultNode::GetWantAllDetails(PRBool *aResult)
+{
+  *aResult = PR_TRUE;
+  return NS_OK;
+}
+
+/* void onItemAdded(in nsIURI bookmark, in PRInt64 folder, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnItemAdded(nsIURI *aBookmark,
+                                    PRInt64 aFolder,
+                                    PRInt32 aIndex)
+{
+  return NS_OK;
+}
+
+/* void onItemRemoved(in nsIURI bookmark, in PRInt64 folder, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnItemRemoved(nsIURI *aBookmark,
+                                      PRInt64 aFolder, PRInt32 aIndex)
+{
+  return NS_OK;
+}
+
+/* void onItemMoved(in nsIURI bookmark, in PRInt64 folder,
+                    in PRInt32 oldIndex, in PRInt32 newIndex); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnItemMoved(nsIURI *aBookmark, PRInt64 aFolder,
+                                    PRInt32 aOldIndex, PRInt32 aNewIndex)
+{
+  return NS_OK;
+
+}
+
+/* void onItemChanged(in nsIURI bookmark, in ACString property); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnItemChanged(nsIURI *aBookmark,
+                                      const nsACString &aProperty)
+{
+  // We let OnPageChanged handle this case
+  return NS_OK;
+}
+
+/* void onItemReplaced(in PRInt64 folder, in nsIURI item, in nsIURI newItem); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnItemReplaced(PRInt64 aFolder,
+                                       nsIURI *aItem, nsIURI *aNewItem)
+{
+  return NS_OK;
+}
+
+/* void onFolderAdded(in PRInt64 folder, in PRInt64 parent, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnFolderAdded(PRInt64 aFolder,
+                                      PRInt64 aParent, PRInt32 aIndex)
+{
+  return NS_OK;
+}
+
+/* void onFolderRemoved(in PRInt64 folder, in PRInt64 parent, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnFolderRemoved(PRInt64 aFolder,
+                                        PRInt64 aParent, PRInt32 aIndex)
+{
+  return NS_OK;
+}
+
+/* void onFolderMoved(in PRInt64 folder,
+                      in PRInt64 oldParent, in PRInt32 oldIndex,
+                      in PRInt64 newParent, in PRInt32 newIndex); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnFolderMoved(PRInt64 aFolder,
+                                      PRInt64 aOldParent, PRInt32 aOldIndex,
+                                      PRInt64 aNewParent, PRInt32 aNewIndex)
+{
+  return NS_OK;
+}
+
+/* void onFolderChanged(in PRInt64 folder, in ACString property); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnFolderChanged(PRInt64 aFolder,
+                                        const nsACString &aProperty)
+{
+  return NS_OK;
+}
+
+// nsINavHistoryObserver implementation
+
+/* void onAddURI(in nsiURI aURI, in PRTime aTime); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnAddURI(nsIURI *aURI, PRTime aTime)
+{
+  return NS_OK;
+}
+
+/* void onDeleteURI(in nsIURI aURI); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnDeleteURI(nsIURI *aURI)
+{
+  return NS_OK;
+}
+
+/* void onClearHistory(); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnClearHistory()
+{
+  return NS_OK;
+}
+
+/* void onPageChanged(in nsIURI aURI, in PRUint32 aWhat, in AString aValue); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnPageChanged(nsIURI *aURI,
+                                      PRUint32 aWhat, const nsAString &aValue)
+{
+  // We're an item node in a bookmark folder.  Check if the given URL
+  // matches ours, and rebuild the row if so.
+  nsCAutoString spec;
+  aURI->GetSpec(spec);
+  if (spec.Equals(mUrl)) {
+    // TODO(bryner): only rebuild if aProperty is being shown
+    Rebuild();
+  }
+  return NS_OK;
+}
+
+nsNavHistoryResult*
+nsNavHistoryResultNode::GetResult()
+{
+  nsNavHistoryResultNode *parent, *node = this;
+  while ((parent = node->mParent)) {
+    node = parent;
+  }
+
+  nsCOMPtr<nsINavHistoryResult> result = do_QueryInterface(node);
+  NS_ASSERTION(result, "toplevel node must be a result");
+  return NS_STATIC_CAST(nsNavHistoryResult*,
+                        NS_STATIC_CAST(nsINavHistoryResult*, result));
+}
+
+nsresult
+nsNavHistoryResultNode::Rebuild()
+{
+  if (mID == 0) {
+    return NS_OK;
+  }
+
+  nsNavHistory *history = nsNavHistory::GetHistoryService();
+  mozIStorageStatement *statement = history->DBGetIdPageInfoFull();
+  mozStorageStatementScoper scope(statement);
+
+  nsresult rv = statement->BindInt64Parameter(0, mID);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRBool results;
+  rv = statement->ExecuteStep(&results);
+  NS_ASSERTION(results, "node must be in history!");
+
+  // get the concrete options class that generated this node
+  nsCOMPtr<nsINavHistoryQueryOptions> optionsInterface;
+  rv = GetResult()->GetQueryOptions(getter_AddRefs(optionsInterface));
+  nsCOMPtr<nsNavHistoryQueryOptions> options =
+    do_QueryInterface(optionsInterface, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return history->FillURLResult(statement, options, this);
 }
 
 // nsNavHistoryQueryNode ******************************************************
@@ -211,6 +419,14 @@ nsNavHistoryQueryNode::GetFolderId() const
     id = 0;
   }
   return id;
+}
+
+/* attribute string folderType; */
+NS_IMETHODIMP 
+nsNavHistoryQueryNode::GetFolderType(nsAString& aFolderType)
+{
+  aFolderType = mFolderType;
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -251,8 +467,14 @@ nsNavHistoryQueryNode::GetQueryOptions(nsINavHistoryQueryOptions **aOptions)
 }
 
 nsresult
-nsNavHistoryQueryNode::BuildChildren()
+nsNavHistoryQueryNode::BuildChildren(PRBool *aBuilt)
 {
+  if (mBuiltChildren) {
+    *aBuilt = PR_FALSE;
+    return NS_OK;
+  }
+
+  *aBuilt = PR_TRUE;
   nsresult rv;
   if (!mOptions) {
     rv = ParseQueries();
@@ -272,15 +494,491 @@ nsNavHistoryQueryNode::BuildChildren()
   mChildren.Clear();
   NS_ENSURE_TRUE(mChildren.AppendObjects(*(result->GetTopLevel())),
                  NS_ERROR_OUT_OF_MEMORY);
+  mBuiltChildren = PR_TRUE;
 
+  return NS_OK;
+}
+
+nsresult
+nsNavHistoryQueryNode::UpdateQuery()
+{
+  mBuiltChildren = PR_FALSE;
+  if (mExpanded) {
+    nsNavHistoryResult *result = GetResult();
+    nsresult rv = result->BuildChildrenFor(this);
+    NS_ENSURE_SUCCESS(rv, rv);
+    result->Invalidate();
+  }
+  return NS_OK;
+}
+
+// nsINavBookmarkObserver implementation
+
+/* void onBeginUpdateBatch(); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnBeginUpdateBatch()
+{
+  return NS_OK;
+}
+
+/* void onEndUpdateBatch(); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnEndUpdateBatch()
+{
+  // TODO(bryner): Batch updates
+  return NS_OK;
+}
+
+/* readonly attribute boolean wantAllDetails; */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::GetWantAllDetails(PRBool *aResult)
+{
+  *aResult = PR_TRUE;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavHistoryQueryNode::GetChildrenReadOnly(PRBool *aResult)
+{
+  PRInt64 folderId = GetFolderId();
+  if (folderId == 0) {
+    *aResult = PR_TRUE;
+    return NS_OK;
+  }
+
+  return nsNavBookmarks::GetBookmarksService()->GetFolderReadonly(folderId,
+                                                                  aResult);
+}
+
+nsresult
+nsNavHistoryQueryNode::CreateNode(nsIURI *aBookmark,
+                                  nsNavHistoryResultNode **aNode)
+{
+  nsNavHistory *history = nsNavHistory::GetHistoryService();
+  mozIStorageStatement *statement = history->DBGetURLPageInfoFull();
+  mozStorageStatementScoper scope(statement);
+
+  nsresult rv = BindStatementURI(statement, 0, aBookmark);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRBool results;
+  rv = statement->ExecuteStep(&results);
+  NS_ENSURE_SUCCESS(rv, rv);
+  NS_ASSERTION(results, "item must be in history!");
+
+  return history->RowToResult(statement, PR_FALSE, aNode);
+}
+
+PRBool
+nsNavHistoryQueryNode::HasFilteredChildren() const
+{
+  if (mQueryCount != 1) {
+    return PR_TRUE;
+  }
+
+  PRUint32 itemTypes;
+  mQueries[0]->GetItemTypes(&itemTypes);
+  return itemTypes != (nsINavHistoryQuery::INCLUDE_ITEMS |
+                       nsINavHistoryQuery::INCLUDE_QUERIES);
+}
+
+/* void onItemAdded(in nsIURI bookmark, in PRInt64 folder, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnItemAdded(nsIURI *aBookmark,
+                                   PRInt64 aFolder, PRInt32 aIndex)
+{
+  nsresult rv;
+  if (GetFolderId() == aFolder) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      rv = UpdateQuery();
+      NS_ENSURE_SUCCESS(rv, rv);
+    } else {
+      // This node is expanded and is the target of this add, so
+      // create a new result node and insert it.
+      nsRefPtr<nsNavHistoryResultNode> node;
+      rv = CreateNode(aBookmark, getter_AddRefs(node));
+      NS_ENSURE_SUCCESS(rv, rv);
+      NS_ENSURE_TRUE(mChildren.InsertObjectAt(node, aIndex),
+                     NS_ERROR_OUT_OF_MEMORY);
+      GetResult()->RowAdded(this, aIndex);
+    }
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnItemAdded(aBookmark, aFolder, aIndex);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onItemRemoved(in nsIURI bookmark, in PRInt64 folder, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnItemRemoved(nsIURI *aBookmark,
+                                     PRInt64 aFolder, PRInt32 aIndex)
+{
+  if (GetFolderId() == aFolder) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      return UpdateQuery();
+    } else {
+      // Remove the ResultNode for the URI
+      PRInt32 index = mChildren[aIndex]->VisibleIndex();
+      mChildren.RemoveObjectAt(aIndex);
+      GetResult()->RowRemoved(index);
+    }
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      nsresult rv = mChildren[i]->OnItemRemoved(aBookmark, aFolder, aIndex);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onItemMoved(in nsIURI bookmark, in PRInt64 folder,
+                    in PRInt32 oldIndex, in PRInt32 newIndex); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnItemMoved(nsIURI *aBookmark, PRInt64 aFolder,
+                                   PRInt32 aOldIndex, PRInt32 aNewIndex)
+{
+  if (GetFolderId() == aFolder) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      return UpdateQuery();
+    } else {
+      nsRefPtr<nsNavHistoryResultNode> node = mChildren[aOldIndex];
+      PRInt32 delta = (aNewIndex > aOldIndex) ? 1 : -1;
+      for (PRInt32 i = aOldIndex; i != aNewIndex; i += delta) {
+        mChildren.ReplaceObjectAt(mChildren[i + delta], i);
+      }
+      mChildren.ReplaceObjectAt(node, aNewIndex);
+      // TODO(bryner): we should only invalidate the affected rows
+      GetResult()->Invalidate();
+    }
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      nsresult rv = mChildren[i]->OnItemMoved(aBookmark, aFolder,
+                                              aOldIndex, aNewIndex);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onItemChanged(in nsIURI bookmark, in ACString property); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnItemChanged(nsIURI *aBookmark,
+                                     const nsACString &aProperty)
+{
+  // We let OnPageChanged handle this case.
+  return NS_OK;
+}
+
+/* void onItemReplaced(in PRInt64 folder, in nsIURI item, in nsIURI newItem); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnItemReplaced(PRInt64 aFolder,
+                                      nsIURI *aItem, nsIURI *aNewItem)
+{
+  nsresult rv;
+  if (GetFolderId() == aFolder) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      return UpdateQuery();
+    } else {
+      // Replace the old node (aItem) with a new node for aNewItem.
+      // We copy the indices from aItem since it is at the same location.
+      nsRefPtr<nsNavHistoryResultNode> node;
+      rv = CreateNode(aNewItem, getter_AddRefs(node));
+      NS_ENSURE_SUCCESS(rv, rv);
+
+      nsNavBookmarks *bookmarks = nsNavBookmarks::GetBookmarksService();
+      PRInt32 index;
+      bookmarks->IndexOfItem(aFolder, aNewItem, &index);
+
+      PRInt32 visibleIndex = mChildren[index]->VisibleIndex();
+      node->SetParent(this);
+      node->SetVisibleIndex(visibleIndex);
+      node->SetIndentLevel(mChildren[index]->IndentLevel());
+      mChildren.ReplaceObjectAt(node, index);
+      GetResult()->RowChanged(node->VisibleIndex());
+    }
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnItemReplaced(aFolder, aItem, aNewItem);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onFolderAdded(in PRInt64 folder, in PRInt64 parent, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnFolderAdded(PRInt64 aFolder,
+                                     PRInt64 aParent, PRInt32 aIndex)
+{
+  nsresult rv;
+  if (GetFolderId() == aParent) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      return UpdateQuery();
+    } else {
+      // This node is expanded and is the target of this add, so
+      // create a new result node and insert it.
+      nsRefPtr<nsNavHistoryResultNode> node;
+      rv = nsNavBookmarks::GetBookmarksService()->
+        ResultNodeForFolder(aFolder, mQueries[0], mOptions,
+                            getter_AddRefs(node));
+      NS_ENSURE_SUCCESS(rv, rv);
+      NS_ENSURE_TRUE(mChildren.InsertObjectAt(node, aIndex),
+                     NS_ERROR_OUT_OF_MEMORY);
+      GetResult()->RowAdded(this, aIndex);
+    }
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnFolderAdded(aFolder, aParent, aIndex);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onFolderRemoved(in PRInt64 folder, in PRInt64 parent, in PRInt32 index); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnFolderRemoved(PRInt64 aFolder,
+                                       PRInt64 aParent, PRInt32 aIndex)
+{
+  if (GetFolderId() == aParent) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      return UpdateQuery();
+    } else {
+      // Remove the folder node from our child list.
+      PRInt32 index = mChildren[aIndex]->VisibleIndex();
+      mChildren.RemoveObjectAt(aIndex);
+      GetResult()->RowRemoved(index);
+    }
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      nsresult rv = mChildren[i]->OnFolderRemoved(aFolder, aParent, aIndex);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onFolderMoved(in PRInt64 folder,
+                      in PRInt64 oldParent, in PRInt32 oldIndex,
+                      in PRInt64 newParent, in PRInt32 newIndex); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnFolderMoved(PRInt64 aFolder,
+                                     PRInt64 aOldParent, PRInt32 aOldIndex,
+                                     PRInt64 aNewParent, PRInt32 aNewIndex)
+{
+  nsresult rv;
+  PRInt64 nodeFolder = GetFolderId();
+
+  if (aOldParent == aNewParent && aOldParent == nodeFolder) {
+    // If we're not expanded, we can just invalidate our child list
+    // and rebuild it the next time we're opened.
+    if (!mExpanded) {
+      mBuiltChildren = PR_FALSE; // causes a rebuild on next open
+      return NS_OK;
+    }
+
+    // If we're a special query type, just requery.
+    if (HasFilteredChildren()) {
+      return UpdateQuery();
+    } else {
+      nsRefPtr<nsNavHistoryResultNode> node = mChildren[aOldIndex];
+      PRInt32 delta = (aNewIndex > aOldIndex) ? 1 : -1;
+      for (PRInt32 i = aOldIndex; i != aNewIndex; i += delta) {
+        mChildren.ReplaceObjectAt(mChildren[i + delta], i);
+      }
+      mChildren.ReplaceObjectAt(node, aNewIndex);
+      // TODO(bryner): we should only invalidate the affected rows
+      GetResult()->Invalidate();
+    }
+  } else if (aOldParent == nodeFolder) {
+    OnFolderRemoved(aFolder, aOldParent, aOldIndex);
+  } else if (aNewParent == nodeFolder) {
+    OnFolderAdded(aFolder, aNewParent, aNewIndex);
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnFolderMoved(aFolder,
+                                       aOldParent, aOldIndex,
+                                       aNewParent, aNewIndex);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onFolderChanged(in PRInt64 folder, in ACString property); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnFolderChanged(PRInt64 aFolder,
+                                       const nsACString &aProperty)
+{
+  if (GetFolderId() == aFolder) {
+    // TODO(bryner): only rebuild if aProperty is being shown
+    Rebuild();
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      nsresult rv = mChildren[i]->OnFolderChanged(aFolder, aProperty);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+// nsINavHistoryObserver implementation
+
+/* void onAddURI(in nsiURI aURI, in PRTime aTime); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnAddURI(nsIURI *aURI, PRTime aTime)
+{
+  nsresult rv;
+  if (GetFolderId() == 0) {
+    // We're a non-folder query, so we need to requery.
+    return UpdateQuery();
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnAddURI(aURI, aTime);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onDeleteURI(in nsIURI aURI); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnDeleteURI(nsIURI *aURI)
+{
+  nsresult rv;
+  if (GetFolderId() == 0) {
+    // We're a non-folder query, so we need to requery.
+    return UpdateQuery();
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnDeleteURI(aURI);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onClearHistory(); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnClearHistory()
+{
+  nsresult rv;
+  if (GetFolderId() == 0) {
+    // We're a non-folder query, so we need to requery.
+    return UpdateQuery();
+  } else {
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnClearHistory();
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* void onPageChanged(in nsIURI aURI, in PRUint32 aWhat, in AString aValue); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnPageChanged(nsIURI *aURI,
+                                     PRUint32 aWhat, const nsAString &aValue)
+{
+  nsresult rv;
+  PRInt64 folder = nsNavHistoryQueryNode::GetFolderId();
+  if (folder == 0) {
+    // If we're a query node (other than a folder), we need to re-execute
+    // our queries in case aBookmark should be added/removed from the
+    // results.
+    return UpdateQuery();
+  } else {
+    // We're a bookmark folder.  Run through our children and notify them.
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnPageChanged(aURI, aWhat, aValue);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+nsresult
+nsNavHistoryQueryNode::Rebuild()
+{
+  PRInt64 folderId = GetFolderId();
+  if (folderId != 0) {
+    nsNavBookmarks *bookmarks = nsNavBookmarks::GetBookmarksService();
+    return bookmarks->FillFolderNode(folderId, this);
+  }
   return NS_OK;
 }
 
 // nsNavHistoryResult **********************************************************
 
-NS_IMPL_ISUPPORTS_INHERITED2(nsNavHistoryResult, nsNavHistoryResultNode,
+NS_IMPL_ISUPPORTS_INHERITED5(nsNavHistoryResult, nsNavHistoryQueryNode,
                              nsINavHistoryResult,
-                             nsITreeView);
+                             nsITreeView,
+                             nsINavBookmarkObserver,
+                             nsINavHistoryObserver,
+                             nsISupportsWeakReference)
 
 
 // nsNavHistoryResult::nsNavHistoryResult
@@ -316,15 +1014,23 @@ nsNavHistoryResult::nsNavHistoryResult(nsNavHistory* aHistoryService,
   if (aOptions)
     aOptions->Clone(getter_AddRefs(mOptions));
 
+  PRInt64 folderId = 0;
+  GetFolderId(&folderId);
+  if (folderId != 0) {
+    nsNavBookmarks::GetBookmarksService()->FillFolderNode(folderId, this);
+  }
+
   mType = nsINavHistoryResult::RESULT_TYPE_QUERY;
-  mFlatIndex = -1;
   mVisibleIndex = -1;
+  mExpanded = PR_TRUE; // the result itself can never be "collapsed"
 }
 
 // nsNavHistoryResult::~nsNavHistoryResult
 
 nsNavHistoryResult::~nsNavHistoryResult()
 {
+  nsNavBookmarks::GetBookmarksService()->RemoveObserver(this);
+  nsNavHistory::GetHistoryService()->RemoveObserver(this);
 }
 
 
@@ -352,6 +1058,10 @@ nsNavHistoryResult::Init()
   mDateFormatter = do_CreateInstance(kDateTimeFormatCID, &rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  // Hook up as an observer
+  nsNavBookmarks::GetBookmarksService()->AddObserver(this, PR_TRUE);
+  nsNavHistory::GetHistoryService()->AddObserver(this, PR_TRUE);
+
   return NS_OK;
 }
 
@@ -375,10 +1085,15 @@ nsNavHistoryResult::FilledAllResults()
 nsresult
 nsNavHistoryResult::BuildChildrenFor(nsNavHistoryResultNode *aNode)
 {
-  nsresult rv = aNode->BuildChildren();
+  PRBool built;
+  nsresult rv = aNode->BuildChildren(&built);
   NS_ENSURE_SUCCESS(rv, rv);
+  if (!built) {
+    // No children needed to be built.
+    return NS_OK;
+  }
 
-  PRInt32 flatIndex = aNode->mFlatIndex + 1;
+  PRInt32 flatIndex = mAllElements.IndexOf(aNode) + 1;
   for (PRInt32 i = 0; i < aNode->mChildren.Count(); ++i) {
     nsNavHistoryResultNode *child = aNode->mChildren[i];
 
@@ -612,20 +1327,16 @@ nsNavHistoryResult::TreeIndexForNode(nsINavHistoryResultNode* aNode,
 
 
 NS_IMETHODIMP 
-nsNavHistoryResult::AddObserver(nsINavHistoryResultViewObserver* aObserver)
+nsNavHistoryResult::AddObserver(nsINavHistoryResultViewObserver* aObserver,
+                                PRBool aOwnsWeak)
 {
-  NS_ENSURE_ARG_POINTER(aObserver);
-
-  if (mObservers.IndexOf(aObserver) != -1)
-    return NS_OK;
-  return mObservers.AppendObject(aObserver) ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
+  return mObservers.AppendWeakElement(aObserver, aOwnsWeak);
 }
 
 NS_IMETHODIMP
 nsNavHistoryResult::RemoveObserver(nsINavHistoryResultViewObserver* aObserver)
 {
-  mObservers.RemoveObject(aObserver);
-  return NS_OK;
+  return mObservers.RemoveWeakElement(aObserver);
 }
 
 
@@ -633,11 +1344,13 @@ nsNavHistoryResult::RemoveObserver(nsINavHistoryResultViewObserver* aObserver)
 //
 //    This is called to assign the correct arrow to the column header. It is
 //    called both when you resort, and when a tree is first attached (to
-//    initialize it's headers).
+//    initialize its headers).
 
 void
 nsNavHistoryResult::SetTreeSortingIndicator()
 {
+  NS_ASSERTION(mTree, "should only be called if we have a tree");
+
   nsCOMPtr<nsITreeColumns> columns;
   nsresult rv = mTree->GetColumns(getter_AddRefs(columns));
   if (NS_FAILED(rv)) return;
@@ -885,9 +1598,7 @@ nsNavHistoryResult::RebuildAllListRecurse(
         AllElementAt(allCount - 1)->mID == aSource[i]->mID) {
       // ignore duplicate, that elements' flat index is the index of its dup
       // note, we don't collapse ID=0 elements since that is all parent nodes
-      aSource[i]->mFlatIndex = allCount - 1;
     } else {
-      aSource[i]->mFlatIndex = mAllElements.Count();
       mAllElements.AppendElement(aSource[i]);
       if (aSource[i]->mChildren.Count() > 0)
         RebuildAllListRecurse(aSource[i]->mChildren);
@@ -1115,11 +1826,15 @@ NS_IMETHODIMP nsNavHistoryResult::IsSorted(PRBool *_retval)
 NS_IMETHODIMP nsNavHistoryResult::CanDrop(PRInt32 index, PRInt32 orientation,
                                           PRBool *_retval)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i) {
-    mObservers[i]->CanDrop(index, orientation, _retval);
-    if (*_retval)
-      break;
+  PRUint32 count = mObservers.Length();
+  for (PRUint32 i = 0; i < count; ++i) {
+    const nsCOMPtr<nsINavHistoryResultViewObserver> &obs = mObservers[i];
+    if (obs) {
+      obs->CanDrop(index, orientation, _retval);
+      if (*_retval) {
+        break;
+      }
+    }
   }
   return NS_OK;
 }
@@ -1131,9 +1846,8 @@ NS_IMETHODIMP nsNavHistoryResult::CanDrop(PRInt32 index, PRInt32 orientation,
 
 NS_IMETHODIMP nsNavHistoryResult::Drop(PRInt32 row, PRInt32 orientation)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnDrop(row, orientation);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnDrop(row, orientation))
   return NS_OK;
 }
 
@@ -1178,7 +1892,7 @@ NS_IMETHODIMP nsNavHistoryResult::GetLevel(PRInt32 index, PRInt32 *_retval)
 {
   if (index < 0 || index >= mVisibleElements.Count())
     return NS_ERROR_INVALID_ARG;
-  *_retval = ((nsNavHistoryResultNode*)mVisibleElements[index])->mIndentLevel;
+  *_retval = VisibleElementAt(index)->mIndentLevel;
   return NS_OK;
 }
 
@@ -1188,7 +1902,34 @@ NS_IMETHODIMP nsNavHistoryResult::GetLevel(PRInt32 index, PRInt32 *_retval)
 NS_IMETHODIMP nsNavHistoryResult::GetImageSrc(PRInt32 row, nsITreeColumn *col,
                                               nsAString& _retval)
 {
-  _retval.Truncate(0);
+  if (row < 0 || row >= mVisibleElements.Count())
+    return NS_ERROR_INVALID_ARG;
+
+  // only the first column has an image
+  PRInt32 colIndex;
+  col->GetIndex(&colIndex);
+  if (colIndex != 0) {
+    _retval.Truncate(0);
+    return NS_OK;
+  }
+
+  // Don't set the favicon for containers, we will use the default folder icon
+  // The special icons for the bookmarks menu and toolbar are set in CSS from
+  // attributes defined by GetCellProperties.
+  PRBool isContainer;
+  IsContainer(row, &isContainer);
+  if (isContainer) {
+    _retval.Truncate(0);
+    return NS_OK;
+  }
+
+  nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
+  NS_ENSURE_TRUE(faviconService, NS_ERROR_NO_INTERFACE);
+
+  nsCAutoString spec;
+  faviconService->GetFaviconSpecForIconString(VisibleElementAt(row)->mFaviconURL, spec);
+//  _retval = NS_ConvertUTF8toUTF16(spec);
+  CopyUTF8toUTF16(spec, _retval);
   return NS_OK;
 }
 
@@ -1243,12 +1984,13 @@ NS_IMETHODIMP nsNavHistoryResult::GetCellText(PRInt32 rowIndex,
     }
     case Column_Date:
     {
-      if (elt->mType == nsINavHistoryResult::RESULT_TYPE_HOST ||
-          elt->mType == nsINavHistoryResult::RESULT_TYPE_DAY) {
+      if (elt->mTime == 0 ||
+          (elt->mType != nsINavHistoryResult::RESULT_TYPE_URL &&
+           elt->mType != nsINavHistoryResult::RESULT_TYPE_VISIT)) {
         // hosts and days shouldn't have a value for the date column. Actually,
         // you could argue this point, but looking at the results, seeing the
         // most recently visited date is not what I expect, and gives me no
-        // information I know how to use.
+        // information I know how to use. Only show this for URLs and visits
         _retval.Truncate(0);
       } else {
         nsDateFormatSelector dateFormat;
@@ -1297,9 +2039,8 @@ NS_IMETHODIMP nsNavHistoryResult::ToggleOpenState(PRInt32 index)
   if (index < 0 || index >= mVisibleElements.Count())
     return NS_ERROR_INVALID_ARG;
 
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnToggleOpenState(index);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnToggleOpenState(index))
 
   nsNavHistoryResultNode* curNode = VisibleElementAt(index);
   if (curNode->mExpanded) {
@@ -1339,9 +2080,8 @@ NS_IMETHODIMP nsNavHistoryResult::ToggleOpenState(PRInt32 index)
 
 NS_IMETHODIMP nsNavHistoryResult::CycleHeader(nsITreeColumn *col)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnCycleHeader(col);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnCycleHeader(col))
 
   PRInt32 colIndex;
   col->GetIndex(&colIndex);
@@ -1382,18 +2122,16 @@ NS_IMETHODIMP nsNavHistoryResult::CycleHeader(nsITreeColumn *col)
 /* void selectionChanged (); */
 NS_IMETHODIMP nsNavHistoryResult::SelectionChanged()
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnSelectionChanged();
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnSelectionChanged())
   return NS_OK;
 }
 
 /* void cycleCell (in long row, in nsITreeColumn col); */
 NS_IMETHODIMP nsNavHistoryResult::CycleCell(PRInt32 row, nsITreeColumn *col)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnCycleCell(row, col);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnCycleCell(row, col))
   return NS_OK;
 }
 
@@ -1418,27 +2156,24 @@ NS_IMETHODIMP nsNavHistoryResult::SetCellText(PRInt32 row, nsITreeColumn *col, c
 /* void performAction (in wstring action); */
 NS_IMETHODIMP nsNavHistoryResult::PerformAction(const PRUnichar *action)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnPerformAction(action);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnPerformAction(action))
   return NS_OK;
 }
 
 /* void performActionOnRow (in wstring action, in long row); */
 NS_IMETHODIMP nsNavHistoryResult::PerformActionOnRow(const PRUnichar *action, PRInt32 row)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnPerformActionOnRow(action, row);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnPerformActionOnRow(action, row))
   return NS_OK;
 }
 
 /* void performActionOnCell (in wstring action, in long row, in nsITreeColumn col); */
 NS_IMETHODIMP nsNavHistoryResult::PerformActionOnCell(const PRUnichar *action, PRInt32 row, nsITreeColumn *col)
 {
-  PRInt32 count = mObservers.Count();
-  for (PRInt32 i = 0; i < count; ++i)
-    mObservers[i]->OnPerformActionOnCell(action, row, col);
+  ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryResultViewObserver,
+                      OnPerformActionOnCell(action, row, col))
   return NS_OK;
 }
 
@@ -1502,4 +2237,41 @@ nsNavHistoryResult::SortTypeToColumnType(PRUint32 aSortType,
     default:
       return Column_Unknown;
   }
+}
+
+void
+nsNavHistoryResult::RowAdded(nsNavHistoryResultNode *aParent, PRInt32 aIndex)
+{
+  mAllElements.Clear();
+  mVisibleElements.Clear();
+  FilledAllResults();
+  if (mTree) {
+    mTree->RowCountChanged(aParent->ChildAt(aIndex)->mVisibleIndex, 1);
+  }
+}
+
+void
+nsNavHistoryResult::RowRemoved(PRInt32 aVisibleIndex)
+{
+  mAllElements.Clear();
+  mVisibleElements.Clear();
+  FilledAllResults();
+  if (mTree) {
+    mTree->RowCountChanged(aVisibleIndex, -1);
+  }
+}
+
+void
+nsNavHistoryResult::RowChanged(PRInt32 aVisibleIndex)
+{
+  if (mTree) {
+    mTree->InvalidateRow(aVisibleIndex);
+  }
+}
+
+void
+nsNavHistoryResult::Invalidate()
+{
+  FillTreeStats(this, -1);
+  RebuildList();
 }

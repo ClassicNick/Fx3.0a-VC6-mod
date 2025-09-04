@@ -82,11 +82,11 @@
 #define NS_RDF_FORWARDPROXY_INFER_DATASOURCE_CID \
 { 0x7a024bcf, 0xedd5, 0x4d9a, { 0x86, 0x14, 0xd4, 0x4b, 0xe1, 0xda, 0xda, 0xd3 } }
 
-#define NS_NAVHISTORY_CID \
+#define NS_NAVHISTORYSERVICE_CID \
 { 0x88cecbb7, 0x6c63, 0x4b3b, { 0x8c, 0xd4, 0x84, 0xf3, 0xb8, 0x22, 0x8c, 0x69 } }
 
-#define NS_NAVHISTORY_CONTRACTID \
-  "@mozilla.org/browser/nav-history;1"
+#define NS_NAVHISTORYSERVICE_CONTRACTID \
+  "@mozilla.org/browser/nav-history-service;1"
 
 #define NS_ANNOTATIONSERVICE_CID \
 { 0x5e8d4751, 0x1852, 0x434b, { 0xa9, 0x92, 0x2c, 0x6d, 0x2a, 0x25, 0xfa, 0x46 } }
@@ -99,3 +99,15 @@
 
 #define NS_NAVBOOKMARKSSERVICE_CONTRACTID \
   "@mozilla.org/browser/nav-bookmarks-service;1"
+
+#define NS_FAVICONSERVICE_CID \
+{ 0x984e3259, 0x9266, 0x49cf, { 0xb6, 0x05, 0x60, 0xb0, 0x22, 0xa0, 0x07, 0x56 } }
+
+#define NS_FAVICONSERVICE_CONTRACTID \
+  "@mozilla.org/browser/favicon-service;1"
+
+#define NS_LIVEMARKSERVICE_CID \
+{ 0xb1257934, 0x86cf, 0x4143, { 0x83, 0x86, 0x73, 0x4a, 0xc3, 0x52, 0xb6, 0xba } }
+
+#define NS_LIVEMARKSERVICE_CONTRACTID \
+  "@mozilla.org/browser/livemark-service;1"

@@ -78,6 +78,13 @@ interface nsINavHistoryResultNode : nsISupports
   readonly attribute PRInt64 folderId;
 
   /**
+   * Type of the folder corresponding to this node.
+   * Only valid for RESULT_TYPE_QUERY nodes where exactly one folder
+   * has been specified in the query.  0 in all other cases.
+   */
+  readonly attribute AString folderType;
+
+  /**
    * Get the queries which build this node's children.
    * Only valid for RESULT_TYPE_QUERY nodes.
    */
@@ -121,6 +128,18 @@ interface nsINavHistoryResultNode : nsISupports
   readonly attribute PRTime time;
 
   /**
+   * This URI can be used as an image source URL and will give you the favicon
+   * for the page. It is *not* the URL of the favicon, but rather something
+   * that will resolve to the actual image.
+   *
+   * In most cases, this is an annotation URI that will query the favicon
+   * service. If the entry has no favicon, this is the chrome URL of the
+   * default favicon. If the favicon originally lived in chrome, this will
+   * be the original chrome URI of the icon.
+   */
+  readonly attribute nsIURI icon;
+
+  /**
    * This is the number of levels between this node and the top of the
    * hierarchy. The members of result.children have indentLevel = 0, their
    * children have indentLevel = 1, etc.
@@ -134,6 +153,15 @@ interface nsINavHistoryResultNode : nsISupports
    */
   readonly attribute PRInt32 childCount;
   nsINavHistoryResultNode getChild(in PRInt32 index);
+
+  /**
+   * Returns false if this node's list of children can be modified
+   * (adding or removing children, or reordering children), or true if
+   * the UI should not allow the list of children to be modified.
+   * This is false for bookmark folder nodes unless setFolderReadOnly() has
+   * been called to override it, and true for non-folder nodes.
+   */
+  readonly attribute boolean childrenReadOnly;
 };
 
 
@@ -258,9 +286,13 @@ interface nsINavHistoryResult : nsINavHistoryResultNode
 
   /**
    * Add a Tree Builder Observer to handle Tree View methods that the 
-   * HistoryResult object does not implement. 
+   * HistoryResult object does not implement. If ownsWeak is false, then
+   * the result will hold a strong reference to the observer.  If ownsWeak
+   * is true, then the observer must implement nsISupportsWeakReference, and
+   * the result will hold a weak reference to the observer.
    */
-  void addObserver(in nsINavHistoryResultViewObserver observer);
+  void addObserver(in nsINavHistoryResultViewObserver observer,
+                   in boolean ownsWeak);
 
   /**
    * Remove a tree builder observer.
@@ -340,6 +372,7 @@ interface nsINavHistoryObserver : nsISupports
   const PRUint32 ATTRIBUTE_TITLE = 0; // aString = new title
   const PRUint32 ATTRIBUTE_HIDDEN = 1; // aString = empty
   const PRUint32 ATTRIBUTE_TYPED = 2; // aString = empty
+  const PRUint32 ATTRIBUTE_FAVICON = 3; // favicon updated, aString = favicon annotation URI
   void onPageChanged(in nsIURI aURI, in PRUint32 aWhat, in AString aValue);
 };
 
@@ -514,7 +547,7 @@ interface nsINavHistoryQueryOptions : nsISupports
   const PRInt32 RESULT_TYPE_VISIT = 1;
 
   /**
-   * Set the grouping mode to be used for this query.
+   * The grouping mode to be used for this query.
    * Grouping mode is an array of GROUP_BY_* values that specifies the structure
    * of the tree you want. For example, an array consisting of
    * [GROUP_BY_DAY, GROUP_BY_DOMAIN] will give you a tree whose first level is
@@ -522,26 +555,36 @@ interface nsINavHistoryQueryOptions : nsISupports
    * third level is a list of pages in those domains. If you don't want a tree,
    * you can specify an empty array.
    */
+  void getGroupingMode(out PRUint32 groupCount,
+                       [retval,array,size_is(groupCount)] out PRInt32 groupingMode);
   void setGroupingMode([const,array,size_is(groupCount)] in PRInt32 groupingMode,
                        in PRUint32 groupCount);
 
   /**
-   * Set the sorting mode to be used for this query.
+   * The sorting mode to be used for this query.
    * mode is one of SORT_BY_*
    */
-  void setSortingMode(in PRInt32 mode);
+  attribute PRInt32 sortingMode;
 
   /**
    * Sets the result type. One of RESULT_TYPE_*.
    */
-  void setResultType(in PRInt32 type);
+  attribute PRInt32 resultType;
 
   /**
    * When set, allows items with "place:" URIs to appear as containers,
    * with the container's contents filled in from the stored query.
    * If not set, these will appear as normal items.
    */
-  void setExpandPlaces(in boolean expand);
+  attribute boolean expandPlaces;
+
+  /**
+   * Normally the title of a result will be the user's custom title if there is
+   * one, falling back on the default page title. If this is set, we will not
+   * do this operation and always use the original page title extracted from
+   * the HTML of the page.
+   */
+  attribute boolean forceOriginalTitle;
 
   /**
    * Creates a new options item with the same parameters of this one.
@@ -550,7 +593,7 @@ interface nsINavHistoryQueryOptions : nsISupports
 };
 
 [scriptable, uuid(C51F54CB-5E89-4B20-A37C-1343888935B7)]
-interface nsINavHistory : nsISupports
+interface nsINavHistoryService : nsISupports
 {
   /**
    * True if there is any history. This can be used in UI to determine whether
@@ -559,6 +602,12 @@ interface nsINavHistory : nsISupports
    * a lot of history (it must enumerate each item). This is pretty fast.
    */
   readonly attribute boolean hasHistoryEntries;
+
+  /**
+   * This sets the user-defined title of the page. Silently fails if we have
+   * no knowledge of this page.
+   */
+  void setPageUserTitle(in nsIURI aURI, in AString aUserTitle);
 
   /**
    * Returns true if this URI would be added to the history. You don't have to
@@ -613,15 +662,17 @@ interface nsINavHistory : nsISupports
     in nsINavHistoryQueryOptions options);
 
   /**
-   * Adds a history observer. The history service will keep an owning
-   * reference to the observer.
+   * Adds a history observer. If ownsWeak is false, the history service will
+   * keep an owning reference to the observer.  If ownsWeak is true, then
+   * aObserver must implement nsISupportsWeakReference, and the history service
+   * will keep a weak reference to the observer.
    */
-  void addObserver(in nsINavHistoryObserver aObserver);
+  void addObserver(in nsINavHistoryObserver observer, in boolean ownsWeak);
 
   /**
    * Removes a history observer.
    */
-  void removeObserver(in nsINavHistoryObserver aObserver);
+  void removeObserver(in nsINavHistoryObserver observer);
 
   /**
    * Causes observers to be notified of a beginUpdateBatch when a lot of things

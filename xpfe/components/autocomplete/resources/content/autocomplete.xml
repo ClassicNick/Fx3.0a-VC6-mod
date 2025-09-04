@@ -120,7 +120,7 @@
                 onset="this.setAttribute('timeout', val); return val;"
                 onget="var t = parseInt(this.getAttribute('timeout')); return t ? t : 0;"/>
 
-      <!-- number of milliseconds after a keystroke before a search begins -->
+      <!-- maximum number of rows to display -->
       <property name="maxRows"
                 onset="this.setAttribute('maxrows', val); return val;"
                 onget="var t = parseInt(this.getAttribute('maxrows')); return t ? t : 0;"/>
@@ -700,7 +700,9 @@
             if (val) {
               this.setTextValue(val);
               this.mNeedToFinish = false;
-            } else if (this.mTransientValue || !this.forceComplete ||
+            } else if (this.mTransientValue || 
+                       !(this.forceComplete || this.mDefaultMatchFilled) ||
+                       !(this.forceComplete || aForceComplete) ||
                        !(this.mNeedToComplete || aForceComplete)) {
               this.mNeedToFinish = false;
             } else if (this.isWaiting) {

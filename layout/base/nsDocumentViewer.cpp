@@ -47,7 +47,6 @@
 #include "nsIContent.h"
 #include "nsIContentViewerContainer.h"
 #include "nsIDocumentViewer.h"
-#include "nsIDOMWindowInternal.h"
 #include "nsIDocumentViewerPrint.h"
 
 #include "nsIDocument.h"
@@ -59,7 +58,6 @@
 #include "nsICSSStyleSheet.h"
 #include "nsIFrame.h"
 
-#include "nsIScriptGlobalObject.h"
 #include "nsILinkHandler.h"
 #include "nsIDOMDocument.h"
 #include "nsISelectionListener.h"
@@ -848,16 +846,12 @@ DocumentViewerImpl::InitInternal(nsIWidget* aParentWidget,
     if (!aInPrintPreview) {
       // Set script-context-owner in the document
 
-      nsCOMPtr<nsIScriptGlobalObject> global;
-      requestor->GetInterface(NS_GET_IID(nsIScriptGlobalObject),
-                              getter_AddRefs(global));
+      nsCOMPtr<nsPIDOMWindow> window;
+      requestor->GetInterface(NS_GET_IID(nsPIDOMWindow),
+                              getter_AddRefs(window));
 
-      if (global) {
-        nsCOMPtr<nsIDOMDocument> domdoc(do_QueryInterface(mDocument));
-
-        if (domdoc) {
-          global->SetNewDocument(domdoc, aState, PR_TRUE);
-        }
+      if (window) {
+        window->SetNewDocument(mDocument, aState, PR_TRUE);
       }
     }
   }
@@ -1627,9 +1621,9 @@ DocumentViewerImpl::SetDOMDocument(nsIDOMDocument *aDocument)
     mDocument = newDoc;
 
     // Set the script global object on the new document
-    nsCOMPtr<nsIScriptGlobalObject> global = do_GetInterface(container);
-    if (global) {
-      global->SetNewDocument(aDocument, nsnull, PR_TRUE);
+    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(container);
+    if (window) {
+      window->SetNewDocument(newDoc, nsnull, PR_TRUE);
     }
   }
 
@@ -2101,8 +2095,6 @@ DocumentViewerImpl::RequestWindowClose(PRBool* aCanClose)
   return NS_OK;
 }
 
-NS_DEFINE_CID(kCSSLoaderCID, NS_CSS_LOADER_CID);
-
 PR_STATIC_CALLBACK(PRBool)
 AppendAgentSheet(nsIStyleSheet *aSheet, void *aData)
 {
@@ -2157,7 +2149,6 @@ DocumentViewerImpl::CreateStyleSet(nsIDocument* aDocument,
   PRBool shouldOverride = PR_FALSE;
   nsCOMPtr<nsIDocShell> ds(do_QueryInterface(docShell));
   nsCOMPtr<nsIChromeEventHandler> chromeHandler;
-  nsCOMPtr<nsICSSLoader> cssLoader( do_GetService(kCSSLoaderCID) );
   nsCOMPtr<nsIURI> uri;
   nsCOMPtr<nsICSSStyleSheet> csssheet;
 
@@ -2171,6 +2162,9 @@ DocumentViewerImpl::CreateStyleSet(nsIDocument* aDocument,
       nsAutoString sheets;
       elt->GetAttribute(NS_LITERAL_STRING("usechromesheets"), sheets);
       if (!sheets.IsEmpty() && baseURI) {
+        nsCOMPtr<nsICSSLoader> cssLoader;
+        NS_NewCSSLoader(getter_AddRefs(cssLoader));
+
         char *str = ToNewCString(sheets);
         char *newStr = str;
         char *token;
@@ -3321,7 +3315,9 @@ NS_IMETHODIMP nsDocViewerSelectionListener::NotifySelectionChanged(nsIDOMDocumen
 }
 
 //nsDocViewerFocusListener
-NS_IMPL_ISUPPORTS1(nsDocViewerFocusListener, nsIDOMFocusListener)
+NS_IMPL_ISUPPORTS2(nsDocViewerFocusListener,
+                   nsIDOMFocusListener,
+                   nsIDOMEventListener)
 
 nsDocViewerFocusListener::nsDocViewerFocusListener()
 :mDocViewer(nsnull)

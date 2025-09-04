@@ -39,6 +39,7 @@
 #define nsLayoutUtils_h__
 
 class nsIFrame;
+class nsIFormControlFrame;
 class nsPresContext;
 class nsIContent;
 class nsIAtom;
@@ -299,6 +300,34 @@ public:
                                        nsIWidget* aWidget, nsIntPoint aPt,
                                        nsIView* aView);
 
+  /**
+   * Uses a binary search for find where the cursor falls in the line of text
+   * It also keeps track of the part of the string that has already been measured
+   * so it doesn't have to keep measuring the same text over and over
+   *
+   * @param "aBaseWidth" contains the width in twips of the portion 
+   * of the text that has already been measured, and aBaseInx contains
+   * the index of the text that has already been measured.
+   *
+   * @param aTextWidth returns the (in twips) the length of the text that falls
+   * before the cursor aIndex contains the index of the text where the cursor falls
+   */
+  static PRBool
+  BinarySearchForPosition(nsIRenderingContext* acx, 
+                          const PRUnichar* aText,
+                          PRInt32    aBaseWidth,
+                          PRInt32    aBaseInx,
+                          PRInt32    aStartInx, 
+                          PRInt32    aEndInx, 
+                          PRInt32    aCursorPos, 
+                          PRInt32&   aIndex,
+                          PRInt32&   aTextWidth);
+
+  /**
+   * Scroll the given form control frame into view.
+   * @param aFormFrame Frame to scroll into view.
+   */
+  static void ScrollIntoView(nsIFormControlFrame* aFormFrame);
 };
 
 #endif // nsLayoutUtils_h__

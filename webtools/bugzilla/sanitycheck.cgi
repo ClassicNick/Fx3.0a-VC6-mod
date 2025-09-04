@@ -188,6 +188,32 @@ if (defined $cgi->param('createmissinggroupcontrolmapentries')) {
 }
 
 ###########################################################################
+# Fix missing creation date
+###########################################################################
+
+if (defined $cgi->param('repair_creation_date')) {
+    Status("OK, now fixing missing bug creation dates");
+
+    my $bug_ids = $dbh->selectcol_arrayref('SELECT bug_id FROM bugs
+                                            WHERE creation_ts IS NULL');
+
+    my $sth_UpdateDate = $dbh->prepare('UPDATE bugs SET creation_ts = ?
+                                        WHERE bug_id = ?');
+
+    # All bugs have an entry in the 'longdescs' table when they are created,
+    # even if 'commentoncreate' is turned off.
+    my $sth_getDate = $dbh->prepare('SELECT MIN(bug_when) FROM longdescs
+                                     WHERE bug_id = ?');
+
+    foreach my $bugid (@$bug_ids) {
+        $sth_getDate->execute($bugid);
+        my $date = $sth_getDate->fetchrow_array;
+        $sth_UpdateDate->execute($date, $bugid);
+    }
+    Status(scalar(@$bug_ids) . " bugs have been fixed.");
+}
+
+###########################################################################
 # Send unsent mail
 ###########################################################################
 
@@ -361,6 +387,8 @@ CrossCheck("groups", "id",
 CrossCheck("profiles", "userid",
            ['profiles_activity', 'userid'],
            ['profiles_activity', 'who'],
+           ['email_setting', 'user_id'],
+           ['profile_setting', 'user_id'],
            ["bugs", "reporter", "bug_id"],
            ["bugs", "assigned_to", "bug_id"],
            ["bugs", "qa_contact", "bug_id"],
@@ -394,22 +422,22 @@ CrossCheck("products", "id",
 
 # Check the former enum types -mkanat@bugzilla.org
 CrossCheck("bug_status", "value",
-            ["bugs", "bug_status"]);
+            ["bugs", "bug_status", "bug_id"]);
 
 CrossCheck("resolution", "value",
-            ["bugs", "resolution"]);
+            ["bugs", "resolution", "bug_id"]);
 
 CrossCheck("bug_severity", "value",
-            ["bugs", "bug_severity"]);
+            ["bugs", "bug_severity", "bug_id"]);
 
 CrossCheck("op_sys", "value",
-            ["bugs", "op_sys"]);
+            ["bugs", "op_sys", "bug_id"]);
 
 CrossCheck("priority", "value",
-            ["bugs", "priority"]);
+            ["bugs", "priority", "bug_id"]);
 
 CrossCheck("rep_platform", "value",
-            ["bugs", "rep_platform"]);
+            ["bugs", "rep_platform", "bug_id"]);
 
 CrossCheck('series', 'series_id',
            ['series_data', 'series_id']);
@@ -689,6 +717,11 @@ sub BugCheck {
         }
     }
 }
+
+Status("Checking for bugs with no creation date (which makes them invisible)");
+
+BugCheck("bugs WHERE creation_ts IS NULL", "Bugs with no creation date",
+         "repair_creation_date", "Repair missing creation date for these bugs");
 
 Status("Checking resolution/duplicates");
 

@@ -1,5 +1,5 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 sw=2 et tw=80: */
+/* vim: set ts=2 sw=2 et tw=78: */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -105,6 +105,7 @@
 #include "nsIDOMNSHistory.h"
 #include "nsIDOMMediaList.h"
 #include "nsIDOMChromeWindow.h"
+#include "nsIDOMConstructor.h"
 
 // DOM core includes
 #include "nsDOMError.h"
@@ -132,6 +133,7 @@
 #include "nsIPluginInstance.h"
 #include "nsIPluginInstanceInternal.h"
 #include "nsIObjectFrame.h"
+#include "nsIObjectLoadingContent.h"
 #include "nsIScriptablePlugin.h"
 #include "nsIPluginHost.h"
 #include "nsPIPluginHost.h"
@@ -420,6 +422,7 @@ static const char kDOMStringBundleURL[] =
   nsIXPCScriptable::WANT_ADDPROPERTY |                                        \
   nsIXPCScriptable::WANT_DELPROPERTY |                                        \
   nsIXPCScriptable::WANT_NEWENUMERATE |                                       \
+  nsIXPCScriptable::WANT_MARK |                                               \
   nsIXPCScriptable::WANT_EQUALITY |                                           \
   nsIXPCScriptable::WANT_OUTER_OBJECT |                                       \
   nsIXPCScriptable::WANT_INNER_OBJECT |                                       \
@@ -540,6 +543,14 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            ARRAY_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(Screen, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(Constructor, nsDOMConstructorSH,
+                           (DEFAULT_SCRIPTABLE_FLAGS |
+                            nsIXPCScriptable::WANT_CONSTRUCT |
+                            nsIXPCScriptable::WANT_HASINSTANCE) &
+                           ~(nsIXPCScriptable::WANT_PRECREATE |
+                             nsIXPCScriptable::WANT_POSTCREATE |
+                             nsIXPCScriptable::WANT_CHECKACCESS |
+                             nsIXPCScriptable::WANT_NEWRESOLVE))
 
   // Core classes
   NS_DEFINE_CLASSINFO_DATA(XMLDocument, nsDocumentSH,
@@ -1081,6 +1092,12 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA(XPathResult, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
+  // We just want this to have classinfo so it gets mark callbacks for marking
+  // event listeners.
+  // We really don't want any of the default flags!
+  NS_DEFINE_CLASSINFO_DATA(WindowRoot, nsEventReceiverSH,
+                           nsIXPCScriptable::WANT_MARK)
+
   // Define MOZ_SVG_FOREIGNOBJECT here so that when it gets switched on,
   // we preserve binary compatibility. New classes should be added
   // at the end.
@@ -1119,7 +1136,6 @@ jsval nsDOMClassInfo::sTop_id             = JSVAL_VOID;
 jsval nsDOMClassInfo::sParent_id          = JSVAL_VOID;
 jsval nsDOMClassInfo::sScrollbars_id      = JSVAL_VOID;
 jsval nsDOMClassInfo::sLocation_id        = JSVAL_VOID;
-jsval nsDOMClassInfo::sComponents_id      = JSVAL_VOID;
 jsval nsDOMClassInfo::sConstructor_id     = JSVAL_VOID;
 jsval nsDOMClassInfo::s_content_id        = JSVAL_VOID;
 jsval nsDOMClassInfo::sContent_id         = JSVAL_VOID;
@@ -1306,7 +1322,6 @@ nsDOMClassInfo::DefineStaticJSVals(JSContext *cx)
   SET_JSVAL_TO_STRING(sParent_id,          cx, "parent");
   SET_JSVAL_TO_STRING(sScrollbars_id,      cx, "scrollbars");
   SET_JSVAL_TO_STRING(sLocation_id,        cx, "location");
-  SET_JSVAL_TO_STRING(sComponents_id,      cx, "Components");
   SET_JSVAL_TO_STRING(sConstructor_id,     cx, "constructor");
   SET_JSVAL_TO_STRING(s_content_id,        cx, "_content");
   SET_JSVAL_TO_STRING(sContent_id,         cx, "content");
@@ -1745,6 +1760,10 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(Screen, nsIDOMScreen)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMScreen)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(Constructor, nsIDOMConstructor)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMConstructor)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(XMLDocument, nsIDOMXMLDocument)
@@ -2952,6 +2971,11 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathResult)
   DOM_CLASSINFO_MAP_END
 
+  // We just want this to have classinfo so it gets mark callbacks for marking
+  // event listeners.
+  DOM_CLASSINFO_MAP_BEGIN_NO_CLASS_IF(WindowRoot, nsISupports)
+  DOM_CLASSINFO_MAP_END
+
 #if defined(MOZ_SVG) && defined(MOZ_SVG_FOREIGNOBJECT)
   DOM_CLASSINFO_MAP_BEGIN(SVGForeignObjectElement, nsIDOMSVGForeignObjectElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGForeignObjectElement)
@@ -3562,7 +3586,6 @@ nsDOMClassInfo::ShutDown()
   sParent_id          = JSVAL_VOID;
   sScrollbars_id      = JSVAL_VOID;
   sLocation_id        = JSVAL_VOID;
-  sComponents_id      = JSVAL_VOID;
   sConstructor_id     = JSVAL_VOID;
   s_content_id        = JSVAL_VOID;
   sContent_id         = JSVAL_VOID;
@@ -3725,13 +3748,6 @@ nsDOMClassInfo::doCheckPropertyAccess(JSContext *cx, JSObject *obj, jsval id,
                                       PRUint32 accessMode, PRBool isWindow)
 {
   if (!sSecMan) {
-    return NS_OK;
-  }
-
-  // Don't check when getting the Components property, since we check
-  // its properties anyway. This will help performance.
-  if (id == sComponents_id &&
-      accessMode == nsIXPCSecurityManager::ACCESS_GET_PROPERTY && isWindow) {
     return NS_OK;
   }
 
@@ -4420,7 +4436,7 @@ FindConstructorContractID(PRInt32 aDOMClassInfoID)
   return nsnull;
 }
 
-static JSBool
+static nsresult
 BaseStubConstructor(const nsGlobalNameStruct *name_struct, JSContext *cx,
                     JSObject *obj, uintN argc, jsval *argv, jsval *rval)
 {
@@ -4439,18 +4455,14 @@ BaseStubConstructor(const nsGlobalNameStruct *name_struct, JSContext *cx,
   }
   if (NS_FAILED(rv)) {
     NS_ERROR("Failed to create the object");
-    nsDOMClassInfo::ThrowJSException(cx, rv);
-
-    return JS_FALSE;
+    return rv;
   }
 
   nsCOMPtr<nsIJSNativeInitializer> initializer(do_QueryInterface(native));
   if (initializer) {
     rv = initializer->Initialize(cx, obj, argc, argv);
     if (NS_FAILED(rv)) {
-      nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_NOT_INITIALIZED);
-
-      return JS_FALSE;
+      return NS_ERROR_NOT_INITIALIZED;
     }
   }
 
@@ -4458,9 +4470,7 @@ BaseStubConstructor(const nsGlobalNameStruct *name_struct, JSContext *cx,
   if (owner) {
     nsIScriptContext *context = nsJSUtils::GetStaticScriptContext(cx, obj);
     if (!context) {
-      nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-      return JS_FALSE;
+      return NS_ERROR_UNEXPECTED;
     }
 
     JSObject* new_obj;
@@ -4477,7 +4487,7 @@ BaseStubConstructor(const nsGlobalNameStruct *name_struct, JSContext *cx,
   rv = nsDOMGenericSH::WrapNative(cx, obj, native, NS_GET_IID(nsISupports),
                                   rval, getter_AddRefs(holder));
 
-  return NS_SUCCEEDED(rv) ? JS_TRUE : JS_FALSE;
+  return rv;
 }
 
 static nsresult
@@ -4554,39 +4564,77 @@ DefineInterfaceConstants(JSContext *cx, JSObject *obj, const nsIID *aIID)
   return NS_OK;
 }
 
-JS_STATIC_DLL_CALLBACK(JSBool)
-DOMJSClass_Construct(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
-                     jsval *rval)
+class nsDOMConstructor : public nsIDOMConstructor
+{
+public:
+  nsDOMConstructor(const PRUnichar *aName)
+    : mClassName(aName)
+  {
+  }
+
+  virtual ~nsDOMConstructor();
+
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSIDOMCONSTRUCTOR
+
+  nsresult Construct(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                     JSObject *obj, PRUint32 argc, jsval *argv,
+                     jsval *vp, PRBool *_retval);
+
+  nsresult HasInstance(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                       JSObject *obj, jsval val, PRBool *bp,
+                       PRBool *_retval);
+
+  nsresult Install(JSContext *cx, JSObject *target, jsval thisAsVal)
+  {
+    if (!::JS_DefineUCProperty(cx, target,
+                               NS_REINTERPRET_CAST(const jschar *, mClassName),
+                               nsCRT::strlen(mClassName), thisAsVal, nsnull,
+                               nsnull, 0)) {
+      return NS_ERROR_UNEXPECTED;
+    }
+    
+    return NS_OK;
+  }
+
+private:
+  const PRUnichar *mClassName;
+};
+
+NS_IMPL_ADDREF(nsDOMConstructor)
+NS_IMPL_RELEASE(nsDOMConstructor)
+NS_INTERFACE_MAP_BEGIN(nsDOMConstructor)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMConstructor)
+  NS_INTERFACE_MAP_ENTRY(nsISupports)
+  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Constructor)
+NS_INTERFACE_MAP_END
+
+nsDOMConstructor::~nsDOMConstructor()
+{
+}
+
+nsresult
+nsDOMConstructor::Construct(nsIXPConnectWrappedNative *wrapper, JSContext * cx,
+                            JSObject * obj, PRUint32 argc, jsval * argv,
+                            jsval * vp, PRBool *_retval)
 {
   JSObject* class_obj = JSVAL_TO_OBJECT(argv[-2]);
   if (!class_obj) {
-    NS_ERROR("DOMJSClass_Construct couldn't get constructor object.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+    NS_ERROR("nsDOMConstructor::Construct couldn't get constructor object.");
+    return NS_ERROR_UNEXPECTED;
   }
 
-  const PRUnichar* class_name =
-      NS_CONST_CAST(const PRUnichar *,
-                    NS_STATIC_CAST(PRUnichar *,
-                                   ::JS_GetPrivate(cx, class_obj)));
-
   extern nsScriptNameSpaceManager *gNameSpaceManager;
-  if (!class_name || !gNameSpaceManager) {
-    NS_ERROR("DOMJSClass_Construct can't get name or namespace manager.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+  if (!mClassName || !gNameSpaceManager) {
+    NS_ERROR("nsDOMConstructor::Construct can't get name or namespace manager");
+    return NS_ERROR_UNEXPECTED;
   }
 
   const nsGlobalNameStruct *name_struct = nsnull;
-  gNameSpaceManager->LookupName(nsDependentString(class_name),
-                                &name_struct);
+  gNameSpaceManager->LookupName(nsDependentString(mClassName), &name_struct);
   if (!name_struct) {
     NS_ERROR("Name isn't in hash.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+    return NS_ERROR_UNEXPECTED;
   }
 
   if ((name_struct->mType != nsGlobalNameStruct::eTypeClassConstructor ||
@@ -4597,24 +4645,25 @@ DOMJSClass_Construct(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
       name_struct->mType != nsGlobalNameStruct::eTypeExternalConstructorAlias) {
     // ignore return value, we return JS_FALSE anyway
     NS_ERROR("object instantiated without constructor");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-
-    return JS_FALSE;
+    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
   }
 
-  return BaseStubConstructor(name_struct, cx, obj, argc, argv, rval);
+  return BaseStubConstructor(name_struct, cx, obj, argc, argv, vp);
 }
 
-JS_STATIC_DLL_CALLBACK(JSBool)
-DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
+nsresult
+nsDOMConstructor::HasInstance(nsIXPConnectWrappedNative *wrapper,
+                              JSContext * cx, JSObject * obj,
+                              jsval v, PRBool *bp, PRBool *_retval)
+
 {
   // No need to look these up in the hash.
   if (JSVAL_IS_PRIMITIVE(v)) {
-    return JS_TRUE;
+    return NS_OK;
   }
 
   JSObject *dom_obj = JSVAL_TO_OBJECT(v);
-  NS_ASSERTION(dom_obj, "DOMJSClass_HasInstance couldn't get object");
+  NS_ASSERTION(dom_obj, "nsDOMConstructor::HasInstance couldn't get object");
 
   // This might not be the right object, if XPCNativeWrapping
   // happened.  Get the wrapped native for this object, then get its
@@ -4628,27 +4677,23 @@ DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
 
   JSClass *dom_class = JS_GET_CLASS(cx, dom_obj);
   if (!dom_class) {
-    NS_ERROR("DOMJSClass_HasInstance can't get class.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+    NS_ERROR("nsDOMConstructor::HasInstance can't get class.");
+    return NS_ERROR_UNEXPECTED;
   }
 
   const nsGlobalNameStruct *name_struct = nsnull;
 
   extern nsScriptNameSpaceManager *gNameSpaceManager;
   if (!gNameSpaceManager) {
-    NS_ERROR("DOMJSClass_HasInstance can't get namespace manager.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+    NS_ERROR("nsDOMConstructor::HasInstance can't get namespace manager.");
+    return NS_ERROR_UNEXPECTED;
   }
 
   gNameSpaceManager->LookupName(NS_ConvertASCIItoUCS2(dom_class->name),
                                 &name_struct);
   if (!name_struct) {
     // Name isn't in hash, not a DOM object.
-    return JS_TRUE;
+    return NS_OK;
   }
 
   NS_ASSERTION(name_struct->mType == nsGlobalNameStruct::eTypeClassConstructor ||
@@ -4656,31 +4701,23 @@ DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
                name_struct->mType == nsGlobalNameStruct::eTypeExternalConstructorAlias,
                "The constructor was set up with a struct of the wrong type.");
 
-  const PRUnichar* class_name =
-      NS_CONST_CAST(const PRUnichar *,
-                    NS_STATIC_CAST(PRUnichar *,
-                                   ::JS_GetPrivate(cx, obj)));
-  if (!class_name) {
-    NS_ERROR("DOMJSClass_HasInstance can't get name.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+  if (!mClassName) {
+    NS_ERROR("nsDOMConstructor::HasInstance can't get name.");
+    return NS_ERROR_UNEXPECTED;
   }
 
   const nsGlobalNameStruct *class_name_struct = nsnull;
-  gNameSpaceManager->LookupName(nsDependentString(class_name),
+  gNameSpaceManager->LookupName(nsDependentString(mClassName),
                                 &class_name_struct);
   if (!class_name_struct) {
     NS_ERROR("Name isn't in hash.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+    return NS_ERROR_UNEXPECTED;
   }
 
   if (name_struct == class_name_struct) {
     *bp = JS_TRUE;
 
-    return JS_TRUE;
+    return NS_OK;
   }
 
   const nsIID *class_iid;
@@ -4697,9 +4734,7 @@ DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
       gNameSpaceManager->GetConstructorProto(class_name_struct);
     if (!alias_struct) {
       NS_ERROR("Couldn't get constructor prototype.");
-      nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-      return JS_FALSE;
+      return NS_ERROR_UNEXPECTED;
     }
 
     if (alias_struct->mType == nsGlobalNameStruct::eTypeClassConstructor) {
@@ -4709,23 +4744,19 @@ DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
       class_iid = alias_struct->mData->mProtoChainInterface;
     } else {
       NS_ERROR("Expected eTypeClassConstructor or eTypeExternalClassInfo.");
-      nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-      return JS_FALSE;
+      return NS_ERROR_UNEXPECTED;
     }
   } else {
     *bp = JS_FALSE;
 
-    return JS_TRUE;
+    return NS_OK;
   }
 
   if (name_struct->mType == nsGlobalNameStruct::eTypeExternalConstructorAlias) {
     name_struct = gNameSpaceManager->GetConstructorProto(name_struct);
     if (!name_struct) {
       NS_ERROR("Couldn't get constructor prototype.");
-      nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-      return JS_FALSE;
+      return NS_ERROR_UNEXPECTED;
     }
   }
 
@@ -4744,10 +4775,8 @@ DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
   nsCOMPtr<nsIInterfaceInfoManager>
     iim(do_GetService(NS_INTERFACEINFOMANAGER_SERVICE_CONTRACTID));
   if (!iim) {
-    NS_ERROR("DOMJSClass_HasInstance can't get interface info mgr.");
-    nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-    return JS_FALSE;
+    NS_ERROR("nsDOMConstructor::HasInstance can't get interface info mgr.");
+    return NS_ERROR_UNEXPECTED;
   }
 
   nsCOMPtr<nsIInterfaceInfo> if_info;
@@ -4757,79 +4786,31 @@ DOMJSClass_HasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
     if (class_iid->Equals(*class_interface)) {
       *bp = JS_TRUE;
 
-      return JS_TRUE;
+      return NS_OK;
     }
 
     iim->GetInfoForIID(class_interface, getter_AddRefs(if_info));
     if (!if_info) {
-      NS_ERROR("DOMJSClass_HasInstance can't get interface info.");
-      nsDOMClassInfo::ThrowJSException(cx, NS_ERROR_UNEXPECTED);
-
-      return JS_FALSE;
+      NS_ERROR("nsDOMConstructor::HasInstance can't get interface info.");
+      return NS_ERROR_UNEXPECTED;
     }
 
     if_info->HasAncestor(class_iid, bp);
 
     if (*bp) {
-      return JS_TRUE;
+      return NS_OK;
     }
   }
 
-  return JS_TRUE;
+  return NS_OK;
 }
 
-JS_STATIC_DLL_CALLBACK(JSBool)
-DOMJSClass_toString(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
-                    jsval *rval)
+NS_IMETHODIMP
+nsDOMConstructor::ToString(nsAString &aResult)
 {
-  void *data = ::JS_GetInstancePrivate(cx, obj, &nsDOMClassInfo::sDOMJSClass,
-                                       argv);
-  if (!data) {
-    return JS_FALSE;
-  }
-
-  const PRUnichar* class_name =
-      NS_CONST_CAST(const PRUnichar *, NS_STATIC_CAST(PRUnichar *, data));
-
-  nsAutoString resultString('[');
-  resultString.Append(class_name);
-  resultString.Append(PRUnichar(']'));
-
-  JSString* str = ::JS_NewUCStringCopyN(cx,
-                                        NS_REINTERPRET_CAST(const jschar *,
-                                                            resultString.get()),
-                                        resultString.Length());
-  NS_ENSURE_TRUE(str, JS_FALSE);
-
-  *rval = STRING_TO_JSVAL(str);
-
-  return JS_TRUE;
-}
-
-JSClass nsDOMClassInfo::sDOMJSClass = {
-  "DOM Class", JSCLASS_HAS_PRIVATE,
-  JS_PropertyStub, JS_PropertyStub, JS_PropertyStub, JS_PropertyStub,
-  JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub, JS_FinalizeStub,
-  nsnull, nsnull, nsnull, DOMJSClass_Construct,
-  nsnull, DOMJSClass_HasInstance
-};
-
-JSFunctionSpec nsDOMClassInfo::sDOMJSClass_methods[] = {
-  {"toString", DOMJSClass_toString, 0, 0, 0},
-  {0, 0, 0, 0, 0}
-};
-
-// static
-nsresult
-nsDOMClassInfo::InitDOMJSClass(JSContext *cx, JSObject *obj)
-{
-  JSObject *proto = ::JS_InitClass(cx, obj, nsnull, &sDOMJSClass, nsnull, 0,
-                                   nsnull, sDOMJSClass_methods, nsnull,
-                                   nsnull);
-  NS_ASSERTION(proto, "Can't initialize DOM class proto.");
-  if (!proto) {
-    return NS_ERROR_UNEXPECTED;
-  }
+  aResult.AssignLiteral("[object ");
+  aResult.Append(mClassName);
+  aResult.Append(PRUnichar(']'));
 
   return NS_OK;
 }
@@ -4865,104 +4846,22 @@ nsDOMClassInfo::InitDOMJSClass(JSContext *cx, JSObject *obj)
 #endif
 
 /**
- * Every XPConnect wrapper that needs to be preserved (because it has JS
- * properties set on it) as long as the element it wraps is reachable
- * from script (via JS or via DOM APIs accessible from JS) gets an entry
- * in this table.
+ * Every XPConnect wrapper that needs to be preserved (a wrapped native
+ * with JS properties set on it or used by XBL or a wrapped JS event
+ * handler function) as long as the element it wraps is reachable from
+ * script (via JS or via DOM APIs accessible from JS) gets an entry in
+ * this table.
  */
 static PLDHashTable sPreservedWrapperTable;
 
 struct PreservedWrapperEntry : public PLDHashEntryHdr {
-  nsIDOMNode* key; // must be first to line up with PLDHashEntryStub
-  nsIXPConnectWrappedNative *wrapper;
+  void *key; // must be first to line up with PLDHashEntryStub
+  nsIXPConnectJSObjectHolder* (*keyToWrapperFunc)(void* aKey);
+  nsIDOMGCParticipant *participant;
 
   // See |WrapperSCCEntry::first|.  Valid only during mark phase of GC.
   PreservedWrapperEntry *next;
 };
-
-/**
- * During the Mark phase of the GC, we need to mark all of the preserved
- * wrappers that are reachable via DOM APIs.  Since reachability for DOM
- * nodes is symmetric, if one DOM node is reachable from another via DOM
- * APIs, then they are in the same strongly connected component.
- * (Strongly connected components are never reachable from each other
- * via DOM APIs.)  We can refer to each strongly connected component by
- * walking up to the top of the parent chain.  This function finds that
- * root node for any DOM node.
- */
-static nsIDOMNode *
-GetSCCRootFor(nsIDOMNode *aDOMNode)
-{
-  nsCOMPtr<nsIDOMNode> cur(aDOMNode), next;
-#ifdef DEBUG_NOISY_PRESERVE_WRAPPERS
-  nsCOMArray<nsIDOMNode> stack;
-#endif
-  PRUint16 nodeType;
-  cur->GetNodeType(&nodeType);
-  if (nodeType == nsIDOMNode::ATTRIBUTE_NODE) {
-    nsCOMPtr<nsIDOMAttr> attr = do_QueryInterface(cur);
-    nsCOMPtr<nsIDOMElement> owner;
-    attr->GetOwnerElement(getter_AddRefs(owner));
-    if (owner) {
-#ifdef DEBUG_NOISY_PRESERVE_WRAPPERS
-      stack.AppendObject(cur);
-#endif
-      cur = do_QueryInterface(owner);
-    }
-  }
-  for (;;) {
-#ifdef DEBUG_NOISY_PRESERVE_WRAPPERS
-    stack.AppendObject(cur);
-#endif
-    cur->GetParentNode(getter_AddRefs(next));
-    if (!next) {
-#ifdef DEBUG_NOISY_PRESERVE_WRAPPERS
-      PRUint16 nodeType;
-      cur->GetNodeType(&nodeType);
-      if (nodeType != nsIDOMNode::DOCUMENT_NODE) {
-        printf("    non-document root:");
-        nsAutoString nodeName;
-        for (PRInt32 i = stack.Count() - 1; i >= 0; --i) {
-          stack[i]->GetNodeName(nodeName);
-          stack[i]->GetNodeType(&nodeType);
-          if (nodeType == nsIDOMNode::ATTRIBUTE_NODE) {
-            nsAutoString nodeValue;
-            stack[i]->GetNodeValue(nodeValue);
-            printf(" > @%s=\"%s\"", NS_ConvertUTF16toUTF8(nodeName).get(),
-                   NS_ConvertUTF16toUTF8(nodeValue).get());
-          } else {
-            printf(" > %s", NS_ConvertUTF16toUTF8(nodeName).get());
-            if (nodeType == nsIDOMNode::ELEMENT_NODE) {
-              nsCOMPtr<nsIContent> content = do_QueryInterface(stack[i]);
-              PRInt32 j;
-              for (j = 0, j_end = content->GetAttrCount(); j < j_end; ++j) {
-                PRInt32 namespaceID;
-                nsCOMPtr<nsIAtom> name, prefix;
-                content->GetAttrNameAt(j, &namespaceID, getter_AddRefs(name),
-                                       getter_AddRefs(prefix));
-                nsAutoString val;
-                nsCAutoString atomStr;
-                content->GetAttr(namespaceID, name, val);
-                printf("[");
-                if (prefix) {
-                  prefix->ToUTF8String(atomStr);
-                  printf("%s:", atomStr.get());
-                }
-                name->ToUTF8String(atomStr);
-                printf("%s=\"%s\"]", atomStr.get(),
-                       NS_ConvertUTF16toUTF8(val).get());
-              }
-            }
-          }
-        }
-        printf("\n");
-      }
-#endif
-      return cur;
-    }
-    next.swap(cur);
-  }
-}
 
 /**
  * At the beginning of the mark phase of the GC, we sort all the
@@ -4985,7 +4884,7 @@ static PLDHashTable sWrapperSCCTable;
 struct WrapperSCCEntry : public PLDHashEntryHdr {
   // This could probably be a weak pointer (which would avoid the
   // need for hash table ops), but it seems safer this way.
-  nsCOMPtr<nsIDOMNode> key; // must be first to line up with PLDHashEntryStub
+  nsCOMPtr<nsIDOMGCParticipant> key; // must be first to line up with PLDHashEntryStub
 
   // Linked list of preserved wrappers in the strongly connected
   // component, to be traversed using |PreservedWrapperEntry::next|.
@@ -4993,7 +4892,7 @@ struct WrapperSCCEntry : public PLDHashEntryHdr {
 
   PRBool marked;
 
-  WrapperSCCEntry(nsIDOMNode *aKey)
+  WrapperSCCEntry(nsIDOMGCParticipant *aKey)
     : key(aKey), first(nsnull), marked(PR_FALSE) {}
 };
 
@@ -5010,8 +4909,8 @@ WrapperSCCsInitEntry(PLDHashTable *table, PLDHashEntryHdr *hdr,
                      const void *key)
 {
   WrapperSCCEntry *entry = NS_STATIC_CAST(WrapperSCCEntry*, hdr);
-  new (entry) WrapperSCCEntry(NS_STATIC_CAST(nsIDOMNode*,
-                                NS_CONST_CAST(void*, key)));
+  new (entry) WrapperSCCEntry(NS_STATIC_CAST(nsIDOMGCParticipant*,
+                                             NS_CONST_CAST(void*, key)));
   return PR_TRUE;
 }
 
@@ -5030,14 +4929,16 @@ static const PLDHashTableOps sWrapperSCCTableOps = {
 
 // static
 nsresult
-nsDOMClassInfo::PreserveWrapper(nsIXPConnectWrappedNative *aWrapper)
+nsDOMClassInfo::PreserveWrapper(void *aKey,
+                                nsIXPConnectJSObjectHolder* (*aKeyToWrapperFunc)(void* aKey),
+                                nsIDOMGCParticipant *aParticipant)
 {
-  nsCOMPtr<nsIDOMNode> node = do_QueryWrappedNative(aWrapper);
-  if (!node) {
-    return NS_OK;
-  }
-  nsIDOMNode* nodePtr = node;
-  
+  NS_PRECONDITION(aKey, "unexpected null pointer");
+  NS_PRECONDITION(aKeyToWrapperFunc, "unexpected null pointer");
+  NS_PRECONDITION(aParticipant, "unexpected null pointer");
+  NS_ASSERTION(!sWrapperSCCTable.ops,
+               "cannot change preserved wrapper table during mark phase");
+
   if (!sPreservedWrapperTable.ops &&
       !PL_DHashTableInit(&sPreservedWrapperTable, PL_DHashGetStubOps(), nsnull,
                          sizeof(PreservedWrapperEntry), 16)) {
@@ -5046,22 +4947,43 @@ nsDOMClassInfo::PreserveWrapper(nsIXPConnectWrappedNative *aWrapper)
   }
 
   PreservedWrapperEntry *entry = NS_STATIC_CAST(PreservedWrapperEntry*,
-    PL_DHashTableOperate(&sPreservedWrapperTable, nodePtr, PL_DHASH_ADD));
+    PL_DHashTableOperate(&sPreservedWrapperTable, aKey, PL_DHASH_ADD));
   if (!entry)
     return NS_ERROR_OUT_OF_MEMORY;
 
-  entry->key = nodePtr;
-  entry->wrapper = aWrapper;
+  entry->key = aKey;
+  entry->keyToWrapperFunc = aKeyToWrapperFunc;
+  entry->participant = aParticipant;
 
   return NS_OK;
 }
 
+static nsIXPConnectJSObjectHolder* IdentityKeyToWrapperFunc(void* aKey)
+{
+  return NS_STATIC_CAST(nsIXPConnectJSObjectHolder*, aKey);
+}
+
+// static
+nsresult
+nsDOMClassInfo::PreserveNodeWrapper(nsIXPConnectWrappedNative *aWrapper)
+{
+  nsCOMPtr<nsIDOMGCParticipant> participant =
+    do_QueryInterface(aWrapper->Native());
+
+  return nsDOMClassInfo::PreserveWrapper(aWrapper, IdentityKeyToWrapperFunc,
+                                         participant);
+}
+
 // static
 void
-nsDOMClassInfo::ReleaseWrapper(nsIDOMNode *aDOMNode)
+nsDOMClassInfo::ReleaseWrapper(void *aKey)
 {
+  NS_PRECONDITION(aKey, "unexpected null pointer");
+  NS_ASSERTION(!sWrapperSCCTable.ops,
+               "cannot change preserved wrapper table during mark phase");
+
   if (sPreservedWrapperTable.ops) {
-    PL_DHashTableOperate(&sPreservedWrapperTable, aDOMNode, PL_DHASH_REMOVE);
+    PL_DHashTableOperate(&sPreservedWrapperTable, aKey, PL_DHASH_REMOVE);
     if (sPreservedWrapperTable.entryCount == 0) {
       PL_DHashTableFinish(&sPreservedWrapperTable);
       sPreservedWrapperTable.ops = nsnull;
@@ -5081,8 +5003,10 @@ MarkAllWrappers(PLDHashTable *table, PLDHashEntryHdr *hdr,
   MarkAllWrappersData *data = NS_STATIC_CAST(MarkAllWrappersData*, arg);
   PreservedWrapperEntry *entry = NS_STATIC_CAST(PreservedWrapperEntry*, hdr);
 
+  nsIXPConnectJSObjectHolder *wrapper;
   JSObject *wrapper_obj;
-  if (NS_SUCCEEDED(entry->wrapper->GetJSObject(&wrapper_obj)))
+  if ((wrapper = entry->keyToWrapperFunc(entry->key)) &&
+      NS_SUCCEEDED(wrapper->GetJSObject(&wrapper_obj)))
     JS_MarkGCThing(data->cx, wrapper_obj, 
                    "nsDOMClassInfo::sPreservedWrapperTable_OOM", data->arg);
 
@@ -5091,7 +5015,7 @@ MarkAllWrappers(PLDHashTable *table, PLDHashEntryHdr *hdr,
 
 // static
 void
-nsDOMClassInfo::MarkReachablePreservedWrappers(nsIDOMNode *aDOMNode,
+nsDOMClassInfo::MarkReachablePreservedWrappers(nsIDOMGCParticipant *aParticipant,
                                                JSContext *cx, void *arg)
 {
   // Magic value indicating we've hit out-of-memory earlier in this GC.
@@ -5118,25 +5042,41 @@ nsDOMClassInfo::MarkReachablePreservedWrappers(nsIDOMNode *aDOMNode,
     return;
   }
 
+  nsIDOMGCParticipant *SCCIndex = aParticipant->GetSCCIndex();
   WrapperSCCEntry *entry = NS_STATIC_CAST(WrapperSCCEntry*,
-    PL_DHashTableOperate(&sWrapperSCCTable, GetSCCRootFor(aDOMNode),
-                         PL_DHASH_LOOKUP));
+    PL_DHashTableOperate(&sWrapperSCCTable, SCCIndex, PL_DHASH_LOOKUP));
   if (!PL_DHASH_ENTRY_IS_BUSY(entry) || entry->marked)
     return;
 
 #ifdef DEBUG_PRESERVE_WRAPPERS
   {
     nsAutoString nodeName;
-    entry->key->GetNodeName(nodeName);
+    nsCOMPtr<nsIDOMNode> node = do_QueryInterface(entry->key);
+    if (node)
+      node->GetNodeName(nodeName);
+    else
+      nodeName.AssignLiteral("##not-node##");
     printf("  marking entries for SCC root %p \"%s\"\n",
-           entry->key.get(), NS_ConvertUTF16toUTF8(nodeName).get());
+           NS_STATIC_CAST(void*, entry->key.get()),
+           NS_ConvertUTF16toUTF8(nodeName).get());
   }
 #endif
   entry->marked = PR_TRUE;
 
+  // Do the reachable list first to encourage shorter call stacks
+  // (perhaps slightly less recursion through JS marking).
+  nsCOMArray<nsIDOMGCParticipant> reachable;
+  SCCIndex->AppendReachableList(reachable);
+  for (PRInt32 i = 0, i_end = reachable.Count(); i < i_end; ++i) {
+    if (reachable[i])
+      MarkReachablePreservedWrappers(reachable[i], cx, arg);
+  }
+
   for (PreservedWrapperEntry *pwe = entry->first; pwe; pwe = pwe->next) {
+    nsIXPConnectJSObjectHolder *wrapper;
     JSObject *wrapper_obj;
-    if (NS_SUCCEEDED(pwe->wrapper->GetJSObject(&wrapper_obj)))
+    if ((wrapper = pwe->keyToWrapperFunc(pwe->key)) &&
+        NS_SUCCEEDED(wrapper->GetJSObject(&wrapper_obj)))
       ::JS_MarkGCThing(cx, wrapper_obj,
                        "nsDOMClassInfo::sPreservedWrapperTable", arg);
   }
@@ -5149,7 +5089,7 @@ ClassifyWrapper(PLDHashTable *table, PLDHashEntryHdr *hdr,
   PreservedWrapperEntry *entry = NS_STATIC_CAST(PreservedWrapperEntry*, hdr);
 
   WrapperSCCEntry *SCCEntry = NS_STATIC_CAST(WrapperSCCEntry*,
-    PL_DHashTableOperate(&sWrapperSCCTable, GetSCCRootFor(entry->key),
+    PL_DHashTableOperate(&sWrapperSCCTable, entry->participant->GetSCCIndex(),
                          PL_DHASH_ADD));
   if (!SCCEntry) {
     *NS_STATIC_CAST(PRBool*, arg) = PR_TRUE;
@@ -5159,9 +5099,14 @@ ClassifyWrapper(PLDHashTable *table, PLDHashEntryHdr *hdr,
 #ifdef DEBUG_PRESERVE_WRAPPERS
   if (!SCCEntry->first) {
     nsAutoString nodeName;
-    SCCEntry->key->GetNodeName(nodeName);
+    nsCOMPtr<nsIDOMNode> node = do_QueryInterface(SCCEntry->key);
+    if (node)
+      node->GetNodeName(nodeName);
+    else
+      nodeName.AssignLiteral("##not-node##");
     printf("  new SCC root %p \"%s\"\n",
-           SCCEntry->key.get(), NS_ConvertUTF16toUTF8(nodeName).get());
+           NS_STATIC_CAST(void*, SCCEntry->key.get()),
+           NS_ConvertUTF16toUTF8(nodeName).get());
   }
 #endif
 
@@ -5178,7 +5123,7 @@ nsDOMClassInfo::BeginGCMark()
   NS_PRECONDITION(!sWrapperSCCTable.ops, "table already initialized");
 
 #ifdef DEBUG_PRESERVE_WRAPPERS
-  printf("\nClassifying preserved wrappers into SCCs:\n");
+  printf("Classifying preserved wrappers into SCCs:\n");
 #endif
 
   if (!PL_DHashTableInit(&sWrapperSCCTable, &sWrapperSCCTableOps, nsnull,
@@ -5213,11 +5158,11 @@ nsDOMClassInfo::EndGCMark()
   }
 }
 
-// hack to give XBL access to nsDOMClassInfo::PreserveWrapper
+// hack to give XBL access to nsDOMClassInfo::PreserveNodeWrapper
 nsresult
-NS_DOMClassInfo_PreserveWrapper(nsIXPConnectWrappedNative *aWrapper)
+NS_DOMClassInfo_PreserveNodeWrapper(nsIXPConnectWrappedNative *aWrapper)
 {
-  return nsDOMClassInfo::PreserveWrapper(aWrapper);
+  return nsDOMClassInfo::PreserveNodeWrapper(aWrapper);
 }
 
 // static
@@ -5270,24 +5215,32 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
     // We're resolving a name of a DOM interface for which there is no
     // direct DOM class, create a constructor object...
 
+    nsRefPtr<nsDOMConstructor> constructor =
+      new nsDOMConstructor(NS_REINTERPRET_CAST(PRUnichar *,
+                                               ::JS_GetStringChars(str)));
+    if (!constructor) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+
     PRBool doSecurityCheckInAddProperty = sDoSecurityCheckInAddProperty;
     sDoSecurityCheckInAddProperty = PR_FALSE;
 
-    JSObject* class_obj = ::JS_DefineObject(cx, obj, ::JS_GetStringBytes(str),
-                                            &sDOMJSClass, 0, 0);
+    nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
+    jsval v;
+
+    rv = WrapNative(cx, obj, constructor, NS_GET_IID(nsIDOMConstructor), &v,
+                    getter_AddRefs(holder));
 
     sDoSecurityCheckInAddProperty = doSecurityCheckInAddProperty;
 
-    if (!class_obj) {
-      return NS_ERROR_UNEXPECTED;
-    }
+    NS_ENSURE_SUCCESS(rv, rv);
 
-    if (!::JS_SetPrivate(cx, class_obj,
-                         NS_CONST_CAST(void *,
-                                       NS_STATIC_CAST(const void *,
-                                                      class_name)))) {
-      return NS_ERROR_UNEXPECTED;
-    }
+    rv = constructor->Install(cx, obj, v);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    JSObject *class_obj;
+    holder->GetJSObject(&class_obj);
+    NS_ASSERTION(class_obj, "The return value lied");
 
     // ... and define the constants from the DOM interface on that
     // constructor object.
@@ -5323,24 +5276,32 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
       }
     }
 
+    const PRUnichar *name = NS_REINTERPRET_CAST(PRUnichar *,
+                                                ::JS_GetStringChars(str));
+    nsRefPtr<nsDOMConstructor> constructor = new nsDOMConstructor(name);
+    if (!constructor) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+
     PRBool doSecurityCheckInAddProperty = sDoSecurityCheckInAddProperty;
     sDoSecurityCheckInAddProperty = PR_FALSE;
 
-    JSObject* class_obj = ::JS_DefineObject(cx, obj, ::JS_GetStringBytes(str),
-                                            &sDOMJSClass, 0, 0);
+    nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
+    jsval v;
+
+    rv = WrapNative(cx, obj, constructor, NS_GET_IID(nsIDOMConstructor), &v,
+                    getter_AddRefs(holder));
 
     sDoSecurityCheckInAddProperty = doSecurityCheckInAddProperty;
 
-    if (!class_obj) {
-      return NS_ERROR_UNEXPECTED;
-    }
+    NS_ENSURE_SUCCESS(rv, rv);
 
-    if (!::JS_SetPrivate(cx, class_obj,
-                         NS_CONST_CAST(void *,
-                                       NS_STATIC_CAST(const void *,
-                                                      class_name)))) {
-      return NS_ERROR_UNEXPECTED;
-    }
+    rv = constructor->Install(cx, obj, v);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    JSObject *class_obj;
+    holder->GetJSObject(&class_obj);
+    NS_ASSERTION(class_obj, "The return value lied");
 
     const nsIID *primary_iid = &NS_GET_IID(nsISupports);
 
@@ -5519,7 +5480,7 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
       NS_ENSURE_TRUE(dot_prototype, NS_ERROR_OUT_OF_MEMORY);
     }
 
-    jsval v = OBJECT_TO_JSVAL(dot_prototype);
+    v = OBJECT_TO_JSVAL(dot_prototype);
 
     if (!::JS_SetProperty(cx, class_obj, "prototype", &v)) {
       return NS_ERROR_UNEXPECTED;
@@ -5531,19 +5492,23 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
   }
 
   if (name_struct->mType == nsGlobalNameStruct::eTypeExternalConstructor) {
-    // If there was a JS_DefineUCObject() we could use it here...
-    JSObject* class_obj = ::JS_DefineObject(cx, obj, ::JS_GetStringBytes(str),
-                                            &sDOMJSClass, 0, 0);
-    if (!class_obj) {
-      return NS_ERROR_UNEXPECTED;
+    nsRefPtr<nsDOMConstructor> constructor = new nsDOMConstructor(class_name);
+    if (!constructor) {
+      return NS_ERROR_OUT_OF_MEMORY;
     }
 
-    if (!::JS_SetPrivate(cx, class_obj,
-                         NS_CONST_CAST(void *,
-                                       NS_STATIC_CAST(const void *,
-                                                      class_name)))) {
-      return NS_ERROR_UNEXPECTED;
-    }
+    jsval val;
+    nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
+    rv = WrapNative(cx, obj, constructor, NS_GET_IID(nsIDOMConstructor), &val,
+                    getter_AddRefs(holder));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    rv = constructor->Install(cx, obj, val);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    JSObject* class_obj;
+    holder->GetJSObject(&class_obj);
+    NS_ASSERTION(class_obj, "Why didn't we get a JSObject?");
 
     *did_resolve = PR_TRUE;
 
@@ -5662,22 +5627,18 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
       // We're resolving a property on an outer window for which there
       // is no inner window yet, and the window is not frozen
       // (i.e. we're not in the middle of initializing XPConnect
-      // classes on it). If the context is already initalized, trigger
-      // creation of a new inner window by calling GetDocument() on
-      // the outer window. This will create a synthetic about:blank
-      // document, and an inner window which may be reused by the
-      // actual document being loaded into this outer window. This way
-      // properties defined on the window before the document load
-      // started will be visible to the document once it's loaded,
-      // assuming same origin etc.
+      // classes on it). If the context is already initalized, force
+      // creation of a new inner window. This will create a synthetic
+      // about:blank document, and an inner window which may be reused
+      // by the actual document being loaded into this outer
+      // window. This way properties defined on the window before the
+      // document load started will be visible to the document once
+      // it's loaded, assuming same origin etc.
       nsIScriptContext *scx = win->GetContextInternal();
 
       if (scx && scx->IsContextInitialized()) {
-        nsCOMPtr<nsIDOMDocument> doc;
-        win->GetDocument(getter_AddRefs(doc));
-
         // Grab the new inner window.
-        innerWin = win->GetCurrentInnerWindowInternal();
+        innerWin = win->EnsureInnerWindowInternal();
 
         if (!innerWin) {
           return NS_ERROR_OUT_OF_MEMORY;
@@ -6007,7 +5968,7 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
 
     if (id == sDocument_id) {
       nsCOMPtr<nsIDOMDocument> document;
-      nsresult rv = win->GetDocument(getter_AddRefs(document));
+      rv = win->GetDocument(getter_AddRefs(document));
       NS_ENSURE_SUCCESS(rv, rv);
 
       jsval v;
@@ -6151,7 +6112,7 @@ nsWindowSH::Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
 
   sgo->OnFinalize(obj);
 
-  return NS_OK;
+  return nsEventReceiverSH::Finalize(wrapper, cx, obj);
 }
 
 NS_IMETHODIMP
@@ -6431,35 +6392,10 @@ nsNodeSH::AddProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
 {
   // This can fail on out-of-memory, which should end up throwing a JS
   // exception.
-  nsresult rv = nsDOMClassInfo::PreserveWrapper(wrapper);
+  nsresult rv = nsDOMClassInfo::PreserveNodeWrapper(wrapper);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return nsEventReceiverSH::AddProperty(wrapper, cx, obj, id, vp, _retval);
-}
-
-NS_IMETHODIMP
-nsNodeSH::Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                   JSObject *obj)
-{
-  nsISupports *native = wrapper->Native();
-  nsCOMPtr<nsIDOMNode> node(do_QueryInterface(native));
-
-  nsDOMClassInfo::ReleaseWrapper(node);
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsNodeSH::Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-               JSObject *obj, void *arg, PRUint32 *_retval)
-{
-  nsISupports *native = wrapper->Native();
-  nsCOMPtr<nsIDOMNode> node(do_QueryInterface(native));
-
-  nsDOMClassInfo::MarkReachablePreservedWrappers(node, cx, arg);
-
-  *_retval = 1;
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -6587,7 +6523,6 @@ nsEventReceiverSH::AddEventListenerHelper(JSContext *cx, JSObject *obj,
       return JS_FALSE;
     }
 
-    nsresult rv;
     nsCOMPtr<nsIDOMNSEventTarget> eventTarget(do_QueryWrappedNative(wrapper,
                                                                     &rv));
     if (NS_FAILED(rv)) {
@@ -6604,7 +6539,6 @@ nsEventReceiverSH::AddEventListenerHelper(JSContext *cx, JSObject *obj,
       return JS_FALSE;
     }
   } else {
-    nsresult rv;
     nsCOMPtr<nsIDOMEventTarget> eventTarget(do_QueryWrappedNative(wrapper,
                                                                   &rv));
     if (NS_FAILED(rv)) {
@@ -6732,13 +6666,27 @@ nsEventReceiverSH::AddProperty(nsIXPConnectWrappedNative *wrapper,
   return nsEventReceiverSH::SetProperty(wrapper, cx, obj, id, vp, _retval);
 }
 
-/*
 NS_IMETHODIMP
-nsEventReceiverSH::OnFinalize(...)
+nsEventReceiverSH::Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                            JSObject *obj)
 {
-  clear event handlers in mListener...
+  // XXX clear event handlers in mListener...
+
+  nsDOMClassInfo::ReleaseWrapper(wrapper);
+  return NS_OK;
 }
-*/
+
+NS_IMETHODIMP
+nsEventReceiverSH::Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                        JSObject *obj, void *arg, PRUint32 *_retval)
+{
+  nsCOMPtr<nsIDOMGCParticipant> participant(do_QueryWrappedNative(wrapper));
+
+  nsDOMClassInfo::MarkReachablePreservedWrappers(participant, cx, arg);
+
+  *_retval = 1;
+  return NS_OK;
+}
 
 
 // Element helper
@@ -7411,8 +7359,8 @@ nsDocumentSH::PostCreate(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
     jsval winVal;
 
     nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
-    nsresult rv = WrapNative(cx, obj, win, NS_GET_IID(nsIDOMWindow), &winVal,
-                             getter_AddRefs(holder));
+    rv = WrapNative(cx, obj, win, NS_GET_IID(nsIDOMWindow), &winVal,
+                    getter_AddRefs(holder));
     NS_ENSURE_SUCCESS(rv, rv);
 
     NS_NAMED_LITERAL_STRING(doc_str, "document");
@@ -8592,40 +8540,10 @@ nsHTMLExternalObjSH::GetPluginInstance(nsIXPConnectWrappedNative *wrapper,
   nsCOMPtr<nsIContent> content(do_QueryWrappedNative(wrapper));
   NS_ENSURE_TRUE(content, NS_ERROR_UNEXPECTED);
 
-  nsCOMPtr<nsIDocument> doc = content->GetDocument();
-
-  if (!doc) {
-    // No document, no plugin.
-
-    return NS_OK;
-  }
-
-  // Have to flush layout, since plugin instance instantiation
-  // currently happens in reflow!  That's just uncool.
-  doc->FlushPendingNotifications(Flush_Layout);
-
-  // See if we have a frame.
-  nsIPresShell *shell = doc->GetShellAt(0);
-
-  if (!shell) {
-    return NS_OK;
-  }
-
-  nsIFrame* frame = shell->GetPrimaryFrameFor(content);
-
-  if (!frame) {
-    // No frame, no plugin
-
-    return NS_OK;
-  }
-
-  nsIObjectFrame* objectFrame = nsnull;
-  CallQueryInterface(frame, &objectFrame);
-  if (!objectFrame) {
-    return NS_OK;
-  }
-
-  return objectFrame->GetPluginInstance(*_result);
+  // Make sure that there is a plugin
+  nsCOMPtr<nsIObjectLoadingContent> objlc(do_QueryInterface(content));
+  NS_ASSERTION(objlc, "Object nodes must implement nsIObjectLoadingContent");
+  return objlc->EnsureInstantiation(_result);
 }
 
 // Check if proto is already in obj's prototype chain.
@@ -8686,7 +8604,7 @@ nsHTMLExternalObjSH::PostCreate(nsIXPConnectWrappedNative *wrapper,
 
   if (IsObjInProtoChain(cx, obj, pi_obj)) {
     // We must have re-entered ::PostCreate() from nsObjectFrame()
-    // (through the FlushPendingNotifications() call in
+    // (through the EnsureInstantiation() call in
     // GetPluginInstance()), this means that we've already done what
     // we're about to do in this function so we can just return here.
 
@@ -9583,4 +9501,40 @@ nsEventListenerThisTranslator::TranslateThis(nsISupports *aInitialThis,
   NS_IF_ADDREF(*_retval);
 
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMConstructorSH::Construct(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                              JSObject *obj, PRUint32 argc, jsval *argv,
+                              jsval *vp, PRBool *_retval)
+{
+  nsDOMConstructor *wrapped =
+    NS_STATIC_CAST(nsDOMConstructor *, wrapper->Native());
+
+#ifdef DEBUG
+  {
+    nsCOMPtr<nsIDOMConstructor> is_constructor(do_QueryWrappedNative(wrapper));
+    NS_ASSERTION(is_constructor, "How did we not get a constructor?");
+  }
+#endif
+
+  return wrapped->Construct(wrapper, cx, obj, argc, argv, vp, _retval);
+}
+
+NS_IMETHODIMP
+nsDOMConstructorSH::HasInstance(nsIXPConnectWrappedNative *wrapper,
+                                JSContext *cx, JSObject *obj, jsval val,
+                                PRBool *bp, PRBool *_retval)
+{
+  nsDOMConstructor *wrapped =
+    NS_STATIC_CAST(nsDOMConstructor *, wrapper->Native());
+
+#ifdef DEBUG
+  {
+    nsCOMPtr<nsIDOMConstructor> is_constructor(do_QueryWrappedNative(wrapper));
+    NS_ASSERTION(is_constructor, "How did we not get a constructor?");
+  }
+#endif
+
+  return wrapped->HasInstance(wrapper, cx, obj, val, bp, _retval);
 }

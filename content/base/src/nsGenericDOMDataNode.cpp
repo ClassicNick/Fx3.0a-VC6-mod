@@ -94,6 +94,7 @@ NS_IMPL_RELEASE(nsGenericDOMDataNode)
 
 NS_INTERFACE_MAP_BEGIN(nsGenericDOMDataNode)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMGCParticipant)
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMEventReceiver,
                                  nsDOMEventRTTearoff::Create(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMEventTarget,
@@ -631,6 +632,39 @@ nsGenericDOMDataNode::ToCString(nsAString& aBuf, PRInt32 aOffset,
   }
 }
 #endif
+
+/**
+ * See comment for nsGenericElement::GetSCCIndex
+ */
+nsIDOMGCParticipant*
+nsGenericDOMDataNode::GetSCCIndex()
+{
+  // This is an optimized way of walking nsIDOMNode::GetParentNode to
+  // the top of the tree.
+  nsIDOMGCParticipant *result = GetCurrentDoc();
+  if (!result) {
+    nsIContent *top = this;
+    while (top->GetParent())
+      top = top->GetParent();
+    result = top;
+  }
+
+  return result;
+}
+
+void
+nsGenericDOMDataNode::AppendReachableList(nsCOMArray<nsIDOMGCParticipant>& aArray)
+{
+  NS_ASSERTION(GetCurrentDoc() == nsnull,
+               "shouldn't be an SCC index if we're in a doc");
+  NS_ASSERTION(GetOwnerDoc(), "no owner document");
+
+  // This node is the root of a subtree that's been removed from the
+  // document (since AppendReachableList is only called on SCC index
+  // nodes).  The document is reachable from it (through
+  // .ownerDocument), but it's not reachable from the document.
+  aArray.AppendObject(GetOwnerDoc());
+}
 
 nsresult
 nsGenericDOMDataNode::BindToTree(nsIDocument* aDocument, nsIContent* aParent,

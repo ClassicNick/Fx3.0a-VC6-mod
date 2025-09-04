@@ -1142,6 +1142,7 @@ nsXULDocument::AttributeChanged(nsIContent* aElement, PRInt32 aNameSpaceID,
         rv = aAttribute->ToString(attr);
         if (NS_FAILED(rv)) return;
 
+        // XXXldb This should check that it's a token, not just a substring.
         if (persist.Find(attr) >= 0) {
             rv = Persist(aElement, kNameSpaceID_None, aAttribute);
             if (NS_FAILED(rv)) return;
@@ -1618,6 +1619,34 @@ nsXULDocument::SetPopupNode(nsIDOMNode* aNode)
     NS_ENSURE_TRUE(focusController, NS_ERROR_FAILURE);
     // set popup node
     rv = focusController->SetPopupNode(aNode);
+
+    return rv;
+}
+
+NS_IMETHODIMP
+nsXULDocument::GetPopupEvent(nsIDOMEvent** aEvent)
+{
+    nsresult rv;
+
+    nsCOMPtr<nsIFocusController> focusController;
+    GetFocusController(getter_AddRefs(focusController));
+    NS_ENSURE_TRUE(focusController, NS_ERROR_FAILURE);
+
+    rv = focusController->GetPopupEvent(aEvent);
+
+    return rv;
+}
+
+NS_IMETHODIMP
+nsXULDocument::SetPopupEvent(nsIDOMEvent* aEvent)
+{
+    nsresult rv;
+
+    nsCOMPtr<nsIFocusController> focusController;
+    GetFocusController(getter_AddRefs(focusController));
+    NS_ENSURE_TRUE(focusController, NS_ERROR_FAILURE);
+
+    rv = focusController->SetPopupEvent(aEvent);
 
     return rv;
 }
@@ -2565,8 +2594,8 @@ nsXULDocument::LoadOverlay(const nsAString& aURL, nsIObserver* aObserver)
     }
     PRBool shouldReturn;
     rv = LoadOverlayInternal(uri, PR_TRUE, &shouldReturn);
-    if (NS_FAILED(rv))
-      mOverlayLoadObservers.Remove(uri); // remove the observer if LoadOverlayInternal generated an error
+    if (NS_FAILED(rv) && mOverlayLoadObservers.IsInitialized())
+        mOverlayLoadObservers.Remove(uri); // remove the observer if LoadOverlayInternal generated an error
     return rv;
 }
 
@@ -2691,6 +2720,10 @@ nsXULDocument::LoadOverlayInternal(nsIURI* aURI, PRBool aIsDynamic, PRBool* aSho
         nsCOMPtr<nsILoadGroup> group = do_QueryReferent(mDocumentLoadGroup);
         rv = NS_OpenURI(listener, nsnull, aURI, nsnull, group);
         if (NS_FAILED(rv)) {
+            // The parser won't get an OnStartRequest and
+            // OnStopRequest, so it needs a Terminate.
+            parser->Terminate();
+
             // Just move on to the next overlay.  NS_OpenURI could fail
             // just because a channel could not be opened, which can happen
             // if a file or chrome package does not exist.
@@ -3030,6 +3063,10 @@ nsXULDocument::ResumeWalk()
             nsCOMPtr<nsILoadGroup> group = do_QueryReferent(mDocumentLoadGroup);
             rv = NS_OpenURI(listener, nsnull, uri, nsnull, group);
             if (NS_FAILED(rv)) {
+                // The parser won't get an OnStartRequest and
+                // OnStopRequest, so it needs a Terminate.
+                parser->Terminate();
+
                 // Just move on to the next overlay.  NS_OpenURI could fail
                 // just because a channel could not be opened, which can happen
                 // if a file or chrome package does not exist.

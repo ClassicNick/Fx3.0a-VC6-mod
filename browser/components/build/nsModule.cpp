@@ -46,6 +46,8 @@
 #include "nsAnnotationService.h"
 #include "nsNavHistory.h"
 #include "nsNavBookmarks.h"
+#include "nsFaviconService.h"
+#include "nsLivemarkService.h"
 #endif
 #ifdef XP_WIN
 #include "nsWindowsShellService.h"
@@ -78,9 +80,11 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsBookmarksService, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsForwardProxyDataSource, Init)
 #ifdef MOZ_PLACES
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsNavHistory, Init)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsAnnoProtocolHandler);
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsAnnoProtocolHandler)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsAnnotationService, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsNavBookmarks, Init)
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsFaviconService, Init)
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsLivemarkService, Init)
 #endif
 #ifdef XP_WIN
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsWindowsShellService)
@@ -126,17 +130,17 @@ static const nsModuleComponentInfo components[] =
 
 #if defined(MOZ_PLACES)
   { "Browser Navigation History",
-    NS_NAVHISTORY_CID,
-    NS_NAVHISTORY_CONTRACTID,
+    NS_NAVHISTORYSERVICE_CID,
+    NS_NAVHISTORYSERVICE_CONTRACTID,
     nsNavHistoryConstructor },
 
   { "Browser Navigation History",
-    NS_NAVHISTORY_CID,
+    NS_NAVHISTORYSERVICE_CID,
     "@mozilla.org/browser/global-history;2",
     nsNavHistoryConstructor },
 
   { "Browser Navigation History",
-    NS_NAVHISTORY_CID,
+    NS_NAVHISTORYSERVICE_CID,
     "@mozilla.org/autocomplete/search;1?name=history",
     nsNavHistoryConstructor },
 
@@ -154,6 +158,16 @@ static const nsModuleComponentInfo components[] =
     NS_NAVBOOKMARKSSERVICE_CID,
     NS_NAVBOOKMARKSSERVICE_CONTRACTID,
     nsNavBookmarksConstructor },
+
+  { "Favicon Service",
+    NS_FAVICONSERVICE_CID,
+    NS_FAVICONSERVICE_CONTRACTID,
+    nsFaviconServiceConstructor },
+
+  { "Livemark Service",
+    NS_LIVEMARKSERVICE_CID,
+    NS_LIVEMARKSERVICE_CONTRACTID,
+    nsLivemarkServiceConstructor },
 #endif
 
   { "Bookmarks",

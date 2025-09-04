@@ -65,6 +65,7 @@ static nsresult ParseQueryTimeString(const nsCString& aString,
 #define QUERYKEY_SORT "sort"
 #define QUERYKEY_RESULT_TYPE "type"
 #define QUERYKEY_EXPAND_PLACES "expandplaces"
+#define QUERYKEY_FORCE_ORIGINAL_TITLE "originalTitle"
 
 inline void AppendAmpersandIfNonempty(nsACString& aString)
 {
@@ -147,7 +148,7 @@ nsNavHistory::QueriesToQueryString(nsINavHistoryQuery **aQueries,
   nsCOMPtr<nsNavHistoryQueryOptions> options = do_QueryInterface(aOptions);
   NS_ENSURE_TRUE(options, NS_ERROR_INVALID_ARG);
 
-  aQueryString.Truncate(0);
+  aQueryString.AssignLiteral("place:");
   for (PRUint32 queryIndex = 0; queryIndex < aQueryCount;  queryIndex ++) {
     nsINavHistoryQuery* query = aQueries[queryIndex];
     if (queryIndex > 0) {
@@ -295,6 +296,13 @@ nsNavHistory::QueriesToQueryString(nsINavHistoryQuery **aQueries,
     AppendInt32(aQueryString, options->ResultType());
   }
 
+  // title mode
+  if (options->ForceOriginalTitle()) {
+    AppendAmpersandIfNonempty(aQueryString);
+    aQueryString += NS_LITERAL_CSTRING(QUERYKEY_FORCE_ORIGINAL_TITLE);
+    aQueryString.AppendLiteral("=1");
+  }
+
   return NS_OK;
 }
 
@@ -314,7 +322,7 @@ public:
   //    Special case: if aKeyBegin == aEquals, then there is only one string
   //    and no equal sign, so we treat the entire thing as a key with no value
 
-  QueryKeyValuePair(const nsCString& aSource, PRInt32 aKeyBegin,
+  QueryKeyValuePair(const nsCSubstring& aSource, PRInt32 aKeyBegin,
                     PRInt32 aEquals, PRInt32 aPastEnd)
   {
     if (aEquals == aKeyBegin)
@@ -346,11 +354,18 @@ FreeTokenList(nsVoidArray* aTokens)
 nsresult
 TokenizeQueryString(const nsACString& aQuery, nsVoidArray* aTokens)
 {
-  nsCString query(aQuery);
+  // Strip off the "place:" prefix
+  const PRUint32 prefixlen = 6; // = strlen("place:");
+  nsCString query;
+  if (aQuery.Length() > prefixlen &&
+      Substring(aQuery, 0, prefixlen).EqualsLiteral("place:"))
+    query = Substring(aQuery, prefixlen);
+  else
+    query = aQuery;
 
   PRInt32 keyFirstIndex = 0;
   PRInt32 equalsIndex = 0;
-  for (PRUint32 i = 0; i < aQuery.Length(); i ++) {
+  for (PRUint32 i = 0; i < query.Length(); i ++) {
     if (query[i] == '&') {
       // new clause, save last one
       if (i - keyFirstIndex > 1) {
@@ -587,6 +602,17 @@ nsNavHistory::TokensToQueries(const nsVoidArray& aTokens,
         aOptions->SetExpandPlaces(expand);
       } else {
         NS_WARNING("Invalid value for expandplaces");
+      }
+
+    } else if (kvp->key.EqualsLiteral(QUERYKEY_FORCE_ORIGINAL_TITLE)) {
+
+      // force original title
+      PRBool forceOriginal;
+      rv = ParseQueryBooleanString(kvp->value, &forceOriginal);
+      if (NS_SUCCEEDED(rv)) {
+        aOptions->SetForceOriginalTitle(forceOriginal);
+      } else {
+        NS_WARNING("Invalid value for forceOriginal");
       }
 
     } else {

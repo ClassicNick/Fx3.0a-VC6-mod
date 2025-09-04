@@ -69,19 +69,21 @@ my $showbugcounts = (defined $cgi->param('showbugcounts'));
 #
 
 unless ($product_name) {
-
-    my @products = Bugzilla::Product::get_all_products();
-
+    $vars->{'products'} = $user->get_selectable_products;
     $vars->{'showbugcounts'} = $showbugcounts;
-    $vars->{'products'} = \@products;
-    $template->process("admin/versions/select-product.html.tmpl",
-                       $vars)
-      || ThrowTemplateError($template->error());
 
+    $template->process("admin/versions/select-product.html.tmpl", $vars)
+      || ThrowTemplateError($template->error());
     exit;
 }
 
+# First make sure the product name is valid.
 my $product = Bugzilla::Product::check_product($product_name);
+
+# Then make sure the user is allowed to edit properties of this product.
+$user->can_see_product($product->name)
+  || ThrowUserError('product_access_denied', {product => $product->name});
+
 
 #
 # action='' -> Show nice list of versions
@@ -127,6 +129,9 @@ if ($action eq 'new') {
 
     # Cleanups and valididy checks
     $version_name || ThrowUserError('version_blank_name');
+
+    # Remove unprintable characters
+    $version_name = clean_text($version_name);
 
     my $version = new Bugzilla::Version($product->id, $version_name);
     if ($version) {
@@ -240,6 +245,10 @@ if ($action eq 'edit') {
 if ($action eq 'update') {
 
     $version_name || ThrowUserError('version_not_specified');
+
+    # Remove unprintable characters
+    $version_name = clean_text($version_name);
+
     my $version_old_name = trim($cgi->param('versionold') || '');
     my $version_old =
         Bugzilla::Version::check_version($product,

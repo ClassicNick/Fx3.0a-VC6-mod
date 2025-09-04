@@ -642,12 +642,37 @@ function onInputCompleteLine(e)
     }
 }
 
-function onNotifyTimeout ()
+function onNotifyTimeout()
 {
+    /* Workaround: bug 291386 - timers sometimes fire way too quickly.
+     * This catches us out, as it causes the notify code (this) and the who
+     * code (below) to fire continuously, which completely floods the
+     * sendQueue. We work around this for now by reporting the probable
+     * error condition here, but don't attempt to stop it.
+     */
+
     for (var n in client.networks)
     {
         var net = client.networks[n];
         if (net.isConnected()) {
+            // WORKAROUND BEGIN //
+            if (!("bug291386" in client) &&
+                (net.primServ.sendQueue.length >= 1000))
+            {
+                client.bug291386 = 10;
+                display(MSG_BUG291386_WARNING, MT_WARN);
+                window.getAttention();
+                return;
+            }
+            else if (("bug291386" in client) && (client.bug291386 > 0) &&
+                     (net.primServ.sendQueue.length >= (1000 * client.bug291386)))
+            {
+                client.bug291386++;
+                display(MSG_BUG291386_ERROR, MT_ERROR);
+                window.getAttention();
+                return;
+            }
+            // WORKAROUND END //
             if (net.prefs["notifyList"].length > 0) {
                 var isonList = client.networks[n].prefs["notifyList"];
                 net.primServ.sendData ("ISON " + isonList.join(" ") + "\n");
@@ -1256,6 +1281,12 @@ function my_263 (e)
     return true;
 }
 
+CIRCNetwork.prototype.isRunningList =
+function my_running_list()
+{
+    return (("_list" in this) && !this._list.done && !this._list.cancelled);
+}
+
 CIRCNetwork.prototype.list =
 function my_list(word, file)
 {
@@ -1308,6 +1339,27 @@ function my_list_init ()
     {
         const CHUNK_SIZE = 5;
         var list = network._list;
+        if (list.cancelled)
+        {
+            if (list.done)
+            {
+                /* The server is no longer throwing stuff at us, so now
+                 * we can safely kill the list.
+                 */
+                network.display(getMsg(MSG_LIST_END,
+                                       [list.displayed, list.count]));
+                delete network._list;
+            }
+            else
+            {
+                /* We cancelled the list, but we're still getting data.
+                 * Handle that data, but don't display, and do it more
+                 * slowly, so we cause less lag.
+                 */
+                setTimeout(outputList, 1000, network);
+            }
+            return;
+        }
         if (list.length > list.displayed)
         {
             var start = list.displayed;
@@ -1365,6 +1417,12 @@ function my_list_init ()
     this._list.endTimeout = setTimeout(checkEndList, 5000, this);
 }
 
+CIRCNetwork.prototype.abortList =
+function my_abortList()
+{
+    this._list.cancelled = true;
+}
+
 CIRCNetwork.prototype.on321 = /* LIST reply header */
 function my_321 (e)
 {
@@ -1397,6 +1455,13 @@ function my_listrply (e)
         this.listInit();
 
     ++this._list.count;
+
+    /* If the list has been cancelled, don't bother adding all this info
+     * anymore. Do increase the count (above), otherwise we never truly notice
+     * the list being finished.
+     */
+    if (this._list.cancelled)
+        return;
 
     var chanName = e.decodeParam(2);
     var topic = e.decodeParam(4);
@@ -1742,7 +1807,14 @@ function my_neterror (e)
         updateProgress();
     }
 
+
     this.display(msg, type);
+
+    if (this.deleteWhenDone)
+        this.dispatch("delete-view");
+
+    delete this.deleteWhenDone;
+
 }
 
 
@@ -1809,10 +1881,11 @@ function my_netdisconnect (e)
     {
         this.busy = false;
         updateProgress();
-
-        this.displayHere(msg, msgType);
+        if (this.state != NET_CANCELLING)
+            this.displayHere(msg, msgType);
     }
-    else
+    // Don't do anything if we're cancelling.
+    else if (this.state != NET_CANCELLING)
     {
         for (var v in client.viewsArray)
         {
@@ -2114,7 +2187,7 @@ function my_cjoin (e)
     if (userIsMe(e.user))
     {
         var params = [e.user.unicodeName, e.channel.unicodeName];
-        this.display(getMsg(MSG_YOU_JOINED, params), "JOIN", 
+        this.display(getMsg(MSG_YOU_JOINED, params), "JOIN",
                      e.server.me, this);
         if (client.globalHistory)
             client.globalHistory.addPage(this.getURL());
@@ -2193,10 +2266,10 @@ function my_cpart (e)
             /* redisplay the tree */
             client.rdf.setTreeRoot("user-list", this.getGraphResource());
 
-        if ("noDelete" in this)
-            delete this.noDelete;
-        else if (client.prefs["deleteOnPart"])
-            this.dispatch("delete");
+        if (this.deleteWhenDone)
+            this.dispatch("delete-view");
+
+        delete this.deleteWhenDone;
     }
     else
     {
@@ -2233,7 +2306,7 @@ function my_ckick (e)
         else
         {
             this.display (getMsg(MSG_YOURE_GONE,
-                                 [e.lamer.unicodeName, e.channel.unicodeName, 
+                                 [e.lamer.unicodeName, e.channel.unicodeName,
                                   MSG_SERVER, e.reason]),
                           "KICK", (void 0), this);
         }
@@ -2560,10 +2633,6 @@ function my_dccdisconnect(e)
 CIRCDCCFileTransfer.prototype.onInit =
 function my_dccfileinit(e)
 {
-    /* FIXME: we're currently 'borrowing' the client views' prefs until we have
-     * our own pref manager.
-     */
-    this.prefs = client.prefs;
     this.busy = false;
     this.progress = -1;
     updateProgress();

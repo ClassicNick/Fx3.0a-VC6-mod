@@ -133,6 +133,7 @@ bin\components\necko_socket.xpt
 bin\components\necko_viewsource.xpt
 bin\components\oji.xpt
 bin\components\passwordmgr.xpt
+bin\components\places.xpt
 bin\components\plugin.xpt
 bin\components\pref.xpt
 bin\components\prefetch.xpt
@@ -147,6 +148,7 @@ bin\components\search.xpt
 bin\components\shistory.xpt
 bin\components\sidebar.xpt
 bin\components\signonviewer.xpt
+bin\components\storage.xpt
 bin\components\toolkitprofile.xpt
 bin\components\txtsvc.xpt
 bin\components\txmgr.xpt
@@ -269,6 +271,13 @@ bin\gksvggdiplus.dll
 bin\res\svg.css
 bin\res\svg.properties
 bin\components\dom_svg.xpt
+
+; spellchecker (may not be present)
+bin\components\myspell.dll
+bin\components\spellchecker.xpt
+bin\components\spellchk.dll
+;; XXX these two files are bogus, they should not be in components\myspell...
+bin\components\myspell\*
 
 ; [Personal Security Manager]
 ;

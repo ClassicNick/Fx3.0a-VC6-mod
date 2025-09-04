@@ -89,6 +89,7 @@
 #include "nsSize.h"
 #include "mozFlushType.h"
 #include "prclist.h"
+#include "nsIDOMGCParticipant.h"
 
 #define DEFAULT_HOME_PAGE "www.mozilla.org"
 #define PREF_BROWSER_STARTUP_HOMEPAGE "browser.startup.homepage"
@@ -134,6 +135,7 @@ class nsGlobalWindow : public nsPIDOMWindow,
                        public nsIDOMJSWindow,
                        public nsIScriptObjectPrincipal,
                        public nsIDOMEventReceiver,
+                       public nsIDOMGCParticipant,
                        public nsIDOM3EventTarget,
                        public nsIDOMNSEventTarget,
                        public nsIDOMViewCSS,
@@ -153,17 +155,8 @@ public:
   // nsIScriptGlobalObject
   virtual void SetContext(nsIScriptContext *aContext);
   virtual nsIScriptContext *GetContext();
-  virtual nsresult SetNewDocument(nsIDOMDocument *aDocument,
-                                  nsISupports *aState,
-                                  PRBool aClearScopeHint);
-  virtual void SetDocShell(nsIDocShell* aDocShell);
-  virtual void SetOpenerWindow(nsIDOMWindowInternal *aOpener);
   virtual void SetGlobalObjectOwner(nsIScriptGlobalObjectOwner* aOwner);
   virtual nsIScriptGlobalObjectOwner *GetGlobalObjectOwner();
-  virtual nsresult HandleDOMEvent(nsPresContext* aPresContext,
-                                  nsEvent* aEvent, nsIDOMEvent** aDOMEvent,
-                                  PRUint32 aFlags,
-                                  nsEventStatus* aEventStatus);
   virtual JSObject *GetGlobalJSObject();
   virtual void OnFinalize(JSObject *aJSObject);
   virtual void SetScriptsEnabled(PRBool aEnabled, PRBool aFireTimeouts);
@@ -202,6 +195,10 @@ public:
   NS_IMETHOD HandleEvent(nsIDOMEvent *aEvent);
   NS_IMETHOD GetSystemEventGroup(nsIDOMEventGroup** aGroup);
 
+  // nsIDOMGCParticipant
+  virtual nsIDOMGCParticipant* GetSCCIndex();
+  virtual void AppendReachableList(nsCOMArray<nsIDOMGCParticipant>& aArray);
+
   // nsPIDOMWindow
   virtual NS_HIDDEN_(nsPIDOMWindow*) GetPrivateRoot();
   virtual NS_HIDDEN_(nsresult) GetObjectProperty(const PRUnichar* aProperty,
@@ -219,8 +216,18 @@ public:
 
   virtual NS_HIDDEN_(nsresult) SaveWindowState(nsISupports **aState);
   virtual NS_HIDDEN_(nsresult) RestoreWindowState(nsISupports *aState);
+  virtual NS_HIDDEN_(nsresult) ResumeTimeouts();
 
   virtual NS_HIDDEN_(PRBool) WouldReuseInnerWindow(nsIDocument *aNewDocument);
+  virtual NS_HIDDEN_(nsresult) HandleDOMEvent(nsPresContext* aPresContext,
+                                  nsEvent* aEvent, nsIDOMEvent** aDOMEvent,
+                                  PRUint32 aFlags,
+                                  nsEventStatus* aEventStatus);
+  virtual NS_HIDDEN_(void) SetDocShell(nsIDocShell* aDocShell);
+  virtual NS_HIDDEN_(nsresult) SetNewDocument(nsIDocument *aDocument,
+                                  nsISupports *aState,
+                                  PRBool aClearScopeHint);
+  virtual NS_HIDDEN_(void) SetOpenerWindow(nsIDOMWindowInternal *aOpener);
 
   // nsIDOMViewCSS
   NS_DECL_NSIDOMVIEWCSS
@@ -259,6 +266,11 @@ public:
     return NS_STATIC_CAST(nsGlobalWindow *, mInnerWindow);
   }
 
+  nsGlobalWindow *EnsureInnerWindowInternal()
+  {
+    return NS_STATIC_CAST(nsGlobalWindow *, EnsureInnerWindow());
+  }
+
   PRBool IsFrozen() const
   {
     return mIsFrozen;
@@ -277,7 +289,7 @@ protected:
 
   void FreeInnerObjects(JSContext *cx);
 
-  nsresult SetNewDocument(nsIDOMDocument *aDocument,
+  nsresult SetNewDocument(nsIDocument *aDocument,
                           nsISupports *aState,
                           PRBool aClearScopeHint,
                           PRBool aIsInternalCall);
@@ -383,7 +395,6 @@ protected:
   already_AddRefed<nsIWidget> GetMainWidget();
 
   void SuspendTimeouts();
-  virtual nsresult ResumeTimeouts();
 
   void Freeze()
   {

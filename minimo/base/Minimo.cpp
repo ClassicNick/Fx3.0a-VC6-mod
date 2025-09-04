@@ -525,7 +525,7 @@ typedef struct _library
 
 _library Libraries[] =
 {
-  {  L"nssckbi.dll",    NULL },
+  {  L"schannel.dll",    NULL },
   {  NULL, NULL },
 };
 
@@ -549,12 +549,12 @@ int main(int argc, char *argv[])
   gtk_set_locale();
   gtk_init(&argc, &argv);
 #endif
-  
-  CreateSplashScreen();
-  
+
 #ifdef HACKY_PRE_LOAD_LIBRARY
   LoadKnownLibs();
 #endif
+  
+  CreateSplashScreen();
   
 #ifdef _BUILD_STATIC_BIN
   NS_InitEmbedding(nsnull, nsnull, kPStaticModules, kStaticModuleCount);

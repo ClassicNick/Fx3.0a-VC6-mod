@@ -20,7 +20,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- * Benjamin Smedberg <benjamin@smedbergs.us>
+ *   Benjamin Smedberg <benjamin@smedbergs.us>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -47,7 +47,7 @@
 #include "nsCOMPtr.h"
 #include "nsString.h"
 
-#if defined(XP_UNIX) || defined(XP_OS2) || defined(XP_WIN)
+#if defined(XP_UNIX) || defined(XP_OS2) || defined(XP_WIN) || defined(XP_BEOS)
 #define USE_NC_EXTENSION
 #endif
 

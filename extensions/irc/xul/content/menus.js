@@ -387,8 +387,7 @@ function initMenus()
 
     var net          = "cx.network";
     var netAway      = "cx.network.prefs['away']";
-    var netAwayIsDef = "(cx.network.prefs['away'] == '" + MSG_AWAY_DEFAULT +
-                       "') and " + netAway;
+    var awayChecked = "cx.network and (cx.network.prefs.away == item.message)";
 
     client.menuSpecs["mainmenu:nickname"] = {
         label: client.prefs["nickname"],
@@ -399,9 +398,12 @@ function initMenus()
          ["nick"],
          ["-"],
          ["back", {type: "checkbox", checkedif: net + " and !" + netAway}],
-         ["away", {type: "checkbox", checkedif: net + " and " + netAwayIsDef}],
-         ["custom-away",
-                  {type: "checkbox", checkedif: net + " and !" + netAwayIsDef}]
+         ["away", {type: "checkbox",
+                     checkedif: awayChecked,
+                     repeatfor: "client.awayMsgs",
+                     repeatmap: "cx.reason = item.message" }],
+         ["-"],
+         ["custom-away"]
         ]
     };
 

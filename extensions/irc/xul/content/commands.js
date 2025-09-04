@@ -852,15 +852,27 @@ function cmdBan(e)
 function cmdCancel(e)
 {
     var network = e.network;
+    
+    if ((network.state == NET_ONLINE) && network.isRunningList())
+    {
+        // We're running a /list, terminate the output so we return to sanity
+        display(MSG_CANCELLING_LIST);
+        network.abortList();
+    }
+    else if ((network.state == NET_CONNECTING) || 
+             (network.state == NET_WAITING))
+    {
+        // We're trying to connect to a network, and want to cancel. Do so:
+        if (e.deleteWhenDone)
+            e.network.deleteWhenDone = true;
 
-    if ((network.state != NET_CONNECTING) && (network.state != NET_WAITING))
+        display(getMsg(MSG_CANCELLING, network.unicodeName));
+        network.cancel();
+    }
+    else
     {
         display(MSG_NOTHING_TO_CANCEL, MT_ERROR);
-        return;
     }
-
-    display(getMsg(MSG_CANCELLING, network.unicodeName));
-    network.cancel();
 }
 
 function cmdChanUserMode(e)
@@ -1476,9 +1488,18 @@ function cmdDeleteView(e)
         e.view = e.sourceObject;
 
     if (e.view.TYPE == "IRCChannel" && e.view.active)
-        e.view.part();
+    {
+        e.view.dispatch("part", { deleteWhenDone: true });
+        return;
+    }
     if (e.view.TYPE == "IRCDCCChat" && e.view.active)
         e.view.disconnect();
+    if (e.view.TYPE == "IRCNetwork" && (e.view.state == NET_CONNECTING || 
+                                        e.view.state == NET_WAITING))
+    {
+        e.view.dispatch("cancel", { deleteWhenDone: true });
+        return;
+    }
 
     if (client.viewsArray.length < 2)
     {
@@ -1650,7 +1671,7 @@ function cmdRejoin(e)
     {
         if (!e.reason)
             e.reason = "";
-        e.channel.dispatch("part", { reason: e.reason, noDelete: true });
+        e.channel.dispatch("part", { reason: e.reason, deleteWhenDone: false });
     }
 
     e.channel.join(e.channel.mode.key);
@@ -2185,8 +2206,11 @@ function cmdJoin(e)
         return chan;
     }
 
-    if (arrayIndexOf(e.server.channelTypes, e.channelName[0]) == -1)
+    if ((arrayIndexOf(["#", "&", "+", "!"], e.channelName[0]) == -1) &&
+        (arrayIndexOf(e.server.channelTypes, e.channelName[0]) == -1))
+    {
         e.channelName = e.server.channelTypes[0] + e.channelName;
+    }
 
     var charset = e.charset ? e.charset : e.network.prefs["charset"];
     e.channel = e.server.addChannel(e.channelName, charset);
@@ -2271,13 +2295,15 @@ function cmdLeave(e)
         }
     }
 
+    if (!("deleteWhenDone" in e))
+        e.deleteWhenDone = client.prefs["deleteOnPart"];
+
     /* If it's not active, we're not actually in it, even though the view is
      * still here.
      */
     if (e.channel.active)
     {
-        if (e.noDelete)
-            e.channel.noDelete = true;
+        e.channel.deleteWhenDone = e.deleteWhenDone;
 
         if (!e.reason)
             e.reason = "";
@@ -2287,8 +2313,8 @@ function cmdLeave(e)
     }
     else
     {
-        if (!e.noDelete && client.prefs["deleteOnPart"])
-            e.channel.dispatch("delete");
+        if (e.deleteWhenDone)
+            e.channel.dispatch("delete-view");
     }
 }
 
@@ -2562,6 +2588,38 @@ function cmdAway(e)
         // No parameter, or user entered nothing in the prompt.
         if (!e.reason)
             e.reason = MSG_AWAY_DEFAULT;
+
+        // Update away list (remove from current location).
+        for (var i = 0; i < client.awayMsgs.length; i++)
+        {
+            if (client.awayMsgs[i].message == e.reason)
+            {
+                client.awayMsgs.splice(i, 1);
+                break;
+            }
+        }
+        // Always put new item at start.
+        var newMsg = { message: e.reason };
+        client.awayMsgs.unshift(newMsg);
+        // Make sure we've not exceeded the limit set.
+        if (client.awayMsgs.length > client.awayMsgCount)
+            client.awayMsgs.splice(client.awayMsgCount);
+        // And now, to save the list!
+        try
+        {
+            var awayFile = new nsLocalFile(client.prefs["profilePath"]);
+            awayFile.append("awayMsgs.txt");
+            var awayLoader = new TextSerializer(awayFile);
+            if (awayLoader.open(">"))
+            {
+                awayLoader.serialize(client.awayMsgs);
+                awayLoader.close();
+            }
+        }
+        catch(ex)
+        {
+            display(getMsg(MSG_ERR_AWAY_SAVE, formatException(ex)), MT_ERROR);
+        }
 
         if (e.server)
         {

@@ -48,6 +48,7 @@
 #import "BookmarkManager.h"
 #import "AddBookmarkDialogController.h"
 #import "ProgressDlgController.h"
+#import "PageInfoWindowController.h"
 
 #import "BrowserContentViews.h"
 #import "BrowserWrapper.h"
@@ -150,6 +151,7 @@ public:
 
   BWCDataOwner()
   : mContextMenuFlags(0)
+  , mGotOnContextMenu(false)
   {
     mGlobalHistory = do_GetService("@mozilla.org/browser/global-history;2");
     mURIFixer      = do_GetService("@mozilla.org/docshell/urifixup;1");
@@ -161,6 +163,7 @@ public:
   int                           mContextMenuFlags;
   nsCOMPtr<nsIDOMEvent>         mContextMenuEvent;
   nsCOMPtr<nsIDOMNode>          mContextMenuNode;
+  bool                          mGotOnContextMenu;
 };
 
 
@@ -436,6 +439,7 @@ enum BWCOpenDest {
 - (void)bookmarkableTitle:(NSString **)outTitle URL:(NSString**)outURLString forWrapper:(BrowserWrapper*)inWrapper;
 
 - (void)clearContextMenuTarget;
+- (void)updateLock:(unsigned int)securityState;
 
 // create back/forward session history menus on toolbar button
 - (IBAction)backMenu:(id)inSender;
@@ -466,7 +470,6 @@ enum BWCOpenDest {
     mProgressSuperview = nil;
     mBookmarkToolbarItem = nil;
     mSidebarToolbarItem = nil;
-    mSavedTitle = nil;
   
     // register for services
     NSArray* sendTypes = [NSArray arrayWithObjects:NSStringPboardType, nil];
@@ -675,10 +678,6 @@ enum BWCOpenDest {
   // superclass dealloc takes care of our child NSView's, which include the 
   // BrowserWrappers and their child CHBrowserViews.
   
-  //if (mSidebarBrowserView)
-  //  [mSidebarBrowserView windowClosed];
-
-  [mSavedTitle release];
   [mProgress release];
   [mPopupBlocked release];
   [mSearchBar release];
@@ -1056,7 +1055,7 @@ enum BWCOpenDest {
 }
 
 // XXX use a dictionary to speed up the following?
-
+// Better to just read it from a plist.
 - (NSToolbarItem *) toolbar:(NSToolbar *)toolbar
       itemForItemIdentifier:(NSString *)itemIdent
   willBeInsertedIntoToolbar:(BOOL)willBeInserted
@@ -1270,7 +1269,7 @@ enum BWCOpenDest {
   }
   else if ([itemIdent isEqual:SendURLToolbarItemIdentifier]) {
     [toolbarItem setLabel:NSLocalizedString(@"SendLink", @"Send Link")];
-    [toolbarItem setPaletteLabel:NSLocalizedString(@"SendLink", @"Send Link")];
+    [toolbarItem setPaletteLabel:NSLocalizedString(@"SendLinkPaletteLabel", @"Email Page Location")];
     [toolbarItem setToolTip:NSLocalizedString(@"SendLinkToolTip", @"Send current URL")];
     [toolbarItem setImage:[NSImage imageNamed:@"sendLink.tif"]];
     [toolbarItem setTarget:self];
@@ -1376,7 +1375,7 @@ enum BWCOpenDest {
   
   if (action == @selector(fillForm:))
     return ![self bookmarkManagerIsVisible];
-  
+
   return YES;
 }
 
@@ -1405,6 +1404,9 @@ enum BWCOpenDest {
     else
       [[self window] makeFirstResponder:[mBrowserView getBrowserView]];
   }
+  
+  if ([[self window] isMainWindow])
+    [[PageInfoWindowController visiblePageInfoWindowController] updateFromBrowserView:[self activeBrowserView]];
 }
 
 - (void)setLoadingActive:(BOOL)active
@@ -1461,10 +1463,8 @@ enum BWCOpenDest {
   [mURLBar setURI:url];
   [mLocationSheetURLField setStringValue:url];
 
-  // don't call [window display] here, no matter how much you might want
-  // to, because it forces a redraw of every view in the window and with a lot
-  // of tabs, it's dog slow.
-  // [[self window] display];
+  if ([[self window] isMainWindow])
+    [[PageInfoWindowController visiblePageInfoWindowController] updateFromBrowserView:[self activeBrowserView]];
 }
 
 - (void)updateSiteIcons:(NSImage*)icon ignoreTyping:(BOOL)ignoreTyping
@@ -1501,6 +1501,8 @@ enum BWCOpenDest {
 {
   // update bookmarks menu
   [[NSApp delegate] delayedAdjustBookmarksMenuItemsEnabling];
+
+  // should we change page info for bookmarks?
 }
 
 - (void)updateFromFrontmostTab
@@ -2765,10 +2767,12 @@ enum BWCOpenDest {
   return mBrowserView;
 }
 
--(void)openNewWindowWithURL:(NSString*)aURLSpec referrer:(NSString*)aReferrer loadInBackground:(BOOL)aLoadInBG allowPopups:(BOOL)inAllowPopups
+// this should really be a class method
+-(BrowserWindowController*)openNewWindowWithURL:(NSString*)aURLSpec referrer:(NSString*)aReferrer loadInBackground:(BOOL)aLoadInBG allowPopups:(BOOL)inAllowPopups
 {
   BrowserWindowController* browser = [self openNewWindow:aLoadInBG];
-  [browser loadURL: aURLSpec referrer:aReferrer activate:!aLoadInBG allowPopups:inAllowPopups];
+  [browser loadURL:aURLSpec referrer:aReferrer activate:!aLoadInBG allowPopups:inAllowPopups];
+  return browser;
 }
 
 //
@@ -2776,6 +2780,8 @@ enum BWCOpenDest {
 //
 // open a new window, but doesn't load anything into it. Must be matched
 // with a call to do that.
+// 
+// this should really be a class method
 //
 - (BrowserWindowController*)openNewWindow:(BOOL)aLoadInBG
 {
@@ -2791,7 +2797,7 @@ enum BWCOpenDest {
     [browserWin setSuppressMakeKeyFront:NO];
   }
   else
-    [browser showWindow:self];
+    [browser showWindow:nil];
 
   return browser;
 }
@@ -2954,16 +2960,12 @@ enum BWCOpenDest {
   [[mBrowserView getBrowserView] smallerTextSize];
 }
 
-- (void)getInfo:(id)sender
+- (IBAction)getInfo:(id)sender
 {
-  BookmarkViewController* bookmarksController = [self bookmarkViewControllerForCurrentTab];
-  [bookmarksController ensureBookmarks];
-  [bookmarksController showBookmarkInfo:sender];
-}
-
-- (BOOL)canGetInfo
-{
-  return [self singleBookmarkIsSelected];
+  if ([self bookmarkManagerIsVisible])
+    [self showBookmarksInfo:sender];
+  else
+    [self showPageInfo:sender];
 }
 
 - (BOOL)shouldShowBookmarkToolbar
@@ -2983,6 +2985,7 @@ enum BWCOpenDest {
     mDataOwner->mContextMenuFlags = flags;
     mDataOwner->mContextMenuNode  = aNode;
     mDataOwner->mContextMenuEvent = aEvent;
+    mDataOwner->mGotOnContextMenu = true;
   }
   
   // There is no simple way of getting a callback when the context menu handling
@@ -3005,6 +3008,7 @@ enum BWCOpenDest {
     mDataOwner->mContextMenuFlags = 0;
     mDataOwner->mContextMenuNode  = nsnull;
     mDataOwner->mContextMenuEvent = nsnull;
+    mDataOwner->mGotOnContextMenu = false;
   }
 }
 
@@ -3096,6 +3100,9 @@ enum BWCOpenDest {
 
 - (NSMenu*)getContextMenu
 {
+  if (!mDataOwner->mGotOnContextMenu)
+    return nil;
+
   BOOL showFrameItems = NO;
   
   NSMenu* menuPrototype = nil;
@@ -3281,6 +3288,21 @@ enum BWCOpenDest {
   }  
 }
 
+- (IBAction)showPageInfo:(id)sender
+{
+  PageInfoWindowController* pageInfoController = [PageInfoWindowController sharedPageInfoWindowController];
+
+  [pageInfoController updateFromBrowserView:[[self getBrowserWrapper] getBrowserView]];
+  [[pageInfoController window] makeKeyAndOrderFront:nil];
+}
+
+- (IBAction)showBookmarksInfo:(id)sender
+{
+    BookmarkViewController* bookmarksController = [self bookmarkViewControllerForCurrentTab];
+    [bookmarksController ensureBookmarks];
+    [bookmarksController showBookmarkInfo:sender];
+}
+
 - (BookmarkToolbar*) bookmarkToolbar
 {
   return mPersonalToolbar;
@@ -3443,20 +3465,6 @@ enum BWCOpenDest {
   return sBrokenIcon;
 }
 
-// return the window's saved title
-- (NSString *)savedTitle
-{
-  return mSavedTitle;
-}
-
-// save the window title before showing
-// bookmark manager or History manager 
-- (void)setSavedTitle:(NSString *)aTitle
-{
-  [mSavedTitle autorelease];
-  mSavedTitle = [aTitle retain];
-}
-
 + (NSDictionary *)searchURLDictionary
 {
   static NSDictionary *searchURLDictionary = nil;
@@ -3534,6 +3542,11 @@ enum BWCOpenDest {
 - (BookmarkViewController *)bookmarkViewController
 {
   return [self bookmarkViewControllerForCurrentTab];
+}
+
+- (CHBrowserView*)activeBrowserView
+{
+  return [mBrowserView getBrowserView];
 }
 
 - (id)windowWillReturnFieldEditor:(NSWindow *)aWindow toObject:(id)anObject

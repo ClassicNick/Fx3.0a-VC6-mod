@@ -113,6 +113,8 @@ public:
 	// Utility method for implementing both Create(nsIWidget ...) and
 	// Create(nsNativeWidget...)
 
+	NS_IMETHOD          PreCreateWidget(nsWidgetInitData *aWidgetInitData);
+
 	virtual nsresult        StandardWindowCreate(nsIWidget *aParent,
 	                                             const nsRect &aRect,
 	                                             EVENT_CALLBACK aHandleEventFunction,
@@ -142,6 +144,7 @@ public:
 	                               PRInt32 aWidth,
 	                               PRInt32 aHeight,
 	                               PRBool   aRepaint);
+	NS_IMETHOD              SetModal(PRBool aModal);
 	NS_IMETHOD              Enable(PRBool aState);
 	NS_IMETHOD              IsEnabled(PRBool *aState);
 	NS_IMETHOD              SetFocus(PRBool aRaise);
@@ -214,20 +217,23 @@ protected:
 	void                    HideKids(PRBool state);
 
 
-	nsViewBeOS*      mView;
-	PRBool           mIsTopWidgetWindow;
 	nsCOMPtr<nsIWidget> mParent;
 	nsCOMPtr<nsIRegion> mUpdateArea;
-	PRBool           mIsMetaDown;
-	PRBool           mOnDestroyCalled;
-	PRBool           mIsVisible;
 	nsIFontMetrics*  mFontMetrics;
+
+	nsViewBeOS*      mView;
 	PRInt32          mPreferredWidth;
 	PRInt32          mPreferredHeight;
-	PRBool           mEnabled;
-	PRBool           mJustGotActivate;
-	PRBool           mJustGotDeactivate;	
-	PRBool           mIsScrolling;
+	window_feel      mBWindowFeel;
+
+	//Just for saving space we use packed bools.
+	PRPackedBool           mIsTopWidgetWindow;
+	PRPackedBool           mIsMetaDown;
+	PRPackedBool           mIsVisible;
+	PRPackedBool           mEnabled;
+	PRPackedBool           mIsScrolling;
+	PRPackedBool           mListenForResizes;
+	
 public:	// public on BeOS to allow BViews to access it
 	// Enumeration of the methods which are accessable on the "main GUI thread"
 	// via the CallMethod(...) mechanism...
@@ -240,7 +246,6 @@ public:	// public on BeOS to allow BViews to access it
 	    SET_FOCUS,
 	    GOT_FOCUS,
 	    KILL_FOCUS,
-	    SET_CURSOR,
 	    ONMOUSE,
 	    ONDROP,
 	    ONWHEEL,

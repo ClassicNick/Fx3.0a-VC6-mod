@@ -78,6 +78,7 @@
 #include "nsIAtom.h"
 #include "nsContentUtils.h"
 #include "jscntxt.h"
+#include "nsIDOMGCParticipant.h"
 
 // For locale aware string methods
 #include "plstr.h"
@@ -87,6 +88,7 @@
 #include "nsILocaleService.h"
 #include "nsICollation.h"
 #include "nsCollationCID.h"
+#include "nsDOMClassInfo.h"
 
 #ifdef NS_DEBUG
 #include "jsgc.h"       // for WAY_TOO_MUCH_GC, if defined for GC debugging
@@ -1990,9 +1992,6 @@ nsJSContext::InitClasses(JSObject *aGlobalObj)
   rv = InitializeLiveConnectClasses(aGlobalObj);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = nsDOMClassInfo::InitDOMJSClass(mContext, aGlobalObj);
-  NS_ENSURE_SUCCESS(rv, rv);
-
   // Initialize the options object and set default options in mContext
   JSObject *optionsObj = ::JS_DefineObject(mContext, aGlobalObj, "_options",
                                            &OptionsClass, nsnull, 0);
@@ -2145,12 +2144,10 @@ nsJSContext::ScriptExecuted()
   return NS_OK;
 }
 
-nsresult NS_DOMClassInfo_PreserveWrapper(nsIXPConnectWrappedNative *aWrapper);
-
 NS_IMETHODIMP
 nsJSContext::PreserveWrapper(nsIXPConnectWrappedNative *aWrapper)
 {
-  return NS_DOMClassInfo_PreserveWrapper(aWrapper);
+  return nsDOMClassInfo::PreserveNodeWrapper(aWrapper);
 }
 
 NS_IMETHODIMP
@@ -2169,12 +2166,14 @@ nsJSContext::Notify(nsITimer *timer)
 void
 nsJSContext::FireGCTimer()
 {
+  // Always clear the newborn roots.  If there's already a timer, this
+  // will let the GC from that timer clean up properly.  If we're going
+  // to create a timer, we still want to do this now so that XPCOM
+  // shutdown can clean up properly.
+  ::JS_ClearNewbornRoots(mContext);
+
   if (sGCTimer) {
-    // There's already a timer for GC'ing, just clear newborn roots
-    // and return
-
-    ::JS_ClearNewbornRoots(mContext);
-
+    // There's already a timer for GC'ing, just return
     return;
   }
 

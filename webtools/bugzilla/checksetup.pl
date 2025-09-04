@@ -1014,7 +1014,7 @@ if ($my_create_htaccess) {
     open HTACCESS, '>', '.htaccess';
     print HTACCESS <<'END';
 # don't allow people to retrieve non-cgi executable files or our private data
-<FilesMatch ^(.*\.pl|.*localconfig.*)$>
+<FilesMatch ^(.*\.pm|.*\.pl|.*localconfig.*)$>
   deny from all
 </FilesMatch>
 END
@@ -1028,7 +1028,15 @@ END
       $oldaccess .= $_;
     }
     close HTACCESS;
+    my $repaired = 0;
     if ($oldaccess =~ s/\|localconfig\|/\|.*localconfig.*\|/) {
+        $repaired = 1;
+    }
+    if ($oldaccess !~ /\(\.\*\\\.pm\|/) {
+        $oldaccess =~ s/\(/(.*\\.pm\|/;
+        $repaired = 1;
+    }
+    if ($repaired) {
       print "Repairing .htaccess...\n";
       open HTACCESS, '>', '.htaccess';
       print HTACCESS $oldaccess;
@@ -1254,6 +1262,8 @@ unless ($switch{'no_templates'}) {
 
         foreach my $dir (@files) {
             next if($dir =~ /^CVS$/i);
+            -d "$templatedir/$dir/custom" || -d "$templatedir/$dir/default"
+                || next;
             local $ENV{'HTTP_ACCEPT_LANGUAGE'} = $dir;
             SetParam("languages", "$dir,en");
             $::template = Bugzilla::Template->create(clean_cache => 1);
@@ -3200,10 +3210,9 @@ if ($dbh->bz_table_info("attachstatuses")
     print "Converting attachment statuses to flags...\n";
     
     # Get IDs for the old attachment status and new flag fields.
-    $sth = $dbh->prepare("SELECT fieldid FROM fielddefs " . 
-                         "WHERE name='attachstatusdefs.name'");
-    $sth->execute();
-    my $old_field_id = $sth->fetchrow_arrayref()->[0] || 0;
+    my ($old_field_id) = $dbh->selectrow_array(
+        "SELECT fieldid FROM fielddefs WHERE name='attachstatusdefs.name'")
+        || 0;
     
     $sth = $dbh->prepare("SELECT fieldid FROM fielddefs " . 
                          "WHERE name='flagtypes.name'");

@@ -107,6 +107,7 @@ COMPONENT_LIBS += \
 	pippki \
 	pipboot \
 	pipnss \
+	autoconfig \
 	$(NULL)
 
 ifeq ($(OS_ARCH),WINNT)
@@ -138,6 +139,7 @@ endif
 
 ifdef MOZ_ENABLE_GTK2
 COMPONENT_LIBS += widget_gtk2
+COMPONENT_LIBS += system-pref
 endif
 
 ifneq (,$(MOZ_ENABLE_GTK)$(MOZ_ENABLE_GTK2))
@@ -226,3 +228,18 @@ ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
 EXTRA_DSO_LIBS += macmorefiles_s
 EXTRA_DEPS += $(DIST)/lib/$(LIB_PREFIX)macmorefiles_s.$(LIB_SUFFIX)
 endif
+
+ifdef MOZ_JAVAXPCOM
+LOCAL_INCLUDES += \
+		-I$(topsrcdir)/extensions/java/xpcom/src \
+		-I$(JAVA_INCLUDE_PATH) \
+		$(NULL)
+ifeq ($(OS_ARCH),WINNT)
+CPPSRCS += dlldeps-javaxpcom.cpp
+LOCAL_INCLUDES += -I$(JAVA_INCLUDE_PATH)/win32
+else
+LOCAL_INCLUDES += -I$(JAVA_INCLUDE_PATH)/linux
+endif
+STATIC_LIBS += javaxpcom
+endif
+

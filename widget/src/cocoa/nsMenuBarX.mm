@@ -1,40 +1,40 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
-* Version: MPL 1.1/GPL 2.0/LGPL 2.1
-*
-* The contents of this file are subject to the Mozilla Public License Version
-* 1.1 (the "License"); you may not use this file except in compliance with
-* the License. You may obtain a copy of the License at
-* http://www.mozilla.org/MPL/
-*
-* Software distributed under the License is distributed on an "AS IS" basis,
-* WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-* for the specific language governing rights and limitations under the
-* License.
-*
-* The Original Code is mozilla.org code.
-*
-* The Initial Developer of the Original Code is
-* Netscape Communications Corporation.
-* Portions created by the Initial Developer are Copyright (C) 1998
-* the Initial Developer. All Rights Reserved.
-*
-* Contributor(s):
-*   Josh Aas <josh@mozilla.com>
-*
-* Alternatively, the contents of this file may be used under the terms of
-* either the GNU General Public License Version 2 or later (the "GPL"), or
-* the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-* in which case the provisions of the GPL or the LGPL are applicable instead
-* of those above. If you wish to allow use of your version of this file only
-* under the terms of either the GPL or the LGPL, and not to allow others to
-* use your version of this file under the terms of the MPL, indicate your
-* decision by deleting the provisions above and replace them with the notice
-* and other provisions required by the GPL or the LGPL. If you do not delete
-* the provisions above, a recipient may use your version of this file under
-* the terms of any one of the MPL, the GPL or the LGPL.
-*
-* ***** END LICENSE BLOCK ***** */
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+ *
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
+ *
+ * The Original Code is mozilla.org code.
+ *
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
+ * the Initial Developer. All Rights Reserved.
+ *
+ * Contributor(s):
+ *   Josh Aas <josh@mozilla.com>
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 #include "nsCOMPtr.h"
 #include "nsIServiceManager.h"
@@ -105,12 +105,11 @@ nsMenuBarX::MenuItemSelected(const nsMenuEvent &aMenuEvent)
   // Dispatch menu event
   nsEventStatus eventStatus = nsEventStatus_eIgnore;
   
-  PRUint32 numItems;
-  mMenusArray.Count(&numItems);
+  PRUint32 numItems = mMenusArray.Count();
   
   for (PRUint32 i = numItems; i > 0; i--) {
-    nsCOMPtr<nsISupports>     menuSupports = getter_AddRefs(mMenusArray.ElementAt(i - 1));
-    nsCOMPtr<nsIMenuListener> menuListener = do_QueryInterface(menuSupports);
+    nsCOMPtr<nsIMenu> menu                 = mMenusArray.ObjectAt(i - 1);
+    nsCOMPtr<nsIMenuListener> menuListener = do_QueryInterface(menu);
     if (menuListener) {
       eventStatus = menuListener->MenuItemSelected(aMenuEvent);
       if (nsEventStatus_eIgnore != eventStatus)
@@ -136,11 +135,10 @@ nsMenuBarX::MenuSelected(const nsMenuEvent &aMenuEvent)
       return eventStatus;
   }
   else {
-    PRUint32  numItems;
-    mMenusArray.Count(&numItems);
+    PRUint32 numItems = mMenusArray.Count();
     for (PRUint32 i = numItems; i > 0; i--) {
-      nsCOMPtr<nsISupports>     menuSupports = getter_AddRefs(mMenusArray.ElementAt(i - 1));
-      nsCOMPtr<nsIMenuListener> thisListener = do_QueryInterface(menuSupports);
+      nsCOMPtr<nsIMenu> menu                 = mMenusArray.ObjectAt(i - 1);
+      nsCOMPtr<nsIMenuListener> thisListener = do_QueryInterface(menu);
       if (thisListener) {
         //TODO: MenuSelected is the right thing to call...
         //eventStatus = menuListener->MenuSelected(aMenuEvent);
@@ -493,26 +491,21 @@ NS_IMETHODIMP nsMenuBarX::SetParent(nsIWidget *aParent)
 
 NS_IMETHODIMP nsMenuBarX::AddMenu(nsIMenu * aMenu)
 {
-  // keep track of all added menus.
-  mMenusArray.AppendElement(aMenu); // owner
+  // keep track of all added menus
+  mMenusArray.AppendObject(aMenu); // owner
   
-  if (mNumMenus == 0) {
-    // if application menu hasn't been created, create it.
+  // if no menus have been added yet, add a menu item as a placeholder for
+  // the application menu (the NSMenu of which gets swapped in on Paint())
+  if (mNumMenus == 0) {    
+    [mRootMenu insertItem:[[[NSMenuItem alloc] initWithTitle:@"AppMenu" action:NULL keyEquivalent:@""] autorelease] atIndex:mNumMenus];
+    mNumMenus++;
+    
+    // if we haven't generated an application menu yet, then we can use this
+    // nsIMenu to create one
     if (!sApplicationMenu) {
       nsresult rv = NS_OK; // avoid warning about rv being unused
       rv = CreateApplicationMenu(aMenu);
       NS_ASSERTION(NS_SUCCEEDED(rv), "Can't create Application menu");
-    }
-    
-    // add shared Application menu to our menubar
-    if (sApplicationMenu) {
-      [mRootMenu insertItem:[[[NSMenuItem alloc] initWithTitle:@"AppMenu" action:NULL keyEquivalent:@""] autorelease] atIndex:mNumMenus];
-      // an NSMenu can't have multiple supermenus, so we clone the shared menu and insert the clone.
-      // this is actually a bad solution since we want any mods to the application menu to affect all
-      // application menus. Really we should unhook the application menu when we switch menu bars.
-      [[mRootMenu itemAtIndex:0] setSubmenu:[sApplicationMenu copy]]; //XXXJOSH memory leak?
-      // |mNumMenus| is incremented so the following menu won't overwrite the application menu by reusing the ID.
-      mNumMenus++;
     }
   }
 
@@ -593,10 +586,11 @@ NS_IMETHODIMP nsMenuBarX::GetMenuCount(PRUint32 &aCount)
 NS_IMETHODIMP nsMenuBarX::GetMenuAt(const PRUint32 aCount, nsIMenu *& aMenu)
 { 
   aMenu = NULL;
-  nsCOMPtr<nsISupports> supports = getter_AddRefs(mMenusArray.ElementAt(aCount));
-  if (!supports) return NS_OK;
+  nsCOMPtr<nsIMenu> menu = mMenusArray.ObjectAt(aCount);
+  if (!menu)
+    return NS_OK;
   
-  return CallQueryInterface(supports, &aMenu); // addref
+  return CallQueryInterface(menu, &aMenu); // addref
 }
 
 //-------------------------------------------------------------------------
@@ -608,7 +602,7 @@ NS_IMETHODIMP nsMenuBarX::InsertMenuAt(const PRUint32 aCount, nsIMenu *& aMenu)
 //-------------------------------------------------------------------------
 NS_IMETHODIMP nsMenuBarX::RemoveMenu(const PRUint32 aCount)
 {
-  mMenusArray.RemoveElementAt(aCount);
+  mMenusArray.RemoveObjectAt(aCount);
   [mRootMenu removeItemAtIndex:aCount];
   return NS_OK;
 }
@@ -634,7 +628,23 @@ NS_IMETHODIMP nsMenuBarX::SetNativeData(void* aData)
 
 //-------------------------------------------------------------------------
 NS_IMETHODIMP nsMenuBarX::Paint()
-{  
+{
+  // swap in the shared Application menu
+  // if application menu hasn't been created, create it.
+  if (sApplicationMenu) {
+    // an NSMenu can't have multiple supermenus, so when we paint a menu bar we unhook the
+    // application menu from its current supermenu and hook it up to this menu bar's
+    // application menu item. This way all changes to the application menu perist across
+    // all instances of nsMenuBarX. We could assume 0 for indexOfItemWithSubmenu, but lets
+    // be safe... If the algorithm for that starts looking at 0 it will still be fast.
+    NSMenu* supermenu = [sApplicationMenu supermenu];
+    if (supermenu) {
+      int supermenuItemIndex = [supermenu indexOfItemWithSubmenu:sApplicationMenu];
+      [[supermenu itemAtIndex:supermenuItemIndex] setSubmenu:nil];
+    }
+    [[mRootMenu itemAtIndex:0] setSubmenu:sApplicationMenu];
+  }
+  
   [NSApp setMainMenu:mRootMenu];  
   return NS_OK;
 }
@@ -904,4 +914,17 @@ MenuHelpersX::DispatchCommandTo(nsIWeakReference* aDocShellWeakRef,
                                    NS_EVENT_FLAG_INIT, &status);
   
   return status;
+}
+
+NSString* MenuHelpersX::CreateTruncatedCocoaLabel(nsString itemLabel)
+{
+  // ::TruncateThemeText() doesn't take the number of characters to truncate to, it takes a pixel with
+  // to fit the string in. Ugh. I talked it over with sfraser and we couldn't come up with an 
+  // easy way to compute what this should be given the system font, etc, so we're just going
+  // to hard code it to something reasonable and bigger fonts will just have to deal.
+  const short kMaxItemPixelWidth = 300;
+  CFMutableStringRef labelRef = ::CFStringCreateMutable(kCFAllocatorDefault, itemLabel.Length());
+  ::CFStringAppendCharacters(labelRef, (UniChar*)itemLabel.get(), itemLabel.Length());
+  ::TruncateThemeText(labelRef, kThemeMenuItemFont, kThemeStateActive, kMaxItemPixelWidth, truncMiddle, NULL);
+  return (NSString*)labelRef; // caller releases
 }

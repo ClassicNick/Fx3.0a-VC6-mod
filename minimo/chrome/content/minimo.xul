@@ -97,11 +97,13 @@
     <command id="cmd_BrowserZoomMinus"        oncommand="BrowserResetZoomMinus()" />
     <command id="cmd_UIZoomPlus"              oncommand="BrowserUIResetZoomPlus()" />
     <command id="cmd_UIZoomMinus"             oncommand="BrowserUIResetZoomMinus()" />
-    <command id="cmd_DoPanelPreferences"       oncommand="DoPanelPreferences()" /> 
+    <command id="cmd_DoPanelPreferences"      oncommand="DoPanelPreferences()" /> 
     <command id="cmd_DoBrowserRSS"            oncommand="DoBrowserRSS()" />
     <command id="cmd_BrowserMenu"             oncommand="BrowserMenuPopup()" />
     <command id="cmd_BrowserMenuContextual"   oncommand="BrowserMenuPopupContextualMenu()" />
     <command id="cmd_Quit"                    oncommand="window.close();" />
+    <command id="cmd_BrowserBookmark"         oncommand="BrowserBookmark()" />
+    <command id="cmd_BrowserBookmarkThis"     oncommand="BrowserBookmarkThis()" />
 
     <!-- Keyboard Focus Handler Controls --> 
     <!-- This entire focusnavigation set is not XBLized yet, 
@@ -123,23 +125,25 @@
 
     <toolbar id="nav-bar" >
     
-        <toolbarbutton tabindex="1" accessrule="focus_nav-bar"  id="menu-button" accesskey="m" command="cmd_BrowserMenu" />  
-        <toolbarbutton tabindex="2" accessrule="focus_nav-bar"  id="back-button" command="cmd_BrowserBack" />  
-        <toolbarbutton tabindex="3" accessrule="focus_nav-bar"  id="forward-button" command="cmd_BrowserForward" />  
-        <toolbarbutton tabindex="4" accessrule="focus_nav-bar"  id="reload-stop-button" class="reload-button" command="cmd_BrowserReload"/>
+        <toolbarbutton tabindex="1" accessrule="focus_nav-bar" class="menu-button"  id="menu-button" accesskey="m" command="cmd_BrowserMenu" />  
+        <toolbarbutton tabindex="2" accessrule="focus_nav-bar" class="back-button"  id="back-button" command="cmd_BrowserBack" />  
+        <toolbarbutton tabindex="3" accessrule="focus_nav-bar" class="forward-button" id="forward-button" command="cmd_BrowserForward" />  
+        <toolbarbutton tabindex="4" accessrule="focus_nav-bar" class="stop-button"  id="reload-stop-button" command="cmd_BrowserReload"/>
 
         <textbox tabindex="5" 
                  id="urlbar" 
-                 flex="100%" 
+                 flex="1" 
                  type="autocomplete"
                  enablehistory="true"
                  autocompletesearch="history" 
                  completeselectedindex="true"
                  autocompletepopup="PopupAutoComplete"
-                 onfocus="URLBarFocusHandler();"
-                 ontextentered="return URLBarEntered();">
+                 ontextentered="return URLBarEntered();"
+                 onfocus="URLBarFocusHandler(event, this);"
+                 onmousedown="URLBarMouseDownHandler(event, this);"
+                 onclick="URLBarClickHandler(event, this);">
 				
-			<deck id='proxy-deck'>
+			<deck onclick="PageProxyClickHandler(event)" id='proxy-deck' >
 				<image id="urlbar-deck"  />  
 			</deck>
 			
@@ -202,6 +206,9 @@
 		<menuitem id="item-forwardbutton" label="&forwardButton.label;" command="cmd_BrowserForward"  hidden="true"/>
 		<menuitem id="item-reloadbutton"  label="&reloadButton.label;"  command="cmd_BrowserReload"   hidden="true"/>
 
+        <menuitem id="item-bookmark-page" label="&bookmarkthispage.label;" insertbefore="context-sep-view"  command="cmd_BrowserBookmarkThis" hidden="false"/>
+        <menuitem id="item-bookmark"      label="&bookmarks.label;" command="cmd_BrowserBookmark" hidden="true"/>
+        
 		<menuitem id="item-call"   label="" insertbefore="context-sep-view" oncommand="" hidden="true"/>
 
 		<menuitem id="full_screen" label="Toggle FullScreen" oncommand="DoFullScreen()"/>
@@ -210,6 +217,11 @@
 		<menuitem id="item-paste"  label="Paste" oncommand="DoClipPaste()"/>
        
 	</popup>
+
+      <popup id="urlbarModeSelector" onpopuphidden="PageProxyHidden()">
+		<menuitem id="command_ViewDeckSearch"  type="checkbox" label="&decksearch.label;"  command="cmd_ViewDeckSearch"/>
+		<menuitem id="command_ViewDeckSB"  type="checkbox"  label="&decksb.label;"  command="cmd_ViewDeckSB" />
+      </popup>
 	
 	 <!-- somehow tabbedbrowser needs this. Have to check its implementation and eliminate --> 
 	 <popup id="menu_FilePopup"> 
@@ -225,9 +237,6 @@
 -->
         <menuitem id="command_DoPanelPreferences" command="cmd_DoPanelPreferences" label="&prefs.label;"  /> 
         <!-- separator for now in CSS - need to redesign -->
-
-        <menuitem id="command_ViewDeckSB"    class="separator-menu"    type="checkbox" command="cmd_ViewDeckSB"     label="&decksb.label;"  /> 
-        <menuitem id="command_ViewDeckSearch"  type="checkbox" command="cmd_ViewDeckSearch" label="&decksearch.label;"  /> 
 
         <menuitem id="command_ViewOptions" type="checkbox" command="cmd_ViewOptions" label="&zoom.label;"  /> 
         <menuitem id="command_ViewFind"    type="checkbox" command="cmd_ViewFind" label="&findToolbar.label;"  /> 

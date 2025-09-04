@@ -152,6 +152,7 @@
 #include "nsIFocusController.h"
 #include "nsIPluginInstance.h"
 #include "nsIObjectFrame.h"
+#include "nsIObjectLoadingContent.h"
 #include "nsNetUtil.h"
 
 // Drag & Drop, Clipboard
@@ -1853,10 +1854,17 @@ PresShell::Destroy()
   // Let the style set do its cleanup.
   mStyleSet->Shutdown(mPresContext);
 
-  // We hold a reference to the pres context, and it holds a weak link back
-  // to us. To avoid the pres context having a dangling reference, set its 
-  // pres shell to NULL
   if (mPresContext) {
+    // Clear out the prescontext's property table -- since our frame tree is
+    // now dead, we shouldn't be looking up any more properties in that table.
+    // We want to do this before we call SetShell() on the prescontext, so
+    // property destructors can usefully call GetPresShell() on the
+    // prescontext.
+    mPresContext->PropertyTable()->DeleteAllProperties();
+
+    // We hold a reference to the pres context, and it holds a weak link back
+    // to us. To avoid the pres context having a dangling reference, set its 
+    // pres shell to NULL
     mPresContext->SetShell(nsnull);
 
     // Clear the link handler (weak reference) as well
@@ -6185,15 +6193,6 @@ StopPluginInstance(PresShell *aShell, nsIContent *aContent)
   if (!objectFrame)
     return;
 
-  nsCOMPtr<nsIPluginInstance> instance;
-  objectFrame->GetPluginInstance(*getter_AddRefs(instance));
-  if (!instance)
-    return;
-
-  // Note on the frame that it used to have a plugin instance, since
-  // we're about to make said instance go away
-  frame->SetProperty(nsLayoutAtoms::objectFrame, NS_INT32_TO_PTR(1));
-
   objectFrame->StopPlugin();
 }
 
@@ -6229,20 +6228,10 @@ PresShell::Freeze()
 static void
 StartPluginInstance(PresShell *aShell, nsIContent *aContent)
 {
-  // For now we just reconstruct the frame, but only if the element
-  // had a plugin instance before we stopped it.  Other types of
-  // embedded content (eg SVG) become unhappy if we do a frame
-  // reconstruct here.
-  nsIFrame *frame = aShell->GetPrimaryFrameFor(aContent);
-  if (frame) {
-    nsIObjectFrame *objFrame = nsnull;
-    CallQueryInterface(frame, &objFrame);
-    if (objFrame && frame->GetProperty(nsLayoutAtoms::objectFrame)) {
-      // Note: no need to remove the property here, since we're about
-      // to blow away the frame
-      aShell->RecreateFramesFor(aContent);
-    }
-  }
+  nsCOMPtr<nsIObjectLoadingContent> objlc(do_QueryInterface(aContent));
+  NS_ASSERTION(objlc, "Object nodes must implement nsIObjectLoadingContent");
+  nsCOMPtr<nsIPluginInstance> inst;
+  objlc->EnsureInstantiation(getter_AddRefs(inst));
 }
 
 PR_STATIC_CALLBACK(PRBool)

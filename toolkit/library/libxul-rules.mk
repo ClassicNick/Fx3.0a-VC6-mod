@@ -84,3 +84,11 @@ dlldeps.cpp: $(topsrcdir)/xpcom/build/dlldeps.cpp
 
 dlldeps-obs.cpp: $(topsrcdir)/xpcom/obsolete/dlldeps-obs.cpp
 	$(INSTALL) $^ .
+
+ifdef MOZ_JAVAXPCOM
+export:: dlldeps-javaxpcom.cpp
+
+dlldeps-javaxpcom.cpp: $(topsrcdir)/extensions/java/xpcom/src/dlldeps-javaxpcom.cpp
+	$(INSTALL) $^ .
+endif
+

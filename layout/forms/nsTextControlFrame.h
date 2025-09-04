@@ -92,10 +92,6 @@ public:
   virtual nsIFrame* GetFrameForPoint(const nsPoint&    aPoint,
                                      nsFramePaintLayer aWhichLayer);
 
-  NS_IMETHOD HandleEvent(nsPresContext* aPresContext,
-                         nsGUIEvent* aEvent,
-                         nsEventStatus* aEventStatus);
-
   NS_IMETHOD GetPrefSize(nsBoxLayoutState& aBoxLayoutState, nsSize& aSize);
   NS_IMETHOD GetMinSize(nsBoxLayoutState& aBoxLayoutState, nsSize& aSize);
   NS_IMETHOD GetMaxSize(nsBoxLayoutState& aBoxLayoutState, nsSize& aSize);
@@ -130,22 +126,9 @@ public:
                                   nsIFrame*       aChildList);
 
 //==== BEGIN NSIFORMCONTROLFRAME
-  NS_IMETHOD_(PRInt32) GetFormControlType() const; //*
-  NS_IMETHOD GetName(nsAString* aName);//*
   virtual void SetFocus(PRBool aOn , PRBool aRepaint); 
-  virtual void ScrollIntoView(nsPresContext* aPresContext);
-  virtual nscoord GetVerticalInsidePadding(nsPresContext* aPresContext,
-                                           float aPixToTwip,
-                                           nscoord aInnerHeight) const;
-  virtual nscoord GetHorizontalInsidePadding(nsPresContext* aPresContext,
-                                             float aPixToTwip, 
-                                             nscoord aInnerWidth,
-                                             nscoord aCharWidth) const;/**/
-  NS_IMETHOD SetSuggestedSize(nscoord aWidth, nscoord aHeight);
-  NS_IMETHOD GetFormContent(nsIContent*& aContent) const;
-  NS_IMETHOD SetProperty(nsPresContext* aPresContext, nsIAtom* aName, const nsAString& aValue);
-  NS_IMETHOD GetProperty(nsIAtom* aName, nsAString& aValue); 
-  NS_IMETHOD OnContentReset();
+  virtual nsresult SetFormProperty(nsIAtom* aName, const nsAString& aValue);
+  virtual nsresult GetFormProperty(nsIAtom* aName, nsAString& aValue) const; 
 
 
 //==== END NSIFORMCONTROLFRAME
@@ -154,7 +137,7 @@ public:
 
   NS_IMETHOD    GetEditor(nsIEditor **aEditor);
   NS_IMETHOD    OwnsValue(PRBool* aOwnsValue);
-  NS_IMETHOD    GetValue(nsAString& aValue, PRBool aIgnoreWrap);
+  NS_IMETHOD    GetValue(nsAString& aValue, PRBool aIgnoreWrap) const;
   NS_IMETHOD    GetTextLength(PRInt32* aTextLength);
   NS_IMETHOD    CheckFireOnChange();
   NS_IMETHOD    SetSelectionStart(PRInt32 aSelectionStart);
@@ -212,7 +195,6 @@ public: //for methods who access nsTextControlFrame directly
   static NS_HIDDEN_(void) ShutDown();
 
 protected:
-
   /**
    * Find out whether this control is scrollable (i.e. if it is not a single
    * line text control)
@@ -290,13 +272,14 @@ private:
   nsresult SelectAllContents();
   nsresult SetSelectionEndPoints(PRInt32 aSelStart, PRInt32 aSelEnd);
   
+  void SetEnableRealTimeSpell(PRBool aEnabled);
+  void SyncRealTimeSpell();
+
 private:
   nsCOMPtr<nsIEditor> mEditor;
   nsCOMPtr<nsISelectionController> mSelCon;
 
   //cached sizes and states
-  nscoord      mSuggestedWidth;
-  nscoord      mSuggestedHeight;
   nsSize       mSize;
 
   // these packed bools could instead use the high order bits on mState, saving 4 bytes 

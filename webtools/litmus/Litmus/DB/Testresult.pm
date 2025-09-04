@@ -44,7 +44,7 @@ our $_num_results_default = 15;
 
 Litmus::DB::Testresult->table('test_results');
 
-Litmus::DB::Testresult->columns(All => qw/testresult_id test_id last_updated submission_time user_id platform_id opsys_id branch_id buildid user_agent result_id build_type_id machine_name exit_status_id duration_ms talkback_id validity_id vetting_status_id/);
+Litmus::DB::Testresult->columns(All => qw/testresult_id test_id last_updated submission_time user_id platform_id opsys_id branch_id buildid user_agent result_id build_type_id machine_name exit_status_id duration_ms talkback_id validity_id vetting_status_id locale_abbrev/);
 
 Litmus::DB::Testresult->column_alias("testresult_id", "testresultid");
 Litmus::DB::Testresult->column_alias("test_id", "testid");
@@ -59,6 +59,7 @@ Litmus::DB::Testresult->column_alias("build_type_id", "build_type");
 Litmus::DB::Testresult->column_alias("exit_status_id", "exit_status");
 Litmus::DB::Testresult->column_alias("validity_id", "validity");
 Litmus::DB::Testresult->column_alias("vetting_status_id", "vetting_status");
+Litmus::DB::Testresult->column_alias("locale_abbrev", "locale");
 
 Litmus::DB::Testresult->has_a(platform => "Litmus::DB::Platform");
 Litmus::DB::Testresult->has_a(opsys => "Litmus::DB::Opsys");
@@ -71,6 +72,7 @@ Litmus::DB::Testresult->has_a(build_type => "Litmus::DB::BuildType");
 Litmus::DB::Testresult->has_a(exit_status => "Litmus::DB::ExitStatus");
 Litmus::DB::Testresult->has_a(validity => "Litmus::DB::Validity");
 Litmus::DB::Testresult->has_a(vetting_status => "Litmus::DB::VettingStatus");
+Litmus::DB::Testresult->has_a(locale => "Litmus::DB::Locale");
 
 Litmus::DB::Testresult->has_many("logs" => "Litmus::DB::Log", {order_by => 'submission_time'});
 Litmus::DB::Testresult->has_many(comments => "Litmus::DB::Comment", {order_by => 'comment_id ASC, submission_time ASC'});
@@ -185,6 +187,8 @@ sub getTestResults($\@\@$) {
     foreach my $criterion (@$where_criteria) {
         if ($criterion->{'field'} eq 'branch') {
             $where .= " AND b.name='" . $criterion->{'value'} . "'";
+        } elsif ($criterion->{'field'} eq 'locale') {
+            $where .= " AND tr.locale_abbrev='" . $criterion->{'value'} . "'";
         } elsif ($criterion->{'field'} eq 'product') {
             $where .= " AND pr.name='" . $criterion->{'value'} . "'";
         } elsif ($criterion->{'field'} eq 'platform') {
@@ -226,7 +230,7 @@ sub getTestResults($\@\@$) {
             $where .= " AND tr.submission_time>=$timestamp";
 
         } elsif ($criterion->{'field'} eq 'search_field') {
-            my $rv = &_processSearchField($criterion,\$from,\$where);
+            ($from,$where) = &_processSearchField($criterion,$from,$where);
         } else {
             # Skip unknown field
         }
@@ -253,6 +257,8 @@ sub getTestResults($\@\@$) {
             $order_by .= "trsl.class_name $criterion->{'direction'},";
         } elsif ($criterion->{'field'} eq 'branch') {
             $order_by .= "b.name $criterion->{'direction'},";
+        } elsif ($criterion->{'field'} eq 'locale') {
+            $order_by .= "tr.locale_abbrev $criterion->{'direction'},";
         } else {
             # Skip unknown field
         }
@@ -281,17 +287,19 @@ sub getTestResults($\@\@$) {
 }
 
 #########################################################################
-# &_processSearchField(\%)
+# &_processSearchField(\%\$\$)
 # 
 ######################################################################### 
 sub _processSearchField(\%) {
     my ($search_field,$from,$where) = @_;
-    
+ 
     my $table_field = "";
     if ($search_field->{'search_field'} eq 'buildid') {
         $table_field='tr.build_id';
     } elsif ($search_field->{'search_field'} eq 'comments') {
         $table_field='c.comment';        
+    } elsif ($search_field->{'search_field'} eq 'locale') {
+        $table_field='tr.locale_abbrev';        
     } elsif ($search_field->{'search_field'} eq 'opsys') {
         $table_field='o.name';
     } elsif ($search_field->{'search_field'} eq 'platform') {
@@ -317,7 +325,7 @@ sub _processSearchField(\%) {
     } elsif ($search_field->{'search_field'} eq 'user_agent') {
         $table_field='tr.user_agent';        
     } else {
-        return undef;
+        return ($from,$where);
     }
 
     if ($search_field->{'match_criteria'} eq 'contains_all' or
@@ -359,11 +367,11 @@ sub _processSearchField(\%) {
     } elsif ($search_field->{'match_criteria'} eq 'not_regexp') {        
         $where .= " AND $table_field NOT REGEXP '" . $search_field->{'value'} . "'";        
     } else {
-        # Ignore unknown match criteria.
-        return undef;
+      # Ignore unknown match criteria.
+      return ($from,$where);
     }
 
-    return 0;
+    return ($from,$where);
 }
 
 #########################################################################

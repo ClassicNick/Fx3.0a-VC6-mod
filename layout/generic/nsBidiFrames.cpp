@@ -68,13 +68,6 @@ nsDirectionalFrame::GetType() const
   return nsLayoutAtoms::directionalFrame; 
 }
   
-const nsIID&
-nsDirectionalFrame::GetIID()
-{
-  static nsIID iid = NS_DIRECTIONAL_FRAME_IID;
-  return iid;
-}
-
 NS_IMETHODIMP
 nsDirectionalFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
 {
@@ -90,20 +83,10 @@ nsDirectionalFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
   return rv;
 }
 
-void*
-nsDirectionalFrame::operator new(size_t aSize) CPP_THROW_NEW
-{
-  void* frame = ::operator new(aSize);
-  if (frame) {
-    memset(frame, 0, aSize);
-  }
-  return frame;
-}
-
 nsIFrame*
 NS_NewDirectionalFrame(nsIPresShell* aPresShell, PRUnichar aChar)
 {
-  return new nsDirectionalFrame(aChar);
+  return new (aPresShell) nsDirectionalFrame(aChar);
 }
 
 #endif /* IBMBIDI */

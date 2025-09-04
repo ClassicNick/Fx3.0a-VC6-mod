@@ -37,7 +37,7 @@ use base 'Litmus::DBI';
 
 Litmus::DB::Product->table('products');
 
-Litmus::DB::Product->columns(All => qw/product_id name iconpath/);
+Litmus::DB::Product->columns(All => qw/product_id name iconpath enabled/);
 
 Litmus::DB::Product->column_alias("product_id", "productid");
 

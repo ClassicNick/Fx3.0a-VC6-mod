@@ -1146,6 +1146,14 @@ obj_eval(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
         return JS_TRUE;
     }
 
+    /*
+     * If the caller is a lightweight function and doesn't have a variables
+     * object, then we need to provide one for the compiler to stick any
+     * declared (var) variables into.
+     */
+    if (caller && !caller->varobj && !js_GetCallObject(cx, caller, NULL))
+        return JS_FALSE;
+
 #if JS_HAS_SCRIPT_OBJECT
     /*
      * Script.prototype.compile/exec and Object.prototype.eval all take an
@@ -2532,7 +2540,7 @@ bad:
 
 /*
  * Given pc pointing after a property accessing bytecode, return true if the
- * access is a "object-detecting" in the sense used by web pages, e.g., when
+ * access is "object-detecting" in the sense used by web scripts, e.g., when
  * checking whether document.all is defined.
  */
 static JSBool
@@ -2565,7 +2573,7 @@ Detecting(JSContext *cx, jsbytecode *pc)
         /*
          * Special case #2: handle (document.all == undefined).  Don't worry
          * about someone redefining undefined, which was added by Edition 3,
-         * so was read/write for backward compatibility.
+         * so is read/write for backward compatibility.
          */
         if (op == JSOP_NAME) {
             atom = GET_ATOM(cx, script, pc);
@@ -3017,25 +3025,24 @@ js_SetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
         if ((attrs & JSPROP_READONLY) ||
             (SCOPE_IS_SEALED(scope) && pobj == obj)) {
             JS_UNLOCK_SCOPE(cx, scope);
+
+            /*
+             * Here, we'll either return true or goto read_only_error, which
+             * reports a strict warning or throws an error.  So we redefine
+             * the |flags| local variable to be JSREPORT_* flags to pass to
+             * JS_ReportErrorFlagsAndNumberUC at label read_only_error.  We
+             * must likewise re-task flags further below for the other 'goto
+             * read_only_error;' case.
+             */
+            flags = JSREPORT_ERROR;
             if ((attrs & JSPROP_READONLY) && JS_VERSION_IS_ECMA(cx)) {
-                if (JS_HAS_STRICT_OPTION(cx)) {
-                    /* Strict mode: report a read-only warning. */
-                    JSString *str =
-                        js_DecompileValueGenerator(cx, JSDVG_IGNORE_STACK,
-                                                   ID_TO_VALUE(id),
-                                                   NULL);
-                    if (!str)
-                        return JS_FALSE;
-                    return JS_ReportErrorFlagsAndNumberUC(cx,
-                                                      JSREPORT_STRICT |
-                                                      JSREPORT_WARNING,
-                                                      js_GetErrorMessage,
-                                                      NULL,
-                                                      JSMSG_READ_ONLY,
-                                                      JS_GetStringChars(str));
+                if (!JS_HAS_STRICT_OPTION(cx)) {
+                    /* Just return true per ECMA if not in strict mode. */
+                    return JS_TRUE;
                 }
-                /* Just return true per ECMA if not in strict mode. */
-                return JS_TRUE;
+
+                /* Strict mode: report a read-only strict warning. */
+                flags = JSREPORT_STRICT | JSREPORT_WARNING;
             }
             goto read_only_error;
         }
@@ -3083,8 +3090,10 @@ js_SetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
     }
 
     if (!sprop) {
-        if (SCOPE_IS_SEALED(OBJ_SCOPE(obj)) && OBJ_SCOPE(obj)->object == obj)
+        if (SCOPE_IS_SEALED(OBJ_SCOPE(obj)) && OBJ_SCOPE(obj)->object == obj) {
+            flags = JSREPORT_ERROR;
             goto read_only_error;
+        }
 
         /* Find or make a property descriptor with the right heritage. */
         JS_LOCK_OBJ(cx, obj);
@@ -3158,12 +3167,11 @@ js_SetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
                                                JSDVG_IGNORE_STACK,
                                                ID_TO_VALUE(id),
                                                NULL);
-    if (str) {
-        JS_ReportErrorNumberUC(cx, js_GetErrorMessage, NULL,
-                               JSMSG_READ_ONLY,
-                               JS_GetStringChars(str));
-    }
-    return JS_FALSE;
+    if (!str)
+        return JS_FALSE;
+    return JS_ReportErrorFlagsAndNumberUC(cx, flags, js_GetErrorMessage,
+                                          NULL, JSMSG_READ_ONLY,
+                                          JS_GetStringChars(str));
   }
 }
 

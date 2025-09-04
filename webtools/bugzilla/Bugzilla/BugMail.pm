@@ -591,7 +591,7 @@ sub sendMail {
         $newcomments =~ s/(Created an attachment \(id=([0-9]+)\))/$1\n --> \(${showattachurlbase}$2&action=view\)/g;
     }
 
-    $substs{"neworchanged"} = $isnew ? ' New: ' : '';
+    $substs{"neworchanged"} = $isnew ? 'New: ' : '';
     $substs{"to"} = $user->email;
     $substs{"cc"} = '';
     $substs{"bugid"} = $id;
@@ -650,6 +650,9 @@ sub MessageToMTA {
     }
 
     my @args;
+    if (Param("mail_delivery_method") eq "sendmail") {
+        push @args, "-i";
+    }
     if (Param("mail_delivery_method") eq "sendmail" && !Param("sendmailnow")) {
         push @args, "-ODeliveryMode=deferred";
     }

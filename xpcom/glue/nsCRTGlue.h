@@ -20,7 +20,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- * Benjamin Smedberg <benjamin@smedbergs.us>
+ *   Benjamin Smedberg <benjamin@smedbergs.us>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -54,7 +54,7 @@ NS_strspnp(const char *delims, const char *str);
 
 /**
  * Tokenize a string. This function is similar to the strtok function in the
- * C standard library, but it does use static variables to maintain state
+ * C standard library, but it does not use static variables to maintain state
  * and is therefore thread and reentrancy-safe.
  *
  * Any leading delimiters in str are skipped. Then the string is scanned

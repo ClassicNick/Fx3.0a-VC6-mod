@@ -137,11 +137,13 @@ private:
 
 public:
   // locals
+  WNDPROC GetPrevWindowProc();
   WNDPROC GetWindowProc();
   nsIEventQueueService *GetEventService();
   PluginWindowEvent * GetPluginWindowEvent(HWND aWnd, UINT aMsg, WPARAM aWParam, LPARAM aLParam);
 
 private:
+  WNDPROC mPrevWinProc;
   WNDPROC mPluginWinProc;
   nsCOMPtr<nsIEventQueueService> mEventService;
   PluginWindowEvent mPluginWindowEvent;
@@ -305,6 +307,16 @@ static LRESULT CALLBACK PluginWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
       }
     }
     break;
+
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS: {
+      // Make sure setfocus and killfocus get through
+      // even if they are eaten by the plugin
+      WNDPROC prevWndProc = win->GetPrevWindowProc();
+      if (prevWndProc)
+        ::CallWindowProc(prevWndProc, hWnd, msg, wParam, lParam);
+      break;
+    }
 #endif
   }
 
@@ -400,6 +412,7 @@ nsPluginNativeWindowWin::nsPluginNativeWindowWin() : nsPluginNativeWindow()
   width = 0; 
   height = 0; 
 
+  mPrevWinProc = NULL;
   mPluginWinProc = NULL;
   mPluginWindowEvent.SetIsAlloced(PR_FALSE);
   mPluginType = nsPluginType_Unknown;
@@ -416,6 +429,11 @@ nsPluginNativeWindowWin::~nsPluginNativeWindowWin()
       eventQueue->RevokeEvents(this);
     }
   }
+}
+
+WNDPROC nsPluginNativeWindowWin::GetPrevWindowProc()
+{
+  return mPrevWinProc;
 }
 
 WNDPROC nsPluginNativeWindowWin::GetWindowProc()
@@ -514,8 +532,17 @@ nsresult nsPluginNativeWindowWin::CallSetWindow(nsCOMPtr<nsIPluginInstance> &aPl
 
   // WINCE does not subclass windows.  See bug 300011 for the details.
 #ifndef WINCE
-  if (!aPluginInstance)
+  if (!aPluginInstance) {
     UndoSubclassAndAssociateWindow();
+    mPrevWinProc = NULL;
+  }
+
+  // We need WndProc before plug-ins do subclass in nsPluginNativeWindow::CallSetWindow.
+  if (aPluginInstance) {
+    WNDPROC currentWndProc = (WNDPROC)::GetWindowLong((HWND)window, GWL_WNDPROC);
+    if (currentWndProc != PluginWndProc)
+      mPrevWinProc = currentWndProc;
+  }
 #endif
 
   nsPluginNativeWindow::CallSetWindow(aPluginInstance);

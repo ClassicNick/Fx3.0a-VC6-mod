@@ -35,10 +35,14 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+const PREF_PLACES_GROUPING_GENERIC = "browser.places.grouping.generic";
+const PREF_PLACES_GROUPING_BOOKMARK = "browser.places.grouping.bookmark";
+
 var PlacesUIHook = {
   _tabbrowser: null,
   _topWindow: null,
   _placesURI: "chrome://browser/content/places/places.xul",
+  _bundle: null,
   
   init: function PUIH_init(placesList) {
     try {
@@ -58,6 +62,8 @@ var PlacesUIHook = {
     catch (e) { 
     }
     
+    this._bundle = document.getElementById("placeBundle");
+    
     // Stop the browser from handling certain types of events. 
     function onDragEvent(event) {
       event.stopPropagation();
@@ -65,6 +71,34 @@ var PlacesUIHook = {
     window.addEventListener("draggesture", onDragEvent, false);
     window.addEventListener("dragover", onDragEvent, false);
     window.addEventListener("dragdrop", onDragEvent, false);
+  },
+
+  _commands: ["Browser:SavePage", "Browser:SaveFrame", "Browser:SendLink", 
+              "cmd_pageSetup", "cmd_print", "cmd_printPreview", 
+              "cmd_findAgain", "cmd_switchTextDirection", "Browser:Stop",
+              "Browser:Reload", "viewTextZoomMenu", "pageStyleMenu", 
+              "charsetMenu", "View:PageSource", "View:FullScreen", 
+              "documentDirection-swap", "Browser:AddBookmarkAs", 
+              "Browser:ShowPlaces", "View:PageInfo", "cmd_toggleTaskbar"],
+  
+  /**
+   * Disable commands that are not relevant to the Places page, so that all 
+   * applicable UI becomes inactive. 
+   */
+  _disableCommands: function PUIH__disableCommands() {
+    for (var i = 0; i < this._commands.length; ++i)
+      this._topWindow.document.getElementById(this._commands[i]).
+        setAttribute("disabled", true);
+  },
+  
+  /**
+   * Enable commands that aren't updated automatically by the command updater
+   * when we switch away from the Places page. 
+   */
+  _enableCommands: function PUIH__enableCommands() {
+    for (var i = 0; i < this._commands.length; ++i)
+      this._topWindow.document.getElementById(this._commands[i]).
+        removeAttribute("disabled");
   },
   
   uninit: function PUIH_uninit() {
@@ -83,14 +117,29 @@ var PlacesUIHook = {
   _showPlacesUI: function PP__showPlacesUI() {
     this._tabbrowser.setAttribute("places", "true");
     var statusbar = this._topElement("status-bar");
-    this._oldStatusBarState = statusbar.hidden;
     statusbar.hidden = true;
+    this._disableCommands();
+    
+    var findItem = this._topWindow.document.getElementById("menu_find");
+    findItem.setAttribute("label", this._bundle.getString("findPlaceLabel"));
   },
 
   _hidePlacesUI: function PP__hidePlacesUI() {
     this._tabbrowser.removeAttribute("places");
+    
+    // Approaches that cache the value of the status bar before the Places page
+    // is loaded and the status bar hidden are unreliable. This is because the
+    // cached state can get confused when tabs are opened and switched to. Thus,
+    // always read the user's actual preferred value (held in the checked state
+    // of the menuitem, not what state the status bar was in "last" - because 
+    // "last" may not be a state we want to restore to. See bug 318820. 
+    var statusbarMenu = this._topWindow.document.getElementById("toggle_taskbar");
     var statusbar = this._topElement("status-bar");
-    statusbar.hidden = this._oldStatusBarState;
+    statusbar.hidden = statusbarMenu.getAttribute("checked") != "true";
+    this._enableCommands();
+
+    var findItem = this._topWindow.document.getElementById("menu_find");
+    findItem.setAttribute("label", this._bundle.getString("findPageLabel"));
   },
 };
 
@@ -105,17 +154,30 @@ var PlacesPage = {
     this._places.controllers.appendController(PlacesController);
     this._content.controllers.appendController(PlacesController);
     
-    this._places.supportedDropTypes = [TYPE_X_MOZ_PLACE_CONTAINER];
-    this._places.supportedDropOnTypes = [TYPE_X_MOZ_PLACE_CONTAINER, 
-                                         TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL];
-    this._content.supportedDropTypes = [TYPE_X_MOZ_PLACE_CONTAINER, 
-                                        TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL];
-    this._content.supportedDropOnTypes = this._content.supportedDropTypes;
-    this._places.filterOptions = [Ci.nsINavHistoryQuery.INCLUDE_QUERIES];
-    this._content.filterOptions = [Ci.nsINavHistoryQuery.INCLUDE_ITEMS + 
-                                   Ci.nsINavHistoryQuery.INCLUDE_QUERIES];
-    this._places.firstDropIndex = 2;
-    this._content.firstDropIndex = 0;
+    this._places.init(new ViewConfig([TYPE_X_MOZ_PLACE_CONTAINER],
+                                     ViewConfig.GENERIC_DROP_TYPES,
+                                     Ci.nsINavHistoryQuery.INCLUDE_QUERIES,
+                                     ViewConfig.GENERIC_FILTER_OPTIONS, 4));
+    this._content.init(new ViewConfig(ViewConfig.GENERIC_DROP_TYPES,
+                                      ViewConfig.GENERIC_DROP_TYPES,
+                                      ViewConfig.GENERIC_FILTER_OPTIONS, 0));
+                                      
+    PlacesController.groupableView = this._content;
+
+    var GroupingSerializer = {
+      serialize: function GS_serialize(raw) {
+        return raw.join(",");
+      },
+      deserialize: function GS_deserialize(str) {
+        return str === "" ? [] : str.split(",");
+      }
+    };
+    PlacesController.groupers.generic = 
+      new PrefHandler(PREF_PLACES_GROUPING_GENERIC, 
+        [Ci.nsINavHistoryQueryOptions.GROUP_BY_DOMAIN], GroupingSerializer);
+    PlacesController.groupers.bookmark = 
+      new PrefHandler(PREF_PLACES_GROUPING_BOOKMARK,
+        [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], GroupingSerializer);
     
     // Hook the browser UI
     PlacesUIHook.init(this._content);
@@ -141,6 +203,34 @@ var PlacesPage = {
     var searchFilter = document.getElementById("searchFilter");
     searchFilter.setAttribute("collection", collectionName);
   },
+  
+  /**
+   * A range has been selected from the calendar picker. Update the view
+   * to show only those results within the selected range. 
+   */
+  rangeSelected: function PP_rangeSelected() {
+    var result = this._content.getResult();
+    var queries = result.getQueries({ });
+    
+    var calendar = document.getElementById("historyCalendar");
+    var begin = calendar.beginrange.getTime();
+    var end = calendar.endrange.getTime();
+    if (begin == end) {
+      const DAY_MSEC = 86400000;
+      end = begin + DAY_MSEC;
+    }    
+    var newQueries = [];
+    for (var i = 0; i < queries.length; ++i) {
+      var query = queries[i].clone();
+      query.beginTime = begin * 1000;
+      query.endTime = end * 1000;
+      newQueries.push(query);
+    }
+    
+    this._content.load(newQueries, result.queryOptions);
+    
+    return true;
+  },
 
   applyFilter: function PP_applyFilter(filterString) {
     var searchFilter = document.getElementById("searchFilter");
@@ -161,7 +251,7 @@ var PlacesPage = {
       break;
     }
   },
-
+  
   /**
    * Called when a place folder is selected in the left pane.
    */
@@ -170,12 +260,60 @@ var PlacesPage = {
     if (!node || this._places.suppressSelection)
       return;
     var queries = node.getQueries({});
-    if (PlacesController.nodeIsFolder(node))
-      this._content.loadFolder(node.folderId);
-    else { // XXXben, this is risky, need to filter out TYPE_DAY/TYPE_HOST
-      var queries = node.getQueries({ });
-      this._content.load(queries, node.queryOptions);
+    var newQueries = [];
+    for (var i = 0; i < queries.length; ++i) {
+      var query = queries[i].clone();
+      query.itemTypes |= this._content.filterOptions;
+      newQueries.push(query);
     }
+    var newOptions = node.queryOptions.clone();
+
+    var groupings = PlacesController.groupers.generic.value;
+    var isBookmark = PlacesController.nodeIsFolder(node);
+    if (isBookmark)
+      groupings = PlacesController.groupers.bookmark.value;
+
+    newOptions.setGroupingMode(groupings, groupings.length);
+    this._content.load(newQueries, newOptions);
+  },
+  
+  /**
+   * Updates the calendar widget to show the range of dates selected in the
+   * current result. 
+   */
+  _updateCalendar: function PP__updateCalendar() {
+    // Make sure that by updating the calendar widget we don't fire selection
+    // events and cause the UI to infinitely reload.
+    var calendar = document.getElementById("historyCalendar");
+    calendar.suppressRangeEvents = true;
+
+    var result = this._content.getResult();
+    var queries = result.getQueries({ });
+    if (!queries.length)
+      return;
+    
+    // Query values are OR'ed together, so just use the first. 
+    var query = queries[0];
+    
+    const NOW = new Date();
+    var begin = Math.floor(query.beginTime / 1000);
+    var end = Math.floor(query.endTime / 1000);
+    if (query.beginTimeReference == Ci.nsINavHistoryQuery.TIME_RELATIVE_TODAY) {
+      if (query.beginTime == 0) {
+        var d = new Date();
+        d.setFullYear(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
+        d.setHours(0, 0, 0, 0);
+        begin += d.getTime();
+      }
+      else
+        begin += NOW.getTime();
+      end += NOW.getTime();
+    }
+    calendar.beginrange = new Date(begin);
+    calendar.endrange = new Date(end);
+    
+    // Allow user selection events once again. 
+    calendar.suppressRangeEvents = false;
   },
   
   /**
@@ -184,7 +322,7 @@ var PlacesPage = {
   onContentChanged: function PP_onContentChanged() {
     var panelID = "commands_history";
     var filterButtonID = "filterList_history";
-    var isBookmarks = PlacesController.nodeIsFolder(this._content.getResult());
+    var isBookmarks = this._content.isBookmarks;
     if (isBookmarks) {
       // if (query.annotation == "feed") {
       panelID = "commands_bookmark";
@@ -197,6 +335,10 @@ var PlacesPage = {
 
     // Hide the Calendar for Bookmark queries. 
     document.getElementById("historyCalendar").setAttribute("hidden", isBookmarks);
+    
+    // Update the calendar with the current date range, if applicable. 
+    if (!isBookmarks)
+      this._updateCalendar();
   },
 };
 

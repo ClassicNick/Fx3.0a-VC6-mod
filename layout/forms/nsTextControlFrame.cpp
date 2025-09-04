@@ -67,6 +67,7 @@
 #include "nsIScrollableFrame.h" //to turn off scroll bars
 #include "nsFormControlFrame.h" //for registering accesskeys
 #include "nsIDeviceContext.h" // to measure fonts
+#include "nsIInlineSpellChecker.h"
 
 #include "nsIContent.h"
 #include "nsIAtom.h"
@@ -131,6 +132,8 @@
 #endif // IBMBIDI
 
 #define DEFAULT_COLUMN_WIDTH 20
+
+#define PREF_DEFAULT_SPELLCHECK "layout.textarea.spellcheckDefault"
 
 #include "nsContentCID.h"
 static NS_DEFINE_IID(kRangeCID,     NS_RANGE_CID);
@@ -267,8 +270,7 @@ nsTextInputListener::NotifySelectionChanged(nsIDOMDocument* aDoc, nsISelection* 
                                 nsISelectionListener::KEYPRESS_REASON |
                                 nsISelectionListener::SELECTALL_REASON)))
   {
-    nsCOMPtr<nsIContent> content;
-    mFrame->GetFormContent(*getter_AddRefs(content));
+    nsIContent* content = mFrame->GetContent();
     if (content) 
     {
       nsCOMPtr<nsIDocument> doc = content->GetDocument();
@@ -594,8 +596,6 @@ public:
   NS_IMETHOD GetLimiter(nsIContent **aLimiterContent);
   NS_IMETHOD GetTableCellSelection(PRBool *aState);
   NS_IMETHOD GetFrameForNodeOffset(nsIContent *aNode, PRInt32 aOffset, HINT aHint, nsIFrame **aReturnFrame, PRInt32 *aReturnOffset);
-  NS_IMETHOD AdjustOffsetsFromStyle(nsIFrame *aFrame, PRBool *changeSelection,
-      nsIContent** outContent, PRInt32* outStartOffset, PRInt32* outEndOffset);
   NS_IMETHOD GetHint(nsIFrameSelection::HINT *aHint);
   NS_IMETHOD SetHint(nsIFrameSelection::HINT aHint);
   NS_IMETHOD SetScrollableView(nsIScrollableView *aScrollableView);
@@ -1145,13 +1145,6 @@ nsTextInputSelectionImpl::GetFrameForNodeOffset(nsIContent *aNode, PRInt32 aOffs
   return mFrameSelection->GetFrameForNodeOffset(aNode, aOffset, aHint,aReturnFrame,aReturnOffset);
 }
 
-NS_IMETHODIMP
-nsTextInputSelectionImpl::AdjustOffsetsFromStyle(nsIFrame *aFrame, PRBool *changeSelection,
-      nsIContent** outContent, PRInt32* outStartOffset, PRInt32* outEndOffset)
-{
-  return mFrameSelection->AdjustOffsetsFromStyle(aFrame, changeSelection, outContent, outStartOffset, outEndOffset);
-}
-
 NS_IMETHODIMP nsTextInputSelectionImpl::GetHint(nsIFrameSelection::HINT *aHint)
 {
   return mFrameSelection->GetHint(aHint);
@@ -1281,8 +1274,6 @@ nsTextControlFrame::nsTextControlFrame(nsIPresShell* aShell)
   mUseEditor = PR_FALSE;
   mIsProcessing = PR_FALSE;
   mNotifyOnInput = PR_TRUE;
-  mSuggestedWidth = NS_FORMSIZE_NOTSET;
-  mSuggestedHeight = NS_FORMSIZE_NOTSET;
   mScrollableView = nsnull;
   mDidPreDestroy = PR_FALSE;
 }
@@ -1455,8 +1446,12 @@ nsTextControlFrame::GetType() const
 // XXX: wouldn't it be nice to get this from the style context!
 PRBool nsTextControlFrame::IsSingleLineTextControl() const
 {
-  PRInt32 type = GetFormControlType();
-  return (type == NS_FORM_INPUT_TEXT) || (type == NS_FORM_INPUT_PASSWORD);
+  nsCOMPtr<nsIFormControl> formControl = do_QueryInterface(mContent);
+  if (formControl) {
+    PRInt32 type = formControl->GetType();
+    return (type == NS_FORM_INPUT_TEXT) || (type == NS_FORM_INPUT_PASSWORD);
+  }
+  return PR_FALSE;
 }
 
 PRBool nsTextControlFrame::IsTextArea() const
@@ -1473,7 +1468,8 @@ PRBool nsTextControlFrame::IsPlainTextControl() const
 
 PRBool nsTextControlFrame::IsPasswordTextControl() const
 {
-  return GetFormControlType() == NS_FORM_INPUT_PASSWORD;
+  nsCOMPtr<nsIFormControl> formControl = do_QueryInterface(mContent);
+  return formControl && formControl->GetType() == NS_FORM_INPUT_PASSWORD;
 }
 
 
@@ -1661,6 +1657,63 @@ nsTextControlFrame::CreateFrameFor(nsPresContext*   aPresContext,
   return NS_ERROR_FAILURE;
 }
 
+// nsTextControlFrame::SetEnableRealTimeSpell
+//
+//    This enables or disables the spellchecker based on the given flag. It
+//    will only create a spellcheck object if necessary.
+
+void
+nsTextControlFrame::SetEnableRealTimeSpell(PRBool aEnabled)
+{
+  nsresult rv = NS_OK;
+
+  NS_ASSERTION(!aEnabled || !IsPasswordTextControl(),
+               "don't enable real time spell for password controls");
+
+  // The editor will lazily create the spell checker object if it has not been
+  // created. We only want one created if we are turning it on, since not
+  // created implies there's no spell checking yet.
+  nsCOMPtr<nsIInlineSpellChecker> inlineSpellChecker;
+  rv = mEditor->GetInlineSpellChecker(aEnabled,
+                                      getter_AddRefs(inlineSpellChecker));
+
+  if (NS_SUCCEEDED(rv) && inlineSpellChecker) {
+    inlineSpellChecker->SetEnableRealTimeSpell(aEnabled);
+  }
+}
+
+// nsTextControlFrame::SyncRealTimeSpell
+//
+//    This function is called to update whether inline spell checking is enabled
+//    for the control. It is called on initialization and when things happen
+//    that might affect spellchecking (for example, if it gets enabled or
+//    disabled).
+//
+//    Multi-line text controls are spellchecked when the preference is set.
+//    Everything else (including read-only textareas) are not spellchecked by
+//    default.
+
+void
+nsTextControlFrame::SyncRealTimeSpell()
+{
+  PRBool readOnly = PR_FALSE;
+  if (mEditor) {
+    PRUint32 flags;
+    mEditor->GetFlags(&flags);
+    if (flags & nsIPlaintextEditor::eEditorReadonlyMask)
+      readOnly = PR_TRUE;
+  }
+
+  PRBool enable = PR_FALSE;
+  if (!readOnly && !IsSingleLineTextControl()) {
+    // multi-line text control: check the pref to see what the default should be
+    // GetBoolPref defaults the value to PR_FALSE is the pref is not set
+    enable = nsContentUtils::GetBoolPref(PREF_DEFAULT_SPELLCHECK);
+  }
+  SetEnableRealTimeSpell(enable);
+}
+
+
 nsresult
 nsTextControlFrame::InitEditor()
 {
@@ -1744,6 +1797,8 @@ nsTextControlFrame::InitEditor()
   NS_ENSURE_TRUE(transMgr, NS_ERROR_FAILURE);
 
   transMgr->SetMaxTransactionCount(DEFAULT_UNDO_CAP);
+
+  SyncRealTimeSpell();
 
   if (IsPasswordTextControl()) {
     // Disable undo for password textfields.  Note that we want to do this at
@@ -2190,20 +2245,7 @@ nsTextControlFrame::IsLeaf() const
   return PR_TRUE;
 }
 
-//IMPLEMENTING NS_IFORMCONTROLFRAME
-NS_IMETHODIMP
-nsTextControlFrame::GetName(nsAString* aResult)
-{
-  nsFormControlHelper::GetName(mContent, aResult);
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP_(PRInt32)
-nsTextControlFrame::GetFormControlType() const
-{
-  return nsFormControlHelper::GetType(mContent);
-}
 
 static PRBool
 IsFocusedContent(nsPresContext* aPresContext, nsIContent* aContent)
@@ -2214,7 +2256,8 @@ IsFocusedContent(nsPresContext* aPresContext, nsIContent* aContent)
   return focusedContent == aContent;
 }
 
-void    nsTextControlFrame::SetFocus(PRBool aOn, PRBool aRepaint)
+//IMPLEMENTING NS_IFORMCONTROLFRAME
+void nsTextControlFrame::SetFocus(PRBool aOn, PRBool aRepaint)
 {
   if (!aOn || !mSelCon)
     return;
@@ -2254,54 +2297,7 @@ void    nsTextControlFrame::SetFocus(PRBool aOn, PRBool aRepaint)
     docSel->RemoveAllRanges();
 }
 
-void    nsTextControlFrame::ScrollIntoView(nsPresContext* aPresContext)
-{
-  if (aPresContext) {
-    nsIPresShell *presShell = aPresContext->GetPresShell();
-    if (presShell) {
-      presShell->ScrollFrameIntoView(this,
-                   NS_PRESSHELL_SCROLL_IF_NOT_VISIBLE,NS_PRESSHELL_SCROLL_IF_NOT_VISIBLE);
-    }
-  }
-}
-
-nscoord 
-nsTextControlFrame::GetVerticalInsidePadding(nsPresContext* aPresContext,
-                                             float aPixToTwip, 
-                                             nscoord aInnerHeight) const
-{
-   return NSIntPixelsToTwips(0, aPixToTwip); 
-}
-
-
-//---------------------------------------------------------
-nscoord 
-nsTextControlFrame::GetHorizontalInsidePadding(nsPresContext* aPresContext,
-                                               float aPixToTwip, 
-                                               nscoord aInnerWidth,
-                                               nscoord aCharWidth) const
-{
-  return GetVerticalInsidePadding(aPresContext, aPixToTwip, aInnerWidth);
-}
-
-
-NS_IMETHODIMP 
-nsTextControlFrame::SetSuggestedSize(nscoord aWidth, nscoord aHeight)
-{
-  mSuggestedWidth = aWidth;
-  mSuggestedHeight = aHeight;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsTextControlFrame::GetFormContent(nsIContent*& aContent) const
-{
-  aContent = GetContent();
-  NS_IF_ADDREF(aContent);
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsTextControlFrame::SetProperty(nsPresContext* aPresContext, nsIAtom* aName, const nsAString& aValue)
+nsresult nsTextControlFrame::SetFormProperty(nsIAtom* aName, const nsAString& aValue)
 {
   if (!mIsProcessing)//some kind of lock.
   {
@@ -2333,8 +2329,8 @@ NS_IMETHODIMP nsTextControlFrame::SetProperty(nsPresContext* aPresContext, nsIAt
   return NS_OK;
 }      
 
-NS_IMETHODIMP
-nsTextControlFrame::GetProperty(nsIAtom* aName, nsAString& aValue)
+nsresult
+nsTextControlFrame::GetFormProperty(nsIAtom* aName, nsAString& aValue) const
 {
   // Return the value of the property from the widget it is not null.
   // If widget is null, assume the widget is GFX-rendered and return a member variable instead.
@@ -2811,6 +2807,7 @@ nsTextControlFrame::AttributeChanged(PRInt32         aNameSpaceID,
         mSelCon->SetCaretEnabled(PR_TRUE);
     }    
     mEditor->SetFlags(flags);
+    SyncRealTimeSpell();
   }
   else if (mEditor && nsHTMLAtoms::disabled == aAttribute) 
   {
@@ -2968,8 +2965,8 @@ nsresult
 nsTextControlFrame::FireOnChange()
 {
   // Dispatch th1e change event
-  nsCOMPtr<nsIContent> content;
-  if (NS_SUCCEEDED(GetFormContent(*getter_AddRefs(content))))
+  nsIContent* content = GetContent();
+  if (content)
   {
     nsEventStatus status = nsEventStatus_eIgnore;
     nsInputEvent event(PR_TRUE, NS_FORM_CHANGE, nsnull);
@@ -2988,7 +2985,7 @@ nsTextControlFrame::FireOnChange()
 //privates
 
 NS_IMETHODIMP
-nsTextControlFrame::GetValue(nsAString& aValue, PRBool aIgnoreWrap)
+nsTextControlFrame::GetValue(nsAString& aValue, PRBool aIgnoreWrap) const
 {
   aValue.Truncate();  // initialize out param
   nsresult rv = NS_OK;
@@ -3258,9 +3255,8 @@ nsTextControlFrame::GetWidthInCharacters() const
     }
   }
 
-  // otherwise, see if CSS has a width specified.  If so, work backwards to get the 
-  // number of characters this width represents.
- 
+  // XXX: otherwise, see if CSS has a width specified.  If so, work backwards
+  // to get the number of characters this width represents.
   
   // otherwise, the default is just returned.
   return DEFAULT_COLUMN_WIDTH;
@@ -3277,12 +3273,6 @@ nsTextControlFrame::IsScrollable() const
   return !IsSingleLineTextControl();
 }
 
-NS_IMETHODIMP
-nsTextControlFrame::OnContentReset()
-{
-  return NS_OK;
-}
-
 void
 nsTextControlFrame::SetValueChanged(PRBool aValueChanged)
 {
@@ -3290,22 +3280,6 @@ nsTextControlFrame::SetValueChanged(PRBool aValueChanged)
   if (elem) {
     elem->SetValueChanged(aValueChanged);
   }
-}
-
-NS_IMETHODIMP 
-nsTextControlFrame::HandleEvent(nsPresContext* aPresContext, 
-                                       nsGUIEvent*     aEvent,
-                                       nsEventStatus*  aEventStatus)
-{
-  NS_ENSURE_ARG_POINTER(aEventStatus);
-
-  // temp fix until Bug 124990 gets fixed
-  if (aPresContext->IsPaginated() && NS_IS_MOUSE_EVENT(aEvent)) {
-    return NS_OK;
-  }
-
-  return nsStackFrame::HandleEvent(aPresContext, aEvent, aEventStatus);
-    
 }
 
 /* static */ void

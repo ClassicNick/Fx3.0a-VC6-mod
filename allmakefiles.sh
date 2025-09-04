@@ -1356,6 +1356,17 @@ if [ "$MOZ_XMLEXTRAS" ]; then
 "
 fi
 
+if [ "$MOZ_JAVAXPCOM" ]; then
+    MAKEFILES_javaxpcom="
+        extensions/java/Makefile
+        extensions/java/xpcom/Makefile
+        extensions/java/xpcom/interfaces/Makefile
+        extensions/java/xpcom/src/Makefile
+        extensions/java/xpcom/glue/Makefile
+        extensions/java/xpcom/tools/genifaces/Makefile
+"
+fi
+
 # directory/xpcom
 if [ "$MOZ_LDAP_XPCOM" ]; then
     MAKEFILES_ldap="
@@ -1382,6 +1393,16 @@ if [ "$MOZ_STATIC_COMPONENTS" -o "$MOZ_META_COMPONENTS" ]; then
 	modules/staticmod/Makefile
 "
 fi
+fi
+
+if [ "$MOZ_PREF_EXTENSIONS" ]; then
+    MAKEFILES_extensions="$MAKEFILES_extensions
+        extensions/pref/Makefile
+        extensions/pref/autoconfig/Makefile
+        extensions/pref/autoconfig/public/Makefile
+        extensions/pref/autoconfig/src/Makefile
+        extensions/pref/autoconfig/resources/Makefile
+"
 fi
 
 for extension in $MOZ_EXTENSIONS; do
@@ -1420,13 +1441,6 @@ for extension in $MOZ_EXTENSIONS; do
         inspector ) MAKEFILES_extensions="$MAKEFILES_extensions
             $MAKEFILES_inspector"
             ;;
-        java ) MAKEFILES_extensions="$MAKEFILES_extensions
-            extensions/java/Makefile
-            extensions/java/xpcom/Makefile
-            extensions/java/xpcom/build/Makefile
-            extensions/java/xpcom/tests/Makefile
-            extensions/java/xpcom/tools/genifaces/Makefile
-            " ;;
         spatialnavigation ) MAKEFILES_extensions="$MAKEFILES_extensions
             $MAKEFILES_spatialnavigation"
             ;;
@@ -1445,13 +1459,6 @@ for extension in $MOZ_EXTENSIONS; do
             extensions/p3p/Makefile
             extensions/p3p/public/Makefile
             extensions/p3p/src/Makefile
-            " ;;
-        pref ) MAKEFILES_extensions="$MAKEFILES_extensions
-            extensions/pref/Makefile
-            extensions/pref/autoconfig/Makefile
-            extensions/pref/autoconfig/public/Makefile
-            extensions/pref/autoconfig/src/Makefile
-            extensions/pref/autoconfig/resources/Makefile
             " ;;
         reporter ) MAKEFILES_extensions="$MAKEFILES_extensions
             extensions/reporter/Makefile
@@ -1576,7 +1583,7 @@ $MAKEFILES_gfx
 $MAKEFILES_accessible
 $MAKEFILES_htmlparser
 $MAKEFILES_intl
-$MAKEFILES_java_supplement
+$MAKEFILES_javaxpcom
 $MAKEFILES_ldap
 $MAKEFILES_leaky
 $MAKEFILES_jpeg

@@ -43,7 +43,7 @@ const __cz_version   = "0.9.67+";
 const __cz_condition = "green";
 const __cz_suffix    = "";
 const __cz_guid      = "59c81df5-4b7a-477b-912d-4e0fdf64e5f2";
-const __cz_locale    = "0.9.67.2";
+const __cz_locale    = "0.9.67.5";
 
 var warn;
 var ASSERT;
@@ -116,6 +116,8 @@ client.inputHistory = new Array();
 client.lastHistoryReferenced = -1;
 client.incompleteLine = "";
 client.lastTabUp = new Date();
+client.awayMsgs = new Array();
+client.awayMsgCount = 5;
 
 CIRCNetwork.prototype.INITIAL_CHANNEL = "";
 CIRCNetwork.prototype.MAX_MESSAGES = 100;
@@ -342,6 +344,34 @@ function initStatic()
     client.logFile = null;
     setInterval("onNotifyTimeout()", client.NOTIFY_TIMEOUT);
     setInterval("onWhoTimeout()", client.AWAY_TIMEOUT);
+
+    client.awayMsgs = [{ message: MSG_AWAY_DEFAULT }];
+    var awayFile = new nsLocalFile(client.prefs["profilePath"]);
+    awayFile.append("awayMsgs.txt");
+    if (awayFile.exists())
+    {
+        var awayLoader = new TextSerializer(awayFile);
+        if (awayLoader.open("<"))
+        {
+            // Load the first item from the file.
+            var item = awayLoader.deserialize();
+            if (item instanceof Array)
+            {
+                // If the first item is an array, it is the entire thing.
+                client.awayMsgs = item;
+            }
+            else
+            {
+                /* Not an array, so we have the old format of a single object
+                 * per entry.
+                 */
+                client.awayMsgs = [item];
+                while ((item = awayLoader.deserialize()))
+                    client.awayMsgs.push(item);
+            }
+            awayLoader.close();
+        }
+    }
 
     client.defaultCompletion = client.COMMAND_CHAR + "help ";
 
@@ -1408,6 +1438,12 @@ function getSelectedNicknames(tree)
         // If they == -1, we've got no selection, so bail.
         if ((start.value == -1) && (end.value == -1))
             continue;
+        /* Workaround: Because we use select(-1) instead of clearSelection()
+         * (see bug 197667) the tree will then give us selection ranges
+         * starting from -1 instead of 0! (See bug 319066.)
+         */
+        if (start.value == -1)
+            start.value = 0;
 
         // Loop through the contents of the current selection range.
         for (var k = start.value; k <= end.value; ++k)
@@ -1422,7 +1458,7 @@ function getSelectedNicknames(tree)
 
 function setSelectedNicknames(tree, nicknameAry)
 {
-    if (!nicknameAry)
+    if (!tree || !tree.view || !tree.view.selection || !nicknameAry)
         return;
     var item, unicodeName, resultAry = [];
     // Clear selection:
@@ -2160,8 +2196,11 @@ function gotoIRCURL (url)
                  * NOTE: This is always a "#" so that URLs may be compared
                  * properly without involving the server (e.g. off-line).
                  */
-                if (arrayIndexOf(serv.channelTypes, target[0]) == -1)
+                if ((arrayIndexOf(["#", "&", "+", "!"], target[0]) == -1) &&
+                    (arrayIndexOf(serv.channelTypes, target[0]) == -1))
+                {
                     target = "#" + target;
+                }
 
                 var chan = new CIRCChannel(serv, null, target);
 

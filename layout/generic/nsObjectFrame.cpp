@@ -1303,8 +1303,6 @@ nsObjectFrame::DidReflow(nsPresContext*            aPresContext,
     return rv;
 
   PRBool windowless = (window->type == nsPluginWindowType_Drawable);
-  if (windowless)
-    return rv;
 
   nsPoint origin = GetWindowOriginInPixels(windowless);
 
@@ -1541,7 +1539,9 @@ nsObjectFrame::Paint(nsPresContext*       aPresContext,
                     
                   // next, get our plugin's rect so we can intersect it with the visible rect so we
                   // can tell the plugin where and how much to paint
-                  origin = GetWindowOriginInPixels(window->type);
+                  NS_ASSERTION(window->type == nsPluginWindowType_Drawable,
+                               "What happened to our window type?");
+                  origin = GetWindowOriginInPixels(PR_TRUE);
                   nsRect winlessRect = nsRect(origin, nsSize(window->width, window->height));
                   winlessRect.IntersectRect(winlessRect, visibleRect);
 
@@ -1696,7 +1696,15 @@ nsObjectFrame::Instantiate(const char* aMimeType, nsIURI* aURI)
 
   // finish up
   if (NS_SUCCEEDED(rv)) {
-    NotifyContentObjectWrapper();
+    nsCOMPtr<nsIPluginInstance> inst;
+    mInstanceOwner->GetInstance(*getter_AddRefs(inst));
+    if (inst) {
+      // The plugin may have set up new interfaces; we need to mess with our JS
+      // wrapper.  Note that we DO NOT want to call this if there is no plugin
+      // instance!  That would just reenter Instantiate(), trying to create
+      // said plugin instance.
+      NotifyContentObjectWrapper();
+    }
   }
 
   return rv;
@@ -2788,6 +2796,10 @@ nsresult nsPluginInstanceOwner::EnsureCachedAttrParamArrays()
 
   nsINodeInfo *ni = content->NodeInfo();
 
+  // Making DOM method calls can cause our frame to go away, which
+  // might kill us...
+  nsCOMPtr<nsIPluginInstanceOwner> kungFuDeathGrip(this);
+  
   if (ni->NamespaceEquals(kNameSpaceID_XHTML)) {
     // For XHTML elements we need to take the namespace URI into
     // account when looking for param elements.
@@ -2853,6 +2865,9 @@ nsresult nsPluginInstanceOwner::EnsureCachedAttrParamArrays()
       }
     }
   }
+
+  // We're done with DOM method calls now; make sure we still have a frame.
+  NS_ENSURE_TRUE(mOwner, NS_ERROR_OUT_OF_MEMORY);
 
   PRUint32 cparams;
   ourParams->Count(&cparams); // unsigned 32 bits to unsigned 16 bits conversion

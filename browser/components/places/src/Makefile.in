@@ -64,7 +64,14 @@ REQUIRES = xpcom \
            autocomplete \
            storage \
            uconv \
+           htmlparser \
+           content \
            txmgr \
+           xmlextras \
+           caps \
+           xpconnect \
+           js \
+           nkcache \
            $(NULL)
 
 LOCAL_INCLUDES = -I$(srcdir)/../../build
@@ -72,10 +79,16 @@ LOCAL_INCLUDES = -I$(srcdir)/../../build
 CPPSRCS = \
           nsAnnoProtocolHandler.cpp \
           nsAnnotationService.cpp \
+          nsBookmarksHTML.cpp \
+          nsFaviconService.cpp \
           nsNavHistory.cpp \
+          nsNavHistoryAutoComplete.cpp \
           nsNavHistoryQuery.cpp \
           nsNavHistoryResult.cpp \
           nsNavBookmarks.cpp \
+          nsLivemarkService.cpp \
+          nsBookmarksFeedHandler.cpp \
+          nsMaybeWeakPtr.cpp \
           $(NULL)
 
 include $(topsrcdir)/config/rules.mk
