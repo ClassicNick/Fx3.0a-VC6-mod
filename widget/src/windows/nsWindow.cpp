@@ -175,6 +175,19 @@ static const char kMozHeapDumpMessageString[] = "MOZ_HeapDump";
 #define ULW_ALPHA               0x00000002
 #endif
 
+#if defined (_MSC_VER) && _MSC_VER <= 1100
+typedef struct _BLENDFUNCTION
+{
+    BYTE   BlendOp;
+    BYTE   BlendFlags;
+    BYTE   SourceConstantAlpha;
+    BYTE   AlphaFormat;
+}BLENDFUNCTION,*PBLENDFUNCTION;
+#endif
+
+#ifndef AC_SRC_OVER
+#define AC_SRC_OVER                 0x00
+#endif
 
 typedef BOOL WINAPI UpdateLayeredWindowProc (HWND hWnd, HDC hdcDst, POINT *pptDst,
                                              SIZE *psize, HDC hdcSrc, POINT *pptSrc,
@@ -746,7 +759,11 @@ BOOL CALLBACK nsWindow::BroadcastMsg(HWND aTopWindow, LPARAM aMsg)
 {
   // Iterate each of aTopWindows child windows sending the aMsg
   // to each of them.
+  #if defined (_MSC_VER) && _MSC_VER <= 1100
+  EnumChildWindows(aTopWindow, ((int (_stdcall*)(void)) nsWindow::BroadcastMsgToChildren), aMsg);
+  #else
   EnumChildWindows(aTopWindow, nsWindow::BroadcastMsgToChildren, aMsg);
+  #endif
   return TRUE;
 }
 
@@ -760,7 +777,11 @@ void nsWindow::GlobalMsgWindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
       // System color changes are posted to top-level windows only.
       // The NS_SYSCOLORCHANGE must be dispatched to all child
       // windows as well.
-     ::EnumThreadWindows(GetCurrentThreadId(), nsWindow::BroadcastMsg, msg);
+  #if defined (_MSC_VER) && _MSC_VER <= 1100
+  ::EnumThreadWindows(GetCurrentThreadId(), ((int (_stdcall*)(void)) nsWindow::BroadcastMsg), msg);
+  #else
+  ::EnumThreadWindows(GetCurrentThreadId(), nsWindow::BroadcastMsg, msg);
+  #endif
     break;
   }
 }
@@ -1336,7 +1357,7 @@ LRESULT CALLBACK nsWindow::WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
   return nsToolkit::mCallWindowProc((WNDPROC)someWindow->GetPrevWindowProc(), hWnd,
                                     msg, wParam, lParam);
 #else
-  return nsToolkit::mCallWindowProc((FARPROC)someWindow->GetPrevWindowProc(), hWnd,
+  return nsToolkit::mCallWindowProc(((long (_stdcall*)(void*, unsigned int, unsigned int, long)) (FARPROC)someWindow->GetPrevWindowProc()), hWnd,
                                     msg, wParam, lParam);
 #endif
 }
@@ -4118,7 +4139,11 @@ void nsWindow::DispatchPendingEvents()
     // Dispatch pending paints for all topWnd's descendant windows.
     // Note: EnumChildWindows enumerates all descendant windows not just
     // it's children.
-    ::EnumChildWindows(topWnd, nsWindow::DispatchStarvedPaints, NULL);
+    #if defined (_MSC_VER) && _MSC_VER <= 1100
+    ::EnumChildWindows(topWnd, ((int (_stdcall*)(void)) nsWindow::DispatchStarvedPaints), NULL);
+	#else
+	::EnumChildWindows(topWnd, nsWindow::DispatchStarvedPaints, NULL);
+	#endif
   }
 }
 
@@ -7779,6 +7804,40 @@ void nsWindow::RegisterSpecialDropdownHooks()
 
   //HMODULE hMod = GetModuleHandle("gkwidget.dll");
 
+  #if defined (_MSC_VER) && _MSC_VER <= 1100
+  // Install msg hook for moving the window and resizing
+  if (!gMsgFilterHook) {
+    DISPLAY_NMM_PRT("***** Hooking gMsgFilterHook!\n");
+    gMsgFilterHook = SetWindowsHookEx(WH_MSGFILTER, ((int (_stdcall*)(void)) MozSpecialMsgFilter), NULL, GetCurrentThreadId());
+#ifdef DISPLAY_NOISY_MSGF_MSG
+    if (!gMsgFilterHook) {
+      printf("***** SetWindowsHookEx is NOT installed for WH_MSGFILTER!\n");
+    }
+#endif
+  }
+
+  // Install msg hook for menus
+  if (!gCallProcHook) {
+    DISPLAY_NMM_PRT("***** Hooking gCallProcHook!\n");
+    gCallProcHook  = SetWindowsHookEx(WH_CALLWNDPROC, ((int (_stdcall*)(void)) MozSpecialWndProc), NULL, GetCurrentThreadId());
+#ifdef DISPLAY_NOISY_MSGF_MSG
+    if (!gCallProcHook) {
+      printf("***** SetWindowsHookEx is NOT installed for WH_CALLWNDPROC!\n");
+    }
+#endif
+  }
+
+  // Install msg hook for the mouse
+  if (!gCallMouseHook) {
+    DISPLAY_NMM_PRT("***** Hooking gCallMouseHook!\n");
+    gCallMouseHook  = SetWindowsHookEx(WH_MOUSE, ((int (_stdcall*)(void)) MozSpecialMouseProc), NULL, GetCurrentThreadId());
+#ifdef DISPLAY_NOISY_MSGF_MSG
+    if (!gCallMouseHook) {
+      printf("***** SetWindowsHookEx is NOT installed for WH_MOUSE!\n");
+    }
+#endif
+  }
+  #else
   // Install msg hook for moving the window and resizing
   if (!gMsgFilterHook) {
     DISPLAY_NMM_PRT("***** Hooking gMsgFilterHook!\n");
@@ -7811,6 +7870,7 @@ void nsWindow::RegisterSpecialDropdownHooks()
     }
 #endif
   }
+  #endif
 }
 
 //-------------------------------------------------------------------------

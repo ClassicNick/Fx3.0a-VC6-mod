@@ -59,6 +59,9 @@
 
 #include "nsAutoPtr.h"
 
+#ifndef CFSTR_PERFORMEDDROPEFFECT
+#define CFSTR_PERFORMEDDROPEFFECT TEXT("Performed DropEffect") 
+#endif
 
 //-------------------------------------------------------------------------
 //

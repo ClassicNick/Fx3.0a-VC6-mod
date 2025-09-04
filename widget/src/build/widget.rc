@@ -39,6 +39,9 @@
 #include <winresrc.h>
 #include <dlgs.h>
 
+#define DS_3DLOOK           0x0004L
+#define DS_CONTEXTHELP      0x2000L
+
 IDC_SELECTANCHOR        CURSOR  DISCARDABLE     "res/select.cur"
 IDC_GRAB                CURSOR  DISCARDABLE     "res/grab.cur"
 IDC_GRABBING            CURSOR  DISCARDABLE     "res/grabbing.cur"

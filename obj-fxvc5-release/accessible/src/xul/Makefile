@@ -1,4 +1,4 @@
-# vim:set ts=8 sw=8 sts=8 noet:
+#
 # ***** BEGIN LICENSE BLOCK *****
 # Version: MPL 1.1/GPL 2.0/LGPL 2.1
 #
@@ -12,23 +12,19 @@
 # for the specific language governing rights and limitations under the
 # License.
 #
-# The Original Code is negotiateauth.
+# The Original Code is mozilla.org code.
 #
 # The Initial Developer of the Original Code is
-# Daniel Kouril <kouril@ics.muni.cz>
-#
-# Portions created by the Initial Developer are Copyright (C) 2003
+# Netscape Communications Corporation.
+# Portions created by the Initial Developer are Copyright (C) 1998
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
-#   Daniel Kouril <kouril@ics.muni.cz> (original author)
-#   Wyllys Ingersoll <wyllys.ingersoll@sun.com>
-#   Christopher Nebergall <cneberg@sandia.gov>
-#   Darin Fisher <darin@meer.net>
+#   John Gaunt (jgaunt@netscape.com)
 #
 # Alternatively, the contents of this file may be used under the terms of
-# either the GNU General Public License Version 2 or later (the "GPL"), or
-# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+# either of the GNU General Public License Version 2 or later (the "GPL"),
+# or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
 # in which case the provisions of the GPL or the LGPL are applicable instead
 # of those above. If you wish to allow use of your version of this file only
 # under the terms of either the GPL or the LGPL, and not to allow others to
@@ -40,48 +36,56 @@
 #
 # ***** END LICENSE BLOCK *****
 
-DEPTH		= ../..
-topsrcdir	= @top_srcdir@
-srcdir		= @srcdir@
-VPATH		= @srcdir@
-
-ifneq ($(_MSC_VER), 1100)
+DEPTH = ../../..
+topsrcdir = /r/browsers/vc5compat/mozilla-vc5-dev
+srcdir = /r/browsers/vc5compat/mozilla-vc5-dev/accessible/src/xul
+VPATH = /r/browsers/vc5compat/mozilla-vc5-dev/accessible/src/xul
 
 include $(DEPTH)/config/autoconf.mk
 
-MOZILLA_INTERNAL_API = 1
+MODULE = accessibility
+LIBRARY_NAME = accessibility_xul_s
+LIBXUL_LIBRARY = 1
 
-MODULE		= auth
-LIBRARY_NAME	= auth
-IS_COMPONENT	= 1
-EXPORT_LIBRARY	= 1
-MODULE_NAME	= nsAuthModule
+REQUIRES	= content \
+		  docshell \
+		  dom \
+		  gfx \
+		  intl \
+		  layout \
+		  locale \
+		  necko \
+		  pref \
+		  string \
+		  widget \
+		  xpcom \
+		  $(NULL)
 
-REQUIRES	= \
-		xpcom \
-		string \
-		necko \
-		pref \
-		$(NULL)
-
-CPPSRCS		= \
-		nsAuthFactory.cpp \
-		nsHttpNegotiateAuth.cpp \
-		$(NULL)
-
-EXTRA_DSO_LDOPTS = \
-		$(MOZ_COMPONENT_LIBS) \
-		$(NULL)
-
-CPPSRCS		+= \
-		nsAuthGSSAPI.cpp \
-		nsAuthSASL.cpp
-
-ifeq ($(OS_ARCH),WINNT)
-LOCAL_INCLUDES	+= -DUSE_SSPI
-CPPSRCS		+= nsAuthSSPI.cpp
+ifeq ($(MOZ_WIDGET_TOOLKIT),gtk2)
+REQUIRES += editor
 endif
 
-endif
+CPPSRCS = \
+  nsXULAlertAccessible.cpp \
+  nsXULColorPickerAccessible.cpp \
+  nsXULFormControlAccessible.cpp \
+  nsXULMenuAccessible.cpp \
+  nsXULSelectAccessible.cpp \
+  nsXULTabAccessible.cpp \
+  nsXULTextAccessible.cpp \
+  nsXULTreeAccessible.cpp \
+  $(NULL)
+
+# we don't want the shared lib, but we want to force the creation of a static lib.
+FORCE_STATIC_LIB = 1
 
 include $(topsrcdir)/config/rules.mk
+
+LOCAL_INCLUDES = \
+  -I$(srcdir) \
+  -I$(srcdir)/../base \
+  -I$(srcdir)/../html \
+  -I$(srcdir)/../../../layout/html/base/src \
+  -I$(srcdir)/../../../layout/html/forms/src \
+  -I$(srcdir)/../../../layout/html/forms/public \
+  $(NULL)

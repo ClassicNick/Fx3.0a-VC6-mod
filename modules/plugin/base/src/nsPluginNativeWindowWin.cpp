@@ -335,9 +335,15 @@ static LRESULT CALLBACK PluginWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
 
   sInMessageDispatch = PR_TRUE;
 
+  #if defined (_MSC_VER) && _MSC_VER <= 1100
+  NS_TRY_SAFE_CALL_RETURN(res, 
+                          ::CallWindowProc(((int (_stdcall*)(void)) (WNDPROC)win->GetWindowProc()), hWnd, msg, wParam, lParam),
+                          nsnull, inst);
+#else
   NS_TRY_SAFE_CALL_RETURN(res, 
                           ::CallWindowProc((WNDPROC)win->GetWindowProc(), hWnd, msg, wParam, lParam),
                           nsnull, inst);
+#endif
 
   sInMessageDispatch = PR_FALSE;
 
@@ -433,12 +439,21 @@ PluginWindowEvent_Handle(PLEvent* self)
   if (win) {
     nsCOMPtr<nsIPluginInstance> inst;
     win->GetPluginInstance(inst);
-    NS_TRY_SAFE_CALL_VOID(::CallWindowProc(win->GetWindowProc(), 
+	#if defined (_MSC_VER) && _MSC_VER <= 1100
+    NS_TRY_SAFE_CALL_VOID(::CallWindowProc(((int (_stdcall*)(void)) win->GetWindowProc()), 
                           hWnd, 
                           event->GetMsg(), 
                           event->GetWParam(), 
                           event->GetLParam()),
                           nsnull, inst);
+#else
+	NS_TRY_SAFE_CALL_VOID(::CallWindowProc(win->GetWindowProc(), 
+                          hWnd, 
+                          event->GetMsg(), 
+                          event->GetWParam(), 
+                          event->GetLParam()),
+                          nsnull, inst);
+#endif
   }
 
   return nsnull;

@@ -62,6 +62,11 @@
 #include "gfxContext.h"
 #include "gfxMatrix.h"
 #endif
+
+#if defined (_MSC_VER) && _MSC_VER <= 1100
+typedef LONG HRESULT;
+#endif
+
 /* 
  * The following constants are used to determine how a widget is drawn using
  * Windows' Theme API. For more information on theme parts and states see

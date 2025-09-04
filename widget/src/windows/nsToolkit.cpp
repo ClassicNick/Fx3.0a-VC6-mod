@@ -487,7 +487,11 @@ LPITEMIDLIST WINAPI nsSHBrowseForFolder(LPBROWSEINFOW aBiW)
 
 HMODULE             nsToolkit::mShell32Module = NULL;
 NS_DefWindowProc    nsToolkit::mDefWindowProc = DefWindowProcA;
+#if defined (_MSC_VER) && _MSC_VER <= 1100
+NS_CallWindowProc   nsToolkit::mCallWindowProc = ((long (_stdcall*)(long (_stdcall*)(void*, unsigned int, unsigned int, long), void*, unsigned int, unsigned int, long)) CallWindowProcA);
+#else
 NS_CallWindowProc   nsToolkit::mCallWindowProc = CallWindowProcA;
+#endif
 NS_SetWindowLong    nsToolkit::mSetWindowLong = SetWindowLongA;
 NS_GetWindowLong    nsToolkit::mGetWindowLong = GetWindowLongA;
 NS_SendMessage      nsToolkit::mSendMessage = nsSendMessage;
@@ -613,11 +617,19 @@ nsToolkit::Startup(HMODULE hModule)
     // Set flag of nsToolkit::mUseImeApiW due to using Unicode API.
     //
 
-    OSVERSIONINFOEX osversion;
     BOOL osVersionInfoEx;
+    
+    #if defined (_MSC_VER) && _MSC_VER <= 1100
+    OSVERSIONINFO osversion;
+    
+    ::ZeroMemory(&osversion, sizeof(OSVERSIONINFO));
+    osversion.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+	#else
+	OSVERSIONINFOEX osversion;
     
     ::ZeroMemory(&osversion, sizeof(OSVERSIONINFOEX));
     osversion.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+	#endif
 
     if (!(osVersionInfoEx = GetVersionEx((OSVERSIONINFO *)&osversion))) {
       // if OSVERSIONINFOEX doesn't work, try OSVERSIONINFO.
@@ -637,7 +649,11 @@ nsToolkit::Startup(HMODULE hModule)
       // For Windows 9x base OS nsFoo is already pointing to A functions
       // However on NT base OS we should point them to respective W functions
       nsToolkit::mDefWindowProc = DefWindowProcW;
-      nsToolkit::mCallWindowProc = CallWindowProcW;
+      #if defined (_MSC_VER) && _MSC_VER <= 1100
+      nsToolkit::mCallWindowProc = ((long (_stdcall*)(long (_stdcall*)(void*, unsigned int, unsigned int, long), void*, unsigned int, unsigned int, long)) CallWindowProcW);
+	  #else
+	  nsToolkit::mCallWindowProc = CallWindowProcW;
+	  #endif
       nsToolkit::mSetWindowLong = SetWindowLongW;
       nsToolkit::mGetWindowLong = GetWindowLongW; 
       nsToolkit::mSendMessage = SendMessageW;
@@ -813,8 +829,13 @@ NS_METHOD nsToolkit::Init(PRThread *aThread)
     // Hook window move messages so the toolkit can report when
     // the user is moving a top-level window.
     if (nsMsgFilterHook == NULL) {
-      nsMsgFilterHook = SetWindowsHookEx(WH_CALLWNDPROC, DetectWindowMove, 
+      #if defined (_MSC_VER) && _MSC_VER <= 1100
+      nsMsgFilterHook = SetWindowsHookEx(WH_CALLWNDPROC, ((int (_stdcall*)(void))DetectWindowMove), 
                                                 NULL, GetCurrentThreadId());
+	#else
+	  nsMsgFilterHook = SetWindowsHookEx(WH_CALLWNDPROC, DetectWindowMove, 
+                                                NULL, GetCurrentThreadId());
+	#endif
     }
 #endif
 

@@ -90,6 +90,10 @@
 #include "nsHashtable.h"
 #include "prlog.h"
 
+#ifndef CSIDL_COOKIES
+#define CSIDL_COOKIES					0x0021
+#endif
+
 class SystemDirectoriesKey : public nsHashKey {
 public:
 

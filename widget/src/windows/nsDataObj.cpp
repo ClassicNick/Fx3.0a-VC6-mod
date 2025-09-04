@@ -66,6 +66,10 @@
 #include "nsPrintfCString.h"
 #include "nsIStringBundle.h"
 
+#ifndef CFSTR_PERFORMEDDROPEFFECT
+#define CFSTR_PERFORMEDDROPEFFECT TEXT("Performed DropEffect") 
+#endif
+
 #if 0
 #define PRNTDEBUG(_x) printf(_x);
 #define PRNTDEBUG2(_x1, _x2) printf(_x1, _x2);

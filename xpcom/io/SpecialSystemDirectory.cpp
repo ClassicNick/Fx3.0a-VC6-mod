@@ -60,6 +60,11 @@
 #define CSIDL_PROGRAM_FILES             0x0026
 #endif
 
+// This is not defined by VC5.
+#ifndef CSIDL_COOKIES
+#define CSIDL_COOKIES					0x0021
+#endif
+
 #elif defined(XP_OS2)
 
 #define MAX_PATH _MAX_PATH

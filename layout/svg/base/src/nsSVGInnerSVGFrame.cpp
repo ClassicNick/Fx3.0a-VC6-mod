@@ -766,6 +766,8 @@ nsSVGInnerSVGFrame::WillModifySVGObservable(nsISVGValue* observable,
     nsSVGUtils::FindFilterInvalidation(this, getter_AddRefs(region));
     outerSVGFrame->InvalidateRegion(region, PR_TRUE);
   }
+
+  return NS_OK;
 }
 	
 NS_IMETHODIMP

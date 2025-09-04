@@ -37,7 +37,6 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include <windows.h>
-#include <shlwapi.h>
 #include <stdlib.h>
 #include "nsWindowsRegKey.h"
 #include "nsNativeCharsetUtils.h"

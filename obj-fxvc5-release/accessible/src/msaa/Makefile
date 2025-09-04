@@ -11,14 +11,14 @@
 # for the specific language governing rights and limitations under the
 # License.
 #
-# The Original Code is The Browser Profile Migrator.
+# The Original Code is mozilla.org code
 #
-# The Initial Developer of the Original Code is Ben Goodger.
-# Portions created by the Initial Developer are Copyright (C) 2004
+# The Initial Developer of the Original Code is
+# Aaron Leventhal
+# Portions created by the Initial Developer are Copyright (C) 2003
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
-#   Ben Goodger <ben@bengoodger.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -34,65 +34,71 @@
 #
 # ***** END LICENSE BLOCK *****
 
-DEPTH		= ../../../..
-topsrcdir	= @top_srcdir@
-srcdir		= @srcdir@
-VPATH		= @srcdir@
+DEPTH = ../../..
+topsrcdir = /r/browsers/vc5compat/mozilla-vc5-dev
+srcdir = /r/browsers/vc5compat/mozilla-vc5-dev/accessible/src/msaa
+VPATH = /r/browsers/vc5compat/mozilla-vc5-dev/accessible/src/msaa
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= migration
-LIBRARY_NAME	= migration_s
-MOZILLA_INTERNAL_API = 1
+MODULE = accessibility
+LIBRARY_NAME = accessibility_toolkit_s
+LIBXUL_LIBRARY = 1
 
-REQUIRES	= \
-      xpcom \
-      xpcom_obsolete \
-		  string \
-		  necko \
-		  history \
-		  libreg \
-		  browsercomps \
-		  toolkitcomps \
-		  pref \
-		  rdf \
-		  satchel \
-		  bookmarks \
-		  intl \
-		  unicharutil \
-		  windowwatcher \
-		  dom \
+REQUIRES	= content \
 		  docshell \
-		  xulapp \
+		  dom \
+		  editor \
+		  gfx \
+		  htmlparser \
+		  intl \
+		  layout \
+		  locale \
+		  necko \
+		  plugin \
+		  pref \
+		  string \
+		  uriloader \
+		  view \
+		  webshell \
+		  widget \
+		  xpcom \
+		  xuldoc \
 		  $(NULL)
 
-CPPSRCS  = nsProfileMigrator.cpp \
-           nsBrowserProfileMigratorUtils.cpp \
-           nsNetscapeProfileMigratorBase.cpp \
-           nsSeamonkeyProfileMigrator.cpp \
-           nsPhoenixProfileMigrator.cpp \
-           $(NULL)
+CPPSRCS = \
+  nsAccessNodeWrap.cpp \
+  nsAccessibleWrap.cpp \
+  nsTextAccessibleWrap.cpp \
+  nsDocAccessibleWrap.cpp \
+  nsRootAccessibleWrap.cpp \
+  nsHTMLFormControlAccessibleWrap.cpp \
+  nsHTMLWin32ObjectAccessible.cpp \
+  nsXULMenuAccessibleWrap.cpp \
+  nsXULTreeAccessibleWrap.cpp \
+  $(NULL)
 
-ifneq ($(OS_ARCH),BeOS)
-CPPSRCS += nsDogbertProfileMigrator.cpp
-endif
+EXPORTS = \
+  nsAccessNodeWrap.h \
+  nsAccessibleWrap.h \
+  nsTextAccessibleWrap.h \
+  nsDocAccessibleWrap.h \
+  nsRootAccessibleWrap.h \
+  nsHTMLFormControlAccessibleWrap.h \
+  nsHTMLWin32ObjectAccessible.h \
+  nsXULMenuAccessibleWrap.h \
+  nsXULTreeAccessibleWrap.h \
+  $(NULL)
 
-ifneq ($(OS_ARCH),OS2)
-CPPSRCS += nsOperaProfileMigrator.cpp
-endif
-
-ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
-CPPSRCS += nsSafariProfileMigrator.cpp \
-           nsMacIEProfileMigrator.cpp \
-           nsOmniWebProfileMigrator.cpp \
-           nsCaminoProfileMigrator.cpp \
-           nsICabProfileMigrator.cpp \
-           $(NULL)
-endif            
-
-# we don't want the shared lib, but we want to force the creation of a
-# static lib.
+# we don't want the shared lib, but we want to force the creation of a static lib.
 FORCE_STATIC_LIB = 1
 
 include $(topsrcdir)/config/rules.mk
+
+LOCAL_INCLUDES += \
+  -I$(srcdir) \
+  -I$(srcdir)/../base \
+  -I$(srcdir)/../html \
+  -I$(srcdir)/../xul \
+  $(NULL)
 

@@ -1,4 +1,4 @@
-# vim:set ts=8 sw=8 sts=8 noet:
+#
 # ***** BEGIN LICENSE BLOCK *****
 # Version: MPL 1.1/GPL 2.0/LGPL 2.1
 #
@@ -12,23 +12,19 @@
 # for the specific language governing rights and limitations under the
 # License.
 #
-# The Original Code is negotiateauth.
+# The Original Code is mozilla.org code.
 #
 # The Initial Developer of the Original Code is
-# Daniel Kouril <kouril@ics.muni.cz>
-#
-# Portions created by the Initial Developer are Copyright (C) 2003
+# Netscape Communications Corporation.
+# Portions created by the Initial Developer are Copyright (C) 1998
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
-#   Daniel Kouril <kouril@ics.muni.cz> (original author)
-#   Wyllys Ingersoll <wyllys.ingersoll@sun.com>
-#   Christopher Nebergall <cneberg@sandia.gov>
-#   Darin Fisher <darin@meer.net>
+#   John Gaunt (jgaunt@netscape.com)
 #
 # Alternatively, the contents of this file may be used under the terms of
-# either the GNU General Public License Version 2 or later (the "GPL"), or
-# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+# either of the GNU General Public License Version 2 or later (the "GPL"),
+# or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
 # in which case the provisions of the GPL or the LGPL are applicable instead
 # of those above. If you wish to allow use of your version of this file only
 # under the terms of either the GPL or the LGPL, and not to allow others to
@@ -41,47 +37,56 @@
 # ***** END LICENSE BLOCK *****
 
 DEPTH		= ../..
-topsrcdir	= @top_srcdir@
-srcdir		= @srcdir@
-VPATH		= @srcdir@
-
-ifneq ($(_MSC_VER), 1100)
+topsrcdir	= /r/browsers/vc5compat/mozilla-vc5-dev
+srcdir	= /r/browsers/vc5compat/mozilla-vc5-dev/accessible/build
+VPATH		= /r/browsers/vc5compat/mozilla-vc5-dev/accessible/build
 
 include $(DEPTH)/config/autoconf.mk
 
-MOZILLA_INTERNAL_API = 1
-
-MODULE		= auth
-LIBRARY_NAME	= auth
+MODULE		= accessibility
+LIBRARY_NAME	= accessibility
+EXPORT_LIBRARY = 1
+ifneq ($(OS_ARCH),WINNT)
+SHORT_LIBNAME	= access
+endif
 IS_COMPONENT	= 1
-EXPORT_LIBRARY	= 1
-MODULE_NAME	= nsAuthModule
+MODULE_NAME	= nsAccessibilityModule
+GRE_MODULE	= 1
+LIBXUL_LIBRARY	= 1
 
-REQUIRES	= \
-		xpcom \
-		string \
-		necko \
-		pref \
-		$(NULL)
+PACKAGE_FILE = accessibility.pkg
 
-CPPSRCS		= \
-		nsAuthFactory.cpp \
-		nsHttpNegotiateAuth.cpp \
-		$(NULL)
+REQUIRES	= xpcom \
+		  $(NULL)
 
-EXTRA_DSO_LDOPTS = \
-		$(MOZ_COMPONENT_LIBS) \
-		$(NULL)
+CPPSRCS		= nsAccessibilityFactory.cpp
 
-CPPSRCS		+= \
-		nsAuthGSSAPI.cpp \
-		nsAuthSASL.cpp
+LOCAL_INCLUDES	= -I$(srcdir)/../src
 
-ifeq ($(OS_ARCH),WINNT)
-LOCAL_INCLUDES	+= -DUSE_SSPI
-CPPSRCS		+= nsAuthSSPI.cpp
+SHARED_LIBRARY_LIBS = \
+	$(DIST)/lib/$(LIB_PREFIX)accessibility_base_s.$(LIB_SUFFIX) \
+	$(DIST)/lib/$(LIB_PREFIX)accessibility_html_s.$(LIB_SUFFIX) \
+	$(DIST)/lib/$(LIB_PREFIX)accessibility_toolkit_s.$(LIB_SUFFIX) \
+	$(NULL)
+
+ifdef MOZ_XUL
+SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)accessibility_xul_s.$(LIB_SUFFIX)
 endif
 
+EXTRA_DSO_LIBS = \
+	gkgfx \
+	$(NULL)
+
+EXTRA_DSO_LDOPTS =           \
+	$(LIBS_DIR)              \
+	$(EXTRA_DSO_LIBS)        \
+	$(MOZ_UNICHARUTIL_LIBS)  \
+	$(MOZ_COMPONENT_LIBS)    \
+	$(NULL)
+
+ifeq ($(MOZ_WIDGET_TOOLKIT),gtk2)
+EXTRA_DSO_LDOPTS += $(MOZ_GTK2_LIBS)
 endif
 
 include $(topsrcdir)/config/rules.mk
+
