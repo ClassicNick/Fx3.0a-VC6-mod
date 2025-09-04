@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- *
- * ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -13,18 +12,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * IBM Corporation.
- * Portions created by the Initial Developer are Copyright (C) 2000
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2005
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,40 +34,18 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 314887;
+var summary = 'Do not crash when morons embed script tags in external script files';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
-#ifdef IBMBIDI
+printBugNumber (bug);
+printStatus (summary);
 
-#ifndef nsBidiFrames_h___
-#define nsBidiFrames_h___
-
-#include "nsFrame.h"
-
-
-// IID for the nsDirectionalFrame interface 
-// {90D69900-67AF-11d4-BA59-006008CD3717}
-#define NS_DIRECTIONAL_FRAME_IID \
-{ 0x90d69900, 0x67af, 0x11d4, { 0xba, 0x59, 0x00, 0x60, 0x08, 0xcd, 0x37, 0x17 } }
-
-class nsDirectionalFrame : public nsFrame
-{
-protected:
-  virtual ~nsDirectionalFrame();
-
-public:
-  nsDirectionalFrame(PRUnichar aChar);
-
-  static const nsIID& GetIID();
-
-  NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);
-
-  virtual nsIAtom* GetType() const;
-
-  PRUnichar GetChar(void) const;
-
-private:
-  PRUnichar mChar;
-};
-
-#endif /* nsBidiFrames_h___ */
-#endif /* IBMBIDI */
-
+<script language="JavaScript" type="text/JavaScript">
+<!--
+//-->
+</script>
+  
+reportCompare(expect, actual, summary);

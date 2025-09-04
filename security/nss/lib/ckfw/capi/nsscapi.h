@@ -17,8 +17,10 @@
  * Netscape Communications Corporation.
  * Portions created by the Initial Developer are Copyright (C) 1994-2000
  * the Initial Developer. All Rights Reserved.
+ * Portions created by Red Hat, Inc, are Copyright (C) 2005
  *
  * Contributor(s):
+ *   Bob Relyea (rrelyea@redhat.com)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -34,57 +36,40 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef NSSCKBI_H
-#define NSSCKBI_H
+#ifndef NSSCAPI_H
+#define NSSCAPI_H
 
 /*
- * NSS BUILTINS Version numbers.
+ * NSS CKCAPI Version numbers.
  *
- * These are the version numbers for the builtins module packaged with
+ * These are the version numbers for the capi module packaged with
  * this release on NSS. To determine the version numbers of the builtin
  * module you are using, use the appropriate PKCS #11 calls.
  *
  * These version numbers detail changes to the PKCS #11 interface. They map
  * to the PKCS #11 spec versions.
  */
-#define NSS_BUILTINS_CRYPTOKI_VERSION_MAJOR 2
-#define NSS_BUILTINS_CRYPTOKI_VERSION_MINOR 20
+#define NSS_CKCAPI_CRYPTOKI_VERSION_MAJOR 2
+#define NSS_CKCAPI_CRYPTOKI_VERSION_MINOR 20
 
 /* These version numbers detail the changes 
  * to the list of trusted certificates.
  *
- * The NSS_BUILTINS_LIBRARY_VERSION_MINOR macro needs to be bumped
- * for each NSS minor release AND whenever we change the list of
- * trusted certificates.  10 minor versions are allocated for each
- * NSS 3.x branch as follows, allowing us to change the list of
- * trusted certificates up to 9 times on each branch.
- *   - NSS 3.5 branch:  3-9
- *   - NSS 3.6 branch:  10-19
- *   - NSS 3.7 branch:  20-29
- *   - NSS 3.8 branch:  30-39
- *   - NSS 3.9 branch:  40-49
- *   - NSS 3.10 branch: 50-59
- *   - NSS 3.11 branch: 60-69
- *     ...
- *   - NSS 3.14 branch: 90-99
- *     ...
- *   - NSS 3.30 branch: 250-255
- *
- * NSS_BUILTINS_LIBRARY_VERSION_MINOR is a CK_BYTE.  It's not clear
+ * NSS_CKCAPI_LIBRARY_VERSION_MINOR is a CK_BYTE.  It's not clear
  * whether we may use its full range (0-255) or only 0-99 because
  * of the comment in the CK_VERSION type definition.
  */
-#define NSS_BUILTINS_LIBRARY_VERSION_MAJOR 1
-#define NSS_BUILTINS_LIBRARY_VERSION_MINOR 60
-#define NSS_BUILTINS_LIBRARY_VERSION "1.60"
+#define NSS_CKCAPI_LIBRARY_VERSION_MAJOR 1
+#define NSS_CKCAPI_LIBRARY_VERSION_MINOR 1
+#define NSS_CKCAPI_LIBRARY_VERSION "1.1"
 
 /* These version numbers detail the semantic changes to the ckfw engine. */
-#define NSS_BUILTINS_HARDWARE_VERSION_MAJOR 1
-#define NSS_BUILTINS_HARDWARE_VERSION_MINOR 0
+#define NSS_CKCAPI_HARDWARE_VERSION_MAJOR 1
+#define NSS_CKCAPI_HARDWARE_VERSION_MINOR 0
 
 /* These version numbers detail the semantic changes to ckbi itself 
  * (new PKCS #11 objects), etc. */
-#define NSS_BUILTINS_FIRMWARE_VERSION_MAJOR 1
-#define NSS_BUILTINS_FIRMWARE_VERSION_MINOR 0
+#define NSS_CKCAPI_FIRMWARE_VERSION_MAJOR 1
+#define NSS_CKCAPI_FIRMWARE_VERSION_MINOR 0
 
 #endif /* NSSCKBI_H */

@@ -272,6 +272,7 @@ public class Context
     {
         setLanguageVersion(VERSION_DEFAULT);
         optimizationLevel = codegenClass != null ? 0 : -1;
+        maximumInterpreterStackDepth = Integer.MAX_VALUE;
     }
 
     /**
@@ -357,6 +358,11 @@ public class Context
      */
     public static Context enter(Context cx)
     {
+        return enter(cx, ContextFactory.getGlobal());
+    }
+    
+    static final Context enter(Context cx, ContextFactory factory)
+    {
         Object helper = VMBridge.instance.getThreadContextHelper();
         Context old = VMBridge.instance.getContext(helper);
         if (old != null) {
@@ -375,7 +381,7 @@ public class Context
             cx = old;
         } else {
             if (cx == null) {
-                cx = ContextFactory.getGlobal().makeContext();
+                cx = factory.makeContext();
             } else {
                 if (cx.sealed) onSealedMutation();
             }
@@ -385,7 +391,7 @@ public class Context
 
             if (!cx.creationEventWasSent) {
                 cx.creationEventWasSent = true;
-                ContextFactory.getGlobal().onContextCreated(cx);
+                factory.onContextCreated(cx);
             }
         }
 
@@ -414,6 +420,11 @@ public class Context
      */
     public static void exit()
     {
+        exit(ContextFactory.getGlobal());
+    }
+    
+    static void exit(ContextFactory factory)
+    {
         Object helper = VMBridge.instance.getThreadContextHelper();
         Context cx = VMBridge.instance.getContext(helper);
         if (cx == null) {
@@ -430,10 +441,11 @@ public class Context
         --cx.enterCount;
         if (cx.enterCount == 0) {
             VMBridge.instance.setContext(helper, null);
-            ContextFactory.getGlobal().onContextReleased(cx);
+            factory.onContextReleased(cx);
         }
     }
 
+    
     /**
      * Call {@link ContextAction#run(Context cx)}
      * using the Context instance associated with the current thread.
@@ -1755,7 +1767,7 @@ public class Context
     {
         return optimizationLevel;
     }
-
+    
     /**
      * Set the current optimization level.
      * <p>
@@ -1800,6 +1812,54 @@ public class Context
             "Optimization level outside [-1..9]: "+optimizationLevel);
     }
 
+    /**
+     * Returns the maximum stack depth (in terms of number of call frames) 
+     * allowed in a single invocation of interpreter. If the set depth would be
+     * exceeded, the interpreter will throw an EvaluatorException in the script.
+     * Defaults to Integer.MAX_VALUE. The setting only has effect for 
+     * interpreted functions (those compiled with optimization level set to -1).
+     * As the interpreter doesn't use the Java stack but rather manages its own
+     * stack in the heap memory, a runaway recursion in interpreted code would 
+     * eventually consume all available memory and cause OutOfMemoryError 
+     * instead of a StackOverflowError limited to only a single thread. This
+     * setting helps prevent such situations.
+     *  
+     * @return The current maximum interpreter stack depth.
+     */
+    public final int getMaximumInterpreterStackDepth()
+    {
+        return maximumInterpreterStackDepth;
+    }
+
+    /**
+     * Sets the maximum stack depth (in terms of number of call frames) 
+     * allowed in a single invocation of interpreter. If the set depth would be
+     * exceeded, the interpreter will throw an EvaluatorException in the script.
+     * Defaults to Integer.MAX_VALUE. The setting only has effect for 
+     * interpreted functions (those compiled with optimization level set to -1).
+     * As the interpreter doesn't use the Java stack but rather manages its own
+     * stack in the heap memory, a runaway recursion in interpreted code would 
+     * eventually consume all available memory and cause OutOfMemoryError 
+     * instead of a StackOverflowError limited to only a single thread. This
+     * setting helps prevent such situations.
+     * 
+     * @param max the new maximum interpreter stack depth
+     * @throws IllegalStateException if this context's optimization level is not
+     * -1
+     * @throws IllegalArgumentException if the new depth is not at least 1 
+     */
+    public final void setMaximumInterpreterStackDepth(int max)
+    {
+        if(sealed) onSealedMutation();
+        if(optimizationLevel != -1) {
+            throw new IllegalStateException("Cannot set maximumInterpreterStackDepth when optimizationLevel != -1");
+        }
+        if(max < 1) {
+            throw new IllegalArgumentException("Cannot set maximumInterpreterStackDepth to less than 1");
+        }
+        maximumInterpreterStackDepth = max;
+    }
+    
     /**
      * Set the security controller for this context.
      * <p> SecurityController may only be set if it is currently null
@@ -2412,6 +2472,7 @@ public class Context
     boolean compileFunctionsWithDynamicScopeFlag;
     boolean useDynamicScope;
     private int optimizationLevel;
+    private int maximumInterpreterStackDepth;
     private WrapFactory wrapFactory;
     Debugger debugger;
     private Object debuggerData;
