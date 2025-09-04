@@ -50,7 +50,7 @@ public:
     gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup, HWND aHWnd);
     virtual ~gfxWindowsFont();
 
-    virtual const gfxFont::Metrics& GetMetrics() const { return mMetrics; }
+    virtual const gfxFont::Metrics& GetMetrics() { return mMetrics; }
 
     cairo_font_face_t *CairoFontFace() { return mFontFace; }
     cairo_scaled_font_t *CairoScaledFont() { return mScaledFont; }

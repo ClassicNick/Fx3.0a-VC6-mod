@@ -47,7 +47,6 @@
 #include "nsWidgetsCID.h"
 #include "nsIDragService.h"
 #include "nsIDragSessionBeOS.h"
-#include "nsIRenderingContext.h"
 #include "nsIDeviceContext.h"
 #include "nsRect.h"
 #include "nsIRegion.h"
@@ -61,11 +60,8 @@
 #include <Application.h>
 #include <InterfaceDefs.h>
 #include <Region.h>
-#include <Debug.h>
-#include <MenuBar.h>
 #include <ScrollBar.h>
 #include <app/Message.h>
-#include <app/MessageRunner.h>
 #include <support/String.h>
 #include <Screen.h>
 
@@ -285,26 +281,23 @@ nsIMEBeOS *nsIMEBeOS::beosIME = 0;
 //-------------------------------------------------------------------------
 nsWindow::nsWindow() : nsBaseWidget()
 {
-	rgb_color	back = ui_color(B_PANEL_BACKGROUND_COLOR);
-
 	mView               = 0;
-	mBackground         = NS_RGB(back.red, back.green, back.blue);
-	mForeground         = NS_RGB(0x00,0x00,0x00);
 	mIsDestroying       = PR_FALSE;
 	mOnDestroyCalled    = PR_FALSE;
 	mPreferredWidth     = 0;
 	mPreferredHeight    = 0;
-	mFont               = nsnull;
+	mFontMetrics        = nsnull;
 	mIsVisible          = PR_FALSE;
 	mWindowType         = eWindowType_child;
 	mBorderStyle        = eBorderStyle_default;
-	mBorderlessParent   = 0;
 	mEnabled            = PR_TRUE;
 	mJustGotActivate    = PR_FALSE;
 	mJustGotDeactivate  = PR_FALSE;
 	mIsScrolling        = PR_FALSE;
 	mParent             = nsnull;
 	mUpdateArea = do_CreateInstance(kRegionCID);
+	mForeground = NS_RGBA(0xFF,0xFF,0xFF,0xFF);
+	mBackground = mForeground;
 	if (mUpdateArea)
 	{
 		mUpdateArea->Init();
@@ -328,22 +321,7 @@ nsWindow::~nsWindow()
 	{
 		Destroy();
 	}
-
-	// FIXME: Check if this is really needed or not, if not, remove it
-	//XXX Temporary: Should not be caching the font
-	delete mFont;
-}
-
-
-//-------------------------------------------------------------------------
-//
-// Default for height modification is to do nothing
-//
-//-------------------------------------------------------------------------
-
-PRInt32 nsWindow::GetHeight(PRInt32 aProposedHeight)
-{
-	return(aProposedHeight);
+	NS_IF_RELEASE(mFontMetrics);
 }
 
 NS_METHOD nsWindow::BeginResizingChildren(void)
@@ -556,20 +534,19 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 		}
 	}
 
-	BView *parent;
+	nsViewBeOS *parent;
 	if (nsnull != aParent) // has a nsIWidget parent
 	{
-		parent = ((aParent) ? (BView *)aParent->GetNativeData(NS_NATIVE_WIDGET) : nsnull);
+		parent = ((aParent) ? (nsViewBeOS *)aParent->GetNativeData(NS_NATIVE_WIDGET) : nsnull);
 	}
 	else // has a nsNative parent
 	{
-		parent = (BView *)aNativeParent;
+		parent = (nsViewBeOS *)aNativeParent;
 	}
 
 	// Only popups have mBorderlessParents
-	mBorderlessParent = NULL;
 	mParent = aParent;
-	mView = CreateBeOSView();
+	mView = new nsViewBeOS(this, BRect(0,0,0,0), "", 0, 0);
 	if (mView)
 	{
 #ifdef MOZ_DEBUG_WINDOW_CREATE
@@ -593,7 +570,7 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 #endif
 			parent->AddChild(mView);
 			mView->MoveTo(aRect.x, aRect.y);
-			mView->ResizeTo(aRect.width-1, GetHeight(aRect.height)-1);
+			mView->ResizeTo(aRect.width - 1, aRect.height - 1);
 
 			if (mustunlock)
 			{
@@ -620,10 +597,9 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 			{
 				case eWindowType_popup:
 				{
-					mBorderlessParent = parent;
 					flags |= B_NOT_CLOSABLE | B_AVOID_FOCUS | B_NO_WORKSPACE_ACTIVATION;
 					look = B_NO_BORDER_WINDOW_LOOK;
-					mView->SetFlags(mView->Flags() | B_WILL_DRAW);
+					mView->SetFlags(mView->Flags() | B_WILL_DRAW );
 					break;
 				}
 					
@@ -730,6 +706,20 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 				w->Show();
 			}
 		} // if eWindowType_Child
+		
+		// There is BeOS API/app_server issue creating little/0-sized windows. See comment above
+		// Checking here real size. Probably should be done only for toplevel objects.
+		nsRect r(aRect);
+		if (mView && mView->LockLooper())
+		{
+			BRect br = mView->Frame();
+			r.x = nscoord(br.left);
+			r.y = nscoord(br.top);
+			r.width  = br.IntegerWidth() + 1;
+			r.height = br.IntegerHeight() + 1;
+			mView->UnlockLooper();
+		}
+		SetBounds(r);
 
 		// call the event callback to notify about creation
 		DispatchStandardEvent(NS_CREATE);
@@ -775,11 +765,6 @@ NS_METHOD nsWindow::Create(nsNativeWidget aParent,
 	return(StandardWindowCreate(nsnull, aRect, aHandleEventFunction,
 	                            aContext, aAppShell, aToolkit, aInitData,
 	                            aParent));
-}
-
-BView *nsWindow::CreateBeOSView()
-{
-	return new nsViewBeOS(this, BRect(0,0,0,0), "", 0, B_FRAME_EVENTS);
 }
 
 //-------------------------------------------------------------------------
@@ -1218,9 +1203,9 @@ NS_METHOD nsWindow::Resize(PRInt32 aWidth, PRInt32 aHeight, PRBool aRepaint)
 	if (mView && mView->LockLooper())
 	{
 		if (mView->Parent() || !mView->Window())
-			mView->ResizeTo(aWidth-1, GetHeight(aHeight)-1);
+			mView->ResizeTo(aWidth - 1, aHeight - 1);
 		else
-			((nsWindowBeOS *)mView->Window())->ResizeTo(aWidth-1, GetHeight(aHeight)-1);
+			((nsWindowBeOS *)mView->Window())->ResizeTo(aWidth - 1, aHeight - 1);
 
 		mView->UnlockLooper();
 	}
@@ -1323,36 +1308,11 @@ NS_METHOD nsWindow::SetFocus(PRBool aRaise)
 			
 		mView->MakeFocus(true);
 		mView->UnlockLooper();
+		DispatchFocus(NS_GOTFOCUS);
 	}
 
 	return NS_OK;
 }
-
-
-//-------------------------------------------------------------------------
-//
-// Get this component dimension
-//
-//-------------------------------------------------------------------------
-NS_METHOD nsWindow::GetBounds(nsRect &aRect)
-{
-	if (mView && mView->LockLooper())
-	{
-		BRect r = mView->Frame();
-		aRect.x = nscoord(r.left);
-		aRect.y = nscoord(r.top);
-		aRect.width  = r.IntegerWidth()+1;
-		aRect.height = r.IntegerHeight()+1;
-		mView->UnlockLooper();
-	} 
-	else 
-	{
-		aRect = mBounds;
-	}
-
-	return NS_OK;
-}
-
 
 //-------------------------------------------------------------------------
 //
@@ -1386,6 +1346,11 @@ NS_METHOD nsWindow::SetBackgroundColor(const nscolor &aColor)
 {
 	nsBaseWidget::SetBackgroundColor(aColor);
 
+	// We set the background of toplevel windows so that resizing doesn't show thru
+	// to Desktop and resizing artifacts. Child windows has transparent background.
+	if (!mIsTopWidgetWindow)
+		return NS_OK;
+
 	if (mView && mView->LockLooper())
 	{
 		mView->SetViewColor(NS_GET_R(aColor), NS_GET_G(aColor), NS_GET_B(aColor), NS_GET_A(aColor));
@@ -1394,19 +1359,6 @@ NS_METHOD nsWindow::SetBackgroundColor(const nscolor &aColor)
 	return NS_OK;
 }
 
-NS_METHOD nsWindow::SetForegroundColor(const nscolor &aColor)
-{
-	nsBaseWidget::SetForegroundColor(aColor);
-
-	if (mView && mView->LockLooper())
-	{
-		mView->SetHighColor(NS_GET_R(aColor), NS_GET_G(aColor), NS_GET_B(aColor), NS_GET_A(aColor));
-		mView->UnlockLooper();
-	}
-	return NS_OK;
-}
-
-
 //-------------------------------------------------------------------------
 //
 // Get this component font
@@ -1414,8 +1366,7 @@ NS_METHOD nsWindow::SetForegroundColor(const nscolor &aColor)
 //-------------------------------------------------------------------------
 nsIFontMetrics* nsWindow::GetFont(void)
 {
-	NS_NOTYETIMPLEMENTED("GetFont not yet implemented"); // to be implemented
-	return NULL;
+	return mFontMetrics;
 }
 
 
@@ -1427,32 +1378,10 @@ nsIFontMetrics* nsWindow::GetFont(void)
 NS_METHOD nsWindow::SetFont(const nsFont &aFont)
 {
   // Cache Font for owner draw
-  if (mFont == nsnull)
-  {
-    if (!(mFont = new nsFont(aFont)))
-      return NS_ERROR_OUT_OF_MEMORY;
-  }
-  else
-  {
-    *mFont = aFont;
-  }
-
-  // Bail out if there is no context
-  if (nsnull == mContext)
-    return NS_ERROR_FAILURE;
-
-  nsCOMPtr<nsIFontMetrics> metrics;
-  mContext->GetMetricsFor(aFont, *getter_AddRefs(metrics));
-  nsFontHandle fontHandle;
-  metrics->GetFontHandle(fontHandle);
-  BFont *font = (BFont*)fontHandle;
-  if (font && mView && mView->LockLooper())
-  {
-    mView->SetFont(font, B_FONT_ALL);
-    mView->UnlockLooper();
-  }
-
-  return NS_OK;
+	NS_IF_RELEASE(mFontMetrics);
+	if (mContext)
+		mContext->GetMetricsFor(aFont, mFontMetrics);
+	return NS_OK;
 }
 
 
@@ -1779,6 +1708,7 @@ void* nsWindow::GetNativeData(PRUint32 aDataType)
 			return (void *)(mView->Window());
 		case NS_NATIVE_WIDGET:
 		case NS_NATIVE_PLUGIN_PORT:
+			return (void *)((nsViewBeOS *)mView);
 		case NS_NATIVE_GRAPHIC:
 			return (void *)((BView *)mView);
 		case NS_NATIVE_COLORMAP:
@@ -1901,6 +1831,11 @@ NS_METHOD nsWindow::Scroll(PRInt32 aDx, PRInt32 aDy, nsRect *aClipRect)
 				childWidget->Move(bounds.x, bounds.y);
 			}
 		}			
+		// Native region needs shifting too.
+		mView->paintregion.OffsetBy(aDx, aDy);
+		// Adding native paintregion to calculated one.
+		// May be done with BRegion reg; GetNativeRegion(&reg);
+		invalid.Include(&mView->paintregion);
 		//OnPaint don't need Lock()
 		mView->UnlockLooper();
 		// Drawing uncovered regions by direct OnPaint call,
@@ -1979,16 +1914,23 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		SetFocus(((PRBool *)info->args)[0]);
 		break;
 
+#ifdef DEBUG_FOCUS
 	case nsWindow::GOT_FOCUS:
-		NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
+		NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
 		if (!mEnabled)
 			return false;
-		DispatchFocus(NS_GOTFOCUS);
+		if ((uint32)info->args[0] != (uint32)mView)
+			printf("Wrong view to get focus\n");*/
 		break;
-
+#endif
 	case nsWindow::KILL_FOCUS:
-		NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
-		DispatchFocus(NS_LOSTFOCUS);
+		NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
+		if ((uint32)info->args[0] == (uint32)mView)
+			DispatchFocus(NS_LOSTFOCUS);
+#ifdef DEBUG_FOCUS
+		else
+			printf("Wrong view to de-focus\n");
+#endif
 #if defined BeIME
 		nsIMEBeOS::GetIME()->DispatchCancelIME();
 		if (mView && mView->LockLooper())
@@ -2038,40 +1980,29 @@ bool nsWindow::CallMethod(MethodInfo *info)
 
 	case nsWindow::ONWHEEL :
 		{
+			NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
+			// avoid mistargeting
+			if ((uint32)info->args[0] != (uint32)mView)
+				return false;
 			BPoint cursor(0,0);
 			uint32 buttons;
+			BPoint delta;
 			if (mView && mView->LockLooper())
 			{
 				mView->GetMouse(&cursor, &buttons, false);
+				delta = mView->GetWheel();
 				mView->UnlockLooper();
 			}
 			else
 				return false;
-			NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
-
-			nsMouseScrollEvent scrollEvent(PR_TRUE, NS_MOUSE_SCROLL, this);
-
-			scrollEvent.scrollFlags = nsMouseScrollEvent::kIsVertical;
-
-			scrollEvent.delta = (info->args)[0];
-
-			scrollEvent.time      = PR_IntervalNow();
-
-			scrollEvent.refPoint.x = nscoord(cursor.x);
-			scrollEvent.refPoint.y = nscoord(cursor.y);
-
-			// we don't use the mIsXDown bools because
-			// they get reset on Gecko reload (makes it harder
-			// to use stuff like Alt+Wheel)
-			uint32 mod (modifiers());
-
-			scrollEvent.isControl = mod & B_CONTROL_KEY;
-			scrollEvent.isShift = mod & B_SHIFT_KEY;
-			scrollEvent.isAlt   = mod & B_COMMAND_KEY;
-			scrollEvent.isMeta  = mod & B_OPTION_KEY;
-
-			nsEventStatus rv;
-			DispatchEvent (&scrollEvent, rv);
+			// BeOS TwoWheel input-filter is bit buggy atm, generating sometimes X-wheel without reason
+			// so we setting priority for Y-wheel with "else", in future code may be more elegant
+			if (nscoord(delta.y) != 0)
+			{
+				OnWheel(nsMouseScrollEvent::kIsVertical, buttons, cursor, nscoord(delta.y));
+			}
+			else if(nscoord(delta.x) != 0)
+				OnWheel(nsMouseScrollEvent::kIsHorizontal, buttons, cursor, nscoord(delta.x));
 		}
 		break;
 
@@ -2101,8 +2032,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 			BRegion reg;
 			nsRegion nreg;
 			reg.MakeEmpty();
-			nsViewBeOS *bv = dynamic_cast<nsViewBeOS *>(mView);
-			bool nonempty = bv->GetPaintRegion(&reg);
+			bool nonempty = mView->GetPaintRegion(&reg);
 			BRect br = reg.Frame();
 			if (nonempty && br.IsValid())
 			{
@@ -2126,17 +2056,24 @@ bool nsWindow::CallMethod(MethodInfo *info)
 			NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
 			if (eWindowType_popup != mWindowType && eWindowType_child != mWindowType)
 				DealWithPopups(ONRESIZE,nsPoint(0,0));
-			nsRect r;
-			GetBounds(r);
+			// This should be called only from BWindow::FrameResized()
+			if (!mIsTopWidgetWindow  || !mView  || !mView->Window())
+				return false;
+			
+			nsRect r(mBounds);
+			if (mView->LockLooper())
+			{
+				BRect br = mView->Frame();
+				r.x = nscoord(br.left);
+				r.y = nscoord(br.top);
+				r.width  = br.IntegerWidth() + 1;
+				r.height = br.IntegerHeight() + 1;
+				((nsWindowBeOS *)mView->Window())->fJustGotBounds = true;
+				mView->UnlockLooper();
+			}
+			SetBounds(r);
 			OnResize(r);
 		}
-		break;
-
-	case nsWindow::ONSCROLL:
-		NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
-		if (mEnabled)
-			return false;
-		OnScroll();
 		break;
 
 	case nsWindow::ONMOUSE :
@@ -2624,17 +2561,6 @@ PRBool nsWindow::DispatchKeyEvent(PRUint32 aEventType, PRUint32 aCharCode,
 	return result;
 }
 
-//---------------------------------------------------------
-//
-// Enabled/disable file drop for this component
-//
-//---------------------------------------------------------
-NS_METHOD nsWindow::EnableFileDrop(PRBool aEnable)
-{
-	NS_NOTYETIMPLEMENTED("EnableFileDrop not yet implemented"); // to be implemented
-	return NS_ERROR_FAILURE;
-}
-
 //-------------------------------------------------------------------------
 //
 // WM_DESTROY has been called
@@ -2676,24 +2602,46 @@ PRBool nsWindow::OnMove(PRInt32 aX, PRInt32 aY)
 	return result;
 }
 
+void nsWindow::OnWheel(PRInt32 aDirection, uint32 aButtons, BPoint aPoint, nscoord aDelta)
+{
+		// we don't use the mIsXDown bools because
+		// they get reset on Gecko reload (makes it harder
+		// to use stuff like Alt+Wheel)
+
+		nsMouseScrollEvent scrollEvent(PR_TRUE, NS_MOUSE_SCROLL, this);
+		uint32 mod (modifiers());
+		scrollEvent.isControl = mod & B_CONTROL_KEY;
+		scrollEvent.isShift = mod & B_SHIFT_KEY;
+		scrollEvent.isAlt   = mod & B_COMMAND_KEY;
+		scrollEvent.isMeta  = mod & B_OPTION_KEY;
+						
+		scrollEvent.scrollFlags = aDirection;
+		scrollEvent.delta = aDelta;
+		scrollEvent.time      = PR_IntervalNow();
+		scrollEvent.refPoint.x = nscoord(aPoint.x);
+		scrollEvent.refPoint.y = nscoord(aPoint.y);
+
+		nsEventStatus rv;
+		DispatchEvent (&scrollEvent, rv);
+}
+
 //-------------------------------------------------------------------------
 //
 // Paint
 //
 //-------------------------------------------------------------------------
-PRBool nsWindow::OnPaint(nsRect &r, const nsIRegion *nsr)
+nsresult nsWindow::OnPaint(nsRect &r, const nsIRegion *nsr)
 {
-	PRBool result = PR_FALSE;
+	nsresult rv = NS_ERROR_FAILURE;
 
 	if (r.IsEmpty() || !mEventCallback || !mView  || (eWindowType_child != mWindowType && eWindowType_popup != mWindowType))
-		return result;
+		return rv;
 	
 	// Substracting update rect from pending drawing region
 	if (mView->LockLooper())
 	{
 		BRect br(r.x, r.y, r.x + r.width - 1, r.y + r.height -1);
-		nsViewBeOS *bv = dynamic_cast<nsViewBeOS *>(mView);
-		bv->Validate(br);
+		mView->Validate(br);
 		mView->UnlockLooper();
 	}
 	
@@ -2705,17 +2653,18 @@ PRBool nsWindow::OnPaint(nsRect &r, const nsIRegion *nsr)
 	event.renderingContext = GetRenderingContext();
 	if (event.renderingContext != nsnull)
 	{
-		result = DispatchWindowEvent(&event);
+		// TODO: supply nsRenderingContextBeOS with font, colors and other state variables here.
+		// It will help toget rid of some hacks in LockAndUpdateView and
+		// allow non-permanent nsDrawingSurface for BeOS - currently it fails for non-bitmapped BViews/widgets.
+		// Something like this:
+		// event.renderingContext->SetFont(mFontMetrics);
+		rv = DispatchWindowEvent(&event) ? NS_OK : NS_ERROR_FAILURE;
 		NS_RELEASE(event.renderingContext);
-	}
-	else
-	{
-		result = PR_FALSE;
 	}
 
 	NS_RELEASE(event.widget);
 
-	return result;
+	return rv;
 }
 
 
@@ -2811,17 +2760,6 @@ PRBool nsWindow::DispatchFocus(PRUint32 aEventType)
 	return PR_FALSE;
 }
 
-
-//-------------------------------------------------------------------------
-//
-// Deal with scrollbar messages (actually implemented only in nsScrollbar)
-//
-//-------------------------------------------------------------------------
-PRBool nsWindow::OnScroll()
-{
-	return PR_FALSE;
-}
-
 NS_METHOD nsWindow::SetTitle(const nsAString& aTitle)
 {
 	if (mView && mView->LockLooper())
@@ -2831,12 +2769,6 @@ NS_METHOD nsWindow::SetTitle(const nsAString& aTitle)
 	}
 	return NS_OK;
 }
-
-PRBool nsWindow::AutoErase()
-{
-	return(PR_FALSE);
-}
-
 
 //----------------------------------------------------
 //
@@ -2889,7 +2821,7 @@ nsWindowBeOS::nsWindowBeOS( nsIWidget *aWidgetWindow, BRect aFrame, const char *
 		: BWindow( aFrame, aName, aLook, aFeel, aFlags, aWorkspace ),
 		nsIWidgetStore( aWidgetWindow )
 {
-	//placeholder for initialization
+	fJustGotBounds = true;
 }
 
 nsWindowBeOS::~nsWindowBeOS()
@@ -2997,13 +2929,21 @@ void  nsWindowBeOS::WorkspacesChanged(uint32 oldworkspace, uint32 newworkspace)
 
 void  nsWindowBeOS::FrameResized(float width, float height)
 {
+	// We have send message already, and Mozilla still didn't get it
+	// so don't poke it endlessly with no reason
+	if (!fJustGotBounds)
+		return;
 	nsWindow        *w = (nsWindow *)GetMozillaWidget();
 	nsToolkit	*t;
 	if (w && (t = w->GetToolkit()) != 0)
 	{
 		MethodInfo *info = nsnull;
 		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONRESIZE)))
+		{
 			t->CallMethodAsync(info);
+			//Memorize fact of sending message
+			fJustGotBounds = false;
+		}
 		NS_RELEASE(t);
 	}	
 }
@@ -3013,29 +2953,25 @@ void  nsWindowBeOS::FrameResized(float width, float height)
 //----------------------------------------------------
 
 nsViewBeOS::nsViewBeOS(nsIWidget *aWidgetWindow, BRect aFrame, const char *aName, uint32 aResizingMode, uint32 aFlags)
-		: BView(aFrame, aName, aResizingMode, aFlags), nsIWidgetStore(aWidgetWindow),
-		buttons(0), restoreMouseMask(false)
+	: BView(aFrame, aName, aResizingMode, aFlags), nsIWidgetStore(aWidgetWindow), wheel(.0,.0)
 {
-	paintregion.MakeEmpty();
-}
-
-void nsViewBeOS::AttachedToWindow()
-{
-	SetHighColor(B_TRANSPARENT_COLOR);
-	SetLowColor(B_TRANSPARENT_COLOR);
 	SetViewColor(B_TRANSPARENT_COLOR);
+	paintregion.MakeEmpty();	
+	buttons = 0;
+	fRestoreMouseMask = false;
+	fJustValidated = true;
+	fWheelDispatched = true;
 }
 
 void nsViewBeOS::Draw(BRect updateRect)
 {
-	DoDraw(updateRect);
-}
-
-void nsViewBeOS::DoDraw(BRect updateRect)
-{
-	//Collecting update rects here in paintregion
 	paintregion.Include(updateRect);
 
+	// We have send message already, and Mozilla still didn't get it
+	// so don't poke it endlessly with no reason. Also don't send message
+	// if update region is empty.
+	if (paintregion.CountRects() == 0 || !paintregion.Frame().IsValid() || !fJustValidated)
+		return;
 	nsWindow	*w = (nsWindow *)GetMozillaWidget();
 	nsToolkit	*t;
 	if (w && (t = w->GetToolkit()) != 0)
@@ -3043,7 +2979,11 @@ void nsViewBeOS::DoDraw(BRect updateRect)
 		MethodInfo *info = nsnull;
 		info = new MethodInfo(w, w, nsWindow::ONPAINT);
 		if (info)
+		{
 			t->CallMethodAsync(info);
+			//Memorize fact of sending message
+			fJustValidated = false;
+		}
 		NS_RELEASE(t);
 	}
 }
@@ -3060,13 +3000,26 @@ bool nsViewBeOS::GetPaintRegion(BRegion *r)
 void nsViewBeOS::Validate(BRect r)
 {
 	paintregion.Exclude(r);
+	// Mozilla got previous ONPAINT message,
+	// ready for next event.
+	fJustValidated = true;
+}
+
+BPoint nsViewBeOS::GetWheel()
+{
+	BPoint retvalue = wheel;
+	// Mozilla got wheel event, so setting flag and cleaning delta storage
+	fWheelDispatched = true;
+	wheel.x = 0;
+	wheel.y = 0;
+	return retvalue;
 }
 
 void nsViewBeOS::MouseDown(BPoint point)
 {
-	if (!restoreMouseMask)
+	if (!fRestoreMouseMask)
 		mouseMask = SetMouseEventMask(B_POINTER_EVENTS);
-	restoreMouseMask = true;
+	fRestoreMouseMask = true;
 	
 	//To avoid generating extra mouseevents when there is no change in pos.
 	mousePos = point;
@@ -3112,7 +3065,7 @@ void nsViewBeOS::MouseMoved(BPoint point, uint32 transit, const BMessage *msg)
 	mousePos = point;
 		
 	//We didn't start the mouse down and there is no drag in progress, so ignore.
-	if (NULL == msg && !restoreMouseMask && buttons)
+	if (NULL == msg && !fRestoreMouseMask && buttons)
 		return;
 		
 	nsWindow	*w = (nsWindow *)GetMozillaWidget();
@@ -3161,10 +3114,10 @@ void nsViewBeOS::MouseMoved(BPoint point, uint32 transit, const BMessage *msg)
 
 void nsViewBeOS::MouseUp(BPoint point)
 {
-	if (restoreMouseMask) 
+	if (fRestoreMouseMask) 
 	{
 		SetMouseEventMask(mouseMask);
-		restoreMouseMask = false;
+		fRestoreMouseMask = false;
 	}
 	
 	//To avoid generating extra mouseevents when there is no change in pos.
@@ -3248,30 +3201,35 @@ void nsViewBeOS::MessageReceived(BMessage *msg)
 	case B_MOUSE_WHEEL_CHANGED:
 		{
 			float wheel_y;
+			float wheel_x;
 
 			msg->FindFloat ("be:wheel_delta_y", &wheel_y);
+			msg->FindFloat ("be:wheel_delta_x", &wheel_x);
+			wheel.x += wheel_x;
+			wheel.y += wheel_y;
 
-			// make sure there *was* movement on the y axis
-			if (wheel_y == 0)
-				break;
-
+			if(!fWheelDispatched || (nscoord(wheel_x) == 0 && nscoord(wheel_y) == 0))
+				return;
+			uint32	args[1];
+			args[0] = (uint32)this;
 			nsWindow    *w = (nsWindow *)GetMozillaWidget();
 			nsToolkit   *t;
 
 			if (w && (t = w->GetToolkit()) != 0)
 			{
-				uint32 args[1];
-				if (wheel_y > 0)
-					args[0] = (uint32)3;
-				else
-					args[0] = (uint32)-3;
+					
 				MethodInfo *info = nsnull;
 				if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONWHEEL, 1, args)))
+				{
 					t->CallMethodAsync(info);
+					fWheelDispatched = false;
+					
+				}
 				NS_RELEASE(t);
 			}
 		}
 		break;
+		
 #if defined(BeIME)
 	case B_INPUT_METHOD_EVENT:
 		DoIME(msg);
@@ -3356,18 +3314,31 @@ void nsViewBeOS::MakeFocus(bool focused)
 {
 	if (!IsFocus() && focused)
 		BView::MakeFocus(focused);
-
+	uint32	args[1];
+	args[0] = (uint32)this;
 	nsWindow	*w = (nsWindow *)GetMozillaWidget();
 	nsToolkit	*t;
 	if (w && (t = w->GetToolkit()) != 0)
 	{
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, (focused)? nsWindow::GOT_FOCUS : nsWindow::KILL_FOCUS)))
-			t->CallMethodAsync(info);
+		if (!focused)
+		{
+			if (nsnull != (info = new MethodInfo(w, w, nsWindow::KILL_FOCUS),1,args))
+				t->CallMethodAsync(info);
+		}
+#ifdef DEBUG_FOCUS
+		else
+		{
+			if (nsnull != (info = new MethodInfo(w, w, nsWindow::GOT_FOCUS),1,args))
+				t->CallMethodAsync(info);
+		}
+#endif		
 		NS_RELEASE(t);
 	}
 }
+
 #if defined(BeIME)
+// Inline Input Method implementation
 void nsViewBeOS::DoIME(BMessage *msg)
 {
 	nsWindow	*w = (nsWindow *)GetMozillaWidget();

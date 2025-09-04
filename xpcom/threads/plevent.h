@@ -85,9 +85,7 @@ and posts the event:
 		if (event == NULL) goto done;
 
 		// initialize
-		PL_InitEvent(event, owner,
-					 (PLHandleEventProc)handleMyEvent,
-					 (PLDestroyEventProc)destroyMyEvent);
+		PL_InitEvent(event, owner, handleMyEvent, destroyMyEvent);
 		event->x = x;
 		event->y = strdup(y);
 
@@ -107,16 +105,18 @@ Handling Events
 To handle an event you must write a callback that is passed the event
 record you defined containing the event's arguments:
 
-    void* handleMyEvent(MyEventType* event)
+    PR_STATIC_CALLBACK(void*) handleMyEvent(PLEvent* aEvent)
     {
+		MyEventType *event = NS_STATIC_CAST(MyEventType*, aEvent);
 		doit(event->x, event->y);
 		return NULL;	// you could return a value for a sync event
     }
 
 Similarly for the destruction callback:
 
-    void destroyMyEvent(MyEventType* event)
+    PR_STATIC_CALLBACK(void) destroyMyEvent(PLEvent* aEvent)
     {
+		MyEventType *event = NS_STATIC_CAST(MyEventType*, aEvent);
 		free(event->y);	// created by strdup
 		free(event);
     }

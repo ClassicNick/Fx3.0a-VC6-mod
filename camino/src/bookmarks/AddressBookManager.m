@@ -45,12 +45,18 @@
 #import "Bookmark.h"
 #import <AddressBook/AddressBook.h>
 
+#if MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_4
+// These are not available for linkage before the 10.4 SDK. Value obtained via inspection.
+static NSString * const kABURLsProperty = @"URLs";
+#endif
+
 
 @implementation AddressBookManager
 
 -(id)initWithFolder:(id)folder
 {
   if ((self = [super init])) {
+    [ABAddressBook sharedAddressBook];    // ensure notification constants are valid, docs say they're not until this is called
     mAddressBookFolder = [folder retain];
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc addObserver:self selector:@selector(fillAddressBook:) name:kABDatabaseChangedNotification object:nil];
@@ -78,9 +84,14 @@
   ABAddressBook *ab = [ABAddressBook sharedAddressBook];
   NSEnumerator *peopleEnumerator = [[ab people] objectEnumerator];
   ABPerson* person;
-  NSString *name, *homepage;
+  NSString *name = nil, *homepage = nil;
   while ((person = [peopleEnumerator nextObject])) {
-    homepage = [person valueForProperty:kABHomePageProperty];
+    // |kABHomePageProperty| is depricated on Tiger, look for the new property first and then
+    // the old one (as the old one is present but no longer updated by ABook).
+    ABMultiValue* urls = [person valueForProperty:kABURLsProperty];
+    homepage = [urls valueAtIndex:[urls indexForIdentifier:[urls primaryIdentifier]]];
+    if (!homepage)
+      homepage = [person valueForProperty:kABHomePageProperty];
     if ([homepage length] > 0) {
       NSString* firstName = [person valueForProperty:kABFirstNameProperty];
       NSString* lastName = [person valueForProperty:kABLastNameProperty];

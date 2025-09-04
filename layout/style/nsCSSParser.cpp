@@ -174,7 +174,7 @@ protected:
   nsresult InitScanner(nsIUnicharInputStream* aInput, nsIURI* aSheetURI,
                        PRUint32 aLineNumber, nsIURI* aBaseURI);
   // the caller must hold on to aBuffer until parsing is done
-  nsresult InitScanner(const nsAString& aBuffer, nsIURI* aSheetURI,
+  nsresult InitScanner(const nsString& aString, nsIURI* aSheetURI,
                        PRUint32 aLineNumber, nsIURI* aBaseURI);
   nsresult ReleaseScanner(void);
 
@@ -605,7 +605,7 @@ CSSParserImpl::InitScanner(nsIUnicharInputStream* aInput, nsIURI* aSheetURI,
 {
   NS_ASSERTION(! mScannerInited, "already have scanner");
 
-  mScanner.Init(aInput, aSheetURI, aLineNumber);
+  mScanner.Init(aInput, nsnull, 0, aSheetURI, aLineNumber);
 #ifdef DEBUG
   mScannerInited = PR_TRUE;
 #endif
@@ -618,19 +618,24 @@ CSSParserImpl::InitScanner(nsIUnicharInputStream* aInput, nsIURI* aSheetURI,
 }
 
 nsresult
-CSSParserImpl::InitScanner(const nsAString& aBuffer, nsIURI* aSheetURI,
+CSSParserImpl::InitScanner(const nsString& aString, nsIURI* aSheetURI,
                            PRUint32 aLineNumber, nsIURI* aBaseURI)
 {
   // Having it not own the string is OK since the caller will hold on to
   // the stream until we're done parsing.
-  nsCOMPtr<nsIUnicharInputStream> input;
-  nsresult rv = NS_NewStringUnicharInputStream(getter_AddRefs(input),
-                                               &aBuffer, PR_FALSE);
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
+  NS_ASSERTION(! mScannerInited, "already have scanner");
 
-  return InitScanner(input, aSheetURI, aLineNumber, aBaseURI);
+  mScanner.Init(nsnull, aString.get(), aString.Length(), aSheetURI, aLineNumber);
+
+#ifdef DEBUG
+  mScannerInited = PR_TRUE;
+#endif
+  mBaseURL = aBaseURI;
+  mSheetURL = aSheetURI;
+
+  mHavePushBack = PR_FALSE;
+
+  return NS_OK;
 }
 
 nsresult
@@ -742,8 +747,8 @@ CSSParserImpl::ParseStyleAttribute(const nsAString& aAttributeValue,
 {
   NS_ASSERTION(nsnull != aBaseURL, "need base URL");
 
-  nsresult rv =
-    InitScanner(aAttributeValue, aDocURL, 0, aBaseURL); // XXX line number
+  const nsAFlatString& flat = PromiseFlatString(aAttributeValue);
+  nsresult rv = InitScanner(flat, aDocURL, 0, aBaseURL); // XXX line number
   if (! NS_SUCCEEDED(rv)) {
     return rv;
   }
@@ -797,7 +802,8 @@ CSSParserImpl::ParseAndAppendDeclaration(const nsAString&  aBuffer,
 //  NS_ASSERTION(nsnull != aBaseURL, "need base URL");
   *aChanged = PR_FALSE;
 
-  nsresult rv = InitScanner(aBuffer, aSheetURL, 0, aBaseURL);
+  const nsAFlatString& flat = PromiseFlatString(aBuffer);
+  nsresult rv = InitScanner(flat, aSheetURL, 0, aBaseURL);
   if (! NS_SUCCEEDED(rv)) {
     return rv;
   }
@@ -846,7 +852,8 @@ CSSParserImpl::ParseRule(const nsAString&        aRule,
 {
   NS_ASSERTION(nsnull != aBaseURL, "need base URL");
 
-  nsresult rv = InitScanner(aRule, aSheetURL, 0, aBaseURL);
+  const nsAFlatString& flat = PromiseFlatString(aRule);
+  nsresult rv = InitScanner(flat, aSheetURL, 0, aBaseURL);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -887,7 +894,8 @@ CSSParserImpl::ParseProperty(const nsCSSProperty aPropID,
   NS_ASSERTION(nsnull != aDeclaration, "Need declaration to parse into!");
   *aChanged = PR_FALSE;
 
-  nsresult rv = InitScanner(aPropValue, aSheetURL, 0, aBaseURL);
+  const nsAFlatString& flat = PromiseFlatString(aPropValue);
+  nsresult rv = InitScanner(flat, aSheetURL, 0, aBaseURL);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -992,8 +1000,10 @@ CSSParserImpl::DoParseMediaList(const nsSubstring& aBuffer,
                                 PRUint32 aLineNumber, // for error reporting
                                 nsMediaList* aMediaList)
 {
+  const nsAFlatString& flat = PromiseFlatString(aBuffer);
+
   // fake base URL since media lists don't have URLs in them
-  nsresult rv = InitScanner(aBuffer, aURL, aLineNumber, aURL);
+  nsresult rv = InitScanner(flat, aURL, aLineNumber, aURL);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -1015,9 +1025,8 @@ CSSParserImpl::ParseColorString(const nsSubstring& aBuffer,
 {
   NS_ASSERTION(aHandleAlphaColors == PR_TRUE || aHandleAlphaColors == PR_FALSE, "bad PRBool value");
 
-  nsresult rv = NS_ERROR_FAILURE;
-
-  rv = InitScanner(aBuffer, aURL, aLineNumber, aURL);
+  const nsAFlatString& flat = PromiseFlatString(aBuffer);
+  nsresult rv = InitScanner(flat, aURL, aLineNumber, aURL);
   if (NS_FAILED(rv))
     return rv;
 
@@ -2581,42 +2590,39 @@ CSSParserImpl::ParseNegatedSimpleSelector(PRInt32&       aDataMask,
     REPORT_UNEXPECTED_EOF(PENegationEOF);
     return eSelectorParsingStatus_Error;
   }
-  if (!aSelector.mNegations) {
-    aSelector.mNegations = new nsCSSSelector();
-    if (!aSelector.mNegations) {
-      aErrorCode = NS_ERROR_OUT_OF_MEMORY;
-      return eSelectorParsingStatus_Error;
-    }
+
+  // Create a new nsCSSSelector and add it to the end of
+  // aSelector.mNegations.
+  // Given the current parsing rules, every selector in mNegations
+  // contains only one simple selector (css3 definition) within it.
+  // This could easily change in future versions of CSS, and the only
+  // thing we need to change to support that is this parsing code.
+  nsCSSSelector *newSel = new nsCSSSelector();
+  if (!newSel) {
+    aErrorCode = NS_ERROR_OUT_OF_MEMORY;
+    return eSelectorParsingStatus_Error;
   }
-  // ID, class and attribute selectors and pseudo-classes are stored in
-  // the first mNegations attached to a selector
+  nsCSSSelector* negations = &aSelector;
+  while (negations->mNegations) {
+    negations = negations->mNegations;
+  }
+  negations->mNegations = newSel;
+
   nsSelectorParsingStatus parsingStatus;
   if (eCSSToken_ID == mToken.mType) { // #id
-    parsingStatus = ParseIDSelector(aDataMask, *aSelector.mNegations, aErrorCode);
+    parsingStatus = ParseIDSelector(aDataMask, *newSel, aErrorCode);
   }
   else if (mToken.IsSymbol('.')) {    // .class
-    parsingStatus = ParseClassSelector(aDataMask, *aSelector.mNegations, aErrorCode);
+    parsingStatus = ParseClassSelector(aDataMask, *newSel, aErrorCode);
   }
   else if (mToken.IsSymbol(':')) {    // :pseudo
-    parsingStatus = ParsePseudoSelector(aDataMask, *aSelector.mNegations, aErrorCode, PR_TRUE);
+    parsingStatus = ParsePseudoSelector(aDataMask, *newSel, aErrorCode, PR_TRUE);
   }
   else if (mToken.IsSymbol('[')) {    // [attribute
-    parsingStatus = ParseAttributeSelector(aDataMask, *aSelector.mNegations, aErrorCode);
+    parsingStatus = ParseAttributeSelector(aDataMask, *newSel, aErrorCode);
   }
   else {
     // then it should be a type element or universal selector
-    nsCSSSelector *newSel = new nsCSSSelector();
-    if (!newSel) {
-      aErrorCode = NS_ERROR_OUT_OF_MEMORY;
-      return eSelectorParsingStatus_Error;
-    }
-    nsCSSSelector* negations = aSelector.mNegations;
-    while (nsnull != negations->mNegations) {
-      negations = negations->mNegations;
-    }
-    // negated type element selectors and universal selectors are stored after the first
-    // mNegations containing only negated IDs, classes, attributes and pseudo-classes
-    negations->mNegations = newSel;
     parsingStatus = ParseTypeOrUniversalSelector(aDataMask, *newSel, aErrorCode, PR_TRUE);
   }
   if (eSelectorParsingStatus_Error == parsingStatus) {

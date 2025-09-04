@@ -272,6 +272,9 @@ sub sql_fulltext_search {
     # in LIKE search clauses
     @words = map($self->quote("%$_%"), @words);
 
+    # untaint words, since they are safe to use now that we've quoted them
+    map(trick_taint($_), @words);
+
     # turn the words into a set of LIKE search clauses
     @words = map("LOWER($column) LIKE $_", @words);
 
@@ -1143,8 +1146,8 @@ formatted SQL command have prefix C<sql_>. All other methods have prefix C<bz_>.
 
  Description: Outputs proper SQL syntax for a time interval function.
               Abstract method, should be overriden by database specific code.
- Params:      $interval = the time interval requested (e.g. '30 minutes')
-              (scalar)
+ Params:      $interval - the time interval requested (e.g. '30') (integer)
+              $units    - the units the interval is in (e.g. 'MINUTE') (string)
  Returns:     formatted SQL for interval function (scalar)
 
 =item C<sql_position>

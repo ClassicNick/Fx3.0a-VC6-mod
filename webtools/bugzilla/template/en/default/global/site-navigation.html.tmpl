@@ -62,10 +62,12 @@
   [% IF bug %]
     <link rel="Show" title="Dependency Tree"
           href="showdependencytree.cgi?id=[% bug.bug_id %]">
-    <link rel="Show" title="Dependency Graph"
-          href="showdependencygraph.cgi?id=[% bug.bug_id %]">
+    [% IF Param('webdotbase') %]
+      <link rel="Show" title="Dependency Graph"
+            href="showdependencygraph.cgi?id=[% bug.bug_id %]">
+    [% END %]
 
-    [% IF use_votes %]
+    [% IF bug.use_votes %]
       <link rel="Show" title="Votes ([% bug.votes %])"
             href="votes.cgi?action=show_bug&amp;bug_id=[% bug.bug_id %]">
     [% END %]

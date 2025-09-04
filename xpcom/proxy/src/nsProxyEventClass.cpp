@@ -49,7 +49,7 @@
 #include "nsHashtable.h"
 
 #include "nsAutoLock.h"
-#include "nsIInterfaceInfoManager.h"
+#include "xptiprivate.h"
 #include "xptcall.h"
 
 // LIFETIME_CACHE will cache class for the entire cyle of the application.
@@ -109,7 +109,9 @@ nsProxyEventClass::GetNewOrUsedClass(REFNSIID aIID)
     }
     else
     {
-        nsCOMPtr<nsIInterfaceInfoManager> iimgr = getter_AddRefs(XPTI_GetInterfaceInfoManager());
+        nsIInterfaceInfoManager* iimgr =
+            xptiInterfaceInfoManager::GetInterfaceInfoManagerNoAddRef();
+
         if(iimgr)
         {
             nsCOMPtr<nsIInterfaceInfo> info;
@@ -251,7 +253,8 @@ nsProxyEventClass::CallQueryInterfaceOnProxy(nsProxyEventObject* self, REFNSIID 
     nsCOMPtr<nsIInterfaceInfo> interfaceInfo;
     const nsXPTMethodInfo *mi;
 
-    nsCOMPtr<nsIInterfaceInfoManager> iim = getter_AddRefs(XPTI_GetInterfaceInfoManager());
+    nsIInterfaceInfoManager* iim =
+        xptiInterfaceInfoManager::GetInterfaceInfoManagerNoAddRef();
 
     if (!iim) return NS_NOINTERFACE;
     iim->GetInfoForName("nsISupports", getter_AddRefs(interfaceInfo));
@@ -301,7 +304,7 @@ class ProxyEventClassIdentity
 {
     // no instance methods...
 public:
-    NS_DEFINE_STATIC_IID_ACCESSOR(NS_PROXYEVENT_IDENTITY_CLASS_IID)
+    NS_DECLARE_STATIC_IID_ACCESSOR(NS_PROXYEVENT_IDENTITY_CLASS_IID)
 
     static void* GetSingleton()
     {
@@ -311,6 +314,9 @@ public:
         return (void*) singleton;
     }
 };
+
+NS_DEFINE_STATIC_IID_ACCESSOR(ProxyEventClassIdentity,
+                              NS_PROXYEVENT_IDENTITY_CLASS_IID)
 
 NS_IMETHODIMP
 nsProxyEventClass::DelegatedQueryInterface(nsProxyEventObject* self,

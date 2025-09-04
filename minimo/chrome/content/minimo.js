@@ -270,11 +270,6 @@ function MiniNavStartup()
   document.addEventListener("keypress",eventHandlerMenu,true);
 
   /* 
-   * Focus event detection to toggle SNAV mode on/OFF
-   */
-  document.addEventListener("focus",eventHandlerFocus,false); 
-  
-  /* 
    * Override the title attribute <title /> in this doc with a setter.
    * This is our workaround solution so that when the tabbrowser::updateTitle
    * tries to update this document's title, nothing happens. Bug 311564
@@ -289,17 +284,25 @@ function MiniNavStartup()
  
   syncUIZoom();
   
+
+  /* 
+   * Add event clicks to Minimo toolbars and also to the mStrip BOX in the tabbrowser
+   */
+  getBrowser().mStrip.addEventListener("click",BrowserWithoutSNAV,false);
+  document.getElementById("mini-toolbars").addEventListener("click",BrowserWithoutSNAV,false);
+
+
+  /* 
+   * Toolkit in Minimo, box strip is active, as opposite to in FF
+   */
+  if(getBrowser().mPanelContainer.childNodes.length==1) {
+	getBrowser().mStrip.collapsed=true;
+  }
+
 }
 
-/* 
- *  Toggles SNAV ON/OFF based on focused element. If in #document, then SNAV on. Otherwise off. 
- */
-function eventHandlerFocus(e) {
- if(e.target.nodeName=="#document") {
-	BrowserSNAVToggle(true);
- } else {
-    BrowserSNAVToggle(false);
- } 
+function BrowserWithoutSNAV(e) {
+	BrowserSNAVToggle(false);
 }
 
 /*
@@ -315,40 +318,55 @@ function eventHandlerMenu(e) {
     document.getElementById("menu-button").focus(); // forcing state back to the menu. 
   }
 
-  if(e.keyCode==134 || e.keyCode==70) /*SoftKey1 or HWKey1*/ {
+  if( e.keyCode==70) /*SoftKey1 or HWKey1*/ {
   	document.getElementById("menu-button").focus();
-    e.preventBubble();
+	e.preventBubble();
+	BrowserSNAVToggle(false);
   } 
   
-  var outnavTarget=document.commandDispatcher.focusedElement.getAttribute("accessrule");
-  if(outnavTarget!="" && (e.keyCode==40||e.keyCode==38) && !gShowingMenuPopup) {
-      e.preventBubble();
-      if(e.keyCode==40) {
+  if(document.commandDispatcher&&document.commandDispatcher.focusedElement) { 
 
-        ruleElement=findRuleById(document.getElementById(outnavTarget).getAttribute("accessnextrule"),"accessnextrule");
-      }
-      if(e.keyCode==38) {
+	  var outnavTarget=document.commandDispatcher.focusedElement.getAttribute("accessrule");
+	  if(outnavTarget!="" && (e.keyCode==40||e.keyCode==38) && !gShowingMenuPopup) {
+	      e.preventBubble();
+	      if(e.keyCode==40) {
+	
+	        ruleElement=findRuleById(document.getElementById(outnavTarget).getAttribute("accessnextrule"),"accessnextrule");
+	      }
+	      if(e.keyCode==38) {
+	
+	        ruleElement=findRuleById(document.getElementById(outnavTarget).getAttribute("accessprevrule"),"accessprevrule"); 
+	      }
+		  var tempElement=ruleElement.getAttribute("accessfocus");
+	      if(tempElement.indexOf("#")>-1) {
+	
+			if(tempElement=="#tabContainer") { 
+				if(getBrowser().tabContainer) {
+					getBrowser().selectedTab.focus();
 
-        ruleElement=findRuleById(document.getElementById(outnavTarget).getAttribute("accessprevrule"),"accessprevrule"); 
-      }
-	  var tempElement=ruleElement.getAttribute("accessfocus");
-      if(tempElement.indexOf("#")>-1) {
+					if(getBrowser().mStrip.collapsed) {
+				
+						BrowserSNAVToggle(true);
 
-        if(tempElement=="#tabContainer") { 
-          if(getBrowser().tabContainer) {
-            getBrowser().selectedTab.focus();
-          }
-        } 
-		if(tempElement=="#tabContent") { 
-          // THis is hack to go backwards and get into browser area. 
-          // The previous approach worked in toolkitFF desktop and failed in device. 
-          
-          document.commandDispatcher.advanceFocusIntoSubtree(document.getElementById("nav-bar"));
-          document.commandDispatcher.rewindFocus();
-        } 
-        
-	  } else { 
-		  document.getElementById(tempElement).focus();
+					} 
+
+				}
+			} 
+			if(tempElement=="#tabContent") { 
+				// THis is hack to go backwards and get into browser area. 
+				// The previous approach worked in toolkitFF desktop and failed in device. 
+				//document.commandDispatcher.advanceFocusIntoSubtree(document.getElementById("nav-bar"));
+				//document.commandDispatcher.rewindFocus();
+				
+				getBrowser().contentWindow.focus();
+				
+				BrowserSNAVToggle(true);
+
+			} 
+       
+		  } else { 
+			  document.getElementById(tempElement).focus();
+		  }
 	  }
   }
 }
@@ -574,17 +592,7 @@ function BrowserPopupShowing () {
   }
 
   var selectedRange=getBrowser().selectedBrowser.contentDocument.getSelection();
-  if(selectedRange) {
-  
-   	s=util_stripCharsFromString(selectedRange,"#_+()- ");
-	if(util_validateInteger(s) && s.length >= 7) {
-	  document.getElementById("item-call").hidden=false;
-      document.getElementById("item-call").label="Call \""+ selectedRange + " \"";
-      document.getElementById("item-call").setAttribute("oncommand","DoTestSendCall("+s+")");
-    } else {
-	  document.getElementById("item-call").hidden=true;    
-    }
-  }
+ 
   /* Enable Copy */
   if(selectedRange.toString()) {
     document.getElementById("item-copy").style.display="block";
@@ -713,8 +721,13 @@ function URLBarEntered()
 {
   try
   {
+    if (!gURLBar)
+      return;
+
     var url = gURLBar.value;
-    
+    if (gURLBar.value == "" || gURLBar.value == null)
+      return;
+
     var fixedUpURI = gURIFixup.createFixupURI(url, 2 /*fixup url*/ );
     gGlobalHistory.markPageAsTyped(fixedUpURI);
     
@@ -790,27 +803,4 @@ function BrowserSNAVToggle(state) {
 } 
 
 
-/*
- * Utils :  function for the phone call calculation. 
- */
- 
-function util_stripCharsFromString (s, charList) {
-    var resultS = "";
-    for (var i = 0; i < s.length; i++)
-    {   
-        var c = s.charAt(i);
-        if (charList.indexOf(c) == -1) resultS += c;
-    }
-    return resultS;
-}
 
-function util_validateInteger(s)
-{
-    for (var i = 0; i < s.length; i++)
-    {   
-        var c = s.charAt(i);
-        if (((c < "0") || (c > "9"))) return false;
-    }
-    return true;
-}
-	

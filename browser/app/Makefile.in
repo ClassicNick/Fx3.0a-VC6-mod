@@ -79,6 +79,10 @@ ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
 TK_LIBS := -framework Cocoa $(TK_LIBS)
 endif
 
+ifdef MOZ_ENABLE_CAIRO_GFX
+EXTRA_DSO_LIBS	= thebes
+endif
+
 LIBS = \
 	$(STATIC_COMPONENTS_LINKER_PATH) \
 	$(EXTRA_DSO_LIBS) \
@@ -149,7 +153,9 @@ endif
 endif
 
 ifeq ($(OS_ARCH),BeOS)
-OS_LIBS += -ltracker
+ifdef BUILD_STATIC_LIBS
+OS_LIBS += -ltracker -lgame
+endif
 endif
 
 ifeq ($(OS_ARCH),OS2)
@@ -261,7 +267,7 @@ libs::
 	$(INSTALL) $(DIST)/branding/default.xpm $(DIST)/bin/chrome/icons/default
 
 install::
-	$(SYSINSTALL) $(IFLAGS1) $(DIST)/branding/default.xpm $(DESTDIR)$(mozappdir)/icons
+	$(SYSINSTALL) $(IFLAGS1) $(DIST)/branding/default.xpm $(DESTDIR)$(mozappdir)/chrome/icons/default
 endif
 
 export::

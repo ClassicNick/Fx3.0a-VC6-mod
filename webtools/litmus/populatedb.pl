@@ -28,15 +28,25 @@
 # ***** END LICENSE BLOCK *****
 
 use strict;
+use Getopt::Long;
+use Litmus::Config;
 $|++;
 
-BEGIN {
-	unless (-e "data/") {
-    	system("mkdir data/");
-    }
-    system("chmod -R 777 data/");
-    unless (-e "localconfig") {
-         open(OUT, ">localconfig");
+my $reset_db;
+my $help;
+GetOptions('help|?' => \$help,'r|resetdb' => \$reset_db);
+
+if ($help) {
+  &usage;
+  exit;
+}
+
+unless (-e "data/") {
+    system("mkdir", "data/");
+}
+system("chmod -R 777 data/");
+unless (-e "localconfig") {
+     open(OUT, ">localconfig");
          print OUT <<EOT;
 our \$db_host = "";
 our \$db_name = "";
@@ -50,19 +60,6 @@ EOT
         print "Go edit 'localconfig' with your configuration and \n";
         print "run this script again.";
         exit;
-    }
-}
-
-use Getopt::Long;
-use Litmus::Config;
-
-my $reset_db;
-my $help;
-GetOptions('help|?' => \$help,'r|resetdb' => \$reset_db);
-
-if ($help) {
-  &usage;
-  exit;
 }
 
 if ($reset_db) {
@@ -70,7 +67,7 @@ if ($reset_db) {
   my $data_file = "populatedb.sql";
  
   print "Creating tables...";
-  my $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass < $schema_file";
+  my $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass $Litmus::Config::db_name < $schema_file";
   my $rv = system($cmd);
   if ($rv) {
     die "Error creating database $Litmus::Config::db_name";
@@ -78,14 +75,13 @@ if ($reset_db) {
   print "done.\n";
 
   print "Populating tables...";
-  $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass < $data_file";
+  $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass $Litmus::Config::db_name < $data_file";
   $rv = system($cmd);
   if ($rv) {
     die "Error populating database $Litmus::Config::db_name";
   }
   print "done.\n";
 }
-
 
 # javascript cache                  
 print "Rebuilding JS cache...";

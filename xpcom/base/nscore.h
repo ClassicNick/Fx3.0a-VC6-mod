@@ -135,6 +135,9 @@
  *    to all implementations - the compiler will _not_ warn but it will crash.
  *  - This has no effect for inline functions or functions which take a
  *    variable number of arguments.
+ *  - __fastcall on windows should not be applied to class
+ *    constructors/destructors - use the NS_CONSTRUCTOR_FASTCALL macro for
+ *    constructors/destructors.
  *
  * Examples: int NS_FASTCALL func1(char *foo);
  *           NS_HIDDEN_(int) NS_FASTCALL func2(char *foo);
@@ -142,8 +145,13 @@
 
 #if defined(__i386__) && defined(__GNUC__) && (__GNUC__ >= 3) && !defined(XP_OS2) && !defined(XP_MACOSX)
 #define NS_FASTCALL __attribute__ ((regparm (3), stdcall))
+#define NS_CONSTRUCTOR_FASTCALL __attribute__ ((regparm (3), stdcall))
+#elif defined(XP_WIN)
+#define NS_FASTCALL __fastcall
+#define NS_CONSTRUCTOR_FASTCALL
 #else
 #define NS_FASTCALL
+#define NS_CONSTRUCTOR_FASTCALL
 #endif
 
 /*
@@ -159,14 +167,15 @@
 #ifdef NS_WIN32
 
 #define NS_IMPORT __declspec(dllimport)
-#define NS_IMPORT_(type) type __declspec(dllimport) __stdcall
+#define NS_IMPORT_(type) __declspec(dllimport) type __stdcall
 #define NS_EXPORT __declspec(dllexport)
-#define NS_EXPORT_(type) type __declspec(dllexport) __stdcall
+#define NS_EXPORT_(type) __declspec(dllexport) type __stdcall
 #define NS_IMETHOD_(type) virtual type __stdcall
 #define NS_IMETHODIMP_(type) type __stdcall
 #define NS_METHOD_(type) type __stdcall
 #define NS_CALLBACK_(_type, _name) _type (__stdcall * _name)
 #define NS_STDCALL __stdcall
+#define NS_FROZENCALL __cdecl
 
 /*
   These are needed to mark static members in exported classes, due to
@@ -187,6 +196,7 @@
 #define NS_METHOD_(type) type
 #define NS_CALLBACK_(_type, _name) _type (* _name)
 #define NS_STDCALL
+#define NS_FROZENCALL
 #define NS_EXPORT_STATIC_MEMBER_(type) NS_EXTERNAL_VIS_(type)
 #define NS_IMPORT_STATIC_MEMBER_(type) NS_EXTERNAL_VIS_(type)
 
@@ -231,11 +241,25 @@
  * Import/Export macros for XPCOM APIs
  */
 
+#define EXPORT_XPCOM_API(type) extern "C" NS_EXPORT type NS_FROZENCALL
+#define IMPORT_XPCOM_API(type) extern "C" NS_IMPORT type NS_FROZENCALL
+#define GLUE_XPCOM_API(type) NS_HIDDEN_(type) NS_FROZENCALL
+
 #ifdef _IMPL_NS_COM
-#define NS_COM NS_EXPORT
-#elif  _IMPL_NS_COM_OFF
+#define XPCOM_API(type) EXPORT_XPCOM_API(type)
+#elif defined(XPCOM_GLUE)
+#define XPCOM_API(type) GLUE_XPCOM_API(type)
+#else
+#define XPCOM_API(type) IMPORT_XPCOM_API(type)
+#endif
+
+#if 0
+// This will become #ifdef MOZ_ENABLE_LIBXUL when various in-tree code is
+// fixed up. See bug 305949
 #define NS_COM
-#elif  XPCOM_GLUE
+#elif defined(_IMPL_NS_COM)
+#define NS_COM NS_EXPORT
+#elif defined(XPCOM_GLUE)
 #define NS_COM
 #else
 #define NS_COM NS_IMPORT

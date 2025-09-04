@@ -52,28 +52,6 @@ ifeq (,$(filter-out all,$(BUILD_MODULES))$(MOZ_XSLT_STANDALONE))
 #
 SUPPRESS_DEFAULT_RULES = 1
 
-default alldep all:: $(SUBMAKEFILES)
-	$(RM) -rf $(DIST)/sdk
-	$(RM) -rf $(DIST)/include
-	$(MAKE) -C config export
-	$(MAKE) nspr
-	$(MAKE) ldap
-	$(MAKE) tier_0
-	$(MAKE) tier_1
-	$(MAKE) tier_2
-	$(MAKE) tier_9
-	$(MAKE) tier_50
-ifdef MOZ_EXTENSIONS
-	$(MAKE) tier_94
-endif
-ifdef MOZ_MAIL_NEWS
-	$(MAKE) tier_97
-endif
-ifdef MOZ_CALENDAR
-	$(MAKE) tier_98
-endif
-	$(MAKE) tier_99
-
 # Make sure that the existing rulesets work
 DIRS = \
 	$(tier_0_dirs) \
@@ -420,6 +398,30 @@ tier_99_dirs += \
 	$(NULL)
 endif
 
+default alldep all:: $(SUBMAKEFILES)
+	$(RM) -rf $(DIST)/sdk
+	$(RM) -rf $(DIST)/include
+	$(MAKE) -C config export
+	$(MAKE) nspr
+	$(MAKE) ldap
+	$(MAKE) tier_0
+	$(MAKE) tier_1
+	$(MAKE) tier_2
+	$(MAKE) tier_9
+	$(MAKE) tier_50
+ifdef MOZ_EXTENSIONS
+	$(MAKE) tier_94
+endif
+ifdef MOZ_MAIL_NEWS
+	$(MAKE) tier_97
+endif
+ifdef MOZ_CALENDAR
+	$(MAKE) tier_98
+endif
+	$(MAKE) tier_99
+
+include $(topsrcdir)/config/config.mk
+
 else # BUILD_MODULES
 
 # Standalone build
@@ -495,24 +497,27 @@ endif
 
 # Map mozilla targets to standard automake target
 
-export_tier_%: $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_dirs)))
+export_tier_%:
 	@echo "$@"
+	@$(MAKE) $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_dirs)))
 	@$(EXIT_ON_ERROR) \
 	for d in $(tier_$*_dirs); do \
 	  $(UPDATE_TITLE) \
 	  $(MAKE) -C $$d export; \
 	done
 
-libs_tier_%: $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_dirs)))
+libs_tier_%:
 	@echo "$@"
+	@$(MAKE) $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_dirs)))
 	@$(EXIT_ON_ERROR) \
 	for d in $(tier_$*_dirs); do \
 	  $(UPDATE_TITLE) \
 	  $(MAKE) -C $$d libs; \
 	done
 
-tools_tier_%: $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_dirs)))
+tools_tier_%:
 	@echo "$@"
+	@$(MAKE) $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_dirs)))
 	@$(EXIT_ON_ERROR) \
 	for d in $(tier_$*_dirs); do \
 	  $(UPDATE_TITLE) \
@@ -520,7 +525,8 @@ tools_tier_%: $(addsuffix /Makefile,$(filter-out $(STATIC_MAKEFILES),$(tier_$*_d
 	done
 
 ifdef MOZ_ENABLE_LIBXUL
-tier_50: $(addsuffix /Makefile, $(filter-out $(STATIC_MAKEFILES), $($@_dirs)))
+tier_50:
+	@echo "$@: $($@_dirs)"
 	$(MAKE) export_tier_50
 	$(MAKE) libs_tier_50
 	$(MAKE) tools_tier_2

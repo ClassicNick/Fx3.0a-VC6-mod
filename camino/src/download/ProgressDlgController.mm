@@ -38,6 +38,9 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsNetError.h"
+
+#import "NSString+Utils.h"
 #import "NSView+Utils.h"
 
 #import "ProgressDlgController.h"
@@ -49,15 +52,19 @@ static NSString* const kProgressWindowFrameSaveName = @"ProgressWindow";
 
 @interface ProgressDlgController(PrivateProgressDlgController)
 
+-(void)showErrorSheetForDownload:(id <CHDownloadProgressDisplay>)progressDisplay withStatus:(nsresult)inStatus;
 -(void)rebuildViews;
--(NSMutableArray*)getSelectedProgressViewControllers;
+-(NSArray*)selectedProgressViewControllers;
 -(void)deselectDLInstancesInArray:(NSArray*)instances;
 -(void)makeDLInstanceVisibleIfItsNotAlready:(ProgressViewController*)controller;
 -(void)killDownloadTimer;
 -(void)setupDownloadTimer;
 -(BOOL)shouldAllowCancelAction;
 -(BOOL)shouldAllowRemoveAction;
--(BOOL)shouldAllowOpenAction;
+-(BOOL)shouldAllowPauseAction;
+-(BOOL)shouldAllowResumeAction;
+-(BOOL)fileExistsForSelectedItems;
+
 
 @end
 
@@ -126,49 +133,42 @@ static id gSharedProgressController = nil;
 // cancel all selected instances
 -(IBAction)cancel:(id)sender
 {
-  NSMutableArray* selected = [self getSelectedProgressViewControllers];
-  unsigned int count = [selected count];
-  for (unsigned int i = 0; i < count; i++) {
-    [[selected objectAtIndex:i] cancel:sender];
-  }
+  [[self selectedProgressViewControllers] makeObjectsPerformSelector:@selector(cancel:) withObject:sender];
 }
 
 // reveal all selected instances in the Finder
 -(IBAction)reveal:(id)sender
 {
-  NSMutableArray* selected = [self getSelectedProgressViewControllers];
-  unsigned int count = [selected count];
-  for (unsigned int i = 0; i < count; i++) {
-    [[selected objectAtIndex:i] reveal:sender];
-  }
+  [[self selectedProgressViewControllers] makeObjectsPerformSelector:@selector(reveal:) withObject:sender];
 }
 
 // open all selected instances
 -(IBAction)open:(id)sender
 {
-  NSMutableArray* selected = [self getSelectedProgressViewControllers];
-  unsigned int count = [selected count];
-  for (unsigned int i = 0; i < count; i++) {
-    [[selected objectAtIndex:i] open:sender];
-  }
+  [[self selectedProgressViewControllers] makeObjectsPerformSelector:@selector(open:) withObject:sender];
 }
 
 // remove all selected instances, don't remove anything that is active as a guard against bad things
 -(IBAction)remove:(id)sender
 {
   // take care of selecting a download instance to replace the selection being removed
-  NSMutableArray* selected = [self getSelectedProgressViewControllers];
+  NSArray* selected = [self selectedProgressViewControllers];
   unsigned int selectedCount = [selected count];
-  unsigned int indexOfLastSelection = [mProgressViewControllers indexOfObject:[selected objectAtIndex:(((int)selectedCount) - 1)]];
+  if (selectedCount == 0) return;
+
+  unsigned int indexOfLastSelection = [mProgressViewControllers indexOfObject:[selected lastObject]];
   // if dl instance after last selection exists, select it or look for something else to select
   if ((indexOfLastSelection + 1) < [mProgressViewControllers count]) {
-    [[((ProgressViewController*)[mProgressViewControllers objectAtIndex:(indexOfLastSelection + 1)]) view] setSelected:YES];
+    [(ProgressViewController*)[mProgressViewControllers objectAtIndex:(indexOfLastSelection + 1)] setSelected:YES];
   }
   else { // find the first unselected DL instance before the last one marked for removal and select it
     // use an int in the loop, not unsigned because we might make it negative
-    for (int i = ([mProgressViewControllers count] - 1); i >= 0; i--) {
-	    if (![((ProgressViewController*)[mProgressViewControllers objectAtIndex:i]) isSelected]) {
-          [[((ProgressViewController*)[mProgressViewControllers objectAtIndex:i]) view] setSelected:YES];
+    for (int i = ([mProgressViewControllers count] - 1); i >= 0; i--)
+    {
+      ProgressViewController* curProgressViewController = [mProgressViewControllers objectAtIndex:i];
+	    if (![curProgressViewController isSelected])
+	    {
+          [curProgressViewController setSelected:YES];
           break;
 	    }
     }
@@ -176,10 +176,11 @@ static id gSharedProgressController = nil;
   mSelectionPivotIndex = -1; // nothing is selected any more so nothing to pivot on
   
   // now remove stuff
-  for (unsigned int i = 0; i < selectedCount; i++) {
-    if (![[selected objectAtIndex:i] isActive]) {
-      [self removeDownload:[selected objectAtIndex:i]];
-    }
+  for (unsigned int i = 0; i < selectedCount; i++)
+  {
+    ProgressViewController* selProgressViewController = [selected objectAtIndex:i];
+    if (![selProgressViewController isActive])
+      [self removeDownload:selProgressViewController];
   }
   
   [self rebuildViews];
@@ -188,34 +189,25 @@ static id gSharedProgressController = nil;
 
 -(IBAction)pause:(id)sender
 {
-  NSMutableArray* selected = [self getSelectedProgressViewControllers];
-  unsigned int count = [selected count];
-  for (unsigned int i = 0; i < count; i++) 
-  {
-    [[selected objectAtIndex:i] pause:sender];
-  }
-  
-  [self rebuildViews];
+  [[self selectedProgressViewControllers] makeObjectsPerformSelector:@selector(pause:) withObject:sender];
+  [self rebuildViews];  // because we swap in a different progress view
 }
 
 -(IBAction)resume:(id)sender
 {
-  NSMutableArray* selected = [self getSelectedProgressViewControllers];
-  unsigned int count = [selected count];
-  for (unsigned int i = 0; i < count; i++)
-  {
-    [[selected objectAtIndex:i] resume:sender];
-  }
-  
-  [self rebuildViews];
+  [[self selectedProgressViewControllers] makeObjectsPerformSelector:@selector(resume:) withObject:sender];
+  [self rebuildViews];  // because we swap in a different progress view
 }
 
 // remove all inactive instances
 -(IBAction)cleanUpDownloads:(id)sender
 {
-  for (unsigned int i = 0; i < [mProgressViewControllers count]; i++) {
-    if ((![[mProgressViewControllers objectAtIndex:i] isActive]) || [[mProgressViewControllers objectAtIndex:i] isCanceled]) {
-	    [self removeDownload:[mProgressViewControllers objectAtIndex:i]]; // remove the download
+  for (unsigned int i = 0; i < [mProgressViewControllers count]; i++)
+  {
+    ProgressViewController* curProgressViewController = [mProgressViewControllers objectAtIndex:i];
+    if ((![curProgressViewController isActive]) || [curProgressViewController isCanceled])
+    {
+	    [self removeDownload:curProgressViewController]; // remove the download
 	    i--; // leave index at the same position because the dl there got removed
     }
   }
@@ -229,11 +221,13 @@ static id gSharedProgressController = nil;
 // this is used for the browser reset function
 -(void)clearAllDownloads
 {
-  for (int i = [mProgressViewControllers count] - 1; i >= 0; i--) {
+  for (int i = [mProgressViewControllers count] - 1; i >= 0; i--)
+  {
+    ProgressViewController* curProgressViewController = [mProgressViewControllers objectAtIndex:i];
     // the ProgressViewController method "cancel:" has a sanity check, so its ok to call on anything
     // make sure downloads are not active before removing them
-    [[mProgressViewControllers objectAtIndex:i] cancel:self];
-    [self removeDownload:[mProgressViewControllers objectAtIndex:i]]; // remove the download
+    [curProgressViewController cancel:self];
+    [self removeDownload:curProgressViewController]; // remove the download
   }
   mSelectionPivotIndex = -1;
   
@@ -249,7 +243,7 @@ static id gSharedProgressController = nil;
 //
 -(void)DLInstanceOpened:(NSNotification*)notification
 {
-  if ([self shouldAllowOpenAction])
+  if ([self fileExistsForSelectedItems])
     [self open:self];
 }
 
@@ -257,163 +251,185 @@ static id gSharedProgressController = nil;
 -(void)DLInstanceSelected:(NSNotification*)notification
 {
   // make sure the notification object is the kind we want
-  ProgressView* sender = ((ProgressView*)[notification object]);
-  if (![sender isKindOfClass:[ProgressView class]])
+  ProgressView* selectedView = ((ProgressView*)[notification object]);
+  if (![selectedView isKindOfClass:[ProgressView class]])
     return;
 
-  NSMutableArray* selectedArray = [self getSelectedProgressViewControllers];
-  int lastMod = [sender lastModifier];
+  ProgressViewController* selectedViewController = [selectedView getController];
+  
+  NSArray* selectedArray = [self selectedProgressViewControllers];
 
+  int indexOfSelectedController = (int)[mProgressViewControllers indexOfObject:selectedViewController];
+  
   // check for key modifiers and select more instances if appropriate
   // if its shift key, extend the selection one way or another
   // if its command key, just let the selection happen wherever it is (don't mess with it here)
   // if its not either clear all selections except the one that just happened
-  if (lastMod == kNoKey) {
-    // deselect everything
-    [self deselectDLInstancesInArray:selectedArray];
-    [sender setSelected:YES];
-    mSelectionPivotIndex = [mProgressViewControllers indexOfObject:[sender getController]];
-  }
-  else if (lastMod == kCommandKey) {
-    if (![sender isSelected]) {
-      // if this was at the pivot index set the pivot index to -1
-      if ([mProgressViewControllers indexOfObject:[sender getController]] == (unsigned int)mSelectionPivotIndex) {
-        mSelectionPivotIndex = -1;
+  switch ([selectedView lastModifier])
+  {
+    case kNoKey:
+      // deselect everything
+      [self deselectDLInstancesInArray:selectedArray];
+      [selectedViewController setSelected:YES];
+      mSelectionPivotIndex = indexOfSelectedController;
+      break;
+
+    case kCommandKey:
+      if (![selectedViewController isSelected])
+      {
+        // if this was at the pivot index set the pivot index to -1
+        if (indexOfSelectedController == mSelectionPivotIndex)
+          mSelectionPivotIndex = -1;
       }
-    }
-    else {
-      if ([selectedArray count] == 1) {
-        mSelectionPivotIndex = [mProgressViewControllers indexOfObject:[sender getController]];
+      else
+      {
+        if ([selectedArray count] == 1)
+          mSelectionPivotIndex = indexOfSelectedController;
       }
-    }
-  }
-  else if (lastMod == kShiftKey) {
-    if (mSelectionPivotIndex == -1) {
-      mSelectionPivotIndex = [mProgressViewControllers indexOfObject:[sender getController]];
-    }
-    else { 
-      if ([selectedArray count] == 1) {
-          mSelectionPivotIndex = [mProgressViewControllers indexOfObject:[sender getController]];
-      }
-      else {
-        int senderLocation = [mProgressViewControllers indexOfObject:[sender getController]];
-        // deselect everything
-        [self deselectDLInstancesInArray:selectedArray];
-        if (senderLocation <= mSelectionPivotIndex) {
-          for (int i = senderLocation; i <= mSelectionPivotIndex; i++) {
-            [[((ProgressViewController*)[mProgressViewControllers objectAtIndex:i]) view] setSelected:YES];
+      break;
+
+    case kShiftKey:
+      if (mSelectionPivotIndex == -1)
+        mSelectionPivotIndex = indexOfSelectedController;
+      else
+      { 
+        if ([selectedArray count] == 1)
+            mSelectionPivotIndex = indexOfSelectedController;
+        else
+        {
+          // deselect everything
+          [self deselectDLInstancesInArray:selectedArray];
+          if (indexOfSelectedController <= mSelectionPivotIndex)
+          {
+            for (int i = indexOfSelectedController; i <= mSelectionPivotIndex; i++)
+              [(ProgressViewController*)[mProgressViewControllers objectAtIndex:i] setSelected:YES];
+          }
+          else if (indexOfSelectedController > mSelectionPivotIndex) 
+          {
+            for (int i = mSelectionPivotIndex; i <= indexOfSelectedController; i++)
+              [(ProgressViewController*)[mProgressViewControllers objectAtIndex:i] setSelected:YES];
           }
         }
-        else if (senderLocation > mSelectionPivotIndex) {
-          for (int i = mSelectionPivotIndex; i <= senderLocation; i++) {
-            [[((ProgressViewController*)[mProgressViewControllers objectAtIndex:i]) view] setSelected:YES];
-          }
-        }
       }
-    }
+      break;
   }
 }
 
 -(void)keyDown:(NSEvent *)theEvent
 {
   // we don't care about anything if no downloads exist
-  if ([mProgressViewControllers count] > 0) {
-    int key = [[theEvent characters] characterAtIndex:0];
-    int instanceToSelect = -1;
-    unsigned int mods = [theEvent modifierFlags];
-    if (key == NSUpArrowFunctionKey) { // was it the up arrow key that got pressed?
-      // find the first selected item
-      int i; // we use this outside the loop so declare it here
-      for (i = 0; i < (int)[mProgressViewControllers count]; i++) {
-        if ([[mProgressViewControllers objectAtIndex:i] isSelected]) {
-          break;
-        }
-      }      
-      // deselect everything if the shift key isn't a modifier
-      if (!(mods & NSShiftKeyMask)) {
-        [self deselectDLInstancesInArray:[self getSelectedProgressViewControllers]];
-      }
-      if (i == (int)[mProgressViewControllers count]) { // if nothing was selected select the first item
-        instanceToSelect = 0;
-      }
-      else if (i == 0) { // if selection was already at the top leave it there
-        instanceToSelect = 0;
-      }
-      else { // select the next highest instance
-        instanceToSelect = i - 1;
-      }
-      // select and make sure its visible
-      if (instanceToSelect != -1) {
-        [[((ProgressViewController*)[mProgressViewControllers objectAtIndex:instanceToSelect]) view] setSelected:YES];
-        [self makeDLInstanceVisibleIfItsNotAlready:((ProgressViewController*)[mProgressViewControllers objectAtIndex:instanceToSelect])];
-        if (!(mods & NSShiftKeyMask)) {
-          mSelectionPivotIndex = instanceToSelect;
-        }
-      }
-    }
-    else if (key == NSDownArrowFunctionKey) { // was it the down arrow key that got pressed?
-      // find the last selected item
-      int i; // we use this outside the coming loop so declare it here
-      for (i = [mProgressViewControllers count] - 1; i >= 0 ; i--) {
-        if ([[mProgressViewControllers objectAtIndex:i] isSelected]) {
-          break;
-        }
-      }
-      // deselect everything if the shift key isn't a modifier
-      if (!(mods & NSShiftKeyMask)) {
-        [self deselectDLInstancesInArray:[self getSelectedProgressViewControllers]];
-      }
-      if (i < 0) { // if nothing was selected select the first item
-        instanceToSelect = ([mProgressViewControllers count] - 1);
-      }
-      else if (i == ((int)[mProgressViewControllers count] - 1)) { // if selection was already at the bottom leave it there
-        instanceToSelect = ([mProgressViewControllers count] - 1);
-      }
-      else { // select the next lowest instance
-        instanceToSelect = i + 1;
-      }
-      if (instanceToSelect != -1) {
-        [[((ProgressViewController*)[mProgressViewControllers objectAtIndex:instanceToSelect]) view] setSelected:YES];
-        [self makeDLInstanceVisibleIfItsNotAlready:((ProgressViewController*)[mProgressViewControllers objectAtIndex:instanceToSelect])];
-        if (!(mods & NSShiftKeyMask)) {
-          mSelectionPivotIndex = instanceToSelect;
+  if ([mProgressViewControllers count] == 0)
+  {
+    NSBeep();
+    return;
+  }
+
+  int instanceToSelect = -1;
+  BOOL shiftKeyDown (([theEvent modifierFlags] & NSShiftKeyMask) != 0);
+
+  unichar key = [[theEvent characters] characterAtIndex:0];
+  switch (key)
+  {
+    case NSUpArrowFunctionKey:
+      {
+        // find the first selected item
+        int i; // we use this outside the loop so declare it here
+        for (i = 0; i < (int)[mProgressViewControllers count]; i++) {
+          if ([[mProgressViewControllers objectAtIndex:i] isSelected]) {
+            break;
+          }
+        }      
+        // deselect everything if the shift key isn't a modifier
+        if (!shiftKeyDown)
+          [self deselectDLInstancesInArray:[self selectedProgressViewControllers]];
+
+        if (i == (int)[mProgressViewControllers count]) // if nothing was selected select the first item
+          instanceToSelect = 0;
+        else if (i == 0) // if selection was already at the top leave it there
+          instanceToSelect = 0;
+        else // select the next highest instance
+          instanceToSelect = i - 1;
+
+        // select and make sure its visible
+        if (instanceToSelect != -1)
+        {
+          ProgressViewController* dlToSelect = [mProgressViewControllers objectAtIndex:instanceToSelect];
+          [dlToSelect setSelected:YES];
+          [self makeDLInstanceVisibleIfItsNotAlready:dlToSelect];
+          if (!shiftKeyDown)
+            mSelectionPivotIndex = instanceToSelect;
         }
       }
-    }
-    else if (key == (int)'\177') { // delete key - remove all selected items unless an active one is selected
-      NSMutableArray *selected = [self getSelectedProgressViewControllers];
-      BOOL activeFound = NO;
-      for (unsigned i = 0; i < [selected count]; i++) {
-        if ([[selected objectAtIndex:i] isActive]) {
-          activeFound = YES;
-          break;
+      break;
+
+    case NSDownArrowFunctionKey:
+      {
+        // find the last selected item
+        int i; // we use this outside the coming loop so declare it here
+        for (i = [mProgressViewControllers count] - 1; i >= 0 ; i--) {
+          if ([[mProgressViewControllers objectAtIndex:i] isSelected])
+            break;
+        }
+
+        // deselect everything if the shift key isn't a modifier
+        if (!shiftKeyDown)
+          [self deselectDLInstancesInArray:[self selectedProgressViewControllers]];
+
+        if (i < 0) // if nothing was selected select the first item
+          instanceToSelect = ([mProgressViewControllers count] - 1);
+        else if (i == ((int)[mProgressViewControllers count] - 1)) // if selection was already at the bottom leave it there
+          instanceToSelect = ([mProgressViewControllers count] - 1);
+        else // select the next lowest instance
+          instanceToSelect = i + 1;
+
+        if (instanceToSelect != -1)
+        {
+          ProgressViewController* dlToSelect = [mProgressViewControllers objectAtIndex:instanceToSelect];
+          [dlToSelect setSelected:YES];
+          [self makeDLInstanceVisibleIfItsNotAlready:dlToSelect];
+          if (!shiftKeyDown)
+            mSelectionPivotIndex = instanceToSelect;
         }
       }
-      if (activeFound) {
-        NSBeep();
+      break;
+
+    case NSDeleteCharacter:
+      { // delete key - remove all selected items unless an active one is selected
+        NSArray* selected = [self selectedProgressViewControllers];
+        BOOL activeFound = NO;
+        for (unsigned i = 0; i < [selected count]; i++)
+        {
+          if ([[selected objectAtIndex:i] isActive])
+          {
+            activeFound = YES;
+            break;
+          }
+        }
+
+        if (activeFound)
+          NSBeep();
+        else
+          [self remove:self];
       }
-      else {
-        [self remove:self];
-      }
-    }
-    else if (key == NSPageUpFunctionKey) {
+      break;
+
+    case NSPageUpFunctionKey:
       if ([mProgressViewControllers count] > 0) {
         // make the first instance completely visible
         [self makeDLInstanceVisibleIfItsNotAlready:((ProgressViewController*)[mProgressViewControllers objectAtIndex:0])];
       }
-    }
-    else if (key == NSPageDownFunctionKey) {
+      break;
+
+    case NSPageDownFunctionKey:
       if ([mProgressViewControllers count] > 0) {
         // make the last instance completely visible
         [self makeDLInstanceVisibleIfItsNotAlready:((ProgressViewController*)[mProgressViewControllers lastObject])];
       }
-    }
-    else { // ignore any other keys
+      break;
+
+    default:
       NSBeep();
-    }
-  }
-  else {
-    NSBeep();
+      break;
   }
 }
 
@@ -421,12 +437,12 @@ static id gSharedProgressController = nil;
 {
   unsigned count = [instances count];
   for (unsigned i = 0; i < count; i++) {
-    [[((ProgressViewController*)[instances objectAtIndex:i]) view] setSelected:NO];
+    [(ProgressViewController*)[instances objectAtIndex:i] setSelected:NO];
   }
 }
 
 // return a mutable array with instance in order top-down
--(NSMutableArray*)getSelectedProgressViewControllers
+-(NSArray*)selectedProgressViewControllers
 {
   NSMutableArray *selectedArray = [[NSMutableArray alloc] init];
   unsigned selectedCount = [mProgressViewControllers count];
@@ -446,8 +462,6 @@ static id gSharedProgressController = nil;
   NSRect visibleRect = [[mScrollView contentView] documentVisibleRect];
   // for some reason there is a 1 pixel discrepancy we need to get rid of here
   instanceFrame.size.width -= 1;
-  // NSLog([NSString stringWithFormat:@"Instance Frame: %@", NSStringFromRect(instanceFrame)]);
-  // NSLog([NSString stringWithFormat:@"Visible Rect: %@", NSStringFromRect(visibleRect)]);
   if (!NSContainsRect(visibleRect, instanceFrame)) { // if instance isn't completely visible
     if (instanceFrame.origin.y < visibleRect.origin.y) { // if the dl instance is at least partly above visible rect
       // just go to the instance's frame origin point
@@ -473,14 +487,14 @@ static id gSharedProgressController = nil;
   [self setupDownloadTimer];
   
   // downloads should be individually selected when initiated
-  [self deselectDLInstancesInArray:[self getSelectedProgressViewControllers]];
-  [[((ProgressViewController*)progressDisplay) view] setSelected:YES];
+  [self deselectDLInstancesInArray:[self selectedProgressViewControllers]];
+  [(ProgressViewController*)progressDisplay setSelected:YES];
   
   // make sure new download is visible
   [self makeDLInstanceVisibleIfItsNotAlready:progressDisplay];
 }
 
--(void)didEndDownload:(id <CHDownloadProgressDisplay>)progressDisplay withSuccess:(BOOL)completedOK
+-(void)didEndDownload:(id <CHDownloadProgressDisplay>)progressDisplay withSuccess:(BOOL)completedOK statusCode:(nsresult)status
 {
   [self rebuildViews]; // to swap in the completed view
   [[[self window] toolbar] validateVisibleItems]; // force update which doesn't always happen
@@ -496,8 +510,66 @@ static id gSharedProgressController = nil;
                       // for the option key and try to close all windows
     }
   }
+  else if (NS_FAILED(status) && status != NS_BINDING_ABORTED)  // if it's an error, and not just canceled, show sheet
+  {
+    [self showErrorSheetForDownload:progressDisplay withStatus:status];
+  }
   
   [self saveProgressViewControllers];
+}
+
+-(void)showErrorSheetForDownload:(id <CHDownloadProgressDisplay>)progressDisplay withStatus:(nsresult)inStatus
+{
+  NSString* errorMsgFmt = NSLocalizedString(@"DownloadErrorMsgFmt", @"");
+  NSString* errorExplString = nil;
+  
+  NSString* destFilePath = [progressDisplay destinationPath];
+  NSString* fileName = [destFilePath displayNameOfLastPathComponent];
+  
+  NSString* errorMsg = [NSString stringWithFormat:errorMsgFmt, fileName];
+
+  switch (inStatus)
+  {
+    case NS_ERROR_FILE_DISK_FULL:
+    case NS_ERROR_FILE_NO_DEVICE_SPACE:
+      {
+        NSString* fmtString = NSLocalizedString(@"DownloadErrorNoDiskSpaceOnVolumeFmt", @"");
+        errorExplString = [NSString stringWithFormat:fmtString, [destFilePath volumeNamePathComponent]];
+      }
+      break;
+      
+    case NS_ERROR_FILE_ACCESS_DENIED:
+      {
+        NSString* fmtString = NSLocalizedString(@"DownloadErrorDestinationWriteProtectedFmt", @"");
+        NSString* destDirPath = [destFilePath stringByDeletingLastPathComponent];
+        errorExplString = [NSString stringWithFormat:fmtString, [destDirPath displayNameOfLastPathComponent]];
+      }
+      break;
+
+    case NS_ERROR_FILE_TOO_BIG:
+    case NS_ERROR_FILE_READ_ONLY:
+    default:
+      {
+        errorExplString = NSLocalizedString(@"DownloadErrorOther", @"");
+        NSLog(@"Download failure code: %X", inStatus);
+      }
+      break;
+  }
+  
+  NSBeginAlertSheet(errorMsg,
+                    nil,    // default button ("OK")
+                    nil,    // alt button (none)
+                    nil,    // other button (nil)
+                    [self window],
+                    self,
+                    @selector(downloadErrorSheetDidEnd:returnCode:contextInfo:),
+                    nil,    // didDismissSelector
+                    NULL,   // context info
+                    errorExplString);
+}
+
+-(void)downloadErrorSheetDidEnd:(NSWindow *)sheet returnCode:(int)returnCode contextInfo:(void *)contextInfo
+{
 }
 
 -(void)removeDownload:(id <CHDownloadProgressDisplay>)progressDisplay
@@ -642,6 +714,7 @@ static id gSharedProgressController = nil;
     {
       ProgressViewController* curController = [[ProgressViewController alloc] initWithDictionary:downloadsDictionary];
       [mProgressViewControllers addObject:curController];
+      [curController release];
     }
     
     [self rebuildViews];
@@ -650,52 +723,51 @@ static id gSharedProgressController = nil;
 
 -(BOOL)shouldAllowCancelAction
 {
-  NSMutableArray* selectedArray = [self getSelectedProgressViewControllers];
-  unsigned int selectedCount = [selectedArray count];
   // if no selections are inactive or canceled then allow cancel
-  for (unsigned int i = 0; i < selectedCount; i++) {
-    if ((![[selectedArray objectAtIndex:i] isActive]) || [[selectedArray objectAtIndex:i] isCanceled]) {
+  NSEnumerator* progViewEnum = [[self selectedProgressViewControllers] objectEnumerator];
+  ProgressViewController* curController;
+  while ((curController = [progViewEnum nextObject]))
+  {
+    if ((![curController isActive]) || [curController isCanceled])
       return NO;
-    }
   }
   return [[self window] isKeyWindow]; // disable if not key window
 }
 
 -(BOOL)shouldAllowRemoveAction
 {
-  NSMutableArray* selectedArray = [self getSelectedProgressViewControllers];
-  unsigned int selectedCount = [selectedArray count];
   // if no selections are active then allow remove
-  for (unsigned int i = 0; i < selectedCount; i++) {
-    if ([[selectedArray objectAtIndex:i] isActive]) {
+  NSEnumerator* progViewEnum = [[self selectedProgressViewControllers] objectEnumerator];
+  ProgressViewController* curController;
+  while ((curController = [progViewEnum nextObject]))
+  {
+    if ([curController isActive])
       return NO;
-    }
   }
   return [[self window] isKeyWindow];
 }
 
--(BOOL)shouldAllowOpenAction
+-(BOOL)fileExistsForSelectedItems
 {
-  NSMutableArray* selectedArray = [self getSelectedProgressViewControllers];
-  unsigned int selectedCount = [selectedArray count];
-  // if no selections are are active or canceled then allow open
-  for (unsigned int i = 0; i < selectedCount; i++) {
-    if ([[selectedArray objectAtIndex:i] isActive] || [[selectedArray objectAtIndex:i] isCanceled]) {
+  NSEnumerator* progViewEnum = [[self selectedProgressViewControllers] objectEnumerator];
+  ProgressViewController* curController;
+  while ((curController = [progViewEnum nextObject]))
+  {
+    if ([curController isActive] || [curController isCanceled] || ![curController fileExists])
       return NO;
-    }
   }
+  
   return YES;
 }
 
 - (BOOL)shouldAllowPauseAction
 {
-  NSMutableArray* selectedArray = [self getSelectedProgressViewControllers];
-  unsigned int selectedCount = [selectedArray count];
-  // if no selections are paused, allow the pause
-  for (unsigned int i = 0; i < selectedCount; i++) {
-    if ([[selectedArray objectAtIndex:i] isPaused] || ![[selectedArray objectAtIndex:i] isActive]) {
+  NSEnumerator* progViewEnum = [[self selectedProgressViewControllers] objectEnumerator];
+  ProgressViewController* curController;
+  while ((curController = [progViewEnum nextObject]))
+  {
+    if ([curController isPaused] || ![curController isActive])
       return NO;
-    }
   }
   
   return YES;
@@ -703,13 +775,12 @@ static id gSharedProgressController = nil;
 
 -(BOOL)shouldAllowResumeAction
 {
-  NSMutableArray* selectedArray = [self getSelectedProgressViewControllers];
-  unsigned int selectedCount = [selectedArray count];
-  // if no selections are paused, allow the pause
-  for (unsigned int i = 0; i < selectedCount; i++) {
-    if (![[selectedArray objectAtIndex:i] isPaused] || ![[selectedArray objectAtIndex:i] isActive]) {
+  NSEnumerator* progViewEnum = [[self selectedProgressViewControllers] objectEnumerator];
+  ProgressViewController* curController;
+  while ((curController = [progViewEnum nextObject]))
+  {
+    if (![curController isPaused] || ![curController isActive])
       return NO;
-    }
   }
   
   return YES;
@@ -724,8 +795,8 @@ static id gSharedProgressController = nil;
   else if (action == @selector(remove:)) {
     return [self shouldAllowRemoveAction];
   }
-  else if (action == @selector(open:)) {
-    return [self shouldAllowOpenAction];
+  else if (action == @selector(open:) || action == @selector(reveal:)) {
+    return [self fileExistsForSelectedItems];
   }
   else if (action == @selector(pause:)) {
     return [self shouldAllowPauseAction];
@@ -739,12 +810,16 @@ static id gSharedProgressController = nil;
 
 - (BOOL)setPauseResumeToolbarItem:(NSToolbarItem*)theItem
 {
+  // since this is also the method that gets called when the customize dialog is run
+  // set the default value of the label, tooltip, icon, and pallete label to pause
+  // only set the action of the selector to pause if we validate properly
+  [theItem setLabel:NSLocalizedString(@"dlPauseButtonLabel", nil)];
+  [theItem setToolTip:NSLocalizedString(@"dlPauseButtonTooltip", nil)];
+  [theItem setPaletteLabel:NSLocalizedString(@"dlPauseButtonLabel", nil)];
+  [theItem setImage:[NSImage imageNamed:@"dl_pause.tif"]];
+  
   if ([self shouldAllowPauseAction]) {
-    [theItem setToolTip:NSLocalizedString(@"dlPauseButtonTooltip", nil)];
-    [theItem setLabel:NSLocalizedString(@"dlPauseButtonLabel", nil)];
-    [theItem setPaletteLabel:NSLocalizedString(@"dlPauseButtonLabel", nil)];
     [theItem setAction:@selector(pause:)];
-    [theItem setImage:[NSImage imageNamed:@"dl_pause.tif"]];
     
     return [[self window] isKeyWindow]; // if not key window, dont enable
   }
@@ -774,24 +849,24 @@ static id gSharedProgressController = nil;
   // validate items not dependent on the current selection
   if (action == @selector(cleanUpDownloads:)) {
     unsigned pcControllersCount = [mProgressViewControllers count];
-    for (unsigned i = 0; i < pcControllersCount; i++) {
-      if ((![[mProgressViewControllers objectAtIndex:i] isActive]) ||
-          [[mProgressViewControllers objectAtIndex:i] isCanceled]) {
+    for (unsigned i = 0; i < pcControllersCount; i++)
+    {
+      ProgressViewController* curController = [mProgressViewControllers objectAtIndex:i];
+      if ((![curController isActive]) || [curController isCanceled])
         return YES;
-      }
     }
     return NO;
   }
   
   // validate items that depend on current selection
-  if ([[self getSelectedProgressViewControllers] count] == 0) {
+  if ([[self selectedProgressViewControllers] count] == 0) {
     return NO;
   }
   else if (action == @selector(remove:)) {
 	  return [self shouldAllowRemoveAction];
   }
-  else if (action == @selector(open:)) {
-    return [self shouldAllowOpenAction];
+  else if (action == @selector(open:) || action == @selector(reveal:)) {
+    return [self fileExistsForSelectedItems];
   }
   else if (action == @selector(cancel:)) {
     return [self shouldAllowCancelAction];

@@ -91,8 +91,8 @@ class nsCSSFrameConstructor;
 class nsISelection;
 
 #define NS_IPRESSHELL_IID     \
-{ 0x8be1b911, 0x7a04, 0x44e8, \
- { 0xaf, 0xaa, 0x17, 0x77, 0x26, 0x91, 0x8c, 0x19 } }
+{ 0x775a6c25, 0x326f, 0x4a99, \
+ { 0xbb, 0x9d, 0x65, 0xdf, 0x15, 0xb3, 0x06, 0xa3 } }
 
 // Constants uses for ScrollFrameIntoView() function
 #define NS_PRESSHELL_SCROLL_TOP      0
@@ -139,8 +139,10 @@ enum nsAttributeChangeType {
 class nsIPresShell_base : public nsISupports
 {
 public:
-  NS_DEFINE_STATIC_IID_ACCESSOR(NS_IPRESSHELL_IID)
+  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IPRESSHELL_IID)
 };
+
+NS_DEFINE_STATIC_IID_ACCESSOR(nsIPresShell_base, NS_IPRESSHELL_IID)
 
 class nsIPresShell : public nsIPresShell_base
 {
@@ -209,7 +211,12 @@ public:
   /*
    * Called when stylesheets are added/removed/enabled/disabled to rebuild
    * all style data for a given pres shell without necessarily reconstructing
-   * all of the frames.
+   * all of the frames.  This will not reconstruct style synchronously; if
+   * you need to do that, call FlushPendingNotifications to flush out style
+   * reresolves.
+   * // XXXbz why do we have this on the interface anyway?  The only consumer
+   * is calling AddOverrideStyleSheet/RemoveOverrideStyleSheet, and I think
+   * those should just handle reconstructing style data...
    */
   virtual NS_HIDDEN_(void) ReconstructStyleDataExternal();
   NS_HIDDEN_(void) ReconstructStyleDataInternal();
@@ -672,6 +679,7 @@ public:
                                  PRInt32 aIndent = 0) = 0;
 
   virtual void ListStyleSheets(FILE *out, PRInt32 aIndent = 0) = 0;
+  virtual void VerifyStyleTree() = 0;
 #endif
 
   PRBool IsAccessibilityActive() { return mIsAccessibilityActive; }
@@ -717,6 +725,8 @@ protected:
   nsWeakPtr                 mForwardingContainer;
 
   PRPackedBool              mStylesHaveChanged;
+  PRPackedBool              mDidInitialReflow;
+  PRPackedBool              mIsDestroying;
 
 #ifdef ACCESSIBILITY
   /**

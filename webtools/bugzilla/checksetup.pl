@@ -4059,6 +4059,11 @@ $dbh->bz_add_column('attachments', 'isurl',
 $dbh->bz_add_column('namedqueries', 'query_type',
                     {TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 0});
 
+# 2005-11-04 LpSolit@gmail.com - Bug 305927
+$dbh->bz_alter_column('groups', 'userregexp', 
+                      {TYPE => 'TINYTEXT', NOTNULL => 1, DEFAULT => "''"});
+
+
 # If you had to change the --TABLE-- definition in any way, then add your
 # differential change code *** A B O V E *** this comment.
 #
@@ -4129,8 +4134,8 @@ $dbh->do("DELETE FROM user_group_map WHERE grant_type = " . GRANT_DERIVED);
 $sth = $dbh->prepare("SELECT profiles.userid, profiles.login_name,
                          groups.id, groups.userregexp,
                          user_group_map.group_id
-                         FROM profiles
-                         CROSS JOIN groups
+                         FROM (profiles
+                         CROSS JOIN groups)
                          LEFT JOIN user_group_map
                          ON user_group_map.user_id = profiles.userid
                          AND user_group_map.group_id = groups.id

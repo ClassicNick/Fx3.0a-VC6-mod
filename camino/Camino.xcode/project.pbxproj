@@ -975,6 +975,30 @@
 			settings = {
 			};
 		};
+		0F07686A0927B09E00E1BD6F = {
+			fileRef = 0FEA7DE30926BC0C00B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0F07686B0927B0AA00E1BD6F = {
+			fileRef = 0FEA7DDD0926BBEA00B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0F07688F0927B0B300E1BD6F = {
+			fileRef = 0FEA7DE00926BBF500B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0F0768900927B0B600E1BD6F = {
+			fileRef = 3FF08EFE06E7CF86001C9B19;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
 		0F08FB1408D37DA90022DD45 = {
 			fileEncoding = 30;
 			isa = PBXFileReference;
@@ -1346,7 +1370,6 @@
 				3F44ACFB05BDFB9F00CB4B08,
 				3F44ACFC05BDFB9F00CB4B08,
 				3F44ACFD05BDFB9F00CB4B08,
-				3F44ACFE05BDFB9F00CB4B08,
 				3F44AD0B05BDFB9F00CB4B08,
 				3F44AD0C05BDFB9F00CB4B08,
 				3F44AD0E05BDFB9F00CB4B08,
@@ -1448,7 +1471,6 @@
 				F6BD63E101B313EE01A962F7,
 				F6BD63E201B313EE01A962F7,
 				F6BD63E401B313EE01A962F7,
-				F6BD63E501B313EE01A962F7,
 				F6BD640E01B3156701A962F7,
 				F5D3F1CE0209235A014E447F,
 				F6BD641201B3156701A962F7,
@@ -1503,7 +1525,6 @@
 				F6BD63F101B313EE01A962F7,
 				F6BD63E601B313EE01A962F7,
 				F6BD63E701B313EE01A962F7,
-				F6BD63E801B313EE01A962F7,
 				F6BD63E901B313EE01A962F7,
 				F6BD63EA01B313EE01A962F7,
 				F6BD63EB01B313EE01A962F7,
@@ -2526,6 +2547,71 @@
 			settings = {
 			};
 		};
+		0FEA7DDD0926BBEA00B06154 = {
+			fileEncoding = 30;
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			name = "NSFileManager+Utils.h";
+			path = "src/extensions/NSFileManager+Utils.h";
+			refType = 2;
+			sourceTree = SOURCE_ROOT;
+		};
+		0FEA7DDF0926BBEA00B06154 = {
+			fileRef = 0FEA7DDD0926BBEA00B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0FEA7DE00926BBF500B06154 = {
+			fileEncoding = 30;
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			name = "NSFileManager+Utils.m";
+			path = "src/extensions/NSFileManager+Utils.m";
+			refType = 2;
+			sourceTree = SOURCE_ROOT;
+		};
+		0FEA7DE20926BBF500B06154 = {
+			fileRef = 0FEA7DE00926BBF500B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0FEA7DE30926BC0C00B06154 = {
+			fileEncoding = 30;
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.cpp.objcpp;
+			name = SiteIconCache.mm;
+			path = src/browser/SiteIconCache.mm;
+			refType = 2;
+			sourceTree = SOURCE_ROOT;
+		};
+		0FEA7DE50926BC0C00B06154 = {
+			fileRef = 0FEA7DE30926BC0C00B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0FEA7E640926BFC600B06154 = {
+			isa = PBXFileReference;
+			lastKnownFileType = image.tiff;
+			name = unknown_file_icon.tif;
+			path = resources/images/chrome/unknown_file_icon.tif;
+			refType = 2;
+			sourceTree = SOURCE_ROOT;
+		};
+		0FEA7E650926BFC600B06154 = {
+			fileRef = 0FEA7E640926BFC600B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
+		0FEA7E660926BFC600B06154 = {
+			fileRef = 0FEA7E640926BFC600B06154;
+			isa = PBXBuildFile;
+			settings = {
+			};
+		};
 		0FEBFCA1044F989900A96652 = {
 			isa = PBXFileReference;
 			lastKnownFileType = archive.ar;
@@ -3543,6 +3629,7 @@
 				0F222C6108C6102B00B34F14,
 				0F08FB1508D37DA90022DD45,
 				0F0F5E3D08FC660300B4EBCD,
+				0F07686B0927B0AA00E1BD6F,
 			);
 			isa = PBXHeadersBuildPhase;
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4169,6 +4256,7 @@
 				0FBB8CC908D260D800D58D8D,
 				0FBB8CCA08D260D800D58D8D,
 				0F01117408F2FE7C00423C02,
+				0FEA7E650926BFC600B06154,
 			);
 			isa = PBXResourcesBuildPhase;
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4667,7 +4755,6 @@
 				3F27D94D05DB2600007B543D,
 				3FF08EFA06E7CF3F001C9B19,
 				3FF08F0006E7CF86001C9B19,
-				3FF08F0106E7CF86001C9B19,
 				3FF08F0206E7CF86001C9B19,
 				3489ADCC0753B717005ADF6C,
 				0FBC0ECE0798F94900E8E0E2,
@@ -4692,6 +4779,9 @@
 				0FDEEA3B08CBD04200754D9B,
 				0F08FB1808D37DB30022DD45,
 				0F0F5E3A08FC65FB00B4EBCD,
+				0F07686A0927B09E00E1BD6F,
+				0F07688F0927B0B300E1BD6F,
+				0F0768900927B0B600E1BD6F,
 			);
 			isa = PBXSourcesBuildPhase;
 			runOnlyForDeploymentPostprocessing = 0;
@@ -5162,7 +5252,6 @@
 				3F44ACF905BDFB9F00CB4B08,
 				3F44ACFF05BDFB9F00CB4B08,
 				3F44AD0005BDFB9F00CB4B08,
-				3F44AD0105BDFB9F00CB4B08,
 				3F44AD0205BDFB9F00CB4B08,
 				3F44AD0305BDFB9F00CB4B08,
 				3F44AD0405BDFB9F00CB4B08,
@@ -5447,12 +5536,6 @@
 			settings = {
 			};
 		};
-		3F44ACFE05BDFB9F00CB4B08 = {
-			fileRef = F6BD63E501B313EE01A962F7;
-			isa = PBXBuildFile;
-			settings = {
-			};
-		};
 		3F44ACFF05BDFB9F00CB4B08 = {
 			fileRef = F6BD63E601B313EE01A962F7;
 			isa = PBXBuildFile;
@@ -5461,12 +5544,6 @@
 		};
 		3F44AD0005BDFB9F00CB4B08 = {
 			fileRef = F6BD63E701B313EE01A962F7;
-			isa = PBXBuildFile;
-			settings = {
-			};
-		};
-		3F44AD0105BDFB9F00CB4B08 = {
-			fileRef = F6BD63E801B313EE01A962F7;
 			isa = PBXBuildFile;
 			settings = {
 			};
@@ -7436,6 +7513,7 @@
 				0F222C6208C6102B00B34F14,
 				0F08FB1608D37DA90022DD45,
 				0F0F5E3E08FC660300B4EBCD,
+				0FEA7DDF0926BBEA00B06154,
 			);
 			isa = PBXHeadersBuildPhase;
 			runOnlyForDeploymentPostprocessing = 0;
@@ -8068,6 +8146,7 @@
 				0FBB8CCE08D260D800D58D8D,
 				0FBB8CCF08D260D800D58D8D,
 				0F01117508F2FE7C00423C02,
+				0FEA7E660926BFC600B06154,
 			);
 			isa = PBXResourcesBuildPhase;
 			runOnlyForDeploymentPostprocessing = 0;
@@ -8592,6 +8671,8 @@
 				0FDEEA3C08CBD04200754D9B,
 				0F08FB1908D37DB30022DD45,
 				0F0F5E3B08FC65FB00B4EBCD,
+				0FEA7DE20926BBF500B06154,
+				0FEA7DE50926BC0C00B06154,
 			);
 			isa = PBXSourcesBuildPhase;
 			runOnlyForDeploymentPostprocessing = 0;
@@ -9063,7 +9144,6 @@
 				0FCD859108C4D4DA00A1923B,
 				3F44AF2605BDFBA000CB4B08,
 				3F44AF2705BDFBA000CB4B08,
-				3F44AF2805BDFBA000CB4B08,
 				3F44AF2905BDFBA000CB4B08,
 				3F44AF2A05BDFBA000CB4B08,
 				3F44AF2B05BDFBA000CB4B08,
@@ -9245,12 +9325,6 @@
 		};
 		3F44AF2705BDFBA000CB4B08 = {
 			fileRef = F6BD63E701B313EE01A962F7;
-			isa = PBXBuildFile;
-			settings = {
-			};
-		};
-		3F44AF2805BDFBA000CB4B08 = {
-			fileRef = F6BD63E801B313EE01A962F7;
 			isa = PBXBuildFile;
 			settings = {
 			};
@@ -9947,7 +10021,6 @@
 				3F44AF9505BDFBA000CB4B08,
 				3F44AF9605BDFBA000CB4B08,
 				3F44AF9705BDFBA000CB4B08,
-				3F44AF9805BDFBA000CB4B08,
 				3F44AF9905BDFBA000CB4B08,
 				3F44AF9A05BDFBA000CB4B08,
 				3F44AF9B05BDFBA000CB4B08,
@@ -10027,12 +10100,6 @@
 		};
 		3F44AF9705BDFBA000CB4B08 = {
 			fileRef = F56F242602AC706801A967F3;
-			isa = PBXBuildFile;
-			settings = {
-			};
-		};
-		3F44AF9805BDFBA000CB4B08 = {
-			fileRef = F56F242702AC706801A967F3;
 			isa = PBXBuildFile;
 			settings = {
 			};
@@ -11654,12 +11721,6 @@
 		};
 		3FF08F0006E7CF86001C9B19 = {
 			fileRef = 3FF08EFD06E7CF86001C9B19;
-			isa = PBXBuildFile;
-			settings = {
-			};
-		};
-		3FF08F0106E7CF86001C9B19 = {
-			fileRef = 3FF08EFE06E7CF86001C9B19;
 			isa = PBXBuildFile;
 			settings = {
 			};
@@ -13831,6 +13892,7 @@
 				0FE7703508C799BB00AFB850,
 				0FE7703608C799BB00AFB850,
 				0FE7703708C799BB00AFB850,
+				0FEA7E640926BFC600B06154,
 			);
 			isa = PBXGroup;
 			name = images;
@@ -15189,6 +15251,7 @@
 			children = (
 				F558137C030AEF9B0176F207,
 				F558137D030AEF9B0176F207,
+				0FEA7DE30926BC0C00B06154,
 			);
 			isa = PBXGroup;
 			name = "Site icons";
@@ -15423,7 +15486,6 @@
 				3FE5BA0B068A1A140001CECD,
 				0FA8EFCA0423EAAD00A80166,
 				F56F242602AC706801A967F3,
-				F56F242702AC706801A967F3,
 				F56F242B02AC706801A967F3,
 				F56F243302AC706801A967F3,
 				F56F244502AC714601A967F3,
@@ -15473,14 +15535,6 @@
 			lastKnownFileType = archive.ar;
 			name = libnecko.a;
 			path = ../netwerk/build/libnecko.a;
-			refType = 2;
-			sourceTree = SOURCE_ROOT;
-		};
-		F56F242702AC706801A967F3 = {
-			isa = PBXFileReference;
-			lastKnownFileType = archive.ar;
-			name = libnecko2.a;
-			path = ../netwerk/build2/libnecko2.a;
 			refType = 2;
 			sourceTree = SOURCE_ROOT;
 		};
@@ -16290,6 +16344,7 @@
 				3FB2BA960545EA80002B9691,
 				F5D98EBC031AC38601A96654,
 				0FBC0ED40798F96100E8E0E2,
+				0FEA7DDD0926BBEA00B06154,
 				0FBC0ED30798F96100E8E0E2,
 				F5B34B04034A50C901A80166,
 				0F5FD71B07F48CDC00E8EDBD,
@@ -16325,6 +16380,7 @@
 				3FB2BA970545EA80002B9691,
 				F5D98EB9031AC37801A96654,
 				0FBC0ECD0798F94900E8E0E2,
+				0FEA7DE00926BBF500B06154,
 				0FBC0ED00798F95400E8E0E2,
 				F5B34B01034A505F01A80166,
 				0F5FD71E07F48CE500E8EDBD,
@@ -17175,14 +17231,6 @@
 			refType = 2;
 			sourceTree = SOURCE_ROOT;
 		};
-		F6BD63E501B313EE01A962F7 = {
-			isa = PBXFileReference;
-			lastKnownFileType = "compiled.mach-o.bundle";
-			name = libnecko2.dylib;
-			path = ../dist/Embed/components/libnecko2.dylib;
-			refType = 2;
-			sourceTree = SOURCE_ROOT;
-		};
 		F6BD63E601B313EE01A962F7 = {
 			isa = PBXFileReference;
 			lastKnownFileType = file;
@@ -17196,14 +17244,6 @@
 			lastKnownFileType = file;
 			name = necko_cache.xpt;
 			path = ../dist/Embed/components/necko_cache.xpt;
-			refType = 2;
-			sourceTree = SOURCE_ROOT;
-		};
-		F6BD63E801B313EE01A962F7 = {
-			isa = PBXFileReference;
-			lastKnownFileType = file;
-			name = necko_data.xpt;
-			path = ../dist/Embed/components/necko_data.xpt;
 			refType = 2;
 			sourceTree = SOURCE_ROOT;
 		};

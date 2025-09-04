@@ -65,15 +65,16 @@
 
       <destructor>
         this._delegate = null;
+        this._accessors = null;
       </destructor>
-
-      <field name="_delegate">null</field>
 
       <property name="XFORMS_NS" readonly="true">
         <getter>
           return "http://www.w3.org/2002/xforms";
         </getter>
       </property>
+
+      <field name="_delegate">null</field>
 
       <property name="delegate" readonly="true">
         <getter>
@@ -83,9 +84,21 @@
         </getter>
       </property>
 
+      <field name="_accessors">null</field>
+
+      <property name="accessors" readonly="true">
+        <getter>
+	  <![CDATA[
+          if (!this._accessors && this.delegate)
+            this._accessors = this.delegate.getXFormsAccessors();
+          return this._accessors;
+	  ]]>
+        </getter>
+      </property>
+
       <property name="stringValue" readonly="true">
         <getter>
-          var value = this.delegate.value;
+          var value = this.accessors.getValue();
           return value != null ? value : "";
         </getter>
       </property>
@@ -109,6 +122,7 @@
         </body>
       </method>
 
+      <!-- Dispatch UI Event to the control itself -->
       <method name="dispatchDOMUIEvent">
         <parameter name="aType"/>
         <body>
@@ -119,6 +133,20 @@
         </body>
       </method>
 
+      <!--
+          Dispatch an _XForms notification event_ to a node.
+          See http://www.w3.org/TR/xforms/slice4.html#evt-notify
+      -->
+      <method name="dispatchXFormsNotificationEvent">
+        <parameter name="aEventName"/>
+        <parameter name="aTarget"/>
+        <body>
+          var ev = document.createEvent("Events");
+          ev.initEvent(aEventName, true, false);
+          aTarget.dispatchEvent(ev);
+          return true;
+        </body>
+      </method>
     </implementation>
   </binding>
   
@@ -157,7 +185,7 @@
           var anoncontent =
             document.getAnonymousElementByAttribute(this, "anonid", "anoncontent");
 
-          if (this.delegate.hasBoundNode || this.delegate.value != null) {
+          if (this.accessors.hasBoundNode() || this.accessors.getValue() != null) {
             anoncontent.setAttribute("style", "display:none;");
           } else {
             anoncontent.removeAttribute("style");
@@ -178,7 +206,7 @@
       <children includes="label"/>
       <html:input anonid="control"
                   class="xf-value"
-                  onblur="this.parentNode.delegate.value = this.value; this.parentNode.dispatchDOMUIEvent('DOMFocusOut')"
+                  onblur="this.parentNode.accessors.setValue(this.value); this.parentNode.dispatchDOMUIEvent('DOMFocusOut')"
                   onfocus="this.parentNode.dispatchDOMUIEvent('DOMFocusIn')"
                   onclick="this.parentNode._change();"
                   onkeyup="if (event.keyCode != event.DOM_VK_TAB) this.parentNode._change();"
@@ -203,7 +231,7 @@
       <method name="_change">
         <body>
           if (this.getAttribute("incremental") == "true") {
-            this.delegate.value = this.inputField.value;
+            this.accessors.setValue(this.inputField.value);
           }
           return true;
         </body>
@@ -212,7 +240,7 @@
       <method name="refresh">
         <body>
           this.inputField.value = this.stringValue;
-          if (this.delegate.isReadonly) {
+          if (this.accessors.isReadonly()) {
             this.inputField.setAttribute("readonly", "readonly");
           } else {
             this.inputField.removeAttribute("readonly");
@@ -245,7 +273,7 @@
           }
           
           this.inputField.value = value;
-          if (this.delegate.isReadonly) {
+          if (this.accessors.isReadonly()) {
             this.inputField.setAttribute("readonly", "readonly");
           } else {
             this.inputField.removeAttribute("readonly");
@@ -262,9 +290,9 @@
         <body>
           if (this.getAttribute("incremental") != "false") {
             if (this.inputField.checked) {
-              this.delegate.value = "true";
+              this.accessors.setValue("true");
             } else {
-              this.delegate.value = "false";
+              this.accessors.setValue("false");
             }
           }
         </body>
@@ -281,7 +309,7 @@
         <body>
           this.inputField.setAttribute("type","password");
           this.inputField.value = this.stringValue;
-          this.inputField.readonly = this.delegate.isReadonly;
+          this.inputField.readonly = this.accessors.isReadonly();
           return true;
         </body>
       </method>
@@ -295,7 +323,7 @@
       <children includes="label"/>
       <html:textarea anonid="control"
                      class="xf-value"
-                     onblur="this.parentNode.delegate.value = this.value; this.parentNode.dispatchDOMUIEvent('DOMFocusOut')"
+                     onblur="this.parentNode.accessors.setValue(this.value); this.parentNode.dispatchDOMUIEvent('DOMFocusOut')"
                      onfocus="this.parentNode.dispatchDOMUIEvent('DOMFocusIn')"
                      onkeyup="this.parentNode._change();"
                      xbl:inherits="accesskey"/>
@@ -317,7 +345,7 @@
 
       <method name="refresh">
         <body>
-          this.controlField.readonly = this.delegate.isReadonly;
+          this.controlField.readonly = this.accessors.isReadonly();
           // If the value has not changed, no need to update the
           // value of the control, because that makes the textarea widget
           // to scroll up.
@@ -331,7 +359,7 @@
       <method name="_change">
         <body>
           if (this.getAttribute("incremental") == "true") {
-            this.delegate.value = this.controlField.value;
+            this.accessors.setValue(this.controlField.value);
           }
           return true;
         </body>
@@ -463,12 +491,12 @@
       <html:button anonid="upload_browse_button"
                    type="button"
                    onclick="this.parentNode.uploadElem.pickFile();"
-                   onkeypress="if (event.keyCode == event.DOM_VK_RETURN) this.parentNode.dispatchDOMActivate();"
+                   onkeypress="if (event.keyCode == event.DOM_VK_RETURN) this.parentNode.dispatchDOMUIEvent('DOMActivate');"
                    xbl:inherits="accesskey"> &xforms.upload.browsetext; </html:button>
       <html:button anonid="upload_clear_button"
                    type="button"
                    onclick="this.parentNode.uploadElem.clearFile();"
-                   onkeypress="if (event.keyCode == event.DOM_VK_RETURN) this.parentNode.dispatchDOMActivate();"
+                   onkeypress="if (event.keyCode == event.DOM_VK_RETURN) this.parentNode.dispatchDOMUIEvent('DOMActivate');"
                    xbl:inherits="accesskey"> &xforms.upload.cleartext; </html:button>
       <children/>
     </content>

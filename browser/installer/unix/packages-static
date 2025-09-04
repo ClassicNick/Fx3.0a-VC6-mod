@@ -119,7 +119,6 @@ bin/components/mozfind.xpt
 bin/components/necko_about.xpt
 bin/components/necko_cache.xpt
 bin/components/necko_cookie.xpt
-bin/components/necko_data.xpt
 bin/components/necko_dns.xpt
 bin/components/necko_file.xpt
 bin/components/necko_ftp.xpt
@@ -318,6 +317,7 @@ bin/extensions/inspector@mozilla.org/defaults/preferences/inspector.js
 [talkback]
 bin/README.txt,bin/readme.txt
 bin/extensions/talkback@mozilla.org/install.rdf
+bin/extensions/talkback@mozilla.org/chrome.manifest
 bin/extensions/talkback@mozilla.org/components/libqfaservices.so
 bin/extensions/talkback@mozilla.org/components/qfaservices.xpt
 bin/extensions/talkback@mozilla.org/components/talkback/*

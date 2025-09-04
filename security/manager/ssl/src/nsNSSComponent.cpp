@@ -204,14 +204,6 @@ static PRIntn PR_CALLBACK certHashtable_clearEntry(PLHashEntry *he, PRIntn /*ind
   return HT_ENUMERATE_NEXT;
 }
 
-static PRBool PR_CALLBACK crlHashTable_clearEntry(nsHashKey * aKey, void * aData, void* aClosure)
-{
-  if (aKey != nsnull) {
-    delete (nsStringKey *)aKey;
-  }
-  return PR_TRUE;
-}
-
 struct CRLDownloadEvent : PLEvent {
   nsCAutoString *urlString;
   nsIStreamListener *psmDownloader;
@@ -220,24 +212,30 @@ struct CRLDownloadEvent : PLEvent {
 // Note that nsNSSComponent is a singleton object across all threads, 
 // and automatic downloads are always scheduled sequentially - that is, 
 // once one crl download is complete, the next one is scheduled
-static void PR_CALLBACK HandleCRLImportPLEvent(CRLDownloadEvent *aEvent)
+static void* PR_CALLBACK HandleCRLImportPLEvent(PLEvent *aEvent)
 {
+  CRLDownloadEvent *event = NS_STATIC_CAST(CRLDownloadEvent*, aEvent);
+
   nsresult rv;
   nsIURI *pURL;
   
-  if((aEvent->psmDownloader==nsnull) || (aEvent->urlString==nsnull) )
-    return;
+  if((event->psmDownloader==nsnull) || (event->urlString==nsnull) )
+    return nsnull;
 
-  rv = NS_NewURI(&pURL, aEvent->urlString->get());
+  rv = NS_NewURI(&pURL, event->urlString->get());
   if(NS_SUCCEEDED(rv)){
-    NS_OpenURI(aEvent->psmDownloader, nsnull, pURL);
+    NS_OpenURI(event->psmDownloader, nsnull, pURL);
   }
+
+  return nsnull;
 }
 
-static void PR_CALLBACK DestroyCRLImportPLEvent(CRLDownloadEvent* aEvent)
+static void PR_CALLBACK DestroyCRLImportPLEvent(PLEvent* aEvent)
 {
-  delete aEvent->urlString;
-  delete aEvent;
+  CRLDownloadEvent *event = NS_STATIC_CAST(CRLDownloadEvent*, aEvent);
+
+  delete event->urlString;
+  delete event;
 }
 
 //This class is used to run the callback code
@@ -311,7 +309,6 @@ nsNSSComponent::~nsNSSComponent()
     PR_Unlock(mCrlTimerLock);
     PR_DestroyLock(mCrlTimerLock);
     if(crlsScheduledForDownload != nsnull){
-      crlsScheduledForDownload->Enumerate(crlHashTable_clearEntry);
       crlsScheduledForDownload->Reset();
       delete crlsScheduledForDownload;
     }
@@ -914,7 +911,7 @@ nsNSSComponent::PostCRLImportEvent(nsCAutoString *urlString, PSMContentDownloade
 {
   //Create the event
   CRLDownloadEvent *event = new CRLDownloadEvent;
-  PL_InitEvent(event, this, (PLHandleEventProc)HandleCRLImportPLEvent, (PLDestroyEventProc)DestroyCRLImportPLEvent);
+  PL_InitEvent(event, this, HandleCRLImportPLEvent, DestroyCRLImportPLEvent);
   event->urlString = urlString;
   event->psmDownloader = (nsIStreamListener *)psmDownloader;
   
@@ -946,8 +943,8 @@ nsNSSComponent::DownloadCRLDirectly(nsAutoString url, nsAutoString key)
 nsresult nsNSSComponent::DownloadCrlSilently()
 {
   //Add this attempt to the hashtable
-  nsStringKey *hashKey = new nsStringKey(mCrlUpdateKey.get());
-  crlsScheduledForDownload->Put(hashKey,(void *)nsnull);
+  nsStringKey hashKey(mCrlUpdateKey.get());
+  crlsScheduledForDownload->Put(&hashKey,(void *)nsnull);
     
   //Set up the download handler
   PSMContentDownloader *psmDownloader = new PSMContentDownloader(PSMContentDownloader::PKCS7_CRL);
@@ -1145,7 +1142,6 @@ nsNSSComponent::StopCRLUpdateTimer()
   //If it is at all running. 
   if(mUpdateTimerInitialized == PR_TRUE){
     if(crlsScheduledForDownload != nsnull){
-      crlsScheduledForDownload->Enumerate(crlHashTable_clearEntry);
       crlsScheduledForDownload->Reset();
       delete crlsScheduledForDownload;
       crlsScheduledForDownload = nsnull;
@@ -1176,7 +1172,7 @@ nsNSSComponent::InitializeCRLUpdateTimer()
     if(NS_FAILED(rv)){
       return rv;
     }
-    crlsScheduledForDownload = new nsHashtable(PR_TRUE);
+    crlsScheduledForDownload = new nsHashtable(16, PR_TRUE);
     mCrlTimerLock = PR_NewLock();
     DefineNextTimer();
     mUpdateTimerInitialized = PR_TRUE;  
@@ -1581,12 +1577,13 @@ nsNSSComponent::Init()
 }
 
 /* nsISupports Implementation for the class */
-NS_IMPL_THREADSAFE_ISUPPORTS5(nsNSSComponent,
+NS_IMPL_THREADSAFE_ISUPPORTS6(nsNSSComponent,
                               nsISignatureVerifier,
                               nsIEntropyCollector,
                               nsINSSComponent,
                               nsIObserver,
-                              nsISupportsWeakReference)
+                              nsISupportsWeakReference,
+                              nsITimerCallback)
 
 
 /* Callback functions for decoder. For now, use empty/default functions. */

@@ -2019,14 +2019,15 @@ dnl the qsort routine under solaris is faulty
     AC_DEFINE(SOLARIS)
     TARGET_NSPR_MDCPUCFG='\"md/_solaris32.cfg\"'
     SYSTEM_MAKEDEPEND=
+    # $ORIGIN/.. is for shared libraries under components/ to locate shared
+    # libraries one level up (e.g. libnspr4.so)
+    LDFLAGS="$LDFLAGS -R '\$\$ORIGIN:\$\$ORIGIN/..'"
     if test -z "$GNU_CC"; then
        NS_USE_NATIVE=1
        AC_DEFINE(NSCAP_DISABLE_DEBUG_PTR_TYPES)
        CFLAGS="$CFLAGS -xstrconst -xbuiltin=%all"
        CXXFLAGS="$CXXFLAGS -xbuiltin=%all -features=tmplife -norunpath"
-       # $ORIGIN/.. is for shared libraries under components/ to locate shared
-       # libraries one level up (e.g. libnspr4.so)
-       LDFLAGS="-xildoff -zlazyload -zcombreloc $LDFLAGS -R '\$\$ORIGIN:\$\$ORIGIN/..'"
+       LDFLAGS="-xildoff -zlazyload -zcombreloc $LDFLAGS"
        MOZ_OPTIMIZE_FLAGS="-xO4"
        MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_PIC_FLAGS) $(DSO_LDOPTS) -h $@ -o $@'
        MKCSHLIB='$(CC) $(CFLAGS) $(DSO_PIC_FLAGS) -G -Wl,-z -Wl,muldefs -h $@ -o $@'
@@ -4152,7 +4153,7 @@ minimo)
   MOZ_APP_VERSION=`cat $topsrcdir/minimo/config/version.txt`
   MOZ_COMPOSER=
   MOZ_ENABLE_POSTSCRIPT=
-  MOZ_EXTENSIONS_DEFAULT="xml-rpc xmlextras webservices spatialnavigation"
+  MOZ_EXTENSIONS_DEFAULT="xml-rpc xmlextras webservices permissions spatialnavigation"
   MOZ_IMG_DECODERS_DEFAULT="png gif jpeg"
   MOZ_IMG_ENCODERS_DEFAULT=
   MOZ_IMG_ENCODERS=
@@ -4177,7 +4178,7 @@ minimo)
   MOZ_XTF=
   MOZ_XUL_APP=1
   NECKO_DISK_CACHE=
-  NECKO_PROTOCOLS_DEFAULT=="about data http file res jar"
+  NECKO_PROTOCOLS_DEFAULT=="about data http file res"
   NECKO_SMALL_BUFFERS=1
   NS_DISABLE_LOGGING=1
   NS_PRINTING=
@@ -4195,7 +4196,7 @@ mail)
   ENABLE_TESTS=
   MOZ_OJI=
   NECKO_DISK_CACHE=
-  NECKO_PROTOCOLS_DEFAULT="http file jar viewsource res data"
+  NECKO_PROTOCOLS_DEFAULT="http file viewsource res data"
   MOZ_IMG_DECODERS_DEFAULT=`echo "$MOZ_IMG_DECODERS_DEFAULT" | sed "s/ xbm//"`
   MOZ_MAIL_NEWS=1
   MOZ_LDAP_XPCOM=1
@@ -4446,10 +4447,20 @@ MOZ_ARG_ENABLE_BOOL(pango,
     MOZ_ENABLE_PANGO=1,
     MOZ_ENABLE_PANGO=)
 
-if test "$MOZ_ENABLE_PANGO"
+if test "$MOZ_ENABLE_PANGO" && test -z "$MOZ_ENABLE_CAIRO_GFX"
 then
     AC_DEFINE(MOZ_ENABLE_PANGO)
     PKG_CHECK_MODULES(MOZ_PANGO, pango >= 1.6.0 pangoft2 >= 1.6.0)
+
+    AC_SUBST(MOZ_ENABLE_PANGO)
+    AC_SUBST(MOZ_PANGO_CFLAGS)
+    AC_SUBST(MOZ_PANGO_LIBS)
+fi
+
+if test "$MOZ_ENABLE_PANGO" && test "$MOZ_ENABLE_CAIRO_GFX"
+then
+    AC_DEFINE(MOZ_ENABLE_PANGO)
+    PKG_CHECK_MODULES(MOZ_PANGO, pango >= 1.10.0 pangocairo >= 1.10.0)
 
     AC_SUBST(MOZ_ENABLE_PANGO)
     AC_SUBST(MOZ_PANGO_CFLAGS)
@@ -4921,9 +4932,17 @@ JAR=
 if test `echo "$MOZ_EXTENSIONS" | grep -c java` -ne 0; then
   MOZ_ENABLE_JAVAXPCOM=1
 
+  case "$host_os" in
+    mingw*|cygwin*|msvc*|mks*)
+      if test -n "$JAVA_HOME"; then
+        JAVA_HOME=`cygpath -u \`cygpath -m -s "$JAVA_HOME"\``
+      fi
+      ;;
+  esac
+
   if test -n "${JAVA_INCLUDE_PATH}"; then
     dnl Make sure jni.h exists in the given include path.
-    if test ! -f $JAVA_INCLUDE_PATH/jni.h; then
+    if test ! -f "$JAVA_INCLUDE_PATH/jni.h"; then
       AC_MSG_ERROR([jni.h was not found in given include path $JAVA_INCLUDE_PATH.])
     fi
   else
@@ -4934,29 +4953,22 @@ if test `echo "$MOZ_EXTENSIONS" | grep -c java` -ne 0; then
         ;;
       *)
         dnl Try $JAVA_HOME
-        JAVA_INCLUDE_PATH=$JAVA_HOME/include
+        JAVA_INCLUDE_PATH="$JAVA_HOME/include"
         ;;
     esac
-    if test ! -f $JAVA_INCLUDE_PATH/jni.h; then
+    if test ! -f "$JAVA_INCLUDE_PATH/jni.h"; then
       AC_MSG_ERROR([The header jni.h was not found.  Set \$JAVA_HOME or use --with-java-include-path={java-include-dir}.])
     fi
   fi
 
   if test -n "${JAVA_BIN_PATH}"; then
     dnl Look for javac and jar in the specified path.
-    _JAVA_PATH=$JAVA_BIN_PATH
+    JAVA_PATH="$JAVA_BIN_PATH"
   else
     dnl No path specified, so look for javac and jar are in $JAVA_HOME & $PATH.
-    _JAVA_PATH=$JAVA_HOME/bin:$PATH
+    JAVA_PATH="$JAVA_HOME/bin:$PATH"
   fi
-  case "$host_os" in
-    mingw*|cygwin*|msvc*|mks*)
-        JAVA_PATH=`cygpath -u $_JAVA_PATH`
-        ;;
-    *)
-        JAVA_PATH=$_JAVA_PATH
-        ;;
-  esac
+
   AC_PATH_PROG(JAVAC, javac, :, $JAVA_PATH)
   AC_PATH_PROG(JAR, jar, :, $JAVA_PATH)
   if test -z "$JAVAC" || test "$JAVAC" = ":" || test -z "$JAR" || test "$JAR" = ":"; then
@@ -5249,11 +5261,22 @@ if test -n "$XPCOM_USE_LEA"; then
 fi
 
 dnl ========================================================
+dnl = Enable places (new history/bookmarks)
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(places,
+[  --enable-places        Enable 'places' bookmark/history implementation],
+    MOZ_PLACES=1,
+    MOZ_PLACES= )
+if test -n "$MOZ_PLACES"; then
+    AC_DEFINE(MOZ_PLACES)
+fi
+
+dnl ========================================================
 dnl = Enable mozStorage
 dnl = XXX need to implement --with-system-sqlite3 (see bug 263381)
 dnl ========================================================
-dnl Implicitly enabled by default if building calendar
-if test -n "$MOZ_CALENDAR"; then
+dnl Implicitly enabled by default if building calendar or places
+if test -n "$MOZ_CALENDAR" || test -n "$MOZ_PLACES"; then
     MOZ_STORAGE=1
 fi
 MOZ_ARG_ENABLE_BOOL(storage,
@@ -6762,6 +6785,7 @@ AC_SUBST(MOZ_LDAP_XPCOM_EXPERIMENTAL)
 AC_SUBST(LDAP_CFLAGS)
 AC_SUBST(LDAP_LIBS)
 AC_SUBST(LIBICONV)
+AC_SUBST(MOZ_PLACES)
 AC_SUBST(MOZ_STORAGE)
 AC_SUBST(NS_PRINTING)
 

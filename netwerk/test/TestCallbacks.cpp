@@ -48,7 +48,6 @@
 #include "nsIServiceManager.h"
 #include "nsIStreamListener.h"
 #include "nsIInputStream.h"
-#include "nsCRT.h"
 #include "nsIChannel.h"
 #include "nsIURL.h"
 #include "nsIInterfaceRequestor.h" 
@@ -56,8 +55,8 @@
 #include "nsIDNSService.h" 
 
 #include "nsISimpleEnumerator.h"
-#include "nsXPIDLString.h"
 #include "nsNetUtil.h"
+#include "nsStringAPI.h"
 
 static NS_DEFINE_CID(kEventQueueServiceCID,      NS_EVENTQUEUESERVICE_CID);
 static NS_DEFINE_CID(kIOServiceCID,              NS_IOSERVICE_CID);
@@ -72,9 +71,11 @@ static PRBool gError = PR_FALSE;
 
 class nsIEquals : public nsISupports {
 public:
-    NS_DEFINE_STATIC_IID_ACCESSOR(NS_IEQUALS_IID)
+    NS_DECLARE_STATIC_IID_ACCESSOR(NS_IEQUALS_IID)
     NS_IMETHOD Equals(void *aPtr, PRBool *_retval) = 0;
 };
+
+NS_DEFINE_STATIC_IID_ACCESSOR(nsIEquals, NS_IEQUALS_IID)
 
 class ConsumerContext : public nsIEquals {
 public:

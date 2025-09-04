@@ -692,7 +692,8 @@ if ($action eq Param('move-button-text')) {
     $msg .= "From: Bugzilla <" . $from . ">\n";
     $msg .= "Subject: Moving bug(s) " . join(', ', @idlist) . "\n\n";
 
-    my @fieldlist = (Bugzilla::Bug::fields(), 'group', 'long_desc', 'attachment');
+    my @fieldlist = (Bugzilla::Bug::fields(), 'group', 'long_desc',
+                     'attachment', 'attachmentdata');
     my %displayfields;
     foreach (@fieldlist) {
         $displayfields{$_} = 1;
@@ -935,16 +936,18 @@ if (defined $cgi->param('id')) {
 if (defined $cgi->param('id') &&
     (Param("insidergroup") && UserInGroup(Param("insidergroup")))) {
 
+    my $sth = $dbh->prepare('UPDATE longdescs SET isprivate = ?
+                             WHERE bug_id = ? AND bug_when = ?');
+
     foreach my $field ($cgi->param()) {
         if ($field =~ /when-([0-9]+)/) {
             my $sequence = $1;
             my $private = $cgi->param("isprivate-$sequence") ? 1 : 0 ;
             if ($private != $cgi->param("oisprivate-$sequence")) {
                 my $field_data = $cgi->param("$field");
-                detaint_natural($field_data);
-                SendSQL("UPDATE longdescs SET isprivate = $private " .
-                        "WHERE bug_id = " . $cgi->param('id') . 
-                        " AND bug_when = $field_data");
+                # Make sure a valid date is given.
+                $field_data = format_time($field_data, '%Y-%m-%d %T');
+                $sth->execute($private, $cgi->param('id'), $field_data);
             }
         }
 

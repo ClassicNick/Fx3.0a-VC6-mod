@@ -71,8 +71,20 @@ function init()
   // Home Page URL
   var homepageArc = rdfs.GetResource(EM_NS("homepageURL"));
   var homepage = gExtensionDB.GetTarget(extension, homepageArc, true);
-  if (homepage)
+  if (homepage) {
     homepage = homepage.QueryInterface(Components.interfaces.nsIRDFLiteral).Value;
+    // only allow http(s) homepages
+    var scheme = "";
+    var uri = null;
+    try {
+      uri = makeURI(homepage);
+      scheme = uri.scheme;
+    } catch (ex) {}
+    if (uri && (scheme == "http" || scheme == "https"))
+      homepage = uri.spec;
+    else
+      homepage = null;
+  }
     
   // Creator
   var creatorArc = rdfs.GetResource(EM_NS("creator"));

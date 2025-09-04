@@ -86,12 +86,10 @@ CPPSRCS		= \
 		nsStringAPI.cpp \
 		$(NULL)
 
+ifndef MINIMO
 ifeq ($(OS_ARCH)$(MOZ_ENABLE_LIBXUL),WINNT)
 CPPSRCS		+= dlldeps.cpp
 endif
-
-ifeq ($(OS_ARCH),WINCE)
-CPPSRCS		+= dlldeps.cpp
 endif
 
 ifdef XPCOM_USE_LEA
@@ -127,6 +125,7 @@ LOCAL_INCLUDES	= \
 		-I$(srcdir)/../threads \
 		-I$(srcdir)/../threads/_xpidlgen \
 		-I$(srcdir)/../proxy/src \
+		-I$(srcdir)/../reflect/xptinfo/src \
 		$(NULL)
 
 SDK_HEADERS =  \
@@ -145,7 +144,9 @@ endif
 FORCE_USE_PIC	= 1 
 
 ifndef MOZ_ENABLE_LIBXUL
+ifndef MINIMO
 FORCE_SHARED_LIB = 1
+endif
 endif
 
 # UNIX98 iconv support
@@ -159,8 +160,7 @@ DEFINES		+= \
 		-D_IMPL_NS_COM \
 		-D_IMPL_NS_STRINGAPI \
 		-DEXPORT_XPT_API \
-		-DEXPORT_XPTC_API \
-		-DEXPORT_XPTI_API
+		-DEXPORT_XPTC_API
 
 EXTRA_DSO_LDOPTS += $(NSPR_LIBS)
 

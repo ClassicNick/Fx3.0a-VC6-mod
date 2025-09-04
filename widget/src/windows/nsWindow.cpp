@@ -107,7 +107,7 @@
 #include "resource.h"
 #include <commctrl.h>
 #include "prtime.h"
-#ifdef MOZ_CAIRO_GFX
+#ifdef MOZ_THEBES
 #include "nsIThebesRenderingContext.h"
 #else
 #include "nsIRenderingContextWin.h"
@@ -936,7 +936,6 @@ nsWindow::~nsWindow()
 
   if (MouseTrailer::GetSingleton().GetMouseTrailerWindow() == this) {
     MouseTrailer::GetSingleton().DestroyTimer();
-    MouseTrailer::GetSingleton().SetMouseTrailerWindow(nsnull);
   }
 
   // If the widget was released without calling Destroy() then the native
@@ -1634,12 +1633,6 @@ NS_METHOD nsWindow::Destroy()
   // disconnect from the parent
   if (!mIsDestroying) {
     nsBaseWidget::Destroy();
-  }
-
-  // get rid of any mouse trailer references to self
-  if (MouseTrailer::GetSingleton().GetMouseTrailerWindow() == this) {
-      MouseTrailer::GetSingleton().DestroyTimer();
-      MouseTrailer::GetSingleton().SetMouseTrailerWindow(nsnull);
   }
 
   // just to be safe. If we're going away and for some reason we're still
@@ -4653,6 +4646,15 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
       }
 
       result = PR_TRUE;
+      break;
+
+    case WM_ENABLE:
+      if (!wParam) {
+        // We must enable IME for common dialogs.
+        // NOTE: we don't need to recover IME status in nsWindow.
+        // Because when this window will be enabled, we will get focus event.
+        SetIMEEnabled(PR_TRUE);
+      }
       break;
 
     case WM_ACTIVATE:

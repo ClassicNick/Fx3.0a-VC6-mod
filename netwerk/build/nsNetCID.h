@@ -738,6 +738,8 @@
  */
 
 // service implementing nsIStreamConverterService
+#define NS_STREAMCONVERTERSERVICE_CONTRACTID \
+    "@mozilla.org/streamConverters;1"
 #define NS_STREAMCONVERTERSERVICE_CID                \
 { /* 892FFEB0-3F80-11d3-A16C-0050041CAF44 */         \
     0x892ffeb0,                                      \
@@ -745,5 +747,17 @@
     0x11d3,                                          \
     {0xa1, 0x6c, 0x00, 0x50, 0x04, 0x1c, 0xaf, 0x44} \
 }
+
+/******************************************************************************
+ * Contracts that can be implemented by necko users.
+ */
+
+/**
+ * This contract ID will be gotten as a service and gets the opportunity to look
+ * at and veto all redirects that are processed by necko.
+ */
+#define NS_GLOBAL_CHANNELEVENTSINK_CONTRACTID \
+  "@mozilla.org/netwerk/global-channel-event-sink;1"
+
 
 #endif // nsNetCID_h__

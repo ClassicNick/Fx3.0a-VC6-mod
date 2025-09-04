@@ -47,24 +47,49 @@ function writeProxyPref()
 
 function sanitizeAll()
 {
+
+    // Cookies
+    try 
+    {
+        var cookieMgr = Components.classes["@mozilla.org/cookiemanager;1"]
+                                  .getService(Components.interfaces.nsICookieManager);
+        cookieMgr.removeAll()
+    } catch (e) { }    
+
+
+    // Form Data
+    try 
+    {
+        var formHistory = Components.classes["@mozilla.org/satchel/form-history;1"]
+                                    .getService(Components.interfaces.nsIFormHistory);
+        formHistory.removeAllEntries();
+    } catch (e) { }
+
     // Cache 
-    var classID = Components.classes["@mozilla.org/network/cache-service;1"];
-    var cacheService = classID.getService(Components.interfaces.nsICacheService);
-    cacheService.evictEntries(Components.interfaces.nsICache.STORE_IN_MEMORY);
-    cacheService.evictEntries(Components.interfaces.nsICache.STORE_ON_DISK);
+    try 
+    {
+        var classID = Components.classes["@mozilla.org/network/cache-service;1"];
+        var cacheService = classID.getService(Components.interfaces.nsICacheService);
+        cacheService.evictEntries(Components.interfaces.nsICache.STORE_IN_MEMORY);
+        cacheService.evictEntries(Components.interfaces.nsICache.STORE_ON_DISK);
+    } catch (e) { }
     
     // Autocomplete
-    var globalHistory = Components.classes["@mozilla.org/browser/global-history;2"]
-                                  .getService(Components.interfaces.nsIBrowserHistory);
-    globalHistory.removeAllPages();
+    try 
+    {
+        var globalHistory = Components.classes["@mozilla.org/browser/global-history;2"]
+                                      .getService(Components.interfaces.nsIBrowserHistory);
+        globalHistory.removeAllPages();
+    } catch (e) { }
          
+    // Session History
     try 
     {
        var os = Components.classes["@mozilla.org/observer-service;1"]
                           .getService(Components.interfaces.nsIObserverService);
         os.notifyObservers(null, "browser:purge-session-history", "");
     } catch (e) { }    
-
+    document.getElementById("privacySanitize").disabled=true;
 }
 
 
@@ -223,7 +248,7 @@ function syncPref(refElement) {
 	var refElementPref=refElement.getAttribute("preference");
 	if(refElementPref!="") {
 		gPrefQueue[refElementPref]=refElement;
-            document.getElementById("textbox-okay-pane").value+= "Changed key ="+gPrefQueue[refElementPref].value+"\n";
+		//document.getElementById("textbox-okay-pane").value+= "Changed key ="+gPrefQueue[refElementPref].value+"\n";
 	}
 }
 

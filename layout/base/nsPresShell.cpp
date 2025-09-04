@@ -1260,6 +1260,7 @@ public:
                                  PRInt32 aIndent = 0);
 
   virtual void ListStyleSheets(FILE *out, PRInt32 aIndent = 0);
+  virtual void VerifyStyleTree();
 #endif
 
 #ifdef PR_LOGGING
@@ -1339,10 +1340,8 @@ protected:
   PRPackedBool mDocumentLoading;
   PRPackedBool mDocumentOnloadBlocked;
   PRPackedBool mIsReflowing;
-  PRPackedBool mIsDestroying;
   PRPackedBool mIsReleasingAnonymousContent;
 
-  PRPackedBool mDidInitialReflow;
   PRPackedBool mIgnoreFrameDestruction;
   PRPackedBool mHaveShutDown;
 
@@ -1447,7 +1446,7 @@ VerifyStyleTree(nsPresContext* aPresContext, nsFrameManager* aFrameManager)
     aFrameManager->DebugVerifyStyleTree(rootFrame);
   }
 }
-#define VERIFY_STYLE_TREE VerifyStyleTree(mPresContext, FrameManager())
+#define VERIFY_STYLE_TREE ::VerifyStyleTree(mPresContext, FrameManager())
 #else
 #define VERIFY_STYLE_TREE
 #endif
@@ -5208,20 +5207,23 @@ nsIPresShell::ReconstructStyleDataInternal()
 {
   mStylesHaveChanged = PR_FALSE;
 
-  nsIFrame* rootFrame = FrameManager()->GetRootFrame();
-  if (!rootFrame)
+  if (!mDidInitialReflow) {
+    // Nothing to do here, since we have no frames yet
     return;
+  }
 
-  nsStyleChangeList changeList;
-  FrameManager()->ComputeStyleChangeFor(rootFrame, &changeList,
-                                       NS_STYLE_HINT_NONE);
+  if (mIsDestroying) {
+    // We don't want to mess with restyles at this point
+    return;
+  }
 
-  NS_ASSERTION(mViewManager, "Should have view manager");
-  mViewManager->BeginUpdateViewBatch();
-  mFrameConstructor->ProcessRestyledFrames(changeList);
-  mViewManager->EndUpdateViewBatch(NS_VMREFRESH_NO_SYNC);
-
-  VERIFY_STYLE_TREE;
+  nsIContent* root = mDocument->GetRootContent();
+  if (!root) {
+    // No content to restyle
+    return;
+  }
+  
+  mFrameConstructor->PostRestyleEvent(root, eReStyle_Self, NS_STYLE_HINT_NONE);
 
 #ifdef ACCESSIBILITY
   InvalidateAccessibleSubtree(nsnull);
@@ -6317,14 +6319,17 @@ struct ReflowEvent : public PLEvent {
   nsWeakPtr mPresShell;
 };
 
-static void PR_CALLBACK HandlePLEvent(ReflowEvent* aEvent)
+static void* PR_CALLBACK HandlePLEvent(PLEvent* aEvent)
 {
-  aEvent->HandleEvent();
+  ReflowEvent* event = NS_STATIC_CAST(ReflowEvent*, aEvent);
+  event->HandleEvent();
+  return nsnull;
 }
 
-static void PR_CALLBACK DestroyPLEvent(ReflowEvent* aEvent)
+static void PR_CALLBACK DestroyPLEvent(PLEvent* aEvent)
 {
-  delete aEvent;
+  ReflowEvent* event = NS_STATIC_CAST(ReflowEvent*, aEvent);
+  delete event;
 }
 
 
@@ -6334,9 +6339,7 @@ ReflowEvent::ReflowEvent(nsIPresShell* aPresShell)
 
   mPresShell = do_GetWeakReference(aPresShell);
 
-  PL_InitEvent(this, aPresShell,
-               (PLHandleEventProc) ::HandlePLEvent,
-               (PLDestroyEventProc) ::DestroyPLEvent);  
+  PL_InitEvent(this, aPresShell, ::HandlePLEvent, ::DestroyPLEvent);  
 }
 
 //-------------- End Reflow Event Definition ---------------------------
@@ -7272,6 +7275,11 @@ PresShell::ListStyleSheets(FILE *out, PRInt32 aIndent)
   }
 }
 
+void
+PresShell::VerifyStyleTree()
+{
+  VERIFY_STYLE_TREE;
+}
 #endif
 
 // PresShellViewEventListener

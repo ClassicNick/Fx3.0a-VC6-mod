@@ -131,7 +131,7 @@ private:
   void AppendNegationToString(nsAString& aString);
   void ToStringInternal(nsAString& aString, nsICSSStyleSheet* aSheet,
                         PRBool aIsPseudoElem,
-                        PRIntn aNegatedIndex) const;
+                        PRBool aIsNegated) const;
 
 public:
   PRInt32         mNameSpace;
@@ -186,7 +186,7 @@ struct nsCSSSelectorList {
 
 class nsICSSStyleRule : public nsICSSRule {
 public:
-  NS_DEFINE_STATIC_IID_ACCESSOR(NS_ICSS_STYLE_RULE_IID)
+  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICSS_STYLE_RULE_IID)
 
   // null for style attribute
   virtual nsCSSSelectorList* Selector(void) = 0;
@@ -218,6 +218,8 @@ public:
   virtual nsresult GetSelectorText(nsAString& aSelectorText) = 0;
   virtual nsresult SetSelectorText(const nsAString& aSelectorText) = 0;
 };
+
+NS_DEFINE_STATIC_IID_ACCESSOR(nsICSSStyleRule, NS_ICSS_STYLE_RULE_IID)
 
 nsresult
 NS_NewCSSStyleRule(nsICSSStyleRule** aInstancePtrResult,

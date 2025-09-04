@@ -128,6 +128,7 @@ function initCommands()
          ["log",               cmdLog,                             CMD_CONSOLE],
          ["me",                cmdMe,                              CMD_CONSOLE],
          ["motd",              cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
+         ["mode",              cmdMode,             CMD_NEED_SRV | CMD_CONSOLE],
          ["motif",             cmdMotif,                           CMD_CONSOLE],
          ["msg",               cmdMsg,              CMD_NEED_SRV | CMD_CONSOLE],
          ["name",              cmdName,                            CMD_CONSOLE],
@@ -140,6 +141,7 @@ function initCommands()
          ["notice",            cmdNotice,           CMD_NEED_SRV | CMD_CONSOLE],
          ["notify",            cmdNotify,           CMD_NEED_SRV | CMD_CONSOLE],
          ["open-at-startup",   cmdOpenAtStartup,                   CMD_CONSOLE],
+         ["oper",              cmdOper,             CMD_NEED_SRV | CMD_CONSOLE],
          ["pass",              cmdPass,             CMD_NEED_NET | CMD_CONSOLE],
          ["ping",              cmdPing,             CMD_NEED_SRV | CMD_CONSOLE],
          ["plugin-pref",       cmdPref,                            CMD_CONSOLE],
@@ -1777,6 +1779,41 @@ function cmdDescribe(e)
     target.act(msg);
 }
 
+function cmdMode(e)
+{
+    // get our canonical channel name, so we know what channel we talk about
+    var chan = fromUnicode(e.target, e.server);
+
+    // Make sure the user can leave the channel name out from a channel view.
+    if (e.channel && /^[\+\-].+/.test(e.target) && 
+        !(e.server.toLowerCase(chan) in e.server.channels))
+    {
+        chan = e.channel.canonicalName;
+        if (e.param && e.modestr)
+        {
+            e.paramList.unshift(e.modestr);
+        }
+        else if (e.modestr)
+        {
+            e.paramList = [e.modestr];
+            e.param = e.modestr;
+        }
+        e.modestr = e.target;
+    }
+
+    // Check whether our mode string makes sense
+    if (!(/^([+-][a-z]+)+$/i).test(e.modestr))
+    {
+        display(getMsg(MSG_ERR_INVALID_MODE, e.modestr), MT_ERROR);
+        return;
+    }
+
+    var params = (e.param) ? " " + e.paramList.join(" ") : "";
+    e.server.sendData("MODE " + chan + " " + fromUnicode(e.modestr, e.server) +
+                      params + "\n");
+
+}
+
 function cmdMotif(e)
 {
     var pm;
@@ -2632,6 +2669,19 @@ function cmdOpenAtStartup(e)
             display(getMsg(MSG_STARTUP_NOTFOUND, url));
         }
     }
+}
+
+function cmdOper(e)
+{
+    // Password is optional, if it is not given, we use a safe prompt.
+    if (!e.password)
+        e.password = promptPassword(getMsg(MSG_NEED_OPER_PASSWORD), "");
+
+    if (!e.password)
+        return;
+
+    e.server.sendData("OPER " + fromUnicode(e.opername, e.server) + " " + 
+                      fromUnicode(e.password, e.server) + "\n");
 }
 
 function cmdPass(e)
@@ -3942,7 +3992,23 @@ function cmdInputTextDirection(e)
 
 function cmdFind(e)
 {
-    findInPage(getFindData(e));
+    if (!e.rest)
+    {
+        findInPage(getFindData(e));
+        return;
+    }
+
+    // Used from the inputbox, set the search string and find the first
+    // occurrence using find-again.
+    const FINDSVC_ID = "@mozilla.org/find/find_service;1";
+    var findService = getService(FINDSVC_ID, "nsIFindService");
+    // Make sure it searches the entire document, but don't lose the old setting
+    var oldWrap = findService.wrapFind;
+    findService.wrapFind = true;
+    findService.searchString = e.rest;
+    findAgainInPage(getFindData(e));
+    // Restore wrap setting:
+    findService.wrapFind = oldWrap;
 }
 
 function cmdFindAgain(e)

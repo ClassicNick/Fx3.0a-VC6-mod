@@ -422,11 +422,12 @@ PR_STATIC_CALLBACK(int) compareValues(nsICookie* aCookie1, nsICookie* aCookie2, 
 
 -(IBAction) removeAllCookies: (id)aSender
 {
-  if (NSRunCriticalAlertPanel(NSLocalizedString(@"RemoveAllCookiesWarningTitle", @"RemoveAllCookiesWarningTitle"),
-                              NSLocalizedString(@"RemoveAllCookiesWarning", @"RemoveAllCookiesWarning"),
-                              NSLocalizedString(@"Remove All Cookies", @"Remove All Cookies"),
-                              NSLocalizedString(@"CancelButtonText", @"Cancel"),
-                              nil) == NSAlertDefaultReturn) {
+  if (NSRunCriticalAlertPanel([self getLocalizedString:@"RemoveAllCookiesWarningTitle"],
+                              [self getLocalizedString:@"RemoveAllCookiesWarning"],
+                              [self getLocalizedString:@"Remove All Cookies"],
+                              [self getLocalizedString:@"CancelButtonText"],
+                              nil) == NSAlertDefaultReturn)
+  {
     if (mCookieManager) {
       // remove all cookies from cookie manager
       mCookieManager->RemoveAll();
@@ -553,14 +554,57 @@ PR_STATIC_CALLBACK(int) compareValues(nsICookie* aCookie1, nsICookie* aCookie2, 
 
 -(IBAction) removeAllCookiePermissions: (id)aSender
 {
-  if (mPermissionManager) {
-    // remove all permissions from permission manager
-    mPermissionManager->RemoveAll();
-    delete mCachedPermissions;
-    mCachedPermissions = nsnull;
-    mCachedPermissions = new nsCOMArray<nsIPermission>;
+  if (NSRunCriticalAlertPanel([self getLocalizedString:@"RemoveAllCookiePermissionsWarningTitle"],
+                              [self getLocalizedString:@"RemoveAllCookiePermissionsWarning"],
+                              [self getLocalizedString:@"Remove All Exceptions"],
+                              [self getLocalizedString:@"CancelButtonText"],
+                              nil) == NSAlertDefaultReturn)
+  {
+    if (mPermissionManager)
+    {
+      // since the permissions manager stores not just cookie permissions,
+      // but also images etc, we have to manually remove just the cookie
+      // ones. Ugh.
+      
+      // we have to keep a list of permissions to remove, because it's
+      // not safe to remove while enumerating
+      nsCOMArray<nsIPermission> permissionsToRemove;
+      
+      nsCOMPtr<nsISimpleEnumerator> permEnum;
+      mPermissionManager->GetEnumerator(getter_AddRefs(permEnum));
+      if (permEnum)
+      {
+        PRBool hasMoreElements = PR_FALSE;
+        while (NS_SUCCEEDED(permEnum->HasMoreElements(&hasMoreElements)) && hasMoreElements)
+        {
+          nsCOMPtr<nsISupports> curr;
+          permEnum->GetNext(getter_AddRefs(curr));
+          nsCOMPtr<nsIPermission> currPerm(do_QueryInterface(curr));
+          if (currPerm)
+          {
+            nsCAutoString type;
+            currPerm->GetType(type);
+            if (type.Equals(NS_LITERAL_CSTRING("cookie")))
+              permissionsToRemove.AppendObject(currPerm);
+          }
+        }
+      }
+
+      // now do the removal
+      int numDoomed = permissionsToRemove.Count();
+      for (int i = 0; i < numDoomed; ++i)
+      {
+        nsCAutoString curHost, curType;
+        permissionsToRemove.ObjectAt(i)->GetHost(curHost);
+        permissionsToRemove.ObjectAt(i)->GetType(curType);
+        mPermissionManager->Remove(curHost, curType.get());
+      }
+
+      delete mCachedPermissions;
+      mCachedPermissions = new nsCOMArray<nsIPermission>;
+    }
+    [mPermissionsTable reloadData];
   }
-  [mPermissionsTable reloadData];
 }
 
 -(IBAction) editPermissionsDone:(id)aSender
@@ -637,9 +681,9 @@ PR_STATIC_CALLBACK(int) compareValues(nsICookie* aCookie1, nsICookie* aCookie2, 
         PRBool secure = PR_FALSE;
         mCachedCookies->ObjectAt(rowIndex)->GetIsSecure(&secure);
         if (secure)
-          retVal = NSLocalizedString(@"yes",@"yes");
+          retVal = [self getLocalizedString:@"yes"];
         else
-          retVal = NSLocalizedString(@"no",@"no");
+          retVal = [self getLocalizedString:@"no"];
         return retVal;
       } else if ([[aTableColumn identifier] isEqualToString: @"Expires"]) {
         PRUint64 expires = 0;
