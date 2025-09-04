@@ -70,13 +70,6 @@ nsGridRowLeafLayout::~nsGridRowLeafLayout()
 }
 
 NS_IMETHODIMP
-nsGridRowLeafLayout::CastToGridRowLeaf(nsGridRowLeafLayout** aGridRowLeaf)
-{
-  *aGridRowLeaf = this;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsGridRowLeafLayout::GetPrefSize(nsIBox* aBox, nsBoxLayoutState& aState, nsSize& aSize)
 {
   nsGrid* grid = nsnull;
@@ -425,3 +418,8 @@ nsGridRowLeafLayout::GetRowCount(PRInt32& aRowCount)
   return NS_OK;
 }
 
+NS_IMETHODIMP_(nsIGridPart::Type)
+nsGridRowLeafLayout::GetType()
+{
+  return eRowLeaf;
+}

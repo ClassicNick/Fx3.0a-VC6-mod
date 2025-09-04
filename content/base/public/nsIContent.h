@@ -41,12 +41,15 @@
 #include "nsCOMPtr.h"
 #include "nsISupports.h"
 #include "nsEvent.h"
-#include "nsAString.h"
+#include "nsStringGlue.h"
 #include "nsContentErrors.h"
 #include "nsPropertyTable.h"
 #include "nsCaseTreatment.h"
-#include "nsINodeInfo.h"
 #include "nsChangeHint.h"
+
+#ifdef MOZILLA_INTERNAL_API
+#include "nsINodeInfo.h"
+#endif
 
 // Forward declarations
 class nsIAtom;
@@ -65,8 +68,8 @@ class nsAttrValue;
 
 // IID for the nsIContent interface
 #define NS_ICONTENT_IID       \
-{ 0x6a654488, 0xcbb3, 0x49d4, \
- { 0xad, 0x2d, 0x68, 0x4b, 0xad, 0xd5, 0xa7, 0x5d } }
+{ 0x5d098839, 0x389d, 0x41db, \
+ { 0x8f, 0x53, 0x59, 0x07, 0xbf, 0x90, 0x0d, 0x4e } }
 
 /**
  * A node of content in a document's content model. This interface
@@ -75,6 +78,10 @@ class nsAttrValue;
 class nsIContent : public nsISupports {
 public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICONTENT_IID)
+
+#ifdef MOZILLA_INTERNAL_API
+  // If you're using the external API, the only thing you can know about
+  // nsIContent is that it exists with an IID
 
   nsIContent(nsINodeInfo *aNodeInfo)
     : mParentPtrBits(0),
@@ -484,27 +491,6 @@ public:
                                   nsEventStatus* aEventStatus) = 0;
 
   /**
-   * Get a unique ID for this piece of content.
-   * This ID is used as a key to store state information 
-   * about this content object and its associated frame object.
-   * The state information is stored in a dictionary that is
-   * manipulated by the frame manager (nsIFrameManager) inside layout.
-   * An opaque pointer to this dictionary is passed to the session
-   * history as a handle associated with the current document's state
-   *
-   * These methods are DEPRECATED, DON'T USE THEM!!!
-   *
-   */
-  virtual PRUint32 ContentID() const = 0;
-  /**
-   * Set the unique content ID for this content.
-   * @param aID the ID to set
-   */
-  virtual void SetContentID(PRUint32 aID)
-  {
-  }
-
-  /**
    * Set the focus on this content.  This is generally something for the event
    * state manager to do, not ordinary people.  Ordinary people should do
    * something like nsGenericHTMLElement::SetElementFocus().  This method is
@@ -897,6 +883,8 @@ protected:
   PtrBits      mParentPtrBits;
   
   nsCOMPtr<nsINodeInfo> mNodeInfo;
+
+#endif // MOZILLA_INTERNAL_API
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsIContent, NS_ICONTENT_IID)

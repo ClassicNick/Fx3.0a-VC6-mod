@@ -1,14 +1,17 @@
 /* 
  * Translators function. 
- * In XUL and beyong, these mappers shall happen more and more 
+ * =====
+ * With XUL and beyond, these mappers shall happen more and more 
  * as we get more hybrid data-types. It's just like Webservice proxies for XUL elemetns. 
- *. So far we have this static hardcoded her
+ *. So far we have this static hardcoded here. These has to do with the onsyncfrompreference
+ * and onsynctopreference attributes in the XUL pref panels. 
  * ===================================================================================
  */ 
 
 
 function readEnableImagesPref()
 {
+  // get the pref value as it is (String, int or bool).
   var pref = document.getElementById("permissions.default.image");
   return (pref.value == 1);
 }
@@ -25,6 +28,7 @@ function writeEnableImagesPref()
   
 function readProxyPref()
 {
+  // get the pref value as it is (String, int or bool).
   var pref = document.getElementById("network.proxy.type");
   return (pref.value == 1);
 }
@@ -38,8 +42,56 @@ function writeProxyPref()
   return 0;
 }
 
+function readCacheLocationPref()
+{ 
+  // get the pref value as it is (String, int or bool).
+  var pref = document.getElementById("browser.cache.disk.parent_directory");
+  if (pref.value)
+      return true;
+  else
+      return false;
+}
 
-/* Live Synchronizers, 
+function writeCacheLocationPref()
+{ 
+  // set the visual element. 
+  var checkbox = document.getElementById("storeCacheStorageCard");
+  if (checkbox.checked==true) {
+    return "\\Storage Card\\Minimo Cache";
+  } else {
+    return "";
+  } 
+}
+
+
+/* 
+ * This is called after pref -> DOM load. 
+ * and also when clicks sync happens - see each pref element item the onchange attribute
+ */
+ 
+function UIdependencyCheck() {
+  if(!document.getElementById("useDiskCache").checked) {
+	//document.getElementById("storeCacheStorageCard").disabled=true;
+	document.getElementById("cacheSizeField").disabled=true;
+  } else {
+	//document.getElementById("storeCacheStorageCard").disabled=false;
+	document.getElementById("cacheSizeField").disabled=false;
+  }
+
+  if(!document.getElementById("UseProxy").checked) {
+	document.getElementById("networkProxyHTTP").disabled=true;
+	document.getElementById("networkProxyHTTP_Port").disabled=true;
+  } else {
+	document.getElementById("networkProxyHTTP").disabled=false;
+	document.getElementById("networkProxyHTTP_Port").disabled=false;
+  }
+
+}
+
+
+
+/* Live Synchronizers
+ * =====
  * In this section put all the functions you think it should be 
  * synchronized as the end-user hits the button 
  * ===================================================================================
@@ -250,6 +302,7 @@ function syncPref(refElement) {
 		gPrefQueue[refElementPref]=refElement;
 		//document.getElementById("textbox-okay-pane").value+= "Changed key ="+gPrefQueue[refElementPref].value+"\n";
 	}
+	setTimeout("UIdependencyCheck()",0);
 }
 
 
@@ -294,60 +347,109 @@ function syncPrefSaveDOM() {
 				}
 				prefSETValue=elRef.value;
 			}
-			if (gPref.getPrefType(prefName) == gPref.PREF_STRING){
-				gPref.setCharPref(prefName, prefSETValue);
+
+			if (document.getElementById(prefName).getAttribute("preftype")=="string"){
+				try { 
+					gPref.setCharPref(prefName, prefSETValue);
+				} catch (e) { } 
 			} 
 	
-			if (gPref.getPrefType(prefName) == gPref.PREF_INT) {
+			if (document.getElementById(prefName).getAttribute("preftype")=="int") {
+				try { 
 				gPref.setIntPref(prefName, prefSETValue);
+				} catch (e) { } 
 	 	 	}
 	
-			if (gPref.getPrefType(prefName) == gPref.PREF_BOOL) {
+			if (document.getElementById(prefName).getAttribute("preftype")=="bool") {
+				try { 
 				gPref.setBoolPref(prefName, prefSETValue);
+				} catch (e) { } 
 			}
 		}
 
 		psvc.savePrefFile(null);
-	} catch (e) { alert(e) }
+
+	} catch (e) { alert(e); }
 
 }
-
 function syncPrefLoadDOM(elementList) {
+
 	for(var strCurKey in elementList) {
 
 		var elementAndPref=document.getElementById(elementList[strCurKey]);
 		var prefName=elementAndPref.getAttribute("preference");
-		var prefType=elementAndPref.getAttribute("preftype");
+		var prefUIType=elementAndPref.getAttribute("prefuitype");
+		var transValidator=elementAndPref.getAttribute("onsyncfrompreference");
 
 		var prefDOMValue=null;
-		if (gPref.getPrefType(prefName) == gPref.PREF_STRING){
-		    prefDOMValue = gPref.getCharPref(prefName);
+
+		if (document.getElementById(prefName).getAttribute("preftype")=="string") {
+
+		    try {
+		 	   prefDOMValue = gPref.getCharPref(prefName);
+                } catch (ex) { prefDOMValue=null; } 
+
+		    document.getElementById(prefName).value=prefDOMValue;
+
+			if(transValidator) {
+				preGETValue=eval(transValidator);
+				if(prefUIType=="string" || prefUIType=="int") elementAndPref.value=preGETValue;
+				if(prefUIType=="bool") elementAndPref.checked=preGETValue;
+			} else {
+				elementAndPref.value=prefDOMValue;
+			}		
+		    
 		} 
 
-		if (gPref.getPrefType(prefName) == gPref.PREF_INT) {
+		if (document.getElementById(prefName).getAttribute("preftype")=="int") {
 
-		    prefDOMValue = gPref.getIntPref(prefName);
+		    try {
+			    prefDOMValue = gPref.getIntPref(prefName);
+                } catch (ex) { prefDOMValue=null; } 
+		    document.getElementById(prefName).value=prefDOMValue;
 
-			if(prefDOMValue==1) { 
-			   elementAndPref.checked=true;
+			if(transValidator) {
+				preGETValue=eval(transValidator);
+				if(prefUIType=="string" || prefUIType=="int") elementAndPref.value=preGETValue;
+				if(prefUIType=="bool") elementAndPref.checked=preGETValue;
 			} else {
-			   elementAndPref.checked=false;
-			} 
+				if(prefDOMValue==1) { 
+				   elementAndPref.checked=true;
+				} else {
+				   elementAndPref.checked=false;
+				} 
+				elementAndPref.value=prefDOMValue ;
+			}
  	 	}
 
-		if (gPref.getPrefType(prefName) == gPref.PREF_BOOL) {
-		    prefDOMValue = gPref.getBoolPref(prefName);
-			if(prefDOMValue==true) { 
-			   elementAndPref.checked=true;
+		if (document.getElementById(prefName).getAttribute("preftype")=="bool") {
+
+		    try { 
+		 	   prefDOMValue = gPref.getBoolPref(prefName);
+                } catch (ex) { prefDOMValue=null; } 
+
+			
+		    document.getElementById(prefName).value=prefDOMValue;
+
+			if(transValidator) {
+				preGETValue=eval(transValidator);
+				if(prefUIType=="string" || prefUIType=="int") elementAndPref.value=preGETValue;
+				if(prefUIType=="bool") elementAndPref.checked=preGETValue;
 			} else {
-			   elementAndPref.checked=false;
-			} 
+				if(prefDOMValue==true) { 
+				   elementAndPref.checked=true;
+				} else {
+				   elementAndPref.checked=false;
+				} 
+				elementAndPref.value=prefDOMValue;
+			}	
 		}
 
-		elementAndPref.value=prefDOMValue;
-
+		
 	}
+	UIdependencyCheck();
 }
+
 
 
 function prefFocus(el) {

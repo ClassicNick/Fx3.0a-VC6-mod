@@ -42,7 +42,10 @@
 #include "nsBookmarksService.h"
 #include "nsForwardProxyDataSource.h"
 #ifdef MOZ_PLACES
+#include "nsAnnoProtocolHandler.h"
+#include "nsAnnotationService.h"
 #include "nsNavHistory.h"
+#include "nsNavBookmarks.h"
 #endif
 #ifdef XP_WIN
 #include "nsWindowsShellService.h"
@@ -75,6 +78,9 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsBookmarksService, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsForwardProxyDataSource, Init)
 #ifdef MOZ_PLACES
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsNavHistory, Init)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsAnnoProtocolHandler);
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsAnnotationService, Init)
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsNavBookmarks, Init)
 #endif
 #ifdef XP_WIN
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsWindowsShellService)
@@ -133,6 +139,21 @@ static const nsModuleComponentInfo components[] =
     NS_NAVHISTORY_CID,
     "@mozilla.org/autocomplete/search;1?name=history",
     nsNavHistoryConstructor },
+
+  { "Page Annotation Service",
+    NS_ANNOTATIONSERVICE_CID,
+    NS_ANNOTATIONSERVICE_CONTRACTID,
+    nsAnnotationServiceConstructor },
+
+  { "Annotation Protocol Handler",
+    NS_ANNOPROTOCOLHANDLER_CID,
+    NS_NETWORK_PROTOCOL_CONTRACTID_PREFIX "moz-anno",
+    nsAnnoProtocolHandlerConstructor },
+
+  { "Browser Bookmarks Service",
+    NS_NAVBOOKMARKSSERVICE_CID,
+    NS_NAVBOOKMARKSSERVICE_CONTRACTID,
+    nsNavBookmarksConstructor },
 #endif
 
   { "Bookmarks",

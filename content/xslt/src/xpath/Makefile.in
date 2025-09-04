@@ -44,7 +44,7 @@ include $(DEPTH)/config/autoconf.mk
 
 MODULE = transformiix
 LIBRARY_NAME = txxpath_s
-MOZILLA_INTERNAL_API = 1
+LIBXUL_LIBRARY = 1
 
 REQUIRES	= string \
 		  xpcom \
@@ -97,7 +97,6 @@ CPPSRCS = txAdditiveExpr.cpp \
         txVariableRefExpr.cpp
 ifndef MOZ_XSLT_STANDALONE
 CPPSRCS += nsXPathEvaluator.cpp \
-           nsXPathException.cpp \
            nsXPathExpression.cpp \
            nsXPathNSResolver.cpp \
            nsXPathResult.cpp \

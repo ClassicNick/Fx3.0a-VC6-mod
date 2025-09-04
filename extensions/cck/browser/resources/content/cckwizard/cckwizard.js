@@ -37,7 +37,7 @@ var currentconfigname;
 var currentconfigpath;
 var haveplugins = false;
 var havesearchplugins = false;
-
+var configarray = new Array();
 
 var gPrefBranch = Components.classes["@mozilla.org/preferences-service;1"]
                             .getService(Components.interfaces.nsIPrefBranch);
@@ -178,6 +178,7 @@ function updateconfiglist()
       document.getElementById('byb-configs').disabled = false;
       document.getElementById('deleteconfig').disabled = false;
       document.getElementById('showconfig').disabled = false;
+      document.getElementById('copyconfig').disabled = false;
     }
   }
   if ((!selecteditem) && (list.length > 0)) {
@@ -189,7 +190,7 @@ function updateconfiglist()
     document.getElementById('byb-configs').disabled = true;
     document.getElementById('deleteconfig').disabled = true;
     document.getElementById('showconfig').disabled = true;
-    
+    document.getElementById('copyconfig').disabled = true;
   }
 }
 
@@ -226,7 +227,7 @@ function saveconfig()
 
 function OnConfigLoad()
 {
-  document.documentElement.getButton("accept").setAttribute( "disabled", "true" );
+  configCheckOKButton();
 }
 
 
@@ -237,8 +238,14 @@ function OnConfigOK()
   if ((configname) && (configlocation)) {
     gPrefBranch.setCharPref("cck.config." + configname, configlocation);
     this.opener.setcurrentconfig(configname);
-    if (window.name = 'copyconfig') {
-/* copy prefs from current config */    
+    if (window.name == 'copyconfig') {
+    /* ---------- */
+  var destdir = Components.classes["@mozilla.org/file/local;1"]
+                          .createInstance(Components.interfaces.nsILocalFile);
+  destdir.initWithPath(configlocation);
+  
+  this.opener.CCKWriteConfigFile(destdir);
+
     }
   } else {
     return false;
@@ -253,6 +260,215 @@ function configCheckOKButton()
     document.documentElement.getButton("accept").setAttribute( "disabled", "true" );  
   }
 }
+
+function onNewPreference()
+{
+  window.openDialog("chrome://cckwizard/content/pref.xul","newpref","chrome,modal");
+}
+
+function onEditPreference()
+{
+  window.openDialog("chrome://cckwizard/content/pref.xul","editpref","chrome,modal");
+}
+function onDeletePreference()
+{
+  listbox = document.getElementById('prefList');    
+  listbox.removeItemAt(listbox.selectedIndex);
+}
+
+function OnPrefLoad()
+{
+  listbox = this.opener.document.getElementById('prefList');    
+  if (window.name == 'editpref') {
+    document.getElementById('prefname').value = listbox.selectedItem.label;
+    document.getElementById('prefvalue').value = listbox.selectedItem.value;
+  }
+  prefCheckOKButton();
+  
+}
+
+function prefCheckOKButton()
+{
+  if ((document.getElementById("prefname").value) && (document.getElementById("prefvalue").value)) {
+    document.documentElement.getButton("accept").setAttribute( "disabled", "false" );
+  } else {
+    document.documentElement.getButton("accept").setAttribute( "disabled", "true" );  
+  }
+}
+
+function OnPrefOK()
+{
+  listbox = this.opener.document.getElementById('prefList');    
+  if (window.name == 'newpref') {
+    listbox.appendItem(document.getElementById('prefname').value, document.getElementById('prefvalue').value);
+  } else {
+    listbox.selectedItem.label = document.getElementById('prefname').value;
+    listbox.selectedItem.value = document.getElementById('prefvalue').value;
+  }
+}
+
+function enablePrefButtons() {
+  listbox = document.getElementById('prefList');
+  if (listbox.selectedItem) {
+    document.getElementById('editPrefButton').disabled = false;
+    document.getElementById('deletePrefButton').disabled = false;
+  } else {
+    document.getElementById('editPrefButton').disabled = true;
+    document.getElementById('deletePrefButton').disabled = true;
+  }
+}
+
+
+function onNewRegKey()
+{
+  window.openDialog("chrome://cckwizard/content/reg.xul","newreg","chrome,modal");
+}
+
+function onEditRegKey()
+{
+  window.openDialog("chrome://cckwizard/content/reg.xul","editreg","chrome,modal");
+}
+function onDeleteRegKey()
+{
+  listbox = document.getElementById('regList');    
+  listbox.removeItemAt(listbox.selectedIndex);
+}
+
+function OnRegLoad()
+{
+  listbox = this.opener.document.getElementById('regList');
+  if (window.name == 'editreg') {
+    document.getElementById('PrettyName').value = listbox.selectedItem.label;
+    document.getElementById('RootKey').value = listbox.selectedItem.rootkey;
+    document.getElementById('Key').value = listbox.selectedItem.key;
+    document.getElementById('Name').value = listbox.selectedItem.name;
+    document.getElementById('NameValue').value = listbox.selectedItem.namevalue;
+    document.getElementById('Type').value = listbox.selectedItem.type;
+  }
+  
+}
+
+function regCheckOKButton()
+{
+  if ((document.getElementById("prefname").value) && (document.getElementById("prefvalue").value)) {
+    document.documentElement.getButton("accept").setAttribute( "disabled", "false" );
+  } else {
+    document.documentElement.getButton("accept").setAttribute( "disabled", "true" );  
+  }
+}
+
+function OnRegOK()
+{
+  listbox = this.opener.document.getElementById('regList');    
+  if (window.name == 'newreg') {
+    var listitem = listbox.appendItem(document.getElementById('PrettyName').value, "");
+    listitem.rootkey = document.getElementById('RootKey').value;
+    listitem.key = document.getElementById('Key').value;
+    listitem.name = document.getElementById('Name').value;
+    listitem.namevalue = document.getElementById('NameValue').value;
+    listitem.type = document.getElementById('Type').value;
+  } else {
+    listbox.selectedItem.label = document.getElementById('PrettyName').value;  
+    listbox.selectedItem.rootkey = document.getElementById('RootKey').value;
+    listbox.selectedItem.key = document.getElementById('Key').value;
+    listbox.selectedItem.name = document.getElementById('Name').value;
+    listbox.selectedItem.namevalue = document.getElementById('NameValue').value;
+    listbox.selectedItem.type = document.getElementById('Type').value;
+  }
+}
+
+function enableRegButtons() {
+  listbox = document.getElementById('regList');
+  if (listbox.selectedItem) {
+    document.getElementById('editRegButton').disabled = false;
+    document.getElementById('deleteRegButton').disabled = false;
+  } else {
+    document.getElementById('editRegButton').disabled = true;
+    document.getElementById('deleteRegButton').disabled = true;
+  }
+}
+
+
+function onNewSearchPlugin()
+{
+  window.openDialog("chrome://cckwizard/content/searchplugin.xul","newsearchplugin","chrome,modal");
+}
+
+function onEditSearchPlugin()
+{
+  window.openDialog("chrome://cckwizard/content/searchplugin.xul","editsearchplugin","chrome,modal");
+}
+function onDeleteSearchPlugin()
+{
+  listbox = document.getElementById('searchPluginList');
+  listboxitem = listbox.selectedItem;
+  listbox.removeChild(listboxitem);
+}
+
+function OnSearchPluginLoad()
+{
+  listbox = this.opener.document.getElementById('searchPluginList');    
+  listboxitem = listbox.selectedItem;
+  if (window.name == 'editsearchplugin') {
+    document.getElementById('searchplugin').value = listboxitem.childNodes[1].value;
+    document.getElementById('searchpluginicon').value = listboxitem.childNodes[0].value;
+    document.getElementById('icon').src = listboxitem.childNodes[0].src;
+  }
+  searchPluginCheckOKButton();
+  
+}
+
+function searchPluginCheckOKButton()
+{
+//  if ((document.getElementById("prefname").value) && (document.getElementById("prefvalue").value)) {
+//    document.documentElement.getButton("accept").setAttribute( "disabled", "false" );
+//  } else {
+//    document.documentElement.getButton("accept").setAttribute( "disabled", "true" );  
+//  }
+}
+
+function OnSearchPluginOK()
+{
+  listbox = this.opener.document.getElementById('searchPluginList');    
+  if (window.name == 'newsearchplugin') {
+    item = this.opener.document.createElement("richlistitem");
+    image = this.opener.document.createElement("image");
+    label = this.opener.document.createElement("label");
+    image.setAttribute("src", document.getElementById('icon').src); 
+    image.value = document.getElementById('searchpluginicon').value;
+    label.setAttribute("value", document.getElementById('searchplugin').value);
+
+    item.appendChild(image);
+    item.appendChild(label);
+  
+    listbox.appendChild(item);
+  } else {
+    listboxitem = listbox.selectedItem;  
+    listboxitem.childNodes[1].value = document.getElementById('searchplugin').value;
+    listboxitem.childNodes[0].src = document.getElementById('icon').src;
+    listboxitem.childNodes[0].value = document.getElementById('searchpluginicon').value;
+  }
+}
+
+function enableSearchPluginButtons() {
+  listbox = document.getElementById('searchPluginList');
+  if (listbox.selectedItem) {
+    document.getElementById('editSearchPluginButton').disabled = false;
+    document.getElementById('deleteSearchPluginButton').disabled = false;
+  } else {
+    document.getElementById('editSearchPluginButton').disabled = true;
+    document.getElementById('deleteSearchPluginButton').disabled = true;
+  }
+}
+
+
+
+
+
+
+
+
+
 
 function CreateCCK()
 { 
@@ -352,16 +568,15 @@ function CreateCCK()
     destdir.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0775);
   } catch(ex) {}
   
-  havesearchplugins = CCKCopyFile(document.getElementById("SearchPlugin1").value, destdir);
-  CCKCopyFile(document.getElementById("SearchPluginIcon1").value, destdir);
-  havesearchplugins |= CCKCopyFile(document.getElementById("SearchPlugin2").value, destdir);
-  CCKCopyFile(document.getElementById("SearchPluginIcon2").value, destdir);
-  havesearchplugins |= CCKCopyFile(document.getElementById("SearchPlugin3").value, destdir);
-  CCKCopyFile(document.getElementById("SearchPluginIcon3").value, destdir);
-  havesearchplugins |= CCKCopyFile(document.getElementById("SearchPlugin4").value, destdir);
-  CCKCopyFile(document.getElementById("SearchPluginIcon4").value, destdir);
-  havesearchplugins |= CCKCopyFile(document.getElementById("SearchPlugin5").value, destdir);
-  CCKCopyFile(document.getElementById("SearchPluginIcon5").value, destdir);
+  listbox = document.getElementById('searchPluginList');
+
+  if (listbox.getRowCount() > 0)
+    havesearchplugins = true;
+  for (var i=0; i < listbox.getRowCount(); i++) {
+    listitem = listbox.getItemAtIndex(i);
+    CCKCopyFile(listitem.childNodes[0].value, destdir);
+    CCKCopyFile(listitem.childNodes[1].value, destdir);
+  }
 
   destdir.initWithPath(currentconfigpath);
   destdir.append("xpi");
@@ -785,7 +1000,26 @@ function CCKWriteProperties(destdir)
       fos.write(str, str.length);
     }
   }
-
+  
+  // Registry Keys
+  listbox = document.getElementById("regList");
+  for (var i=0; i < listbox.getRowCount(); i++) {
+    listitem = listbox.getItemAtIndex(i);
+    str = "RegName" + (i+1) + "=" + listitem.label + "\n";
+    fos.write(str, str.length);
+    str = "RootKey" + (i+1) + "=" + listitem.rootkey + "\n";
+    fos.write(str, str.length);
+    str = "Key" + (i+1) + "=" + listitem.key + "\n";
+    str = str.replace(/\\/g, "\\\\");
+    fos.write(str, str.length);
+    str = "Name" + (i+1) + "=" + listitem.name + "\n";
+    fos.write(str, str.length);
+    str = "NameValue" + (i+1) + "=" + listitem.namevalue + "\n";
+    fos.write(str, str.length);
+    str = "Type" + (i+1) + "=" + listitem.type + "\n";
+    fos.write(str, str.length);
+  }
+  
   for (var i = 1; i <= 5; ++i) {
     var certpath = document.getElementById("CertPath"+i).value;
     if (certpath && (certpath.length > 0)) {
@@ -865,21 +1099,13 @@ function CCKWriteDefaultJS(destdir)
   var line = 'pref("' + proxyitem.getAttribute("preference") + '", ' + proxyitem.value + ');\n';
   fos.write(line, line.length);
 
-
   // Preferences
-  for (var i=1; i <= 10; i++) {
-    var prefname = document.getElementById("PreferenceName" + i).value;
-    if (prefname && prefname.length) {
-      var prefvalue = document.getElementById("PreferenceValue" + i).value;
-      if (prefvalue && prefvalue.length) {
-        var line = 'pref("' + prefname + '", ' + prefvalue + ');\n';
-        fos.write(line, line.length);
-      }
-    }
+  listbox = document.getElementById("prefList");
+  for (var i=0; i < listbox.getRowCount(); i++) {
+    listitem = listbox.getItemAtIndex(i);
+    var line = 'pref("' + listitem.label + '", ' + listitem.value + ');\n';
+    fos.write(line, line.length);
   }
-
-
-
   
   fos.close();
 }
@@ -1108,23 +1334,50 @@ function CCKWriteConfigFile(destdir)
 
   var elements = document.getElementsByAttribute("id", "*")
   for (var i=0; i < elements.length; i++) {
-    if (elements[i].nodeName == "textbox") {
+    if ((elements[i].nodeName == "textbox") ||
+        (elements[i].nodeName == "radiogroup") ||
+        (elements[i].nodeName == "checkbox") ||
+        (elements[i].id == "RootKey1") ||
+        (elements[i].id == "Type1")) {
       var line = elements[i].getAttribute("id") + "=" + elements[i].value + "\n";
       fos.write(line, line.length);
+    } else if (elements[i].id == "prefList") {
+      listbox = document.getElementById('prefList');    
+      for (var j=0; j < listbox.getRowCount(); j++) {
+        listitem = listbox.getItemAtIndex(j);
+        var line = "PreferenceName" + (j+1) + "=" + listitem.label + "\n";
+        fos.write(line, line.length);
+        var line = "PreferenceValue" + (j+1) + "=" + listitem.value + "\n";
+        fos.write(line, line.length);      
+      }
+    } else if (elements[i].id == "regList") {
+      listbox = document.getElementById('regList');    
+      for (var j=0; j < listbox.getRowCount(); j++) {
+        listitem = listbox.getItemAtIndex(j);
+        var line = "RegName" + (j+1) + "=" + listitem.label + "\n";
+        fos.write(line, line.length);
+        var line = "RootKey" + (j+1) + "=" + listitem.rootkey + "\n";
+        fos.write(line, line.length);
+        var line = "Key" + (j+1) + "=" + listitem.key + "\n";
+        fos.write(line, line.length);
+        var line = "Name" + (j+1) + "=" + listitem.name + "\n";
+        fos.write(line, line.length);
+        var line = "NameValue" + (j+1) + "=" + listitem.namevalue + "\n";
+        fos.write(line, line.length);
+        var line = "Type" + (j+1) + "=" + listitem.type + "\n";
+        fos.write(line, line.length);
+      }
+    } else if (elements[i].id == "searchPluginList") {
+      listbox = document.getElementById('searchPluginList');    
+      for (var j=0; j < listbox.getRowCount(); j++) {
+        listitem = listbox.getItemAtIndex(j);
+        var line = "SearchPlugin" + (j+1) + "=" + listitem.childNodes[1].value + "\n";
+        fos.write(line, line.length);
+        var line = "SearchPluginIcon" + (j+1) + "=" + listitem.childNodes[0].value + "\n";
+        fos.write(line, line.length);      
+      }
     }
   }
-  radiogroup = document.getElementById("ProxyType");
-  line = "ProxyType=" + radiogroup.value + "\n";
-  fos.write(line, line.length);
-
-  var radiogroup = document.getElementById("socksv");
-  line = "socksv=" + radiogroup.value + "\n";
-  fos.write(line, line.length);
-  
-  var radiogroup = document.getElementById("shareAllProxies");
-  line = "shareAllProxies=" + radiogroup.value + "\n";
-  fos.write(line, line.length);
-
   fos.close();
 }
 
@@ -1146,6 +1399,8 @@ function CCKReadConfigFile(srcdir)
   var lis = stream.QueryInterface(Components.interfaces.nsILineInputStream);
   var line = {value:null};
   
+  var prefList = document.getElementById('prefList');    
+  configarray = new Array();
   do {
     var more = lis.readLine(line);
     var str = line.value;
@@ -1153,10 +1408,63 @@ function CCKReadConfigFile(srcdir)
     if (equals != -1) {
       firstpart = str.substring(0,equals);
       secondpart = str.substring(equals+1);
-      document.getElementById(firstpart).value = secondpart;
+      configarray[firstpart] = secondpart;
+      try {
+        (document.getElementById(firstpart).value = secondpart)
+      } catch (ex) {}
     }
   } while (more);
   
+  // handle prefs
+  listbox = document.getElementById('prefList');
+  var i = 1;
+  while( prefname = configarray['PreferenceName' + i]) {
+    listbox.appendItem(prefname, configarray['PreferenceValue' + i]);
+    i++;
+  }  
+  
+  // handle registry items
+  listbox = document.getElementById('regList');
+  var i = 1;
+  while( regname = configarray['RegName' + i]) {
+    var listitem = listbox.appendItem(regname, "");
+    listitem.rootkey = configarray['RootKey' + i];
+    listitem.key = configarray['Key' + i];
+    listitem.name = configarray['Name' + i];
+    listitem.namevalue = configarray['NameValue' + i];
+    listitem.type = configarray['Type' + i];
+    i++;
+  }  
+
+  var sourcefile = Components.classes["@mozilla.org/file/local;1"]
+                       .createInstance(Components.interfaces.nsILocalFile);
+
+  // handle searchplugins
+  listbox = document.getElementById('searchPluginList');
+  var i = 1;
+  while(searchpluginname = configarray['SearchPlugin' + i]) {
+    item = document.createElement("richlistitem");
+    image = document.createElement("image");
+    label = document.createElement("label");
+    image.value = configarray['SearchPluginIcon' + i];
+    label.setAttribute("value", searchpluginname);
+    
+  try {
+    sourcefile.initWithPath(configarray['SearchPluginIcon' + i]);
+    var ioServ = Components.classes["@mozilla.org/network/io-service;1"]
+                           .getService(Components.interfaces.nsIIOService);
+    var foo = ioServ.newFileURI(sourcefile);
+    image.setAttribute("src", foo.spec);
+  } catch (e) {
+    image.setAttribute("src", "");
+  }
+    item.appendChild(image);
+    item.appendChild(label);
+  
+    listbox.appendChild(item);
+    i++;
+  }  
+
   DoEnabling();
   toggleProxySettings();
   

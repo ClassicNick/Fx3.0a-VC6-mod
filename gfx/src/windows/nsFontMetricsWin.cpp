@@ -84,7 +84,7 @@ PRBool IsWin95OrWin98()
   }
   return gIsWIN95OR98;
 #else
-  return PR_FALSE;
+  return PR_TRUE;
 #endif
 }
 
@@ -3484,7 +3484,7 @@ nsFontMetricsWin::FindPrefFont(HDC aDC, PRUint32 aChar)
   // be identified instead of a single language (eg. CJK and latin). In this case we have to 
   // try every language in the set. gUserLocale and gSystemLocale provide some hints about 
   // which one should be tried first. This is important for CJK font, since the glyph for single 
-  // char varies dramatically in different langauges. For latin languages, their glyphs are 
+  // char varies dramatically in different languages. For latin languages, their glyphs are 
   // similar. In fact, they almost always share identical fonts. It will be a waste of time to 
   // figure out which one comes first. As a final fallback, unicode preference is always tried. 
 
@@ -3625,7 +3625,7 @@ nsFontMetricsWin::RealizeFont()
     // XXX - DC If we are printing, we need to get the printer HDC and a screen HDC
     // The screen HDC is because there seems to be a bug or requirment that the 
     // GetFontData() method call have a screen HDC, some printers HDC's return nothing
-    // thats will give us bad font data, and break us.  
+    // that's will give us bad font data, and break us.  
     dc = mDeviceContext->mDC;
     win = (HWND)mDeviceContext->mWidget;
     dc1 = ::GetDC(win);
@@ -3702,8 +3702,14 @@ nsFontMetricsWin::RealizeFont()
   if (0 < ::GetOutlineTextMetrics(dc, sizeof(oMetrics), &oMetrics)) {
 //    mXHeight = NSToCoordRound(oMetrics.otmsXHeight * dev2app);  XXX not really supported on windows
     mXHeight = NSToCoordRound((float)metrics.tmAscent * dev2app * 0.56f); // 50% of ascent, best guess for true type
-    mSuperscriptOffset = NSToCoordRound(oMetrics.otmptSuperscriptOffset.y * dev2app);
-    mSubscriptOffset = NSToCoordRound(oMetrics.otmptSubscriptOffset.y * dev2app);
+    if (oMetrics.otmptSuperscriptOffset.y == 0 || oMetrics.otmptSuperscriptOffset.y >= metrics.tmAscent)
+      mSuperscriptOffset = mXHeight;     // XXX temporary code!
+    else
+      mSuperscriptOffset = NSToCoordRound(oMetrics.otmptSuperscriptOffset.y * dev2app);
+    if (oMetrics.otmptSubscriptOffset.y == 0 || oMetrics.otmptSubscriptOffset.y >= metrics.tmAscent)
+      mSubscriptOffset =  mXHeight;     // XXX temporary code!
+    else
+      mSubscriptOffset = NSToCoordRound(oMetrics.otmptSubscriptOffset.y * dev2app);
 
     mStrikeoutSize = PR_MAX(onePixel, NSToCoordRound(oMetrics.otmsStrikeoutSize * dev2app));
     mStrikeoutOffset = NSToCoordRound(oMetrics.otmsStrikeoutPosition * dev2app);

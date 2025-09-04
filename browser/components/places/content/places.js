@@ -12,7 +12,7 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Mozilla History System
+ * The Original Code is Mozilla Places System.
  *
  * The Initial Developer of the Original Code is Google Inc.
  * Portions created by the Initial Developer are Copyright (C) 2005
@@ -35,131 +35,168 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-var PlacesPage = { 
-  _controller: null,
+var PlacesUIHook = {
   _tabbrowser: null,
   _topWindow: null,
-  _topDocument: null,
-  _populators: { },
-};
-
-PlacesPage.init = function PP_init() {
-  var wm =
-      Cc["@mozilla.org/appshell/window-mediator;1"].
-      getService(Ci.nsIWindowMediator);
-  this._topWindow = wm.getMostRecentWindow("navigator:browser");
-  this._topDocument = this._topWindow.document;
-  this._tabbrowser = this._topWindow.getBrowser();
-
-  var self = this;
-  function onTabSelect(event) {
-    self.onTabSelect(event);
-  }
-  this._tabbrowser.addEventListener("select", onTabSelect, false);
-
-  var placesList = document.getElementById("placesList");
-  var placeContent = document.getElementById("placeContent");
-  var placesCommands = document.getElementById("placesCommands");
+  _placesURI: "chrome://browser/content/places/places.xul",
   
-  this.controller = 
-    new PlacesController([placesList, placeContent], placesCommands);
+  init: function PUIH_init(placesList) {
+    try {
+      this._topWindow = placesList.browserWindow;
+      this._tabbrowser = this._topWindow.getBrowser();
 
-  const NH = Ci.nsINavHistory;  
-  var places = 
-      Cc["@mozilla.org/browser/nav-history;1"].getService(NH);
-  var query = places.getNewQuery();
-  var date = new Date();
-  var result = places.executeQuery(query, [NH.GROUP_BY_HOST], 
-                                   1, NH.SORT_BY_NONE, false);
-  result.QueryInterface(Ci.nsITreeView);
-  var placeContent = document.getElementById("placeContent");
-  placeContent.view = result;
-  
-  this._showPlacesUI();
-};
+      // Hook into the tab strip to get notifications about when the Places Page is
+      // selected so that the browser UI can be modified. 
+      var self = this;
+      function onTabSelect(event) {
+        self.onTabSelect(event);
+      }
+      this._tabbrowser.mTabContainer.addEventListener("select", onTabSelect, false);
 
-PlacesPage.uninit = function PP_uninit() {
-  this.observer._hidePlacesUI();
-};
-
-PlacesPage.onTabSelect = function PP_onTabSelect(event) {
-  var tabURI = this._tabbrowser.selectedBrowser.currentURI.spec;
-  (tabURI == PLACES_URI) ? this._showPlacesUI() : this._hidePlacesUI();
-};
-
-PlacesPage._showPlacesUI = function PP__showPlacesUI() {
-  LOG("SHOW Places UI");
-  this._tabbrowser.setAttribute("places", "true");
-  var statusbar = this._topDocument.getElementById("status-bar");
-  this._oldStatusBarState = statusbar.hidden;
-  statusbar.hidden = true;
-};
-
-PlacesPage._hidePlacesUI = function PP__hidePlacesUI() {
-  LOG("HIDE Places UI");
-  this._tabbrowser.removeAttribute("places");
-  var statusbar = this._topDocument.getElementById("status-bar");
-  statusbar.hidden = this._oldStatusBarState;
-};
-
-PlacesPage.setPopulator = 
-function PP_setPopulator(uiID, providerType, populator) {
-  if (!(uiID in this._populators))
-    this._populators[uiID] = { };
-  // There can only be one populator per provider type. 
-  this._populators[uiID][providerType] = populator;
-};
-
-PlacesPage.removePopulator = 
-function PP_removePopulator(uiID, providerType) {
-  if (!(uiID in this._populators))
-    throw Cr.NS_ERROR_INVALID_ARGUMENT;
-  delete this._populators[uiID][providerType];
-};
-
-PlacesPage.loadQuery = function PP_loadQuery(uri) {
-  var placeURI = uri.QueryInterface(Ci.mozIPlaceURI);
-  this._updateUI(placeURI.providerType);
-};
-
-function CommandBarPopulator() {
-  this.element = document.getElementById("commandBar");
-  this.newFolder = document.getElementById("commandBar_newFolder");
-  this.groupOptions = document.getElementById("commandBar_groupOptions");
-  this.groupOption0 = document.getElementById("commandBar_groupOption0");
-  this.groupOption1 = document.getElementById("commandBar_groupOption1");
-  this.saveSearch = document.getElementById("commandBar_saveSearch");
-  
-  this.FOLDER_BUTTON = 0x01;
-  this.GROUP_OPTIONS = 0x02;
-  this.SAVE_SEARCH = 0x04;
+      this._showPlacesUI();
+    }
+    catch (e) { 
+    }
     
-  function Config(buttons, folderCommand, group0Command, group1Command) {
-    this.buttons = buttons;
-    this.folderCommand = folderCommand;
-    this.group0Command = group0Command;
-    this.group1Command = group1Command;
-  }
+    // Stop the browser from handling certain types of events. 
+    function onDragEvent(event) {
+      event.stopPropagation();
+    }
+    window.addEventListener("draggesture", onDragEvent, false);
+    window.addEventListener("dragover", onDragEvent, false);
+    window.addEventListener("dragdrop", onDragEvent, false);
+  },
   
-  this.config = { 
-    bookmark: new Config(self.FOLDER_BUTTON, null, null, null),
-    history:  new Config(self.GROUP_OPTIONS, null, "placesCmd_groupby:site",
-                         "placesCmd_groupby:page"),
-    search:   new Config(self.GROUP_OPTIONS | self.SAVE_SEARCH, null, 
-                         "placesCmd_groupby:site", "placesCmd_groupby:page"),
-    feed:     new Config(self.GROUP_OPTIONS | self.SAVE_SEARCH | self.FOLDER_BUTTON, 
-                         "placesCmd_subscribe", "placesCmd_groupby:feed", 
-                         "placesCmd_groupby:post")
-  };
-}
-CommandBarPopulator.prototype.exec = 
-function CBP_exec(providerType) {
-  var config = this.config[providerType];
-  this.newFolder.hidden = !(config.buttons & this.FOLDER_BUTTON);
-  this.groupOptions.hidden = !(config.buttons & this.GROUP_OPTIONS);
-  this.saveSearch.hidden = !(config.buttons & this.SAVE_SEARCH);
-  this.newFolder.command = config.folderCommand;
-  this.groupOption0.command = config.group0Command;
-  this.groupOption1.command = config.group1Command;
+  uninit: function PUIH_uninit() {
+    this._hidePlacesUI();
+  },
+
+  onTabSelect: function PP_onTabSelect(event) {
+    var tabURI = this._tabbrowser.selectedBrowser.currentURI.spec;
+    (tabURI == this._placesURI) ? this._showPlacesUI() : this._hidePlacesUI();
+  },
+  
+  _topElement: function PUIH__topElement(id) {
+    return this._topWindow.document.getElementById(id);
+  },
+
+  _showPlacesUI: function PP__showPlacesUI() {
+    this._tabbrowser.setAttribute("places", "true");
+    var statusbar = this._topElement("status-bar");
+    this._oldStatusBarState = statusbar.hidden;
+    statusbar.hidden = true;
+  },
+
+  _hidePlacesUI: function PP__hidePlacesUI() {
+    this._tabbrowser.removeAttribute("places");
+    var statusbar = this._topElement("status-bar");
+    statusbar.hidden = this._oldStatusBarState;
+  },
+};
+
+var PlacesPage = {
+  _content: null,
+  _places: null,
+
+  init: function PP_init() {
+    // Attach the Command Controller to the Places Views. 
+    this._places = document.getElementById("placesList");
+    this._content = document.getElementById("placeContent");  
+    this._places.controllers.appendController(PlacesController);
+    this._content.controllers.appendController(PlacesController);
+    
+    this._places.supportedDropTypes = [TYPE_X_MOZ_PLACE_CONTAINER];
+    this._places.supportedDropOnTypes = [TYPE_X_MOZ_PLACE_CONTAINER, 
+                                         TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL];
+    this._content.supportedDropTypes = [TYPE_X_MOZ_PLACE_CONTAINER, 
+                                        TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL];
+    this._content.supportedDropOnTypes = this._content.supportedDropTypes;
+    this._places.filterOptions = [Ci.nsINavHistoryQuery.INCLUDE_QUERIES];
+    this._content.filterOptions = [Ci.nsINavHistoryQuery.INCLUDE_ITEMS + 
+                                   Ci.nsINavHistoryQuery.INCLUDE_QUERIES];
+    this._places.firstDropIndex = 2;
+    this._content.firstDropIndex = 0;
+    
+    // Hook the browser UI
+    PlacesUIHook.init(this._content);
+
+    // Attach the History model to the Content View
+    this._content.queryString = "";
+
+    // Attach the Places model to the Place View
+    // XXXben - move this to an attribute/property on the tree view
+    var bms = PlacesController._bms;
+    this._places.loadFolder(bms.placesRoot);
+  },
+
+  uninit: function PP_uninit() {
+    PlacesUIHook.uninit();
+  },
+
+  showAdvancedOptions: function PP_showAdvancedOptions() {
+    alert("Show advanced query builder.");
+  },
+  
+  setFilterCollection: function PP_setFilterCollection(collectionName) {
+    var searchFilter = document.getElementById("searchFilter");
+    searchFilter.setAttribute("collection", collectionName);
+  },
+
+  applyFilter: function PP_applyFilter(filterString) {
+    var searchFilter = document.getElementById("searchFilter");
+    var collectionName = searchFilter.getAttribute("collection");
+    switch (collectionName) {
+    case "collection":
+      var folder = this._content.getResult().folderId;
+      this._content.applyFilter(filterString, true, folder);
+      break;
+    case "bookmarks":
+      this._content.applyFilter(filterString, true, 0);
+      break;
+    case "history":
+      this._content.applyFilter(filterString, false, 0);
+      break;
+    case "all":
+      this._content.filterString = filterString;
+      break;
+    }
+  },
+
+  /**
+   * Called when a place folder is selected in the left pane.
+   */
+  placeSelected: function PP_placeSelected(event) {
+    var node = this._places.selectedNode;
+    if (!node || this._places.suppressSelection)
+      return;
+    var queries = node.getQueries({});
+    if (PlacesController.nodeIsFolder(node))
+      this._content.loadFolder(node.folderId);
+    else { // XXXben, this is risky, need to filter out TYPE_DAY/TYPE_HOST
+      var queries = node.getQueries({ });
+      this._content.load(queries, node.queryOptions);
+    }
+  },
+  
+  /**
+   * Update the Places UI when the content of the right tree changes. 
+   */
+  onContentChanged: function PP_onContentChanged() {
+    var panelID = "commands_history";
+    var filterButtonID = "filterList_history";
+    var isBookmarks = PlacesController.nodeIsFolder(this._content.getResult());
+    if (isBookmarks) {
+      // if (query.annotation == "feed") {
+      panelID = "commands_bookmark";
+      filterButtonID = "filterList_bookmark";
+    }
+    var commandBar = document.getElementById("commandBar");
+    commandBar.selectedPanel = document.getElementById(panelID);
+    var filterCollectionDeck = document.getElementById("filterCollectionDeck");
+    filterCollectionDeck.selectedPanel = document.getElementById(filterButtonID);
+
+    // Hide the Calendar for Bookmark queries. 
+    document.getElementById("historyCalendar").setAttribute("hidden", isBookmarks);
+  },
 };
 

@@ -45,7 +45,6 @@
 #include "nsIDOMDOMImplementation.h"
 #include "nsIDOMNSDocument.h"
 #include "nsIXMLContent.h"
-#include "nsIScriptGlobalObject.h"
 #include "nsIURI.h"
 #include "nsNetUtil.h"
 #include "nsIDocShell.h"
@@ -921,10 +920,6 @@ nsXMLContentSink::HandleStartElement(const PRUnichar *aName,
   result = CreateElement(aAtts, aAttsCount, nodeInfo, aLineNumber,
                          getter_AddRefs(content), &appendContent);
   NS_ENSURE_SUCCESS(result, result);
-
-  if (mDocument) {
-    content->SetContentID(mDocument->GetAndIncrementContentID());
-  }
 
   // Set the ID attribute atom on the node info object for this node
   // This must occur before the attributes are added so the name

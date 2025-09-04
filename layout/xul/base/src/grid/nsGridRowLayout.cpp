@@ -82,10 +82,8 @@ nsGridRowLayout::GetParentGridPart(nsIBox* aBox, nsIBox** aParentBox, nsIGridPar
 {
   // go up and find our parent gridRow. Skip and non gridRow
   // parents.
-  nsCOMPtr<nsIBoxLayout> layout;
-  nsCOMPtr<nsIGridPart> parentGridRow;
-  nsresult rv = NS_OK;
   *aParentGridPart = nsnull;
+  *aParentBox = nsnull;
   
   // walk up through any scrollboxes
   aBox = nsGrid::GetScrollBox(aBox);
@@ -96,18 +94,17 @@ nsGridRowLayout::GetParentGridPart(nsIBox* aBox, nsIBox** aParentBox, nsIGridPar
 
   if (aBox)
   {
+      nsCOMPtr<nsIBoxLayout> layout;
       aBox->GetLayoutManager(getter_AddRefs(layout));
-      parentGridRow = do_QueryInterface(layout);
-      *aParentGridPart = parentGridRow.get();
-      *aParentBox = aBox;
-      NS_IF_ADDREF(*aParentGridPart);
-      return NS_OK;
+      nsCOMPtr<nsIGridPart> parentGridRow = do_QueryInterface(layout);
+      if (parentGridRow && parentGridRow->CanContain(this)) {
+          parentGridRow.swap(*aParentGridPart);
+          *aParentBox = aBox;
+          return NS_OK;
+      }
   }
 
-  *aParentGridPart = nsnull;
-  *aParentBox = nsnull;
-  
-  return rv;
+  return NS_OK;
 }
 
 
@@ -227,7 +224,7 @@ nsGridRowLayout::GetTotalMargin(nsIBox* aBox, nsMargin& aMargin, PRBool aIsHoriz
     // if first or last
     if (child == aBox || next == nsnull) {
 
-       // if its not the first child remove the top margin
+       // if it's not the first child remove the top margin
        // we don't need it.
        if (child != aBox)
        {
@@ -237,7 +234,7 @@ nsGridRowLayout::GetTotalMargin(nsIBox* aBox, nsMargin& aMargin, PRBool aIsHoriz
               margin.left = 0;
        }
 
-       // if its not the last child remove the bottom margin
+       // if it's not the last child remove the bottom margin
        // we don't need it.
        if (next != nsnull)
        {

@@ -317,6 +317,9 @@ protected:
   BOOL                    OnIMEQueryCharPosition(LPARAM aData, LRESULT *oResult, PRBool aUseUnicode);
 
   void                    GetCompositionString(HIMC aHIMC, DWORD aIndex, nsString* aStrUnicode, nsCString* aStrAnsi);
+  void                    ResolveIMECaretPos(nsWindow* aClient,
+                                             nsRect&   aEventResult,
+                                             nsRect&   aResult);
 
   virtual PRBool          DispatchKeyEvent(PRUint32 aEventType, WORD aCharCode, UINT aVirtualCharCode,
                                            LPARAM aKeyCode, PRUint32 aFlags = 0);
@@ -428,9 +431,12 @@ protected:
 
   PRInt32       mMenuCmdId;
 
-    // Window styles used by this window before chrome was hidden
+  // Window styles used by this window before chrome was hidden
   DWORD         mOldStyle;
   DWORD         mOldExStyle;
+
+  // To enable/disable IME
+  HIMC          mOldIMC;
 
   static UINT   gCurrentKeyboardCP;
   static HKL    gKeyboardLayout;
@@ -441,7 +447,7 @@ protected:
   // Drag & Drop
   nsNativeDragTarget * mNativeDragTarget;
 
-  // Enumeration of the methods which are accessable on the "main GUI thread"
+  // Enumeration of the methods which are accessible on the "main GUI thread"
   // via the CallMethod(...) mechanism...
   // see nsSwitchToUIThread
   enum {

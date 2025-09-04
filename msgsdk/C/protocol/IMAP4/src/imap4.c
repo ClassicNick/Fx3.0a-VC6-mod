@@ -1294,7 +1294,7 @@ int imap4_unsubscribe(imap4Client_t* in_pimap4, const char* in_mailbox, char** o
 
 /**
 * This function is called to get the server to (possibly) checkpoint 
-* its state, if that is necesary. Note: This does not imply that you 
+* its state, if that is necessary. Note: This does not imply that you 
 * will get new EXISTS messages. If you want that type of stuff, use 
 * NOOP. Note: This may not instantaneous. For more info on this and the 
 * differences from NOOP, see RFC 1730.
@@ -4119,7 +4119,7 @@ static char* matchFieldBrackets(char* in_data, char** out_ppValue)
 }
 
 /**
-* Retrieves the value of the next set of qoutes, also treats NIL
+* Retrieves the value of the next set of quotes, also treats NIL
 * as a quoted value
 * @param in_data The response string
 * @param out_ppValue The bracketed value

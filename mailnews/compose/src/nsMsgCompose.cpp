@@ -50,6 +50,7 @@
 #include "nsIDOMHTMLImageElement.h"
 #include "nsIDOMHTMLLinkElement.h"
 #include "nsIDOMHTMLAnchorElement.h"
+#include "nsPIDOMWindow.h"
 #include "nsISelection.h"
 #include "nsISelectionController.h"
 #include "nsIDOMNamedNodeMap.h"
@@ -506,8 +507,8 @@ nsMsgCompose::ConvertAndLoadComposeWindow(nsString& aPrefix,
     {
       // XXX see bug #206793
       nsIDocShell *docshell = nsnull;
-      nsCOMPtr<nsIScriptGlobalObject> globalObj = do_QueryInterface(m_window);
-      if (globalObj && (docshell = globalObj->GetDocShell()))
+      nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(m_window);
+      if (window && (docshell = window->GetDocShell()))
         docshell->SetAppType(nsIDocShell::APP_TYPE_EDITOR);
 
       if (aHTMLEditor && !mCiteReference.IsEmpty())
@@ -536,12 +537,9 @@ nsMsgCompose::ConvertAndLoadComposeWindow(nsString& aPrefix,
   {
     if (aHTMLEditor && htmlEditor)
     {
-      if (!aBuf.IsEmpty())
-      {
-        htmlEditor->RebuildDocumentFromSource(aBuf);
+      htmlEditor->RebuildDocumentFromSource(aBuf);
 
-        m_editor->EndOfDocument();
-      }
+      m_editor->EndOfDocument();
 
       // when forwarding a message as inline, tag any embedded objects
       // which refer to local images or files so we know not to include 
@@ -675,19 +673,19 @@ nsMsgCompose::Initialize(nsIDOMWindowInternal *aWindow, nsIMsgComposeParams *par
   if (aWindow)
   {
     m_window = aWindow;
-    nsCOMPtr<nsIScriptGlobalObject> globalObj(do_QueryInterface(aWindow));
-    if (!globalObj)
+    nsCOMPtr<nsPIDOMWindow> window(do_QueryInterface(aWindow));
+    if (!window)
       return NS_ERROR_FAILURE;
 
     nsCOMPtr<nsIDocShellTreeItem>  treeItem =
-      do_QueryInterface(globalObj->GetDocShell());
+      do_QueryInterface(window->GetDocShell());
     nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
     rv = treeItem->GetTreeOwner(getter_AddRefs(treeOwner));
     if (NS_FAILED(rv)) return rv;
 
     m_baseWindow = do_QueryInterface(treeOwner);
 
-    globalObj->GetDocShell()->SetAppType(nsIDocShell::APP_TYPE_EDITOR);
+    window->GetDocShell()->SetAppType(nsIDocShell::APP_TYPE_EDITOR);
   }
   
   MSG_ComposeFormat format;
@@ -1246,24 +1244,16 @@ NS_IMETHODIMP nsMsgCompose::CloseWindow(PRBool recycleIt)
     rv = composeService->CacheWindow(m_window, m_composeHTML, mRecyclingListener);
     if (NS_SUCCEEDED(rv))
     {
-      NS_ASSERTION(m_editor, "no editor");
-      if (m_editor)
+      nsCOMPtr<nsIHTMLEditor> htmlEditor (do_QueryInterface(m_editor));
+      NS_ASSERTION(htmlEditor, "no editor");
+      if (htmlEditor)
       {
         // XXX clear undo txn manager?
 
         rv = m_editor->EnableUndo(PR_FALSE);
         NS_ENSURE_SUCCESS(rv,rv);
 
-        rv = m_editor->BeginTransaction();
-        NS_ENSURE_SUCCESS(rv,rv);
-
-        rv = m_editor->SelectAll();
-        NS_ENSURE_SUCCESS(rv,rv);
-
-        rv = m_editor->DeleteSelection(0);
-        NS_ENSURE_SUCCESS(rv,rv);
-
-        rv = m_editor->EndTransaction();
+        rv = htmlEditor->RebuildDocumentFromSource(EmptyString());
         NS_ENSURE_SUCCESS(rv,rv);
 
         rv = m_editor->EnableUndo(PR_TRUE);
@@ -1277,11 +1267,11 @@ NS_IMETHODIMP nsMsgCompose::CloseWindow(PRBool recycleIt)
         
         /**
          * In order to really free the memory, we need to call the JS garbage collector for our window.
-         * If we don't call GC, the nsIMsgCompose object hold by JS will not be released despite we set
-         * the JS global that hold it to null. Each time we reopen a recycled window, we allocate a new
-         * nsIMsgCompose that we really need to be releazed when we recycle the window. In fact despite
-         * we call GC here atfer the release wont occurs right away. But if we don't call it, the release
-         * will apppend only when we phisically close the window which will append only on quit.
+         * If we don't call GC, the nsIMsgCompose object held by JS will not be released despite we set
+         * the JS global that held it to null. Each time we reopen a recycled window, we allocate a new
+         * nsIMsgCompose that we really need to be released when we recycle the window. In fact despite
+         * we call GC here, the release won't occur right away. But if we don't call it, the release
+         * will happen only when we physically close the window which will happen only on quit.
          */
         nsCOMPtr<nsIScriptGlobalObject> sgo(do_QueryInterface(m_window));
         if (sgo)
@@ -1301,7 +1291,7 @@ NS_IMETHODIMP nsMsgCompose::CloseWindow(PRBool recycleIt)
     if (m_editor)
     {
         /* The editor will be destroyed during yje close window.
-         * Set it to null to be sure we wont uses it anymore
+         * Set it to null to be sure we won't use it anymore
          */
       m_editor = nsnull;
     }
@@ -1351,9 +1341,9 @@ NS_IMETHODIMP nsMsgCompose::InitEditor(nsIEditor* aEditor, nsIDOMWindow* aConten
   const nsDependentCString msgCharSet(m_compFields->GetCharacterSet());
   m_editor->SetDocumentCharacterSet(msgCharSet);
 
-  nsCOMPtr<nsIScriptGlobalObject> globalObj = do_QueryInterface(m_window);
+  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(m_window);
 
-  nsIDocShell *docShell = globalObj->GetDocShell();
+  nsIDocShell *docShell = window->GetDocShell();
   NS_ENSURE_TRUE(docShell, NS_ERROR_UNEXPECTED);
 
   nsCOMPtr<nsIContentViewer> childCV;
@@ -1773,19 +1763,31 @@ nsresult nsMsgCompose::CreateMessage(const char * originalMsgURI,
 
             subject.Insert(NS_LITERAL_STRING("Re: "), 0);
             m_compFields->SetSubject(subject);
+          
+            nsXPIDLCString author, authorEmailAddress;
+            msgHdr->GetAuthor(getter_Copies(author));
+            nsCOMPtr<nsIMsgHeaderParser> parser (do_GetService(NS_MAILNEWS_MIME_HEADER_PARSER_CONTRACTID));
+            if (parser) {
+              // convert to UTF8 before passing to MakeFullAddress
+              rv = parser->ExtractHeaderAddressMailboxes(nsnull, author.get(), 
+                                                            getter_Copies(authorEmailAddress));
+            }
+            nsXPIDLCString curIdentityEmail;
+            m_identity->GetEmail(getter_Copies(curIdentityEmail));
 
-            nsXPIDLCString author;
-            rv = msgHdr->GetAuthor(getter_Copies(author));
-            if (NS_FAILED(rv))
-              return rv;
+            nsXPIDLCString toField;
+            if (curIdentityEmail.Equals(authorEmailAddress))
+              msgHdr->GetRecipients(getter_Copies(toField));
+            else
+              toField.Assign(author);
 
-            rv = mimeConverter->DecodeMimeHeader(author,
+            rv = mimeConverter->DecodeMimeHeader(toField,
                 getter_Copies(decodedCString),
                 originCharset.get(), charsetOverride);
             if (NS_SUCCEEDED(rv) && decodedCString)
               m_compFields->SetTo(decodedCString);
             else
-              m_compFields->SetTo(author);
+              m_compFields->SetTo(toField);
 
             // Setup quoting callbacks for later...
             mWhatHolder = 1;
@@ -2528,9 +2530,9 @@ QuotingOutputStreamListener::InsertToCompose(nsIEditor *aEditor,
       if (compose)
         compose->GetDomWindow(getter_AddRefs(domWindow));
       nsIDocShell *docshell = nsnull;
-      nsCOMPtr<nsIScriptGlobalObject> globalObj = do_QueryInterface(domWindow);
-      if (globalObj)
-        docshell = globalObj->GetDocShell();
+      nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(domWindow);
+      if (window)
+        docshell = window->GetDocShell();
       if (docshell)
         docshell->SetAppType(nsIDocShell::APP_TYPE_EDITOR);
       
@@ -2677,7 +2679,7 @@ nsMsgCompose::QuoteOriginalMessage(const char *originalMsgURI, PRInt32 what) // 
   return rv;
 }
 
-//CleanUpRecipient will remove un-necesary "<>" when a recipient as an address without name
+//CleanUpRecipient will remove un-necessary "<>" when a recipient as an address without name
 void nsMsgCompose::CleanUpRecipients(nsString& recipients)
 {
   PRUint16 i;
@@ -3180,7 +3182,7 @@ nsMsgComposeSendListener::RemoveCurrentDraftMessage(nsIMsgCompose *compObj, PRBo
         PRUint32 folderFlags;
         msgFolder->GetFlags(&folderFlags);
         // only do this if it's a drafts or templates folder.
-        if (folderFlags & (MSG_FOLDER_FLAG_DRAFTS | MSG_FOLDER_FLAG_TEMPLATES))
+        if (folderFlags & MSG_FOLDER_FLAG_DRAFTS)
         {  // build the msg arrary
           nsCOMPtr<nsISupportsArray> messageArray;
           rv = NS_NewISupportsArray(getter_AddRefs(messageArray));
@@ -3193,7 +3195,7 @@ nsMsgComposeSendListener::RemoveCurrentDraftMessage(nsIMsgCompose *compObj, PRBo
             rv = messageArray->AppendElement(msgDBHdr);
             NS_ASSERTION(NS_SUCCEEDED(rv), "RemoveCurrentDraftMessage can't append msg header to array.");
             if (NS_SUCCEEDED(rv))
-            rv = msgFolder->DeleteMessages(messageArray, nsnull, PR_TRUE, PR_FALSE, nsnull, PR_FALSE /*allowUndo*/);
+              rv = msgFolder->DeleteMessages(messageArray, nsnull, PR_TRUE, PR_FALSE, nsnull, PR_FALSE /*allowUndo*/);
             NS_ASSERTION(NS_SUCCEEDED(rv), "RemoveCurrentDraftMessage can't delete message.");
           }
         }
@@ -3251,6 +3253,7 @@ nsMsgComposeSendListener::RemoveCurrentDraftMessage(nsIMsgCompose *compObj, PRBo
   // regardless whether or not the exiting msg can be deleted.
   if (calledByCopy)
   {
+    nsCOMPtr<nsIMsgFolder> savedToFolder;
     nsCOMPtr<nsIMsgSend> msgSend;
     rv = compObj->GetMessageSend(getter_AddRefs(msgSend));
     NS_ASSERTION(msgSend, "RemoveCurrentDraftMessage msgSend is null.");
@@ -3261,24 +3264,20 @@ nsMsgComposeSendListener::RemoveCurrentDraftMessage(nsIMsgCompose *compObj, PRBo
     NS_ENSURE_SUCCESS(rv, rv);
 
     // Make sure we have a folder interface pointer
-    if (!msgFolder)
-    {
-      rv = GetMsgFolder(compObj, getter_AddRefs(msgFolder));
-      NS_ENSURE_SUCCESS(rv, rv);
-    }
+    rv = GetMsgFolder(compObj, getter_AddRefs(savedToFolder));
 
     // Reset draft (uid) url with the new uid.
-    if (msgFolder && newUid != nsMsgKey_None)
+    if (savedToFolder && newUid != nsMsgKey_None)
     {
       PRUint32 folderFlags;
-      msgFolder->GetFlags(&folderFlags);
+      savedToFolder->GetFlags(&folderFlags);
       if (folderFlags & MSG_FOLDER_FLAG_DRAFTS)
       {
-      rv = msgFolder->GenerateMessageURI(newUid, getter_Copies(newDraftIdURL));
-      NS_ENSURE_SUCCESS(rv, rv);
-      compFields->SetDraftId(newDraftIdURL.get());
+        rv = savedToFolder->GenerateMessageURI(newUid, getter_Copies(newDraftIdURL));
+        NS_ENSURE_SUCCESS(rv, rv);
+        compFields->SetDraftId(newDraftIdURL.get());
+      }
     }
-  }
   }
   return rv;
 }

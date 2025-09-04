@@ -885,8 +885,6 @@ HTMLContentSink::CreateContentObject(const nsIParserNode& aNode,
     return nsnull;
   }
 
-  result->SetContentID(mDocument->GetAndIncrementContentID());
-
   return result;
 }
 
@@ -3370,7 +3368,7 @@ HTMLContentSink::DidProcessAToken(void)
     // time to create windows.  This is important because on some
     // systems (Windows, for example) when a window is created and the
     // mouse is over it, a mouse move event is sent, which will kick
-    // us into interactive mode otherwise. It also supresses reaction
+    // us into interactive mode otherwise. It also suppresses reaction
     // to pressing the ENTER key in the URL bar...
 
     PRUint32 delayBeforeLoweringThreshold =
@@ -3590,8 +3588,6 @@ HTMLContentSink::ProcessLINKTag(const nsIParserNode& aNode)
 
     result = NS_NewHTMLElement(getter_AddRefs(element), nodeInfo);
     NS_ENSURE_SUCCESS(result, result);
-
-    element->SetContentID(mDocument->GetAndIncrementContentID());
 
     nsCOMPtr<nsIStyleSheetLinkingElement> ssle(do_QueryInterface(element));
 

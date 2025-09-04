@@ -58,7 +58,6 @@
 #include "nsIXFormsXPathEvaluator.h"
 #include "nsIDOMXPathNSResolver.h"
 #include "nsIDOMNSXPathExpression.h"
-#include "nsIScriptGlobalObject.h"
 #include "nsIContent.h"
 #include "nsIURL.h"
 #include "nsNetUtil.h"
@@ -1138,6 +1137,16 @@ nsXFormsModelElement::GetNodeValue(nsIDOMNode *aContextNode,
                            aNodeValue);
 }
  
+NS_IMETHODIMP
+nsXFormsModelElement::SetNodeContent(nsIDOMNode      *aContextNode,
+                                     nsIDOMNode      *aNodeContent,
+                                     PRBool          *aNodeChanged)
+{ 
+  return mMDG.SetNodeContent(aContextNode,
+                             aNodeContent,
+                             aNodeChanged);
+}
+
 NS_IMETHODIMP
 nsXFormsModelElement::ValidateNode(nsIDOMNode *aInstanceNode, PRBool *aResult)
 {

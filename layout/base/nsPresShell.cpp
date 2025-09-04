@@ -148,8 +148,6 @@
 
 #include "nsIReflowCallback.h"
 
-#include "nsIScriptGlobalObject.h"
-#include "nsIDOMWindowInternal.h"
 #include "nsPIDOMWindow.h"
 #include "nsIFocusController.h"
 #include "nsIPluginInstance.h"
@@ -468,7 +466,7 @@ private:
   // our stack of mark where push has been called
   StackMark* mMarks;
 
-  // the current top of the the mark list
+  // the current top of the mark list
   PRUint32 mStackTop;
 
   // the size of the mark array
@@ -2063,14 +2061,14 @@ PresShell::SetPreferenceStyleRules(PRBool aForceReflow)
     return NS_ERROR_NULL_POINTER;
   }
 
-  nsIScriptGlobalObject *globalObj = mDocument->GetScriptGlobalObject();
+  nsPIDOMWindow *window = mDocument->GetWindow();
 
-  // If the document doesn't have a global object there's no need to
-  // notify its presshell about changes to preferences since the
-  // document is in a state where it doesn't matter any more (see
+  // If the document doesn't have a window there's no need to notify
+  // its presshell about changes to preferences since the document is
+  // in a state where it doesn't matter any more (see
   // DocumentViewerImpl::Close()).
 
-  if (!globalObj) {
+  if (!window) {
     return NS_ERROR_NULL_POINTER;
   } 
 
@@ -2999,9 +2997,10 @@ PresShell::FireResizeEvent()
   nsEvent event(PR_TRUE, NS_RESIZE_EVENT);
   nsEventStatus status = nsEventStatus_eIgnore;
 
-  nsCOMPtr<nsIScriptGlobalObject> globalObj = mDocument->GetScriptGlobalObject();
-  if (globalObj) {
-    globalObj->HandleDOMEvent(mPresContext, &event, nsnull, NS_EVENT_FLAG_INIT, &status);
+  nsPIDOMWindow *window = mDocument->GetWindow();
+  if (window) {
+    window->HandleDOMEvent(mPresContext, &event, nsnull, NS_EVENT_FLAG_INIT,
+                           &status);
   }
 }
 
@@ -3114,7 +3113,7 @@ NS_IMETHODIMP
 PresShell::LineMove(PRBool aForward, PRBool aExtend)
 {
   nsresult result = mSelection->LineMove(aForward, aExtend);  
-// if we cant go down/up any more we must then move caret completely to 
+// if we can't go down/up any more we must then move caret completely to 
 // end/beginning respectively.
   if (NS_FAILED(result)) 
     result = CompleteMove(aForward,aExtend);
@@ -3993,7 +3992,7 @@ PresShell::GoToAnchor(const nsAString& aAnchorName, PRBool aScroll)
           content = content->GetChildAt(0);
         }
         nsCOMPtr<nsIDOMNode> node(do_QueryInterface(content));
-        NS_ASSERTION(node, "No nsIDOMNode for descendent of anchor");
+        NS_ASSERTION(node, "No nsIDOMNode for descendant of anchor");
         jumpToRange->SelectNodeContents(node);
       }
     }
@@ -4183,7 +4182,7 @@ PresShell::ScrollFrameIntoView(nsIFrame *aFrame,
   if (content) {
     nsIDocument* document = content->GetDocument();
     if (document){
-      nsCOMPtr<nsPIDOMWindow> ourWindow = do_QueryInterface(document->GetScriptGlobalObject());
+      nsPIDOMWindow *ourWindow = document->GetWindow();
       if(ourWindow) {
         nsIFocusController *focusController =
           ourWindow->GetRootFocusController();
@@ -4375,7 +4374,7 @@ PresShell::GetSelectionForCopy(nsISelection** outSelection)
   if (!mDocument) return NS_ERROR_FAILURE;
 
   nsCOMPtr<nsIContent> content;
-  nsCOMPtr<nsPIDOMWindow> ourWindow = do_QueryInterface(mDocument->GetScriptGlobalObject());
+  nsPIDOMWindow *ourWindow = mDocument->GetWindow();
   if (ourWindow) {
     nsIFocusController *focusController = ourWindow->GetRootFocusController();
     if (focusController) {
@@ -4466,8 +4465,7 @@ PresShell::DoCopy()
     return rv;
 
   // Now that we have copied, update the Paste menu item
-  nsCOMPtr<nsIDOMWindowInternal> domWindow =
-    do_QueryInterface(mDocument->GetScriptGlobalObject());
+  nsPIDOMWindow *domWindow = mDocument->GetWindow();
   if (domWindow)
   {
     domWindow->UpdateCommands(NS_LITERAL_STRING("clipboard"));
@@ -4518,7 +4516,7 @@ PresShell::CaptureHistoryState(nsILayoutHistoryState** aState, PRBool aLeavingPa
   nsIFrame* rootFrame = FrameManager()->GetRootFrame();
   if (!rootFrame) return NS_OK;
   // Capture frame state for the root scroll frame
-  // Don't capture state when first creating doc element heirarchy
+  // Don't capture state when first creating doc element hierarchy
   // As the scroll position is 0 and this will cause us to loose
   // our previously saved place!
   if (aLeavingPage) {
@@ -5573,7 +5571,7 @@ PRBool PresShell::InZombieDocument(nsIContent *aContent)
   // It might actually be in a node not attached to any document,
   // in which case there is not parent presshell to retarget it to.
   nsIDocument *doc = aContent->GetDocument();
-  return !doc || !doc->GetScriptGlobalObject();
+  return !doc || !doc->GetWindow();
 }
 
 nsresult PresShell::RetargetEventToParent(nsIView         *aView,
@@ -5749,7 +5747,7 @@ PresShell::HandleEvent(nsIView         *aView,
           // doesn't have focus and event is key event or IME event, we should
           // send the events to pre-focused element.
 #endif /* defined(MOZ_X11) */
-          nsCOMPtr<nsPIDOMWindow> ourWindow = do_QueryInterface(mDocument->GetScriptGlobalObject());
+          nsPIDOMWindow *ourWindow = mDocument->GetWindow();
           if (ourWindow) {
             nsIFocusController *focusController =
               ourWindow->GetRootFocusController();
@@ -5985,7 +5983,7 @@ PresShell::HandleEventInternal(nsEvent* aEvent, nsIView *aView,
         // Treat focus/blur events as user input if they happen while
         // executing trusted script, or no script at all. If they
         // happen during execution of non-trusted script, then they
-        // should not be considerd user input.
+        // should not be considered user input.
         if (!nsContentUtils::IsCallerChrome()) {
           break;
         }

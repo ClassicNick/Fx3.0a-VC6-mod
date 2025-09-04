@@ -47,6 +47,7 @@
 #import "NSString+Utils.h"
 #import "NSThread+Utils.h"
 #import "NSFileManager+Utils.h"
+#import "NSWorkspace+Utils.h"
 
 #import "PreferenceManager.h"
 #import "BookmarkManager.h"
@@ -274,7 +275,7 @@ static BookmarkManager* gBookmarkManager = nil;
   [root release];
 
   // Turn off the posting of update notifications while reading in bookmarks.
-  // All interested parties haven't been init'd yet, and/or will recieve the
+  // All interested parties haven't been init'd yet, and/or will receive the
   // managerStartedNotification when setup is actually complete.
   [BookmarkItem setSuppressAllUpdateNotifications:YES];
   BOOL bookmarksReadOK = [self readBookmarks];
@@ -901,7 +902,7 @@ static BookmarkManager* gBookmarkManager = nil;
 
   if ([bmItem isKindOfClass:[Bookmark class]])
   {
-    if ([MainController supportsSpotlight])
+    if ([NSWorkspace supportsSpotlight])
       [bmItem writeBookmarksMetadataToPath:mMetadataPath];
 
     [self registerBookmarkForLoads:bmItem];
@@ -929,7 +930,7 @@ static BookmarkManager* gBookmarkManager = nil;
 
   if ([bmItem isKindOfClass:[Bookmark class]])
   {
-    if ([MainController supportsSpotlight])
+    if ([NSWorkspace supportsSpotlight])
       [bmItem removeBookmarksMetadataFromPath:mMetadataPath];
 
     [self unregisterBookmarkForLoads:bmItem ignoringURL:YES];
@@ -953,7 +954,7 @@ static BookmarkManager* gBookmarkManager = nil;
   if ([item isKindOfClass:[Bookmark class]])
   {
     // update Spotlight metadata
-    if ([MainController supportsSpotlight] && (changeFlags & kBookmarkItemSignificantChangeFlagsMask))
+    if ([NSWorkspace supportsSpotlight] && (changeFlags & kBookmarkItemSignificantChangeFlagsMask))
       [item writeBookmarksMetadataToPath:mMetadataPath];
     
     // and re-register in the maps if the url changed
@@ -995,7 +996,7 @@ static BookmarkManager* gBookmarkManager = nil;
 // 
 - (void)writeBookmarksMetadataForSpotlight
 {
-  if (![MainController supportsSpotlight])
+  if (![NSWorkspace supportsSpotlight])
     return;
 
   // XXX if we quit while this thread is still running, we'll end up with incomplete metadata
@@ -1392,7 +1393,7 @@ static BookmarkManager* gBookmarkManager = nil;
           if ([tokenScanner isAtEnd]) {
             // we scanned up to the </A> but didn't find a " character ending the HREF. This is probably
             // because we're scanning a bookmarklet that contains an embedded <A></A> so we're in the
-            // middle of the string. Just bail and dont import this bookmark. The parser should be able
+            // middle of the string. Just bail and don't import this bookmark. The parser should be able
             // to recover on its own once it gets to the next "<A" token.
             [tokenScanner release];
             [tokenTag release];

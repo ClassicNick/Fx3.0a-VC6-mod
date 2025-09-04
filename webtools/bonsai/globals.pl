@@ -776,7 +776,7 @@ sub _to_array {
      return ($thing);
 }
 
-# Get all of the headers for a mail message, returned as a comma seperated
+# Get all of the headers for a mail message, returned as a comma separated
 # string, unless looking for a subject
 sub _GetMailHeaders {
      my ($mail_hdrs, $hdr) = @_;
@@ -1372,6 +1372,7 @@ sub SanitizeModule {
 
     return $module if (!defined($module));
     $module =~ s/\000/_NULL_/g;
+    return "default" if ($module !~ m/^[A-Za-z]+[\w\-\.\+]*/);
     $module =~ s/([A-Za-z])([\w\-\.\+]*).*/$1$2/;
     return $module;
 }

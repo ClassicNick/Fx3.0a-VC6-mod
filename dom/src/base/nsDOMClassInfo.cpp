@@ -186,6 +186,12 @@
 #include "nsStyleSet.h"
 #include "nsStyleContext.h"
 #include "nsAutoPtr.h"
+#include "nsMemory.h"
+
+// Tranformiix
+#include "nsIDOMXPathEvaluator.h"
+#include "nsIXSLTProcessor.h"
+#include "nsIXSLTProcessorObsolete.h"
 
 // includes needed for the prototype chain interfaces
 #include "nsIDOMNavigator.h"
@@ -312,7 +318,11 @@
 #include "nsIXULTemplateBuilder.h"
 #include "nsITreeColumns.h"
 #endif
-#include "nsIDOMXPathEvaluator.h"
+#include "nsIDOMXPathException.h"
+#include "nsIDOMXPathExpression.h"
+#include "nsIDOMNSXPathExpression.h"
+#include "nsIDOMXPathNSResolver.h"
+#include "nsIDOMXPathResult.h"
 
 #ifdef MOZ_SVG
 #include "nsIDOMGetSVGDocument.h"
@@ -1057,6 +1067,20 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA(WindowUtils, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
+  NS_DEFINE_CLASSINFO_DATA(XSLTProcessor, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+
+  NS_DEFINE_CLASSINFO_DATA(XPathEvaluator, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(XPathException, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(XPathExpression, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(XPathNSResolver, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(XPathResult, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+
   // Define MOZ_SVG_FOREIGNOBJECT here so that when it gets switched on,
   // we preserve binary compatibility. New classes should be added
   // at the end.
@@ -1064,6 +1088,24 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA(SVGForeignObjectElement, nsElementSH,
                            ELEMENT_SCRIPTABLE_FLAGS)
 #endif
+};
+
+// Objects that shuld be constructable through |new Name();|
+struct nsContractIDMapData
+{
+  PRInt32 mDOMClassInfoID;
+  const char *mContractID;
+};
+
+#define NS_DEFINE_CONSTRUCTOR_DATA(_class, _contract_id)                      \
+  { eDOMClassInfo_##_class##_id, _contract_id },
+
+static const nsContractIDMapData kConstructorMap[] =
+{
+  NS_DEFINE_CONSTRUCTOR_DATA(XPathEvaluator,
+                             NS_XPATH_EVALUATOR_CONTRACTID)
+  NS_DEFINE_CONSTRUCTOR_DATA(XSLTProcessor,
+                             "@mozilla.org/document-transformer;1?type=xslt")
 };
 
 nsIXPConnect *nsDOMClassInfo::sXPConnect = nsnull;
@@ -1592,7 +1634,8 @@ nsDOMClassInfo::RegisterExternalClasses()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMDocumentXBL)                                \
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)                                \
     DOM_CLASSINFO_MAP_ENTRY(nsIDOM3Document)                                  \
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOM3Node)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOM3Node)                                      \
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathEvaluator)
 
 #define DOM_CLASSINFO_GENERIC_HTML_MAP_ENTRIES                                \
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLElement)                              \
@@ -1608,10 +1651,6 @@ nsDOMClassInfo::RegisterExternalClasses()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMUIEvent)                                    \
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSUIEvent)                                  \
     DOM_CLASSINFO_EVENT_MAP_ENTRIES
-
-#define DOM_CLASSINFO_MAP_END_WITH_XPATH                                      \
-    xpathEvaluatorIID,                                                        \
-  DOM_CLASSINFO_MAP_END
 
 nsresult
 nsDOMClassInfo::Init()
@@ -1653,19 +1692,6 @@ nsDOMClassInfo::Init()
 
   rv = stack->GetSafeJSContext(&cx);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIComponentRegistrar> cr;
-  NS_GetComponentRegistrar(getter_AddRefs(cr));
-
-  const nsIID* xpathEvaluatorIID = nsnull;
-  if (cr) {
-    PRBool haveXPathDOM;
-    cr->IsContractIDRegistered(NS_XPATH_EVALUATOR_CONTRACTID,
-                               &haveXPathDOM);
-    if (haveXPathDOM) {
-      xpathEvaluatorIID = &NS_GET_IID(nsIDOMXPathEvaluator);
-    }
-  }
 
   DOM_CLASSINFO_MAP_BEGIN(Window, nsIDOMWindow)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMWindow)
@@ -1725,7 +1751,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMDocument)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMXMLDocument)
     DOM_CLASSINFO_DOCUMENT_MAP_ENTRIES
-  DOM_CLASSINFO_MAP_END_WITH_XPATH
+  DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(DocumentType, nsIDOMDocumentType)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMDocumentType)
@@ -1847,7 +1873,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMHTMLDocument)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLDocument)
     DOM_CLASSINFO_DOCUMENT_MAP_ENTRIES
-  DOM_CLASSINFO_MAP_END_WITH_XPATH
+  DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(HTMLCollection, nsIDOMHTMLCollection)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNodeList)
@@ -2283,7 +2309,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMDocument)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMXULDocument)
     DOM_CLASSINFO_DOCUMENT_MAP_ENTRIES
-  DOM_CLASSINFO_MAP_END_WITH_XPATH
+  DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(XULElement, nsIDOMXULElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMXULElement)
@@ -2372,7 +2398,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIImageDocument)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLDocument)
     DOM_CLASSINFO_DOCUMENT_MAP_ENTRIES
-  DOM_CLASSINFO_MAP_END_WITH_XPATH
+  DOM_CLASSINFO_MAP_END
 
 #ifdef MOZ_XUL
   DOM_CLASSINFO_MAP_BEGIN(XULTemplateBuilder, nsIXULTemplateBuilder)
@@ -2435,7 +2461,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGDocument)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMDocument)
     DOM_CLASSINFO_DOCUMENT_MAP_ENTRIES
-  DOM_CLASSINFO_MAP_END_WITH_XPATH
+  DOM_CLASSINFO_MAP_END
 
   // SVG element classes
 
@@ -2446,7 +2472,10 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGClipPathElement, nsIDOMSVGClipPathElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGClipPathElement)
-    DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGLocatable)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTransformable)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
+    DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGDefsElement, nsIDOMSVGDefsElement)
@@ -2474,25 +2503,21 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGFEFuncAElement, nsIDOMSVGFEFuncAElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFEFuncAElement)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGFEFuncBElement, nsIDOMSVGFEFuncBElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFEFuncBElement)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGFEFuncGElement, nsIDOMSVGFEFuncGElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFEFuncGElement)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGFEFuncRElement, nsIDOMSVGFEFuncRElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFEFuncRElement)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2512,7 +2537,6 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGFEMergeNodeElement, nsIDOMSVGFEMergeNodeElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFEMergeNodeElement)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2543,6 +2567,8 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGGradientElement, nsIDOMSVGGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGGradientElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2555,6 +2581,8 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGLinearGradientElement, nsIDOMSVGLinearGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGLinearGradientElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2565,6 +2593,8 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGMarkerElement, nsIDOMSVGMarkerElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGMarkerElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFitToViewBox)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2582,6 +2612,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGPatternElement, nsIDOMSVGPatternElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPatternElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFitToViewBox)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
@@ -2601,6 +2632,8 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGRadialGradientElement, nsIDOMSVGRadialGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGGradientElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGRadialGradientElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2612,11 +2645,12 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGScriptElement, nsIDOMSVGScriptElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGScriptElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
-    DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
+    DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGStopElement, nsIDOMSVGStopElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStopElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
   
@@ -2653,7 +2687,9 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGTextPathElement, nsIDOMSVGTextPathElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextContentElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGURIReference)
-    DOM_CLASSINFO_SVG_GRAPHIC_ELEMENT_MAP_ENTRIES
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
+    DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGTitleElement, nsIDOMSVGTitleElement)
@@ -2665,6 +2701,9 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(SVGTSpanElement, nsIDOMSVGTSpanElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextPositioningElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGTextContentElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
+    DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGUseElement, nsIDOMSVGUseElement)
@@ -2886,6 +2925,33 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_END
 #endif // MOZ_ENABLE_CANVAS
 
+  DOM_CLASSINFO_MAP_BEGIN(XSLTProcessor, nsIXSLTProcessor)
+    DOM_CLASSINFO_MAP_ENTRY(nsIXSLTProcessor)
+    DOM_CLASSINFO_MAP_ENTRY(nsIXSLTProcessorObsolete) // XXX DEPRECATED
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(XPathEvaluator, nsIDOMXPathEvaluator)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathEvaluator)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(XPathException, nsIDOMXPathException)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathException)
+    DOM_CLASSINFO_MAP_ENTRY(nsIException)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(XPathExpression, nsIDOMXPathExpression)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathExpression)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSXPathExpression)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(XPathNSResolver, nsIDOMXPathNSResolver)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathNSResolver)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(XPathResult, nsIDOMXPathResult)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMXPathResult)
+  DOM_CLASSINFO_MAP_END
+
 #if defined(MOZ_SVG) && defined(MOZ_SVG_FOREIGNOBJECT)
   DOM_CLASSINFO_MAP_BEGIN(SVGForeignObjectElement, nsIDOMSVGForeignObjectElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGForeignObjectElement)
@@ -2895,7 +2961,7 @@ nsDOMClassInfo::Init()
 
 #ifdef NS_DEBUG
   {
-    PRUint32 i = sizeof(sClassInfoData) / sizeof(sClassInfoData[0]);
+    PRUint32 i = NS_ARRAY_LENGTH(sClassInfoData);
 
     if (i != eDOMClassInfoIDCount) {
       NS_ERROR("The number of items in sClassInfoData doesn't match the "
@@ -3686,7 +3752,7 @@ nsDOMClassInfo::doCheckPropertyAccess(JSContext *cx, JSObject *obj, jsval id,
       // this document is a result from using XMLHttpRequest or it's a
       // document created through a DOMImplementation. In that case
       // there's nothing we can do since the context on which the
-      // document was created is not accessable and we can't do a
+      // document was created is not accessible and we can't do a
       // security check, but the document must remain
       // scriptable. Documents loaded through these methods have
       // already been vetted by the security manager before they were
@@ -4342,13 +4408,29 @@ nsWindowSH::DelProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
   return NS_OK;
 }
 
+static const char*
+FindConstructorContractID(PRInt32 aDOMClassInfoID)
+{
+  PRUint32 i;
+  for (i = 0; i < NS_ARRAY_LENGTH(kConstructorMap); ++i) {
+    if (kConstructorMap[i].mDOMClassInfoID == aDOMClassInfoID) {
+      return kConstructorMap[i].mContractID;
+    }
+  }
+  return nsnull;
+}
+
 static JSBool
 BaseStubConstructor(const nsGlobalNameStruct *name_struct, JSContext *cx,
                     JSObject *obj, uintN argc, jsval *argv, jsval *rval)
 {
   nsresult rv;
   nsCOMPtr<nsISupports> native;
-  if (name_struct->mType == nsGlobalNameStruct::eTypeExternalConstructor) {
+  if (name_struct->mType == nsGlobalNameStruct::eTypeClassConstructor) {
+    const char *contractid =
+      FindConstructorContractID(name_struct->mDOMClassInfoID);
+    native = do_CreateInstance(contractid, &rv);
+  } else if (name_struct->mType == nsGlobalNameStruct::eTypeExternalConstructor) {
     native = do_CreateInstance(name_struct->mCID, &rv);
   } else if (name_struct->mType == nsGlobalNameStruct::eTypeExternalConstructorAlias) {
     native = do_CreateInstance(name_struct->mAlias->mCID, &rv);
@@ -4507,7 +4589,9 @@ DOMJSClass_Construct(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
     return JS_FALSE;
   }
 
-  if ((name_struct->mType != nsGlobalNameStruct::eTypeExternalClassInfo ||
+  if ((name_struct->mType != nsGlobalNameStruct::eTypeClassConstructor ||
+       !FindConstructorContractID(name_struct->mDOMClassInfoID)) &&
+      (name_struct->mType != nsGlobalNameStruct::eTypeExternalClassInfo ||
        !name_struct->mData->mConstructorCID) &&
       name_struct->mType != nsGlobalNameStruct::eTypeExternalConstructor &&
       name_struct->mType != nsGlobalNameStruct::eTypeExternalConstructorAlias) {

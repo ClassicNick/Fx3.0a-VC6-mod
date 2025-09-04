@@ -102,7 +102,6 @@
 
 #include "jsapi.h"
 
-#include "nsIDOMXPathEvaluator.h"
 #include "nsNodeInfoManager.h"
 #include "nsICategoryManager.h"
 #include "nsIDOMNSFeatureFactory.h"
@@ -766,9 +765,8 @@ nsDOMEventRTTearoff::AddEventListener(const nsAString& aType,
 //----------------------------------------------------------------------
 
 nsDOMSlots::nsDOMSlots(PtrBits aFlags)
-  : mFlags(aFlags & ~GENERIC_ELEMENT_CONTENT_ID_MASK),
-    mBindingParent(nsnull),
-    mContentID(aFlags >> GENERIC_ELEMENT_CONTENT_ID_BITS_OFFSET)
+  : mFlags(aFlags),
+    mBindingParent(nsnull)
 {
 }
 
@@ -790,8 +788,7 @@ nsDOMSlots::~nsDOMSlots()
 PRBool
 nsDOMSlots::IsEmpty()
 {
-  return (!mChildNodes && !mStyle && !mAttributeMap && !mBindingParent &&
-          mContentID < GENERIC_ELEMENT_CONTENT_ID_MAX_VALUE);
+  return (!mChildNodes && !mStyle && !mAttributeMap && !mBindingParent);
 }
 
 PR_STATIC_CALLBACK(void)
@@ -1195,9 +1192,6 @@ nsGenericElement::SetPrefix(const nsAString& aPrefix)
   return NS_OK;
 }
 
-extern PRBool gCheckedForXPathDOM;
-extern PRBool gHaveXPathDOM;
-
 nsresult
 nsGenericElement::InternalIsSupported(nsISupports* aObject,
                                       const nsAString& aFeature,
@@ -1239,18 +1233,11 @@ nsGenericElement::InternalIsSupported(nsISupports* aObject,
         PL_strcmp(v, "2.0") == 0) {
       *aReturn = PR_TRUE;
     }
-  } else if ((!gCheckedForXPathDOM || gHaveXPathDOM) &&
-             PL_strcasecmp(f, "XPath") == 0 &&
-             (aVersion.IsEmpty() ||
-              PL_strcmp(v, "3.0") == 0)) {
-    if (!gCheckedForXPathDOM) {
-      nsCOMPtr<nsIDOMXPathEvaluator> evaluator =
-        do_CreateInstance(NS_XPATH_EVALUATOR_CONTRACTID);
-      gHaveXPathDOM = (evaluator != nsnull);
-      gCheckedForXPathDOM = PR_TRUE;
+  } else if (PL_strcasecmp(f, "XPath") == 0) {
+    if (aVersion.IsEmpty() ||
+        PL_strcmp(v, "3.0") == 0) {
+      *aReturn = PR_TRUE;
     }
-
-    *aReturn = gHaveXPathDOM;
   }
 #ifdef MOZ_SVG
   else if (PL_strcasecmp(f, "SVGEvents") == 0 ||
@@ -2247,37 +2234,6 @@ nsGenericElement::HandleDOMEvent(nsPresContext* aPresContext,
   return ret;
 }
 
-PRUint32
-nsGenericElement::ContentID() const
-{
-  nsDOMSlots *slots = GetExistingDOMSlots();
-
-  if (slots) {
-    return slots->mContentID;
-  }
-
-  PtrBits flags = GetFlags();
-
-  return flags >> GENERIC_ELEMENT_CONTENT_ID_BITS_OFFSET;
-}
-
-void
-nsGenericElement::SetContentID(PRUint32 aID)
-{
-  // This should be in the constructor!!!
-
-  if (HasDOMSlots() || aID > GENERIC_ELEMENT_CONTENT_ID_MAX_VALUE) {
-    nsDOMSlots *slots = GetDOMSlots();
-
-    if (slots) {
-      slots->mContentID = aID;
-    }
-  } else {
-    UnsetFlags(GENERIC_ELEMENT_CONTENT_ID_MASK);
-    SetFlags(aID << GENERIC_ELEMENT_CONTENT_ID_BITS_OFFSET);
-  }
-}
-
 NS_IMETHODIMP
 nsGenericElement::MaybeTriggerAutoLink(nsIDocShell *aShell)
 {
@@ -2499,7 +2455,7 @@ nsGenericElement::RangeAdd(nsIDOMRange* aRange)
     return NS_OK;
   }
 
-  // dont need to addref - this call is made by the range object
+  // don't need to addref - this call is made by the range object
   // itself
   PRBool rv = entry->mRangeList->AppendElement(aRange);
   if (!rv) {
@@ -2539,7 +2495,7 @@ nsGenericElement::RangeRemove(nsIDOMRange* aRange)
     return;
   }
 
-  // dont need to release - this call is made by the range object itself
+  // don't need to release - this call is made by the range object itself
   entry->mRangeList->RemoveElement(aRange);
 
   if (entry->mRangeList->Count() == 0) {
@@ -3445,11 +3401,11 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
 
     doc_fragment->DropChildReferences();
   } else {
-    nsCOMPtr<nsIDOMNode> oldParent;
-    res = aNewChild->GetParentNode(getter_AddRefs(oldParent));
-
-    if (NS_FAILED(res)) {
-      return res;
+    nsIContent* bindingParent = newContent->GetBindingParent();
+    if (bindingParent == newContent ||
+        (bindingParent && bindingParent == newContent->GetParent())) {
+      // We can't deal with this so just bail
+      return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
     }
 
     /*
@@ -3458,6 +3414,9 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
      * aNewChild is a document. This code also handles the case where the
      * new child is alleady a child of this node-- jst@citec.fi
      */
+    nsCOMPtr<nsIDOMNode> oldParent;
+    res = aNewChild->GetParentNode(getter_AddRefs(oldParent));
+    NS_ENSURE_SUCCESS(res, res);
     if (oldParent) {
       nsCOMPtr<nsIDOMNode> tmpNode;
 
@@ -4044,8 +4003,7 @@ nsGenericElement::SetAttr(PRInt32 aNamespaceID, nsIAtom* aName,
   NS_ENSURE_SUCCESS(rv, rv);
   
   nsAttrValue attrValue;
-  if (aNamespaceID != kNameSpaceID_None ||
-      !ParseAttribute(aName, aValue, attrValue)) {
+  if (!ParseAttribute(aNamespaceID, aName, aValue, attrValue)) {
     attrValue.SetTo(aValue);
   }
 
@@ -4142,11 +4100,13 @@ nsGenericElement::SetAttrAndNotify(PRInt32 aNamespaceID,
 }
 
 PRBool
-nsGenericElement::ParseAttribute(nsIAtom* aAttribute,
+nsGenericElement::ParseAttribute(PRInt32 aNamespaceID,
+                                 nsIAtom* aAttribute,
                                  const nsAString& aValue,
                                  nsAttrValue& aResult)
 {
-  if (aAttribute == GetIDAttributeName() && !aValue.IsEmpty()) {
+  if (aNamespaceID == kNameSpaceID_None &&
+      aAttribute == GetIDAttributeName() && !aValue.IsEmpty()) {
     // Store id as an atom.  id="" means that the element has no id,
     // not that it has an emptystring as the id.
     aResult.ParseAtom(aValue);

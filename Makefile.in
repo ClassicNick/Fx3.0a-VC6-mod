@@ -180,6 +180,10 @@ tier_9_dirs	+= \
 		xpfe/appshell \
 		$(NULL)
 
+ifdef MOZ_XMLEXTRAS
+tier_9_dirs += extensions/xmlextras
+endif
+
 ifdef MOZ_OJI
 tier_9_dirs	+= \
 		js/src/liveconnect \
@@ -246,11 +250,14 @@ ifdef MOZ_PSM
 tier_50_dirs	+= security/manager
 endif
 
+ifdef MOZ_XUL_APP
+ifndef BUILD_STATIC_LIBS
+tier_50_dirs += toolkit/library
+endif
+endif
+
 ifdef MOZ_ENABLE_LIBXUL
-tier_50_dirs += \
-		toolkit/library \
-		xpcom/stub \
-		$(NULL)
+tier_50_dirs += xpcom/stub
 endif
 
 ifdef NS_TRACE_MALLOC
@@ -476,7 +483,7 @@ endif
 
 install::
 ifndef MOZ_NATIVE_NSPR
-	$(MAKE) -C nsprpub real_install DESTDIR=$(DESTDIR) libdir=$(mozappdir) includedir=$(includedir)/nspr
+	$(MAKE) -C nsprpub install DESTDIR=$(DESTDIR) libdir=$(mozappdir) includedir=$(includedir)/nspr
 	$(RM) -f $(addprefix $(DESTDIR)$(mozappdir)/$(LIB_PREFIX), $(addsuffix .$(LIB_SUFFIX), nspr4 plds4 plc4))
 	$(RM) -f $(addprefix $(DESTDIR)$(bindir)/,nspr-config compile-et.pl prerr.properties)
 endif

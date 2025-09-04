@@ -733,17 +733,18 @@ nsEventListenerManager::AddEventListener(nsIDOMEventListener *aListener,
   // Otherwise we won't actually fire the mutation event.
   if (aType == eEventArrayType_Mutation) {
     // Go from our target to the nearest enclosing DOM window.
-    nsCOMPtr<nsIScriptGlobalObject> global;
+    nsCOMPtr<nsPIDOMWindow> window;
     nsCOMPtr<nsIDocument> document;
     nsCOMPtr<nsIContent> content(do_QueryInterface(mTarget));
     if (content)
       document = content->GetOwnerDoc();
     else document = do_QueryInterface(mTarget);
     if (document)
-      global = document->GetScriptGlobalObject();
-    else global = do_QueryInterface(mTarget);
-    if (global) {
-      nsCOMPtr<nsPIDOMWindow> window(do_QueryInterface(global));
+      window = document->GetInnerWindow();
+    else window = do_QueryInterface(mTarget);
+    if (window) {
+      NS_ASSERTION(window->IsInnerWindow(),
+                   "Setting mutation listener bits on outer window?");
       window->SetMutationListeners(aSubType);
     }
   }
@@ -2221,7 +2222,7 @@ nsEventListenerManager::FixContextMenuEvent(nsPresContext* aPresContext,
   if (aEvent->message == NS_CONTEXTMENU_KEY) {
     nsIDocument *doc = shell->GetDocument();
     if (doc) {
-      nsCOMPtr<nsPIDOMWindow> privWindow = do_QueryInterface(doc->GetScriptGlobalObject());
+      nsPIDOMWindow* privWindow = doc->GetWindow();
       if (privWindow) {
         nsIFocusController *focusController =
           privWindow->GetRootFocusController();

@@ -52,8 +52,8 @@ class nsIScriptGlobalObjectOwner;
 struct JSObject;
 
 #define NS_ISCRIPTGLOBALOBJECT_IID \
-{ 0xd326a211, 0xdc31, 0x45c6, \
- { 0x98, 0x97, 0x22, 0x11, 0xea, 0xbc, 0xd0, 0x1c } }
+{ 0x3a09462f, 0xe0f7, 0x4c54, \
+ { 0xaa, 0x08, 0x69, 0x25, 0x51, 0xe0, 0xcc, 0x8d } }
 
 /**
  * The JavaScript specific global object. This often used to store
@@ -69,10 +69,7 @@ public:
   virtual nsIScriptContext *GetContext() = 0;
   virtual nsresult SetNewDocument(nsIDOMDocument *aDocument,
                                   nsISupports *aState,
-                                  PRBool aRemoveEventListeners,
                                   PRBool aClearScope) = 0;
-  virtual void SetDocShell(nsIDocShell *aDocShell) = 0;
-  virtual nsIDocShell *GetDocShell() = 0;
   virtual void SetOpenerWindow(nsIDOMWindowInternal *aOpener)=0;
 
   /**
@@ -90,12 +87,6 @@ public:
    * is a "weak" reference.
    */
   virtual nsIScriptGlobalObjectOwner *GetGlobalObjectOwner() = 0;
-
-  virtual nsresult HandleDOMEvent(nsPresContext* aPresContext, 
-                                  nsEvent* aEvent, 
-                                  nsIDOMEvent** aDOMEvent,
-                                  PRUint32 aFlags,
-                                  nsEventStatus* aEventStatus)=0;
 
   virtual JSObject *GetGlobalJSObject() = 0;
 

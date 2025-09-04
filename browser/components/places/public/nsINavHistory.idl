@@ -1,3 +1,4 @@
+/* -*- Mode: IDL; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -39,6 +40,11 @@
 #include "nsIArray.idl"
 #include "nsIURI.idl"
 
+interface nsINavHistoryQuery;
+interface nsINavHistoryQueryOptions;
+interface nsITransactionManager;
+interface nsITreeColumn;
+
 [scriptable, uuid(acae2b2d-5fcd-4419-b1bc-b7dc92a1836c)]
 interface nsINavHistoryResultNode : nsISupports
 {
@@ -55,7 +61,8 @@ interface nsINavHistoryResultNode : nsISupports
   const PRUint32 RESULT_TYPE_VISIT = 1;
   const PRUint32 RESULT_TYPE_HOST = 2;
   const PRUint32 RESULT_TYPE_DAY = 3;
-  readonly attribute PRUInt32 type;
+  const PRUint32 RESULT_TYPE_QUERY = 4;
+  readonly attribute PRUint32 type;
 
   /**
    * URL of the web page in question. Empty for all other types, including
@@ -64,7 +71,27 @@ interface nsINavHistoryResultNode : nsISupports
   readonly attribute AUTF8String url;
 
   /**
-   * Title of the web page, or name of the host.
+   * ID of the folder corresponding to this node.
+   * Only valid for RESULT_TYPE_QUERY nodes where exactly one folder
+   * has been specified in the query.  0 in all other cases.
+   */
+  readonly attribute PRInt64 folderId;
+
+  /**
+   * Get the queries which build this node's children.
+   * Only valid for RESULT_TYPE_QUERY nodes.
+   */
+  void getQueries(out unsigned long queryCount,
+                  [retval,array,size_is(queryCount)] out nsINavHistoryQuery queries);
+
+  /**
+   * Get the options which group this node's children.
+   * Only valid for RESULT_TYPE_QUERY nodes.
+   */
+  readonly attribute nsINavHistoryQueryOptions queryOptions;
+
+  /**
+   * Title of the web page, or of the node's grouping (day, host, folder, etc)
    */
   readonly attribute AString title;
 
@@ -110,23 +137,82 @@ interface nsINavHistoryResultNode : nsISupports
 };
 
 
-[scriptable, uuid(25b45a94-3323-4c7b-910a-315f2c59bfb4)]
-interface nsINavHistoryResult : nsISupports
+/**
+ *  Allows clients of the HistoryResult to define domain specific handling 
+ *  of specific nsITreeView methods that the HistoryResult does not implement.
+ */
+[scriptable, uuid(b34d5ca4-ce8e-49a6-9201-a59ae2128d2c)]
+interface nsINavHistoryResultViewObserver : nsISupports
 {
+  const long DROP_BEFORE = -1;
+  const long DROP_ON = 0;
+  const long DROP_AFTER = 1;
   /**
-   * This gives you the children of the nodes. It is preferrable to use this
-   * interface over the array one, since it avoids creating an nsIArray object
-   * and the interface is already the correct type.
+   * Methods used by the drag feedback code to determine if a drag is allowable at
+   * the current location. To get the behavior where drops are only allowed on
+   * items, such as the mailNews folder pane, always return false whe
+   * the orientation is not DROP_ON. Implementors should not change the content of
+   * the observer list!
    */
-  readonly attribute PRInt32 topLevelNodeCount;
-  nsINavHistoryResultNode getTopLevelNode(in PRInt32 index);
+  boolean canDrop(in long index, in long orientation);
 
   /**
-   * This is an array of nsINavHistoryResultNode objects that are the top-level
-   * result of the query.
+   * Called when the user drops something on this view. The |orientation| param
+   * specifies before/on/after the given |row|.
    */
-  readonly attribute nsIArray topLevel;
+  void onDrop(in long row, in long orientation);
 
+  /** 
+   * Called when an item is opened or closed. 
+   */
+  void onToggleOpenState (in long index);
+
+  /** 
+ * Called when a header is clicked.
+   */
+  void onCycleHeader(in nsITreeColumn column);
+
+  /**
+   * Called when a cell in a non-selectable cycling column (e.g. 
+   * unread/flag/etc.) is clicked.
+   */
+  void onCycleCell(in long row, in nsITreeColumn column);
+
+  /** 
+   * Called when selection in the tree changes
+   */
+  void onSelectionChanged();
+
+  /**
+   * A command API that can be used to invoke commands on the selection.  
+   * The tree will automatically invoke this method when certain keys 
+   * are pressed.  For example, when the DEL key is pressed, performAction 
+   * will be called with the "delete" string. 
+   */
+  void onPerformAction(in wstring action);
+
+  /**
+   * A command API that can be used to invoke commands on a specific row.
+   */
+  void onPerformActionOnRow(in wstring action, in long row);
+
+  /**
+   * A command API that can be used to invoke commands on a specific cell.
+   */
+  void onPerformActionOnCell(in wstring action, in long row, in nsITreeColumn column);
+};
+
+
+/**
+ * The result of a history/bookmark query.
+ *
+ * This class is also a result "node". Use those interfaces to access the
+ * toplevel children of this result.
+ */
+
+[scriptable, uuid(25b45a94-3323-4c7b-910a-315f2c59bfb4)]
+interface nsINavHistoryResult : nsINavHistoryResultNode
+{
   /**
    * Sorts all nodes recursively by the given parameter, one of
    * nsINavHistory.SORT_BY_*
@@ -161,8 +247,26 @@ interface nsINavHistoryResult : nsISupports
    * This allows you to get at the real node for a given row index in the tree.
    */
   nsINavHistoryResultNode nodeForTreeIndex(in PRUint32 aIndex);
-};
 
+  /**
+   * Reverse of nodeForTreeIndex, returns the row index for a given result node.
+   * Returns INDEX_INVISIBLE if the item is not visible (for example, its
+   * parent is collapsed).
+   */
+  const PRUint32 INDEX_INVISIBLE = 0xffffffff;
+  PRUint32 treeIndexForNode(in nsINavHistoryResultNode aNode);
+
+  /**
+   * Add a Tree Builder Observer to handle Tree View methods that the 
+   * HistoryResult object does not implement. 
+   */
+  void addObserver(in nsINavHistoryResultViewObserver observer);
+
+  /**
+   * Remove a tree builder observer.
+   */
+  void removeObserver(in nsINavHistoryResultViewObserver observer);
+};
 
 /**
  * Similar to nsIRDFObserver for history. Note that we don't pass the data
@@ -254,29 +358,37 @@ interface nsINavHistoryObserver : nsISupports
 interface nsINavHistoryQuery : nsISupports
 {
   /**
-   * Time range for results (INCLUSIVE). Set to 0 to ignore and return any
-   * page. Note: PRTime is in MICROseconds since 1 Jan 1970. Javascript date
-   * objects are expressed in MILLIseconds since 1 Jan 1970.
+   * Time range for results (INCLUSIVE). The *TimeReference is one of the
+   * constants TIME_RELATIVE_* which indicates how to interpret the
+   * corresponding time value.
+   *   TIME_RELATIVE_EPOCH (default):
+   *     The time is relative to Jan 1 1970 GMT, (this is a normal PRTime)
+   *   TIME_RELATIVE_TODAY:
+   *     The time is relative to this morning at midnight. Normally used for
+   *     queries relative to today. For example, a "past week" query would be
+   *     today-6 days -> today+1 day
+   *   TIME_RELATIVE_NOW:
+   *     The time is relative to right now.
    *
-   * The has* functions return whether the corresponding time is non-zero and
-   * should be considered for the query.
+   * Note: PRTime is in MICROseconds since 1 Jan 1970. Javascript date objects
+   * are expressed in MILLIseconds since 1 Jan 1970.
+   *
+   * As a special case, a 0 time relative to TIME_RELATIVE_EPOCH indicates that
+   * the time is not part of the query. This is the default, so an empty query
+   * will match any time. The has* functions return whether the corresponding
+   * time is considered.
    */
-  attribute PRTime beginTime;
-  readonly attribute boolean hasBeginTime;
-  attribute PRTime endTime;
-  readonly attribute boolean hasEndTime;
+  const PRUint32 TIME_RELATIVE_EPOCH = 0;
+  const PRUint32 TIME_RELATIVE_TODAY = 1;
+  const PRUint32 TIME_RELATIVE_NOW = 2;
 
-  /**
-   * These are helper functions for setting begin and end time for a specific
-   * day.
-   *   year: 4 digit year, i.e. "2005"
-   *   month: 0-11 month index
-   *   day: 1-31 day number
-   * These days are inclusive, so setting begin and end with these functions
-   * to the same day gives you all visits during that day.
-   */
-  void setBeginDate(in PRInt32 year, in PRInt32 month, in PRInt32 day);
-  void setEndDate(in PRInt32 year, in PRInt32 month, in PRInt32 day);
+  attribute PRTime beginTime;
+  attribute PRUint32 beginTimeReference;
+  readonly attribute boolean hasBeginTime;
+
+  attribute PRTime endTime;
+  attribute PRUint32 endTimeReference;
+  readonly attribute boolean hasEndTime;
 
   /**
    * Text search terms.
@@ -303,6 +415,138 @@ interface nsINavHistoryQuery : nsISupports
    */
   attribute AString domain;
   readonly attribute boolean hasDomain;
+
+  /**
+   * Limit results to items that are in all of the given folders.
+   */
+  void getFolders(out PRUint32 count,
+                  [retval,array,size_is(count)] out PRInt64 folders);
+  readonly attribute PRUint32 folderCount;
+
+  void setFolders([const,array, size_is(folderCount)] in PRInt64 folders,
+                  in PRUint32 folderCount);
+
+  /**
+   * Constants for itemTypes
+   */
+  const PRUint32 INCLUDE_ITEMS = 1;
+  const PRUint32 INCLUDE_QUERIES = 2;
+
+  /**
+   * Filter the items returned.  Takes a bitwise combination of INCLUDE_*
+   * constants.  Note that folders are only returned when a parent folder
+   * is specified with setFolders().
+   */
+  attribute PRUint32 itemTypes;
+
+  /**
+   * Creates a new query item with the same parameters of this one.
+   */
+  nsINavHistoryQuery clone();
+};
+
+/**
+ * This object represents the global options for executing a query.
+ */
+[scriptable, uuid(25fd4de4-33b0-475e-a63d-2bcb1d123e0d)]
+interface nsINavHistoryQueryOptions : nsISupports
+{
+  /**
+   * Grouping by day. The results will be an array of nsINavHistoryResults with
+   * type = RESULT_TYPE_DAY, one for each day where there are results. These
+   * will have children of corresponding to the search results of that day.
+   */
+  const PRInt32 GROUP_BY_DAY = 0;
+
+  /**
+   * Groping by exact host. The results will be an array of nsINavHistoryResults
+   * with type = RESULT_TYPE_HOST, one for each unique host (for example,
+   * "bugzilla.mozilla.org" and "www.mozilla.org" will be separate). The
+   * children of these will correspond to the results for each host.
+   */
+  const PRInt32 GROUP_BY_HOST = 1;
+
+  /**
+   * Grouping by toplevel domain. Similar to GROUP_BY_HOST, but there will be
+   * one result for each toplevel domain (mozilla.org will be one entry, and
+   * will contain results including, for example, "bugzilla.mozilla.org" and
+   * "www.mozilla.org").
+   */
+  const PRInt32 GROUP_BY_DOMAIN = 2;
+
+  /**
+   * Group by bookmark folder.  Since this determines the entire subtree
+   * hierarchy, it must be the last grouping option given.  This option
+   * requires the query to have onlyBookmarked set, and for there to be
+   * at least one parent folder specified via nsINavHistoryQuery::setFolders.
+   * If all of the top-level results belong to a single folder, the folder will
+   * be omitted and its children will become the toplevel result nodes.
+   */
+  const PRInt32 GROUP_BY_FOLDER = 3;
+
+  /**
+   * You can ask for the results to be pre-sorted. Since the DB has indices
+   * of many items, it can produce sorted results almost for free. These should
+   * be self-explanatory.
+   *
+   * Note: re-sorting is slower, as is sorting by title or when you have a
+   * host name.
+   */
+  const PRInt32 SORT_BY_NONE = 0;
+  const PRInt32 SORT_BY_TITLE_ASCENDING = 1;
+  const PRInt32 SORT_BY_TITLE_DESCENDING = 2;
+  const PRInt32 SORT_BY_DATE_ASCENDING = 3;
+  const PRInt32 SORT_BY_DATE_DESCENDING = 4;
+  const PRInt32 SORT_BY_URL_ASCENDING = 5;
+  const PRInt32 SORT_BY_URL_DESCENDING = 6;
+  const PRInt32 SORT_BY_VISITCOUNT_ASCENDING = 7;
+  const PRInt32 SORT_BY_VISITCOUNT_DESCENDING = 8;
+
+  /**
+   * "URL" results, one for each URL visited in the range.
+   */
+  const PRInt32 RESULT_TYPE_URL = 0;
+
+  /**
+   * "Visit" results, with one for each time a page was visited
+   * (this will often give you multiple results for one URL).
+   */
+  const PRInt32 RESULT_TYPE_VISIT = 1;
+
+  /**
+   * Set the grouping mode to be used for this query.
+   * Grouping mode is an array of GROUP_BY_* values that specifies the structure
+   * of the tree you want. For example, an array consisting of
+   * [GROUP_BY_DAY, GROUP_BY_DOMAIN] will give you a tree whose first level is
+   * a list of days, and whose second level is a list of domains, and whose
+   * third level is a list of pages in those domains. If you don't want a tree,
+   * you can specify an empty array.
+   */
+  void setGroupingMode([const,array,size_is(groupCount)] in PRInt32 groupingMode,
+                       in PRUint32 groupCount);
+
+  /**
+   * Set the sorting mode to be used for this query.
+   * mode is one of SORT_BY_*
+   */
+  void setSortingMode(in PRInt32 mode);
+
+  /**
+   * Sets the result type. One of RESULT_TYPE_*.
+   */
+  void setResultType(in PRInt32 type);
+
+  /**
+   * When set, allows items with "place:" URIs to appear as containers,
+   * with the container's contents filled in from the stored query.
+   * If not set, these will appear as normal items.
+   */
+  void setExpandPlaces(in boolean expand);
+
+  /**
+   * Creates a new options item with the same parameters of this one.
+   */
+  nsINavHistoryQueryOptions clone();
 };
 
 [scriptable, uuid(C51F54CB-5E89-4B20-A37C-1343888935B7)]
@@ -326,73 +570,22 @@ interface nsINavHistory : nsISupports
   boolean canAddURI(in nsIURI aURI);
 
   /**
-   * Grouping by day. The results will be an array of nsINavHistoryResults with
-   * type = RESULT_TYPE_DAY, one for each day where there are results. These
-   * will have children of corresponding to the search results of that day.
-   */
-  const PRUint32 GROUP_BY_DAY = 0;
-
-  /**
-   * Groping by exact host. The results will be an array of nsINavHistoryResults
-   * with type = RESULT_TYPE_HOST, one for each unique host (for example,
-   * "bugzilla.mozilla.org" and "www.mozilla.org" will be separate). The
-   * children of these will correspond to the results for each host.
-   */
-  const PRUint32 GROUP_BY_HOST = 1;
-
-  /**
-   * Grouping by toplevel domain. Similar to GROUP_BY_HOST, but there will be
-   * one result for each toplevel domain (mozilla.org will be one entry, and
-   * will contain results including, for example, "bugzilla.mozilla.org" and
-   * "www.mozilla.org").
-   */
-  const PRUint32 GROUP_BY_DOMAIN = 2;
-
-
-  /**
-   * You can ask for the results to be pre-sorted. Since the DB has indices
-   * of many items, it can produce sorted results almost for free. These should
-   * be self-explanatory.
-   *
-   * Note: re-sorting is slower, as is sorting by title or when you have a
-   * host name.
-   */
-  const PRUint32 SORT_BY_NONE = 0;
-  const PRUint32 SORT_BY_TITLE_ASCENDING = 1;
-  const PRUint32 SORT_BY_TITLE_DESCENDING = 2;
-  const PRUint32 SORT_BY_DATE_ASCENDING = 3;
-  const PRUint32 SORT_BY_DATE_DESCENDING = 4;
-  const PRUint32 SORT_BY_URL_ASCENDING = 5;
-  const PRUint32 SORT_BY_URL_DESCENDING = 6;
-  const PRUint32 SORT_BY_VISITCOUNT_ASCENDING = 7;
-  const PRUint32 SORT_BY_VISITCOUNT_DESCENDING = 8;
-
-  /**
    * This returns a new query object that you can pass to executeQuer[y/ies].
    * It will be initialized to all empty (so using it will give you all history).
    */
   nsINavHistoryQuery getNewQuery();
 
   /**
+   * This returns a new options object that you can pass to executeQuer[y/ies]
+   * after setting the desired options.
+   */
+  nsINavHistoryQueryOptions getNewQueryOptions();
+
+  /**
    * Executes a single query.
-   *
-   * sortingMode is one of SORT_BY_*
-   *
-   * Grouping mode is an array of GROUP_BY_* values that specifies the structure
-   * of the tree you want. For example, an array consisting of
-   * [GROUP_BY_DAY, GROUP_BY_DOMAIN] will give you a tree whose first level is
-   * a list of days, and whose second level is a list of domains, and whose
-   * third level is a list of pages in those domains. If you don't want a tree,
-   * you can specify an empty array.
-   *
-   * asVisits is what to return for the pages. If false, this will return "URL"
-   * results, one for each URL visited in the range. If true, this will return
-   * "visit" results, with one for each time a page was visited (this will
-   * often give you multiple results for one URL).
    */
   nsINavHistoryResult executeQuery(in nsINavHistoryQuery aQuery,
-    [const,array,size_is(aGroupCount)] in PRInt32 aGroupingMode, in PRUint32 aGroupCount,
-    in PRInt32 aSortingMode, in PRBool aAsVisits);
+                                   in nsINavHistoryQueryOptions options);
 
   /**
    * Executes an array of queries. All of the query objects are ORed
@@ -400,9 +593,24 @@ interface nsINavHistory : nsISupports
    * executeQuery. See executeQuery()
    */
   nsINavHistoryResult executeQueries(
-    [const,array,size_is(aQueryCount)] in nsINavHistoryQuery aQueries, in PRUint32 aQueryCount,
-    [const,array,size_is(aGroupCount)] in PRInt32 aGroupingMode, in PRUint32 aGroupCount,
-    in PRInt32 aSortingMode, in PRBool aAsVisits);
+    [array,size_is(aQueryCount)] in nsINavHistoryQuery aQueries, in PRUint32 aQueryCount,
+    in nsINavHistoryQueryOptions options);
+
+  /**
+   * Converts a query URI-like string to an array of actual query objects for
+   * use to executeQueries().
+   */
+  void queryStringToQueries(in AUTF8String aQueryString,
+    [array, size_is(aResultCount)] out nsINavHistoryQuery aQueries, out PRUint32 aResultCount,
+    out nsINavHistoryQueryOptions options);
+
+  /**
+   * Converts a query into an equivalent string that can be persisted. Inverse
+   * of queryStringToQueries()
+   */
+  AUTF8String queriesToQueryString(
+    [array, size_is(aQueryCount)] in nsINavHistoryQuery aQueries, in PRUint32 aQueryCount,
+    in nsINavHistoryQueryOptions options);
 
   /**
    * Adds a history observer. The history service will keep an owning
@@ -427,4 +635,10 @@ interface nsINavHistory : nsISupports
    * done changing. Should match beginUpdateBatch or bad things will happen.
    */
   void endUpdateBatch();
+
+  /**
+   * The Transaction Manager for edit operations performed on History and 
+   * Bookmark items.
+   */
+  readonly attribute nsITransactionManager transactionManager;
 };

@@ -72,36 +72,29 @@ Extra:
 
 #include <stdio.h>
 #include "nsNavHistory.h"
+#include "nsNavBookmarks.h"
 
 #include "nsArray.h"
-#include "nsDebug.h"
-#include "nsIComponentManager.h"
-#include "nsCollationCID.h"
-#include "nsISimpleEnumerator.h"
-#include "nsIServiceManager.h"
-#include "nsIDOMElement.h"
+#include "nsArrayEnumerator.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
-#include "nsString.h"
-//#include "mozIAnnotationService.h"
+#include "nsDebug.h"
+#include "nsEnumeratorUtils.h"
+#include "nsIComponentManager.h"
 #include "nsILocalFile.h"
-#include "nsITreeColumns.h"
+#include "nsIPrefBranch2.h"
+#include "nsIServiceManager.h"
+#include "nsISimpleEnumerator.h"
 #include "nsISupportsPrimitives.h"
-#include "nsIDateTimeFormat.h"
-#include "nsDateTimeFormatCID.h"
 #include "nsIURI.h"
 #include "nsIURL.h"
-#include "nsILocale.h"
-#include "nsILocaleService.h"
 #include "nsNetUtil.h"
+#include "nsPrintfCString.h"
+#include "nsPromiseFlatString.h"
+#include "nsString.h"
+#include "nsUnicharUtils.h"
 #include "prtime.h"
 #include "prprf.h"
-#include "nsPromiseFlatString.h"
-#include "nsIPrefBranch2.h"
-#include "nsArrayEnumerator.h"
-#include "nsUnicharUtils.h"
-#include "nsEnumeratorUtils.h"
-#include "nsPrintfCString.h"
 
 #include "mozIStorageService.h"
 #include "mozIStorageConnection.h"
@@ -167,20 +160,6 @@ inline void parameterString(PRInt32 paramIndex, nsACString& aParamString)
   aParamString = nsPrintfCString("?%d", paramIndex + 1);
 }
 
-// emulate string comparison (used for sorting) for PRTime and int
-inline PRInt32 ComparePRTime(PRTime a, PRTime b)
-{
-  if (LL_CMP(a, <, b))
-    return -1;
-  else if (LL_CMP(a, >, b))
-    return 1;
-  return 0;
-}
-inline PRInt32 CompareIntegers(PRUint32 a, PRUint32 b)
-{
-  return a - b;
-}
-
 
 // UpdateBatchScoper
 //
@@ -217,6 +196,9 @@ const PRInt32 nsNavHistory::kAutoCompleteIndex_Typed = 3;
 static nsDataHashtable<nsStringHashKey, int>* gTldTypes;
 static const char* gQuitApplicationMessage = "quit-application";
 
+nsIAtom* nsNavHistory::sMenuRootAtom = nsnull;
+nsIAtom* nsNavHistory::sToolbarRootAtom = nsnull;
+
 nsNavHistory* nsNavHistory::gHistoryService;
 
 
@@ -228,6 +210,9 @@ nsNavHistory::nsNavHistory() : mNowValid(PR_FALSE),
 {
   NS_ASSERTION(! gHistoryService, "YOU ARE CREATING 2 COPIES OF THE HISTORY SERVICE. Everything will break.");
   gHistoryService = this;
+
+  sMenuRootAtom = NS_NewAtom("menu-root");
+  sToolbarRootAtom = NS_NewAtom("toolbar-root");
 }
 
 
@@ -235,12 +220,17 @@ nsNavHistory::nsNavHistory() : mNowValid(PR_FALSE),
 
 nsNavHistory::~nsNavHistory()
 {
-  gObserverService->RemoveObserver(this, gQuitApplicationMessage);
+  if (gObserverService) {
+    gObserverService->RemoveObserver(this, gQuitApplicationMessage);
+  }
 
   // remove the static reference to the service. Check to make sure its us
   // in case somebody creates an extra instance of the service.
   NS_ASSERTION(gHistoryService == this, "YOU CREATED 2 COPIES OF THE HISTORY SERVICE.");
   gHistoryService = nsnull;
+
+  NS_IF_RELEASE(sMenuRootAtom);
+  NS_IF_RELEASE(sToolbarRootAtom);
 }
 
 
@@ -277,7 +267,7 @@ nsNavHistory::Init()
     do_GetService(NS_STRINGBUNDLE_CONTRACTID, &rv);
   NS_ENSURE_SUCCESS(rv, rv);
   rv = bundleService->CreateBundle(
-      "chrome://global/locale/history/history.properties",
+      "chrome://browser/locale/places/places.properties",
       getter_AddRefs(mBundle));
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -514,7 +504,7 @@ nsNavHistory::SaveCollapseItem(const nsAString& aTitle)
 //    added to the history.
 
 nsresult
-nsNavHistory::InternalAdd(nsIURI* aURI, PRUint32 aSessionID,
+nsNavHistory::InternalAdd(nsIURI* aURI, PRInt64 aSessionID,
                           PRUint32 aTransitionType, const PRUnichar* aTitle,
                           PRTime aVisitDate, PRBool aRedirect,
                           PRBool aToplevel, PRInt64* aPageID)
@@ -698,8 +688,12 @@ nsNavHistory::InternalAddNewPage(nsIURI* aURI, const PRUnichar* aTitle,
   // host (reversed with trailing period)
   nsAutoString revHost;
   rv = GetReversedHostname(aURI, revHost);
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = dbInsertStatement->BindStringParameter(2, revHost);
+  // Not all URI types have hostnames, so this is optional.
+  if (NS_SUCCEEDED(rv)) {
+    rv = dbInsertStatement->BindStringParameter(2, revHost);
+  } else {
+    rv = dbInsertStatement->BindNullParameter(2);
+  }
   NS_ENSURE_SUCCESS(rv, rv);
 
   // hidden
@@ -749,7 +743,7 @@ nsresult nsNavHistory::AddVisit(PRInt64 aFromStep, PRInt64 aPageID,
   NS_ENSURE_SUCCESS(rv, rv);
   rv = dbInsertStatement->BindInt32Parameter(3, aTransitionType);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = dbInsertStatement->BindInt32Parameter(4, aSessionID);
+  rv = dbInsertStatement->BindInt64Parameter(4, aSessionID);
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = dbInsertStatement->Execute(); // should reset the statement
@@ -927,6 +921,40 @@ void nsNavHistory::expireNowTimerCallback(nsITimer* aTimer,
 }
 
 
+// nsNavHistory::NormalizeTime
+//
+//    Converts a nsINavHistoryQuery reference+offset time into a PRTime
+//    relative to the epoch.
+
+PRTime
+nsNavHistory::NormalizeTime(PRUint32 aRelative, PRTime aOffset)
+{
+  PRTime ref;
+  switch (aRelative)
+  {
+    case nsINavHistoryQuery::TIME_RELATIVE_EPOCH:
+      return aOffset;
+    case nsINavHistoryQuery::TIME_RELATIVE_TODAY: {
+      // round to midnight this morning
+      PRExplodedTime explodedTime;
+      PR_ExplodeTime(GetNow(), PR_LocalTimeParameters, &explodedTime);
+      explodedTime.tm_min =
+        explodedTime.tm_hour =
+        explodedTime.tm_sec =
+        explodedTime.tm_usec = 0;
+      ref = PR_ImplodeTime(&explodedTime);
+      break;
+    }
+    case nsINavHistoryQuery::TIME_RELATIVE_NOW:
+      ref = GetNow();
+      break;
+    default:
+      NS_NOTREACHED("Invalid relative time");
+      return 0;
+  }
+  return ref + aOffset;
+}
+
 // Nav history *****************************************************************
 
 
@@ -1007,23 +1035,26 @@ NS_IMETHODIMP nsNavHistory::GetNewQuery(nsINavHistoryQuery **_retval)
   *_retval = new nsNavHistoryQuery();
   if (! *_retval)
     return NS_ERROR_OUT_OF_MEMORY;
-  (*_retval)->AddRef();
+  NS_ADDREF(*_retval);
   return NS_OK;
 }
 
+NS_IMETHODIMP nsNavHistory::GetNewQueryOptions(nsINavHistoryQueryOptions **_retval)
+{
+  *_retval = new nsNavHistoryQueryOptions();
+  NS_ENSURE_TRUE(*_retval, NS_ERROR_OUT_OF_MEMORY);
+  NS_ADDREF(*_retval);
+  return NS_OK;
+}
 
 // nsNavHistory::ExecuteQuery
 //
 
 NS_IMETHODIMP
-nsNavHistory::ExecuteQuery(nsINavHistoryQuery *aQuery,
-                           const PRInt32 *aGroupingMode, PRUint32 aGroupCount,
-                           PRInt32 aSortingMode, PRBool aAsVisits,
+nsNavHistory::ExecuteQuery(nsINavHistoryQuery *aQuery, nsINavHistoryQueryOptions *aOptions,
                            nsINavHistoryResult** _retval)
 {
-  return ExecuteQueries(NS_CONST_CAST(const nsINavHistoryQuery**, &aQuery), 1,
-                        aGroupingMode, aGroupCount,
-                        aSortingMode, aAsVisits, _retval);
+  return ExecuteQueries(&aQuery, 1, aOptions, _retval);
 }
 
 
@@ -1033,15 +1064,61 @@ nsNavHistory::ExecuteQuery(nsINavHistoryQuery *aQuery,
 //    it ANDed with the all the rest of the queries.
 
 NS_IMETHODIMP
-nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
-                             PRUint32 aQueryCount,
-                             const PRInt32 *aGroupingMode, PRUint32 aGroupCount,
-                             PRInt32 aSortingMode, PRBool aAsVisits,
+nsNavHistory::ExecuteQueries(nsINavHistoryQuery** aQueries, PRUint32 aQueryCount,
+                             nsINavHistoryQueryOptions *aOptions,
                              nsINavHistoryResult** _retval)
 {
+  NS_ENSURE_ARG_POINTER(aQueries);
+  NS_ENSURE_ARG_POINTER(aOptions);
+
   nsresult rv;
-  if (aSortingMode < 0 || aSortingMode > SORT_BY_VISITCOUNT_DESCENDING)
+
+  nsCOMPtr<nsNavHistoryQueryOptions> options = do_QueryInterface(aOptions);
+  NS_ENSURE_TRUE(options, NS_ERROR_INVALID_ARG);
+
+  PRInt32 sortingMode = options->SortingMode();
+  if (sortingMode < 0 ||
+      sortingMode > nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_DESCENDING) {
     return NS_ERROR_INVALID_ARG;
+  }
+
+  // In the simple case where we're just querying children of a single bookmark
+  // folder, we can avoid the complexity of the grouper and just hand back
+  // the results.
+  do {
+    if (aQueryCount != 1) break;
+    
+    nsINavHistoryQuery *query = aQueries[0];
+    PRUint32 folderCount;
+    query->GetFolderCount(&folderCount);
+    if (folderCount != 1) break;
+
+    PRBool hasIt;
+    query->GetHasBeginTime(&hasIt);
+    if (hasIt) break;
+    query->GetHasEndTime(&hasIt);
+    if (hasIt) break;
+    query->GetHasDomain(&hasIt);
+    if (hasIt) break;
+
+    nsRefPtr<nsNavHistoryResult> result = NewHistoryResult(aQueries,
+                                                           aQueryCount,
+                                                           options);
+    NS_ENSURE_TRUE(result, NS_ERROR_OUT_OF_MEMORY);
+
+    rv = result->Init();
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    rv = nsNavBookmarks::GetBookmarksService()->
+      QueryFolderChildren(aQueries[0], options, result->GetTopLevel());
+
+    NS_ENSURE_SUCCESS(rv, rv);
+    result->FilledAllResults();
+    NS_STATIC_CAST(nsRefPtr<nsINavHistoryResult>, result).swap(*_retval);
+    return NS_OK;
+  } while (0);
+
+  PRBool asVisits = options->ResultType() == nsINavHistoryQueryOptions::RESULT_TYPE_VISIT;
 
   // conditions we want on all history queries, this just selects history
   // entries that are "active"
@@ -1052,7 +1129,7 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
   // Query string: Output parameters should be in order of kGetInfoIndex_*
   nsCAutoString queryString;
   nsCAutoString groupBy;
-  if (aAsVisits) {
+  if (asVisits) {
     // if we want visits, this is easy, just combine all possible matches
     // between the history and visits table and do our query.
     queryString = NS_LITERAL_CSTRING("SELECT h.id, h.url, h.title, h.visit_count, v.visit_date, h.rev_host"
@@ -1061,7 +1138,7 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
     // For URLs, it is more complicated. Because we want each URL once. The
     // GROUP BY clause gives us this. However, we also want the most recent
     // visit time, so we add ANOTHER join with the visit table (this one does
-    // not have any restrictions on if from the query) and do MAX() to get the
+    // not have any restrictions on it from the query) and do MAX() to get the
     // max visit time.
     queryString = NS_LITERAL_CSTRING("SELECT h.id, h.url, h.title, h.visit_count, MAX(fullv.visit_date), h.rev_host"
       " FROM moz_history h JOIN moz_historyvisit v ON h.id = v.page_id JOIN moz_historyvisit fullv ON h.id = fullv.page_id WHERE ");
@@ -1070,11 +1147,12 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
 
   PRInt32 numParameters = 0;
   nsCAutoString conditions;
-  for (PRUint32 i = 0; i < aQueryCount; i ++) {
+  PRUint32 i;
+  for (i = 0; i < aQueryCount; i ++) {
     nsCString queryClause;
     PRInt32 clauseParameters = 0;
-    rv = QueryToSelectClause(NS_CONST_CAST(nsINavHistoryQuery*, aQueries[i]),
-                             numParameters, &queryClause, &clauseParameters);
+    rv = QueryToSelectClause(aQueries[i], numParameters,
+                             &queryClause, &clauseParameters);
     NS_ENSURE_SUCCESS(rv, rv);
     if (! queryClause.IsEmpty()) {
       if (! conditions.IsEmpty()) // exists previous clause: multiple ones are ORed
@@ -1094,30 +1172,30 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
   // Sort clause: we will sort later, but if it comes out of the DB sorted,
   // our later sort will be basically free. The DB can sort these for free
   // most of the time anyway, because it has indices over these items.
-  switch(aSortingMode) {
-    case SORT_BY_NONE:
+  switch(sortingMode) {
+    case nsINavHistoryQueryOptions::SORT_BY_NONE:
       break;
-    case SORT_BY_TITLE_ASCENDING:
-    case SORT_BY_TITLE_DESCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_TITLE_ASCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_TITLE_DESCENDING:
       // the DB doesn't have indices on titles, and we need to do special
       // sorting for locales. This type of sorting is done only at the end.
       break;
-    case SORT_BY_DATE_ASCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_DATE_ASCENDING:
       queryString += NS_LITERAL_CSTRING(" ORDER BY v.visit_date ASC");
       break;
-    case SORT_BY_DATE_DESCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_DATE_DESCENDING:
       queryString += NS_LITERAL_CSTRING(" ORDER BY v.visit_date DESC");
       break;
-    case SORT_BY_URL_ASCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_URL_ASCENDING:
       queryString += NS_LITERAL_CSTRING(" ORDER BY h.url ASC");
       break;
-    case SORT_BY_URL_DESCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_URL_DESCENDING:
       queryString += NS_LITERAL_CSTRING(" ORDER BY h.url DESC");
       break;
-    case SORT_BY_VISITCOUNT_ASCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_ASCENDING:
       queryString += NS_LITERAL_CSTRING(" ORDER BY h.visit_count ASC");
       break;
-    case SORT_BY_VISITCOUNT_DESCENDING:
+    case nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_DESCENDING:
       queryString += NS_LITERAL_CSTRING(" ORDER BY h.visit_count DESC");
       break;
     default:
@@ -1137,7 +1215,7 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
 
   // bind parameters
   numParameters = 0;
-  for (PRUint32 i = 0; i < aQueryCount; i ++) {
+  for (i = 0; i < aQueryCount; i ++) {
     PRInt32 clauseParameters = 0;
     rv = BindQueryClauseParameters(statement, numParameters,
                                    NS_CONST_CAST(nsINavHistoryQuery*, aQueries[i]),
@@ -1147,7 +1225,8 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
   }
 
   // run query and put into result object
-  nsRefPtr<nsNavHistoryResult> result(new nsNavHistoryResult(this, mBundle));
+  nsRefPtr<nsNavHistoryResult> result(
+                             NewHistoryResult(aQueries, aQueryCount, options));
   if (! result)
     return NS_ERROR_OUT_OF_MEMORY;
   rv = result->Init();
@@ -1158,15 +1237,18 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
                      aQueries[0])->GetHasSearchTerms(&hasSearchTerms);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (aGroupCount == 0 && ! hasSearchTerms) {
+  PRUint32 groupCount;
+  const PRInt32 *groupings = options->GroupingMode(&groupCount);
+
+  if (groupCount == 0 && ! hasSearchTerms) {
     // optimize the case where we just want a list with no grouping: this
     // directly fills in the results and we avoid a copy of the whole list
-    rv = ResultsAsList(statement, aAsVisits, result->GetTopLevel());
+    rv = ResultsAsList(statement, asVisits, result->GetTopLevel());
     NS_ENSURE_SUCCESS(rv, rv);
   } else {
     // generate the toplevel results
     nsCOMArray<nsNavHistoryResultNode> toplevel;
-    rv = ResultsAsList(statement, aAsVisits, &toplevel);
+    rv = ResultsAsList(statement, asVisits, &toplevel);
     NS_ENSURE_SUCCESS(rv, rv);
 
     if (hasSearchTerms) {
@@ -1174,25 +1256,25 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
       nsAutoString searchTerms;
       NS_CONST_CAST(nsINavHistoryQuery*, aQueries[0])
         ->GetSearchTerms(searchTerms);
-      if (aGroupCount == 0) {
+      if (groupCount == 0) {
         FilterResultSet(toplevel, result->GetTopLevel(), searchTerms);
       } else {
         nsCOMArray<nsNavHistoryResultNode> filteredResults;
         FilterResultSet(toplevel, &filteredResults, searchTerms);
-        rv = RecursiveGroup(filteredResults, aGroupingMode, aGroupCount,
+        rv = RecursiveGroup(filteredResults, groupings, groupCount,
                             result->GetTopLevel());
         NS_ENSURE_SUCCESS(rv, rv);
       }
     } else {
       // group unfiltered results
-      rv = RecursiveGroup(toplevel, aGroupingMode, aGroupCount,
+      rv = RecursiveGroup(toplevel, groupings, groupCount,
                           result->GetTopLevel());
       NS_ENSURE_SUCCESS(rv, rv);
     }
   }
 
-  if (aSortingMode != SORT_BY_NONE)
-    result->RecursiveSort(aSortingMode);
+  if (sortingMode != nsINavHistoryQueryOptions::SORT_BY_NONE)
+    result->RecursiveSort(sortingMode);
 
   // automatically expand things that were expanded before
   if (gExpandedItems.Count() > 0)
@@ -1201,7 +1283,7 @@ nsNavHistory::ExecuteQueries(const nsINavHistoryQuery** aQueries,
   result->FilledAllResults();
 
   *_retval = result;
-  (*_retval)->AddRef();
+  NS_ADDREF(*_retval);
   return NS_OK;
 }
 
@@ -1259,6 +1341,20 @@ nsNavHistory::EndUpdateBatch()
   return NS_OK;
 }
 
+// nsNavHistory::GetTransactionManager
+
+NS_IMETHODIMP
+nsNavHistory::GetTransactionManager(nsITransactionManager** result) 
+{
+  if (!mTransactionManager) {
+    nsresult rv;
+    mTransactionManager = 
+      do_CreateInstance(NS_TRANSACTIONMANAGER_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  NS_ADDREF(*result = mTransactionManager);
+  return NS_OK;
+}
 
 // Browser history *************************************************************
 
@@ -1363,14 +1459,20 @@ nsNavHistory::RemovePage(nsIURI *aURI)
   NS_ENSURE_SUCCESS(rv, rv);
 
   // history entries
-  rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
-      "DELETE FROM moz_history WHERE url = ?1"),
-      getter_AddRefs(statement));
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = BindStatementURI(statement, 0, aURI);
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = statement->Execute();
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsNavBookmarks *bookmarks = nsNavBookmarks::GetBookmarksService();
+  NS_ENSURE_TRUE(bookmarks, NS_ERROR_UNEXPECTED);
+  PRBool bookmarked;
+  bookmarks->IsBookmarked(aURI, &bookmarked);
+  if (!bookmarked) {
+    rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
+        "DELETE FROM moz_history WHERE url = ?1"),
+        getter_AddRefs(statement));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = BindStatementURI(statement, 0, aURI);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = statement->Execute();
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
 
   // Observers: Be sure to finish transaction before calling observers. Note also
   // that we always call the observers even though we aren't sure something
@@ -1831,7 +1933,7 @@ nsNavHistory::Observe(nsISupports *aSubject, const char *aTopic,
 {
   if (nsCRT::strcmp(aTopic, gQuitApplicationMessage) == 0) {
     if (gTldTypes) {
-      delete[] gTldTypes;
+      delete gTldTypes;
       gTldTypes = nsnull;
     }
     gPrefService->SavePrefFile(nsnull);
@@ -2302,7 +2404,12 @@ nsNavHistory::QueryToSelectClause(nsINavHistoryQuery* aQuery, // const
 
   // search terms FIXME
 
-  // onlyBookmarked FIXME
+  if (NS_SUCCEEDED(aQuery->GetOnlyBookmarked(&hasIt)) && hasIt) {
+    if (! aClause->IsEmpty())
+      *aClause += NS_LITERAL_CSTRING(" AND ");
+
+    *aClause += NS_LITERAL_CSTRING("EXISTS (SELECT b.item_child FROM moz_bookmarks_assoc b WHERE b.item_child = id)");
+  }
 
   // domain
   if (NS_SUCCEEDED(aQuery->GetHasDomain(&hasIt)) && hasIt) {
@@ -2349,6 +2456,9 @@ nsNavHistory::BindQueryClauseParameters(mozIStorageStatement* statement,
   if (NS_SUCCEEDED(aQuery->GetHasBeginTime(&hasIt)) && hasIt) {
     PRTime time;
     aQuery->GetBeginTime(&time);
+    PRUint32 timeReference;
+    aQuery->GetBeginTimeReference(&timeReference);
+    time = NormalizeTime(timeReference, time);
     rv = statement->BindInt64Parameter(aStartParameter + *aParamCount, time);
     NS_ENSURE_SUCCESS(rv, rv);
     (*aParamCount) ++;
@@ -2358,6 +2468,9 @@ nsNavHistory::BindQueryClauseParameters(mozIStorageStatement* statement,
   if (NS_SUCCEEDED(aQuery->GetHasEndTime(&hasIt)) && hasIt) {
     PRTime time;
     aQuery->GetEndTime(&time);
+    PRUint32 timeReference;
+    aQuery->GetEndTimeReference(&timeReference);
+    time = NormalizeTime(timeReference, time);
     rv = statement->BindInt64Parameter(aStartParameter + *aParamCount, time);
     NS_ENSURE_SUCCESS(rv, rv);
     (*aParamCount) ++;
@@ -2365,7 +2478,7 @@ nsNavHistory::BindQueryClauseParameters(mozIStorageStatement* statement,
 
   // search terms FIXME
 
-  // onlyBookmarked FIXME
+  // onlyBookmarked: nothing to bind
 
   // domain (see GetReversedHostname for more info on reversed host names)
   if (NS_SUCCEEDED(aQuery->GetHasDomain(&hasIt)) && hasIt) {
@@ -2436,13 +2549,13 @@ nsNavHistory::RecursiveGroup(const nsCOMArray<nsNavHistoryResultNode>& aSource,
 
   nsresult rv;
   switch (aGroupingMode[0]) {
-    case GROUP_BY_DAY:
+    case nsINavHistoryQueryOptions::GROUP_BY_DAY:
       rv = GroupByDay(aSource, aDest);
       break;
-    case GROUP_BY_HOST:
+    case nsINavHistoryQueryOptions::GROUP_BY_HOST:
       rv = GroupByHost(aSource, aDest);
       break;
-    case GROUP_BY_DOMAIN:
+    case nsINavHistoryQueryOptions::GROUP_BY_DOMAIN:
       rv = GroupByDomain(aSource, aDest);
       break;
     default:
@@ -2658,17 +2771,32 @@ nsNavHistory::RowToResult(mozIStorageValueArray* aRow, PRBool aAsVisits,
 {
   *aResult = nsnull;
 
-  nsCOMPtr<nsNavHistoryResultNode> result = new nsNavHistoryResultNode();
+  nsCAutoString spec;
+  nsresult rv = aRow->GetUTF8String(kGetInfoIndex_URL, spec);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsNavHistoryResultNode> result;
+  if (IsQueryURI(spec)) {
+    result = new nsNavHistoryQueryNode();
+    result->mType = nsINavHistoryResultNode::RESULT_TYPE_QUERY;
+  } else {
+    result = new nsNavHistoryResultNode();
+    if (aAsVisits) {
+      result->mType = nsNavHistoryResultNode::RESULT_TYPE_VISIT;
+    } else {
+      result->mType = nsNavHistoryResultNode::RESULT_TYPE_URL;
+    }
+  }
+
   if (! result)
     return NS_ERROR_OUT_OF_MEMORY;
 
   // ID
-  nsresult rv = aRow->GetInt64(kGetInfoIndex_PageID, &result->mID);
+  rv = aRow->GetInt64(kGetInfoIndex_PageID, &result->mID);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // url
-  rv = aRow->GetUTF8String(kGetInfoIndex_URL, result->mUrl);
-  NS_ENSURE_SUCCESS(rv, rv);
+  // URL
+  result->mUrl = spec;
 
   // title
   rv = aRow->GetString(kGetInfoIndex_Title, result->mTitle);
@@ -2685,14 +2813,10 @@ nsNavHistory::RowToResult(mozIStorageValueArray* aRow, PRBool aAsVisits,
   // reversed hostname
   nsAutoString revHost;
   rv = aRow->GetString(kGetInfoIndex_RevHost, revHost);
-  GetUnreversedHostname(revHost, result->mHost);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  if (aAsVisits) {
-    result->mType = nsNavHistoryResultNode::RESULT_TYPE_VISIT;
-  } else {
-    result->mType = nsNavHistoryResultNode::RESULT_TYPE_URL;
+  if (!revHost.IsEmpty()) {
+    GetUnreversedHostname(revHost, result->mHost);
   }
+  NS_ENSURE_SUCCESS(rv, rv);
 
   result.swap(*aResult);
   return NS_OK;
@@ -3006,7 +3130,9 @@ GetReversedHostname(nsIURI* aURI, nsAString& aRevHost)
 {
   nsCString forward8;
   nsresult rv = aURI->GetHost(forward8);
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
 
   // can't do reversing in UTF8, better use 16-bit chars
   nsAutoString forward = NS_ConvertUTF8toUTF16(forward8);
@@ -3042,7 +3168,7 @@ GetReversedHostname(const nsString& aForward, nsAString& aRevHost)
 void
 GetUnreversedHostname(const nsString& aBackward, nsAString& aForward)
 {
-  NS_ASSERTION(! aBackward.IsEmpty() > 0 && aBackward[aBackward.Length()-1] == '.',
+  NS_ASSERTION(! aBackward.IsEmpty() && aBackward[aBackward.Length()-1] == '.',
                "Malformed reversed hostname with no trailing dot");
 
   aForward.Truncate(0);
@@ -3073,10 +3199,10 @@ PRBool IsNumericHostName(const nsString& aHost)
 {
   PRInt32 periodCount = 0;
   for (PRUint32 i = 0; i < aHost.Length(); i ++) {
-    char cur = aHost[i];
-    if (cur == '.')
+    PRUnichar cur = aHost[i];
+    if (cur == PRUnichar('.'))
       periodCount ++;
-    else if (cur < '0' || cur > '9')
+    else if (cur < PRUnichar('0') || cur > PRUnichar('9'))
       return PR_FALSE;
   }
   return (periodCount == 3);
@@ -3254,83 +3380,6 @@ nsresult BindStatementURI(mozIStorageStatement* statement, PRInt32 index,
 }
 
 
-// nsNavHistoryResultNode ******************************************************
-
-
-NS_IMPL_ISUPPORTS1(nsNavHistoryResultNode, nsINavHistoryResultNode)
-
-nsNavHistoryResultNode::nsNavHistoryResultNode() : mID(0), mExpanded(PR_FALSE)
-{
-}
-
-/* attribute nsINavHistoryResultNode parent */
-NS_IMETHODIMP nsNavHistoryResultNode::GetParent(nsINavHistoryResultNode** parent)
-{
-  *parent = mParent;
-  (*parent)->AddRef();
-  return NS_OK;
-}
-
-/* attribute PRInt32 type; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetType(PRUint32 *aType)
-{
-  *aType = mType;
-  return NS_OK;
-}
-
-/* attribute string url; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetUrl(nsACString& aUrl)
-{
-  aUrl = mUrl;
-  return NS_OK;
-}
-
-/* attribute string title; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetTitle(nsAString& aTitle)
-{
-  aTitle = mTitle;
-  return NS_OK;
-}
-
-/* attribute PRInt32 accessCount; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetAccessCount(PRInt32 *aAccessCount)
-{
-  *aAccessCount = mAccessCount;
-  return NS_OK;
-}
-
-/* attribute PRTime time; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetTime(PRTime *aTime)
-{
-  *aTime = mTime;
-  return NS_OK;
-}
-
-/* attribute pRInt32 indentLevel; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetIndentLevel(PRInt32* aIndentLevel)
-{
-  *aIndentLevel = mIndentLevel;
-  return NS_OK;
-}
-
-/* attribute PRInt32 childCount; */
-NS_IMETHODIMP nsNavHistoryResultNode::GetChildCount(PRInt32* aChildCount)
-{
-  *aChildCount = mChildren.Count();
-  return NS_OK;
-}
-
-/* nsINavHistoryResultNode getChild(in PRInt32 index); */
-NS_IMETHODIMP nsNavHistoryResultNode::GetChild(PRInt32 aIndex,
-                                               nsINavHistoryResultNode** _retval)
-{
-  if (aIndex < 0 || aIndex >= mChildren.Count())
-    return NS_ERROR_INVALID_ARG;
-  *_retval = mChildren[aIndex];
-  (*_retval)->AddRef();
-  return NS_OK;
-}
-
 // nsINavHistoryQuery **********************************************************
 
 NS_IMPL_ISUPPORTS1(nsNavHistoryQuery, nsINavHistoryQuery)
@@ -3342,8 +3391,10 @@ NS_IMPL_ISUPPORTS1(nsNavHistoryQuery, nsINavHistoryQuery)
 //    just set the things it's interested in.
 
 nsNavHistoryQuery::nsNavHistoryQuery()
-  : mBeginTime(0), mEndTime(0), mOnlyBookmarked(PR_FALSE),
-    mDomainIsHost(PR_FALSE)
+  : mBeginTime(0), mBeginTimeReference(TIME_RELATIVE_EPOCH),
+    mEndTime(0), mEndTimeReference(TIME_RELATIVE_EPOCH),
+    mOnlyBookmarked(PR_FALSE), mDomainIsHost(PR_FALSE),
+    mItemTypes(PR_UINT32_MAX) // default to include all item types
 {
 }
 
@@ -3358,16 +3409,26 @@ NS_IMETHODIMP nsNavHistoryQuery::SetBeginTime(PRTime aBeginTime)
   mBeginTime = aBeginTime;
   return NS_OK;
 }
-NS_IMETHODIMP nsNavHistoryQuery::GetHasBeginTime(PRBool* _retval)
+
+/* attribute long beginTimeReference; */
+NS_IMETHODIMP nsNavHistoryQuery::GetBeginTimeReference(PRUint32* _retval)
 {
-  *_retval = (mBeginTime > 0);
+  *_retval = mBeginTimeReference;
   return NS_OK;
 }
-NS_IMETHODIMP nsNavHistoryQuery::SetBeginDate(PRInt32 year, PRInt32 month,
-                                              PRInt32 day)
+NS_IMETHODIMP nsNavHistoryQuery::SetBeginTimeReference(PRUint32 aReference)
 {
-  // FIXME
-  return NS_ERROR_NOT_IMPLEMENTED;
+  if (aReference > TIME_RELATIVE_NOW)
+    return NS_ERROR_INVALID_ARG;
+  mBeginTimeReference = aReference;
+  return NS_OK;
+}
+
+/* readonly attribute boolean hasBeginTime; */
+NS_IMETHODIMP nsNavHistoryQuery::GetHasBeginTime(PRBool* _retval)
+{
+  *_retval = ! (mBeginTimeReference == TIME_RELATIVE_EPOCH && mBeginTime == 0);
+  return NS_OK;
 }
 
 /* attribute PRTime endTime; */
@@ -3381,16 +3442,26 @@ NS_IMETHODIMP nsNavHistoryQuery::SetEndTime(PRTime aEndTime)
   mEndTime = aEndTime;
   return NS_OK;
 }
-NS_IMETHODIMP nsNavHistoryQuery::GetHasEndTime(PRBool* _retval)
+
+/* attribute long endTimeReference; */
+NS_IMETHODIMP nsNavHistoryQuery::GetEndTimeReference(PRUint32* _retval)
 {
-  *_retval = (mEndTime > 0);
+  *_retval = mEndTimeReference;
   return NS_OK;
 }
-NS_IMETHODIMP nsNavHistoryQuery::SetEndDate(PRInt32 year, PRInt32 month,
-                                            PRInt32 day)
+NS_IMETHODIMP nsNavHistoryQuery::SetEndTimeReference(PRUint32 aReference)
 {
-  // FIXME
-  return NS_ERROR_NOT_IMPLEMENTED;
+  if (aReference > TIME_RELATIVE_NOW)
+    return NS_ERROR_INVALID_ARG;
+  mEndTimeReference = aReference;
+  return NS_OK;
+}
+
+/* readonly attribute boolean hasEndTime; */
+NS_IMETHODIMP nsNavHistoryQuery::GetHasEndTime(PRBool* _retval)
+{
+  *_retval = ! (mEndTimeReference == TIME_RELATIVE_EPOCH && mEndTime == 0);
+  return NS_OK;
 }
 
 /* attribute string searchTerms; */
@@ -3451,1122 +3522,142 @@ NS_IMETHODIMP nsNavHistoryQuery::GetHasDomain(PRBool* _retval)
   return NS_OK;
 }
 
-
-// nsNavHistoryResult **********************************************************
-
-NS_IMPL_ISUPPORTS2(nsNavHistoryResult,
-                   nsINavHistoryResult,
-                   nsITreeView)
-
-
-// nsNavHistoryResult::nsNavHistoryResult
-
-nsNavHistoryResult::nsNavHistoryResult(nsNavHistory* aHistoryService,
-                                       nsIStringBundle* aHistoryBundle)
-  : mBundle(aHistoryBundle), mHistoryService(aHistoryService),
-    mCollapseDuplicates(PR_TRUE),
-    mTimesIncludeDates(PR_TRUE), mCurrentSort(nsNavHistory::SORT_BY_NONE)
+NS_IMETHODIMP nsNavHistoryQuery::GetFolders(PRUint32 *aCount,
+                                            PRInt64 **aFolders)
 {
+  PRUint32 count = mFolders.Length();
+  PRInt64 *folders = nsnull;
+  if (count > 0) {
+    folders = NS_STATIC_CAST(PRInt64*,
+                             nsMemory::Alloc(count * sizeof(PRInt64)));
+    NS_ENSURE_TRUE(folders, NS_ERROR_OUT_OF_MEMORY);
+
+    for (PRUint32 i = 0; i < count; ++i) {
+      folders[i] = mFolders[i];
+    }
+  }
+  *aCount = count;
+  *aFolders = folders;
+  return NS_OK;
 }
 
-// nsNavHistoryResult::~nsNavHistoryResult
-
-nsNavHistoryResult::~nsNavHistoryResult()
+NS_IMETHODIMP nsNavHistoryQuery::GetFolderCount(PRUint32 *aCount)
 {
+  *aCount = mFolders.Length();
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsNavHistoryQuery::SetFolders(const PRInt64 *aFolders,
+                                            PRUint32 aFolderCount)
+{
+  if (!mFolders.ReplaceElementsAt(0, mFolders.Length(),
+                                  aFolders, aFolderCount)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsNavHistoryQuery::GetItemTypes(PRUint32 *aTypes)
+{
+  *aTypes = mItemTypes;
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsNavHistoryQuery::SetItemTypes(PRUint32 aTypes)
+{
+  mItemTypes = aTypes;
+  return NS_OK;
+}
+
+NS_IMETHODIMP nsNavHistoryQuery::Clone(nsINavHistoryQuery** _retval)
+{
+  *_retval = nsnull;
+
+  nsNavHistoryQuery *clone = new nsNavHistoryQuery(*this);
+  NS_ENSURE_TRUE(clone, NS_ERROR_OUT_OF_MEMORY);
+
+  clone->mRefCnt = 0; // the clone doesn't inherit our refcount
+  NS_ADDREF(*_retval = clone);
+  return NS_OK;
 }
 
 
-// nsNavHistoryResult::Init
+// nsNavHistoryQueryOptions
+NS_IMPL_ISUPPORTS2(nsNavHistoryQueryOptions, nsNavHistoryQueryOptions, nsINavHistoryQueryOptions)
+
+NS_IMETHODIMP
+nsNavHistoryQueryOptions::SetGroupingMode(const PRInt32 *aGroupingMode,
+                                          PRUint32 aGroupCount)
+{
+  delete[] mGroupings;
+  mGroupCount = 0;
+
+  mGroupings = new PRInt32[aGroupCount];
+  NS_ENSURE_TRUE(mGroupings, NS_ERROR_OUT_OF_MEMORY);
+
+  for (PRUint32 i = 0; i < aGroupCount; ++i) {
+    mGroupings[i] = aGroupingMode[i];
+  }
+
+  mGroupCount = aGroupCount;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavHistoryQueryOptions::SetSortingMode(PRInt32 aMode)
+{
+  mSort = aMode;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavHistoryQueryOptions::SetResultType(PRInt32 aType)
+{
+  mResultType = aType;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavHistoryQueryOptions::SetExpandPlaces(PRBool aExpand)
+{
+  mExpandPlaces = aExpand;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavHistoryQueryOptions::Clone(nsINavHistoryQueryOptions** aResult)
+{
+  nsNavHistoryQueryOptions *clone = nsnull;
+  nsresult rv = Clone(&clone);
+  *aResult = clone;
+  return rv;
+}
 
 nsresult
-nsNavHistoryResult::Init()
+nsNavHistoryQueryOptions::Clone(nsNavHistoryQueryOptions **aResult)
 {
-  nsresult rv;
-  nsCOMPtr<nsILocaleService> ls = do_GetService(NS_LOCALESERVICE_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
+  *aResult = nsnull;
+  nsNavHistoryQueryOptions *result = new nsNavHistoryQueryOptions();
+  if (! result)
+    return NS_ERROR_OUT_OF_MEMORY;
 
-  rv = ls->GetApplicationLocale(getter_AddRefs(mLocale));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // collation service for sorting
-  static NS_DEFINE_CID(kCollationFactoryCID, NS_COLLATIONFACTORY_CID);
-  nsCOMPtr<nsICollationFactory> cfact = do_CreateInstance(
-     kCollationFactoryCID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-  cfact->CreateCollation(mLocale, getter_AddRefs(mCollation));
-
-  // date time formatting
-  static NS_DEFINE_CID(kDateTimeFormatCID, NS_DATETIMEFORMAT_CID);
-  mDateFormatter = do_CreateInstance(kDateTimeFormatCID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::FilledAllResults
-
-void
-nsNavHistoryResult::FilledAllResults()
-{
-  for (PRInt32 i = 0; i < mTopLevelElements.Count(); i ++) {
-    mTopLevelElements[i]->mParent = nsnull;
-    FillTreeStats(mTopLevelElements[i], 0);
-  }
-  RebuildAllListRecurse(mTopLevelElements);
-  InitializeVisibleList();
-}
-
-
-// nsNavHistoryResult::GetTopLevelNodeCount
-
-NS_IMETHODIMP nsNavHistoryResult::GetTopLevelNodeCount(PRInt32* aCount)
-{
-  *aCount = mTopLevelElements.Count();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::GetTopLevelNode
-
-NS_IMETHODIMP nsNavHistoryResult::GetTopLevelNode(PRInt32 aIndex,
-                                               nsINavHistoryResultNode** _retval)
-{
-  if (aIndex < 0 || aIndex >= mTopLevelElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  *_retval = mTopLevelElements[aIndex];
-  NS_ADDREF(*_retval);
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::GetTopLevel
-
-NS_IMETHODIMP
-nsNavHistoryResult::GetTopLevel(nsIArray** aTopLevel)
-{
-  nsCOMPtr<nsIMutableArray> mutableArray;
-  nsresult rv = NS_NewArray(getter_AddRefs(mutableArray), mTopLevelElements);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  *aTopLevel = mutableArray;
-  NS_ADDREF(*aTopLevel);
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::RecursiveSort
-
-NS_IMETHODIMP
-nsNavHistoryResult::RecursiveSort(PRUint32 aSortingMode)
-{
-  if (aSortingMode > nsNavHistory::SORT_BY_VISITCOUNT_DESCENDING)
-    return NS_ERROR_INVALID_ARG;
-
-  mCurrentSort = aSortingMode;
-  RecursiveSortArray(mTopLevelElements, aSortingMode);
-
-  // This sorting function is called from two contexts. First, when everything
-  // is being built, executeQueries will do a sort and then call
-  // FilledAllResults to build up all the bookkeeping. In this case, we don't
-  // need to do anything more since everything will be built later.
-  //
-  // Second, anybody can call this function to cause a resort. In this case,
-  // we need to rebuild the visible element lists and notify the tree box object
-  // of the change. The way to disambiguate these cases is whether the flatted
-  // mAllElements list has been generated yet.
-  if (mAllElements.Count() > 0)
-    RebuildList();
-
-  // update the UI on the tree columns
-  if (mTree)
-    SetTreeSortingIndicator();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::Get/SetTimesIncludeDates
-
-NS_IMETHODIMP nsNavHistoryResult::SetTimesIncludeDates(PRBool aValue)
-{
-  mTimesIncludeDates = aValue;
-  return NS_OK;
-}
-NS_IMETHODIMP nsNavHistoryResult::GetTimesIncludeDates(PRBool* aValue)
-{
-  *aValue = mTimesIncludeDates;
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::Get/SetCollapseDuplicates
-
-NS_IMETHODIMP nsNavHistoryResult::SetCollapseDuplicates(PRBool aValue)
-{
-  PRBool oldValue = mCollapseDuplicates;
-  mCollapseDuplicates = aValue;
-  if (oldValue != mCollapseDuplicates && mAllElements.Count() > 0)
-    RebuildList();
-  return NS_OK;
-}
-NS_IMETHODIMP nsNavHistoryResult::GetCollapseDuplicates(PRBool* aValue)
-{
-  *aValue = mCollapseDuplicates;
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::RecursiveSortArray
-
-void
-nsNavHistoryResult::RecursiveSortArray(
-    nsCOMArray<nsNavHistoryResultNode>& aSources, PRUint32 aSortingMode)
-{
-  switch (aSortingMode)
-  {
-    case nsNavHistory::SORT_BY_NONE:
-      break;
-    case nsNavHistory::SORT_BY_TITLE_ASCENDING:
-      aSources.Sort(SortComparison_TitleLess, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_TITLE_DESCENDING:
-      aSources.Sort(SortComparison_TitleGreater, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_DATE_ASCENDING:
-      aSources.Sort(SortComparison_DateLess, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_DATE_DESCENDING:
-      aSources.Sort(SortComparison_DateGreater, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_URL_ASCENDING:
-      aSources.Sort(SortComparison_URLLess, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_URL_DESCENDING:
-      aSources.Sort(SortComparison_URLGreater, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_VISITCOUNT_ASCENDING:
-      aSources.Sort(SortComparison_VisitCountLess, NS_STATIC_CAST(void*, this));
-      break;
-    case nsNavHistory::SORT_BY_VISITCOUNT_DESCENDING:
-      aSources.Sort(SortComparison_VisitCountGreater, NS_STATIC_CAST(void*, this));
-      break;
-    default:
-      NS_NOTREACHED("Bad sorting type");
-      break;
-  }
-
-  // sort any children
-  for (PRInt32 i = 0; i < aSources.Count(); i ++) {
-    if (aSources[i]->mChildren.Count() > 0)
-      RecursiveSortArray(aSources[i]->mChildren, aSortingMode);
-  }
-}
-
-
-// nsNavHistoryResult::ApplyTreeState
-//
-
-void nsNavHistoryResult::ApplyTreeState(
-    const nsDataHashtable<nsStringHashKey, int>& aExpanded)
-{
-  RecursiveApplyTreeState(mTopLevelElements, aExpanded);
-
-  // If the list has been build yet, we need to redo the visible list.
-  // Normally, this function is called during object creation, and we don't
-  // need to worry about the list of visible nodes.
-  if (mAllElements.Count() > 0)
-    RebuildList();
-}
-
-
-// nsNavHistoryResult::RecursiveApplyTreeState
-//
-//    See ApplyTreeState
-
-void
-nsNavHistoryResult::RecursiveApplyTreeState(
-    nsCOMArray<nsNavHistoryResultNode>& aList,
-    const nsDataHashtable<nsStringHashKey, int>& aExpanded)
-{
-  for (PRInt32 i = 0; i < aList.Count(); i ++) {
-    if (aList[i]->mChildren.Count()) {
-      PRInt32 beenExpanded = 0;
-      if (aExpanded.Get(aList[i]->mTitle, &beenExpanded) && beenExpanded)
-        aList[i]->mExpanded = PR_TRUE;
-      else
-        aList[i]->mExpanded = PR_FALSE;
-      RecursiveApplyTreeState(aList[i]->mChildren, aExpanded);
+  nsRefPtr<nsNavHistoryQueryOptions> resultHolder(result);
+  result->mSort = mSort;
+  result->mResultType = mResultType;
+  result->mGroupCount = mGroupCount;
+  if (mGroupCount) {
+    result->mGroupings = new PRInt32[mGroupCount];
+    if (! result->mGroupings) {
+      return NS_ERROR_OUT_OF_MEMORY;
     }
-  }
-}
-
-
-// nsNavHistoryResult::ExpandAll
-
-NS_IMETHODIMP
-nsNavHistoryResult::ExpandAll()
-{
-  RecursiveExpandCollapse(mTopLevelElements, PR_TRUE);
-  RebuildList();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::CollapseAll
-
-NS_IMETHODIMP
-nsNavHistoryResult::CollapseAll()
-{
-  RecursiveExpandCollapse(mTopLevelElements, PR_FALSE);
-  RebuildList();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::RecursiveExpandCollapse
-//
-//    aExpand = true  -> expand all
-//    aExpand = false -> collapse all
-
-void
-nsNavHistoryResult::RecursiveExpandCollapse(
-    nsCOMArray<nsNavHistoryResultNode>& aList, PRBool aExpand)
-{
-  for (PRInt32 i = 0; i < aList.Count(); i ++) {
-    if (aList[i]->mChildren.Count()) {
-      aList[i]->mExpanded = aExpand;
-      RecursiveExpandCollapse(aList[i]->mChildren, aExpand);
-    }
-  }
-}
-
-
-// nsNavHistoryResult::NodeForTreeIndex
-
-NS_IMETHODIMP
-nsNavHistoryResult::NodeForTreeIndex(PRUint32 index,
-                                     nsINavHistoryResultNode** aResult)
-{
-  if (index >= (PRUint32)mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  *aResult = VisibleElementAt(index);
-  (*aResult)->AddRef();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::SetTreeSortingIndicator
-//
-//    This is called to assign the correct arrow to the column header. It is
-//    called both when you resort, and when a tree is first attached (to
-//    initialize it's headers).
-
-void
-nsNavHistoryResult::SetTreeSortingIndicator()
-{
-  nsCOMPtr<nsITreeColumns> columns;
-  nsresult rv = mTree->GetColumns(getter_AddRefs(columns));
-  if (NS_FAILED(rv)) return;
-
-  NS_NAMED_LITERAL_STRING(sortDirectionKey, "sortDirection");
-
-  // clear old sorting indicator. Watch out: GetSortedColumn returns NS_OK
-  // but null element if there is no sorted element
-  nsCOMPtr<nsITreeColumn> column;
-  rv = columns->GetSortedColumn(getter_AddRefs(column));
-  if (NS_FAILED(rv)) return;
-  if (column) {
-    nsCOMPtr<nsIDOMElement> element;
-    rv = column->GetElement(getter_AddRefs(element));
-    if (NS_FAILED(rv)) return;
-    element->SetAttribute(sortDirectionKey, NS_LITERAL_STRING(""));
-  }
-
-  // set new sorting indicator by looking through all columns for ours
-  if (mCurrentSort == nsNavHistory::SORT_BY_NONE)
-    return;
-  PRBool desiredIsDescending;
-  ColumnType desiredColumn = SortTypeToColumnType(mCurrentSort,
-                                                  &desiredIsDescending);
-  PRInt32 colCount;
-  rv = columns->GetCount(&colCount);
-  if (NS_FAILED(rv)) return;
-  for (PRInt32 i = 0; i < colCount; i ++) {
-    columns->GetColumnAt(i, getter_AddRefs(column));
-    if (NS_FAILED(rv)) return;
-    if (GetColumnType(column) == desiredColumn) {
-      // found our desired one, set
-      nsCOMPtr<nsIDOMElement> element;
-      rv = column->GetElement(getter_AddRefs(element));
-      if (NS_FAILED(rv)) return;
-      if (desiredIsDescending)
-        element->SetAttribute(sortDirectionKey, NS_LITERAL_STRING("descending"));
-      else
-        element->SetAttribute(sortDirectionKey, NS_LITERAL_STRING("ascending"));
-      break;
-    }
-  }
-}
-
-
-// nsNavHistoryResult::SortComparison_Title*
-//
-//    These are a little more complicated because they do a localization
-//    conversion. If this is too slow, we can compute the sort keys once in
-//    advance, sort that array, and then reorder the real array accordingly.
-//    This would save some key generations.
-//
-//    The collation object must be allocated before sorting on title!
-
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_TitleLess(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  nsNavHistoryResult* result = NS_STATIC_CAST(nsNavHistoryResult*, closure);
-  PRInt32 value = -1; // default to returning "true" on failure
-  result->mCollation->CompareString(
-      nsICollation::kCollationCaseInSensitive, a->mTitle, b->mTitle, &value);
-  if (value == 0) {
-    // resolve by URL
-    value = a->mUrl.Compare(PromiseFlatCString(b->mUrl).get());
-    if (value == 0) {
-      // resolve by date
-      return ComparePRTime(a->mTime, b->mTime);
-    }
-  }
-  return value;
-}
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_TitleGreater(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  return -SortComparison_TitleLess(a, b, closure);
-}
-
-
-// nsNavHistoryResult::SortComparison_Date*
-//
-//    Don't bother doing conflict resolution. Since dates are stored in
-//    microseconds, it will be very difficult to get collisions. This would be
-//    most likely for imported history, which I'm not too worried about.
-
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_DateLess(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  return ComparePRTime(a->mTime, b->mTime);
-}
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_DateGreater(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  return -ComparePRTime(a->mTime, b->mTime);
-}
-
-
-// nsNavHistoryResult::SortComparison_URL*
-//
-//    Certain types of parent nodes are treated specially because URLs are not
-//    meaningful.
-
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_URLLess(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  if (a->mType != b->mType) {
-    // we really shouldn't be comparing different row types
-    NS_NOTREACHED("Comparing different row types!");
-    return 0;
-  }
-
-  PRInt32 value;
-  if (a->mType == nsINavHistoryResultNode::RESULT_TYPE_HOST) {
-    // for host nodes, use title (= host name)
-    nsNavHistoryResult* result = NS_STATIC_CAST(nsNavHistoryResult*, closure);
-    result->mCollation->CompareString(
-        nsICollation::kCollationCaseInSensitive, a->mTitle, b->mTitle, &value);
-  } else if (a->mType == nsINavHistoryResultNode::RESULT_TYPE_DAY) {
-    // date nodes use date (skip conflict resolution becuase it uses date too)
-    return ComparePRTime(a->mTime, b->mTime);
+    for (PRUint32 i = 0; i < mGroupCount; i ++)
+      result->mGroupings[i] = mGroupings[i];
   } else {
-    // normal URL or visit
-    value = a->mUrl.Compare(PromiseFlatCString(b->mUrl).get());
+    result->mGroupCount = nsnull;
   }
+  result->mExpandPlaces = mExpandPlaces;
 
-  // resolve conflicts using date
-  if (value == 0) {
-    return ComparePRTime(a->mTime, b->mTime);
-  }
-  return value;
-}
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_URLGreater(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  return -SortComparison_URLLess(a, b, closure);
-}
-
-
-// nsNavHistory::SortComparison_VisitCount*
-//
-//    Fall back on dates for conflict resolution
-
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_VisitCountLess(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  PRInt32 value = CompareIntegers(a->mAccessCount, b->mAccessCount);
-  if (value == 0)
-    return ComparePRTime(a->mTime, b->mTime);
-  return value;
-}
-PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_VisitCountGreater(
-    nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
-{
-  PRInt32 value = -CompareIntegers(a->mAccessCount, b->mAccessCount);
-  if (value == 0)
-    return -ComparePRTime(a->mTime, b->mTime);
-  return value;
-}
-
-
-// nsNavHistoryResult::FillTreeStats
-//
-//    This basically does a recursive depth-first traversal of the tree to fill
-//    in bookeeping information and statistics for parent nodes.
-
-void
-nsNavHistoryResult::FillTreeStats(nsNavHistoryResultNode* aResult, PRInt32 aLevel)
-{
-  aResult->mIndentLevel = aLevel;
-  if (aResult->mChildren.Count() > 0) {
-    PRInt32 totalAccessCount = 0;
-    PRTime mostRecentTime = 0;
-    for (PRInt32 i = 0; i < aResult->mChildren.Count(); i ++ ) {
-      nsNavHistoryResultNode* child = NS_STATIC_CAST(
-          nsNavHistoryResultNode*, aResult->mChildren[i]);
-
-      child->mParent = aResult;
-      FillTreeStats(aResult->mChildren[i], aLevel + 1);
-
-      totalAccessCount += child->mAccessCount;
-      if (LL_CMP(child->mTime, >, mostRecentTime))
-        mostRecentTime = child->mTime;
-    }
-
-    // when there are children, the parent is the aggregate of its children
-    aResult->mAccessCount = totalAccessCount;
-    aResult->mTime = mostRecentTime;
-  }
-}
-
-
-// nsNavHistoryResult::InitializeVisibleList
-
-void
-nsNavHistoryResult::InitializeVisibleList()
-{
-  NS_ASSERTION(mVisibleElements.Count() == 0, "Initializing visible list twice");
-
-  // Fill the visible element list and notify those elements of their new
-  // positions. We fill directly into the result list, so we need to manually
-  // set the visible indices on those elements (normally this is done by
-  // InsertVisibleSection)
-  BuildVisibleSection(mTopLevelElements, &mVisibleElements);
-  for (PRInt32 i = 0; i < mVisibleElements.Count(); i ++)
-    VisibleElementAt(i)->mVisibleIndex = i;
-}
-
-
-// nsNavHistoryResult::RebuildList
-//
-//    Called when something big changes, like sorting. This rebuilds the
-//    flat and visible element lists using the current toplevel array.
-
-void
-nsNavHistoryResult::RebuildList()
-{
-  PRInt32 oldVisibleCount = mVisibleElements.Count();
-
-  mAllElements.Clear();
-  mVisibleElements.Clear();
-  RebuildAllListRecurse(mTopLevelElements);
-  InitializeVisibleList();
-
-  // We need to update the tree to tell it about the new list
-  if (mTree) {
-    if (mVisibleElements.Count() != oldVisibleCount)
-      mTree->RowCountChanged(0, mVisibleElements.Count() - oldVisibleCount);
-    mTree->InvalidateRange(0, mVisibleElements.Count());
-  }
-}
-
-
-// nsNavHistoryResult::RebuildAllListRecurse
-//
-//    Does the work for RebuildList in generating the new mAllElements list
-
-void
-nsNavHistoryResult::RebuildAllListRecurse(
-    const nsCOMArray<nsNavHistoryResultNode>& aSource)
-{
-  for (PRInt32 i = 0; i < aSource.Count(); i ++) {
-    PRUint32 allCount = mAllElements.Count();
-    if (mCollapseDuplicates && allCount > 0 && aSource[i]->mID != 0 &&
-        AllElementAt(allCount - 1)->mID == aSource[i]->mID) {
-      // ignore duplicate, that elements' flat index is the index of its dup
-      // note, we don't collapse ID=0 elements since that is all parent nodes
-      aSource[i]->mFlatIndex = allCount - 1;
-    } else {
-      aSource[i]->mFlatIndex = mAllElements.Count();
-      mAllElements.AppendElement(aSource[i]);
-      if (aSource[i]->mChildren.Count() > 0)
-        RebuildAllListRecurse(aSource[i]->mChildren);
-    }
-  }
-}
-
-// nsNavHistoryResult::BuildVisibleSection
-//
-//    This takes all nodes in the given source array and recursively (when
-//    containers are open) appends them to the flattened visible result array.
-//    This is used when expanding folders and in initially building the
-//    visible array list.
-//
-//    This will also collapse duplicate elements. As long as this is called for
-//    an entire subtree, it is OK, since duplicate elements should not
-//    occur next to each other at different levels of the tree.
-
-void
-nsNavHistoryResult::BuildVisibleSection(
-    const nsCOMArray<nsNavHistoryResultNode>& aSources, nsVoidArray* aVisible)
-{
-  for (PRInt32 i = 0; i < aSources.Count(); i ++) {
-    nsNavHistoryResultNode* cur = aSources[i];
-    if (mCollapseDuplicates && aVisible->Count() > 0 && aSources[i]->mID != 0) {
-      nsNavHistoryResultNode* prev =
-        (nsNavHistoryResultNode*)(*aVisible)[aVisible->Count() - 1];
-      if (prev->mID == cur->mID)
-        continue; // collapse duplicate
-    }
-
-    aVisible->AppendElement(cur);
-    if (cur->mChildren.Count() > 0 && cur->mExpanded)
-      BuildVisibleSection(cur->mChildren, aVisible);
-  }
-}
-
-
-// nsNavHistoryResult::InsertVisibleSection
-//
-//    This takes a list of items (probably generated by BuildVisibleSection)
-//    and inserts it into the visible element list, updating those elements as
-//    needed. This is used when expanding the tree.
-
-void
-nsNavHistoryResult::InsertVisibleSection(const nsVoidArray& aAddition,
-                                         PRInt32 aInsertHere)
-{
-  NS_ASSERTION(aInsertHere >= 0 && aInsertHere <= mVisibleElements.Count(),
-               "Invalid insertion point");
-  mVisibleElements.InsertElementsAt(aAddition, aInsertHere);
-
-  // we need to update all the elements from the insertion point to the end
-  // of the list of their new indices
-  for (PRInt32 i = aInsertHere; i < mVisibleElements.Count(); i ++)
-    VisibleElementAt(i)->mVisibleIndex = i;
-}
-
-
-// nsNavHistoryResult::DeleteVisibleChildrenOf
-//
-//    This is called when an element is collapsed. We search for all elements
-//    that are at a greater level of indent and remove them from the visible
-//    element list. Returns the number of rows deleted
-
-int
-nsNavHistoryResult::DeleteVisibleChildrenOf(PRInt32 aIndex)
-{
-  NS_ASSERTION(aIndex >= 0 && aIndex < mVisibleElements.Count(),
-               "Index out of bounds");
-
-  const nsNavHistoryResultNode* parentNode = VisibleElementAt(aIndex);
-  NS_ASSERTION(parentNode->mChildren.Count() > 0 && parentNode->mExpanded,
-               "Trying to collapse an improper node");
-
-  // compute the index of the element just after the end of the deleted region
-  PRInt32 outerLevel = parentNode->mIndentLevel;
-  PRInt32 nextOuterIndex = mVisibleElements.Count();
-  PRInt32 i;
-  for (i = aIndex + 1; i < mVisibleElements.Count(); i ++) {
-    if (VisibleElementAt(i)->mIndentLevel <= outerLevel) {
-      nextOuterIndex = i;
-      break;
-    }
-  }
-
-  // Mark those elements as invisible and remove them.
-  for (i = aIndex + 1; i < nextOuterIndex; i ++)
-    VisibleElementAt(i)->mVisibleIndex = -1;
-  PRInt32 deleteCount = nextOuterIndex - aIndex - 1;
-  mVisibleElements.RemoveElementsAt(aIndex + 1, deleteCount);
-
-  // re-number the moved elements
-  for (i = aIndex + 1; i < mVisibleElements.Count(); i ++)
-    VisibleElementAt(i)->mVisibleIndex = i;
-
-  return deleteCount;
-}
-
-
-// nsNavHistoryResult::GetRowCount (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::GetRowCount(PRInt32 *aRowCount)
-{
-  *aRowCount = mVisibleElements.Count();
+  resultHolder.swap(*aResult);
   return NS_OK;
-}
-
-
-// nsNavHistoryResult::Get/SetSelection (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::GetSelection(nsITreeSelection** aSelection)
-{
-  if (! mSelection) {
-    *aSelection = nsnull;
-    return NS_ERROR_FAILURE;
-  }
-  *aSelection = mSelection;
-  (*aSelection)->AddRef();
-  return NS_OK;
-}
-NS_IMETHODIMP nsNavHistoryResult::SetSelection(nsITreeSelection* aSelection)
-{
-  mSelection = aSelection;
-  return NS_OK;
-}
-
-/* void getRowProperties (in long index, in nsISupportsArray properties); */
-NS_IMETHODIMP nsNavHistoryResult::GetRowProperties(PRInt32 index, nsISupportsArray *properties)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void getCellProperties (in long row, in nsITreeColumn col, in nsISupportsArray properties); */
-NS_IMETHODIMP nsNavHistoryResult::GetCellProperties(PRInt32 row, nsITreeColumn *col, nsISupportsArray *properties)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void getColumnProperties (in nsITreeColumn col, in nsISupportsArray properties); */
-NS_IMETHODIMP nsNavHistoryResult::GetColumnProperties(nsITreeColumn *col, nsISupportsArray *properties)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-
-// nsNavHistoryResult::IsContainer (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::IsContainer(PRInt32 index, PRBool *_retval)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  *_retval = (VisibleElementAt(index)->mChildren.Count() > 0);
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::IsContainerOpen (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::IsContainerOpen(PRInt32 index, PRBool *_retval)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  *_retval = VisibleElementAt(index)->mExpanded;
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::IsContainerEmpty (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::IsContainerEmpty(PRInt32 index, PRBool *_retval)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  *_retval = (VisibleElementAt(index)->mChildren.Count() == 0);
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::IsSeparator (nsITreeView)
-//
-//    We don't support separators
-
-NS_IMETHODIMP nsNavHistoryResult::IsSeparator(PRInt32 index, PRBool *_retval)
-{
-  *_retval = PR_FALSE;
-  return NS_OK;
-}
-
-/* boolean isSorted (); */
-NS_IMETHODIMP nsNavHistoryResult::IsSorted(PRBool *_retval)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-
-// nsNavHistoryResult::CanDrop (nsITreeView)
-//
-//    No drag-and-drop to history.
-
-NS_IMETHODIMP nsNavHistoryResult::CanDrop(PRInt32 index, PRInt32 orientation,
-                                          PRBool *_retval)
-{
-  *_retval = PR_FALSE;
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::Drop (nsITreeView)
-//
-//    No drag-and-drop to history.
-
-NS_IMETHODIMP nsNavHistoryResult::Drop(PRInt32 row, PRInt32 orientation)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-
-// nsNavHistoryResult::GetParentIndex (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::GetParentIndex(PRInt32 index, PRInt32 *_retval)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  nsNavHistoryResultNode* parent = VisibleElementAt(index)->mParent;
-  if (!parent || parent->mVisibleIndex < 0)
-    *_retval = -1;
-  else
-    *_retval = parent->mVisibleIndex;
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::HasNextSibling (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::HasNextSibling(PRInt32 index,
-                                                 PRInt32 afterIndex,
-                                                 PRBool *_retval)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  if (index == mVisibleElements.Count() - 1) {
-    // this is the last thing in the list -> no next sibling
-    *_retval = PR_FALSE;
-    return NS_OK;
-  }
-  *_retval = (VisibleElementAt(index)->mIndentLevel ==
-              VisibleElementAt(index + 1)->mIndentLevel);
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::GetLevel (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::GetLevel(PRInt32 index, PRInt32 *_retval)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  *_retval = ((nsNavHistoryResultNode*)mVisibleElements[index])->mIndentLevel;
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::GetImageSrc (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::GetImageSrc(PRInt32 row, nsITreeColumn *col,
-                                              nsAString& _retval)
-{
-  _retval.Truncate(0);
-  return NS_OK;
-}
-
-/* long getProgressMode (in long row, in nsITreeColumn col); */
-NS_IMETHODIMP nsNavHistoryResult::GetProgressMode(PRInt32 row, nsITreeColumn *col, PRInt32 *_retval)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* AString getCellValue (in long row, in nsITreeColumn col); */
-NS_IMETHODIMP nsNavHistoryResult::GetCellValue(PRInt32 row, nsITreeColumn *col, nsAString & _retval)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-
-// nsNavHistoryResult::GetCellText (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::GetCellText(PRInt32 rowIndex,
-                                              nsITreeColumn *col,
-                                              nsAString& _retval)
-{
-  if (rowIndex < 0 || rowIndex >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  PRInt32 colIndex;
-  col->GetIndex(&colIndex);
-
-  nsNavHistoryResultNode* elt = VisibleElementAt(rowIndex);
-
-  switch (GetColumnType(col)) {
-    case Column_Title:
-    {
-      // title: normally, this is just the title, but we don't want empty
-      // items in the tree view so return a special string if the title is
-      // empty. Do it here so that callers can still get at the 0 length title
-      // if they go through the "result" API.
-      if (! elt->mTitle.IsEmpty()) {
-        _retval = elt->mTitle;
-      } else {
-        nsXPIDLString value;
-        nsresult rv = mBundle->GetStringFromName(
-            NS_LITERAL_STRING("noTitle").get(), getter_Copies(value));
-        NS_ENSURE_SUCCESS(rv, rv);
-        _retval = value;
-      }
-      break;
-    }
-    case Column_URL:
-    {
-      _retval = NS_ConvertUTF8toUTF16(elt->mUrl);
-      break;
-    }
-    case Column_Date:
-    {
-      if (elt->mType == nsINavHistoryResultNode::RESULT_TYPE_HOST ||
-          elt->mType == nsINavHistoryResultNode::RESULT_TYPE_DAY) {
-        // hosts and days shouldn't have a value for the date column. Actually,
-        // you could argue this point, but looking at the results, seeing the
-        // most recently visited date is not what I expect, and gives me no
-        // information I know how to use.
-        _retval.Truncate(0);
-      } else {
-        nsDateFormatSelector dateFormat;
-        if (mTimesIncludeDates)
-          dateFormat = nsIScriptableDateFormat::dateFormatShort;
-        else
-          dateFormat = nsIScriptableDateFormat::dateFormatNone;
-        nsAutoString realString; // stupid function won't take an nsAString
-        mDateFormatter->FormatPRTime(mLocale, dateFormat,
-                                     nsIScriptableDateFormat::timeFormatNoSeconds,
-                                     elt->mTime, realString);
-        _retval = realString;
-      }
-      break;
-    }
-    case Column_VisitCount:
-    {
-      _retval = NS_ConvertUTF8toUTF16(nsPrintfCString("%d", elt->mAccessCount));
-      break;
-    }
-    default:
-      return NS_ERROR_INVALID_ARG;
-  }
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::SetTree (nsITreeView)
-//
-//    This will get called when this view is attached to the tree to tell us
-//    the box object, AND when the tree is being destroyed, with NULL.
-
-NS_IMETHODIMP nsNavHistoryResult::SetTree(nsITreeBoxObject *tree)
-{
-  mTree = tree;
-  if (mTree) // might be a NULL tree
-    SetTreeSortingIndicator();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::ToggleOpenState (nsITreeView)
-
-NS_IMETHODIMP nsNavHistoryResult::ToggleOpenState(PRInt32 index)
-{
-  if (index < 0 || index >= mVisibleElements.Count())
-    return NS_ERROR_INVALID_ARG;
-  nsNavHistoryResultNode* curNode = VisibleElementAt(index);
-  if (curNode->mExpanded) {
-    // collapse
-    PRInt32 deleteCount = DeleteVisibleChildrenOf(index);
-    curNode->mExpanded = PR_FALSE;
-    if (mTree)
-      mTree->RowCountChanged(index + 1, -deleteCount);
-
-    mHistoryService->SaveCollapseItem(curNode->mTitle);
-  } else {
-    // expand
-    nsVoidArray addition;
-    BuildVisibleSection(curNode->mChildren, &addition);
-    InsertVisibleSection(addition, index + 1);
-
-    curNode->mExpanded = PR_TRUE;
-    if (mTree)
-      mTree->RowCountChanged(index + 1, addition.Count());
-
-    mHistoryService->SaveExpandItem(curNode->mTitle);
-  }
-  /* Maybe we don't need this (test me)
-  if (mTree)
-    mTree->InvalidateRow(index);
-  */
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::CycleHeader (nsITreeView)
-//
-//    If we already sorted by that column, the sorting is reversed, otherwise
-//    we use the default sorting direction for that data type.
-
-NS_IMETHODIMP nsNavHistoryResult::CycleHeader(nsITreeColumn *col)
-{
-  PRInt32 colIndex;
-  col->GetIndex(&colIndex);
-
-  PRInt32 newSort;
-  switch (GetColumnType(col)) {
-    case Column_Title:
-      if (mCurrentSort == nsNavHistory::SORT_BY_TITLE_ASCENDING)
-        newSort = nsNavHistory::SORT_BY_TITLE_DESCENDING;
-      else
-        newSort = nsNavHistory::SORT_BY_TITLE_ASCENDING;
-      break;
-    case Column_URL:
-      if (mCurrentSort == nsNavHistory::SORT_BY_URL_ASCENDING)
-        newSort = nsNavHistory::SORT_BY_URL_DESCENDING;
-      else
-        newSort = nsNavHistory::SORT_BY_URL_ASCENDING;
-      break;
-    case Column_Date:
-      if (mCurrentSort == nsNavHistory::SORT_BY_DATE_ASCENDING)
-        newSort = nsNavHistory::SORT_BY_DATE_DESCENDING;
-      else
-        newSort = nsNavHistory::SORT_BY_DATE_ASCENDING;
-      break;
-    case Column_VisitCount:
-      // visit count default is unusual because it is descending
-      if (mCurrentSort == nsNavHistory::SORT_BY_VISITCOUNT_DESCENDING)
-        newSort = nsNavHistory::SORT_BY_VISITCOUNT_ASCENDING;
-      else
-        newSort = nsNavHistory::SORT_BY_VISITCOUNT_DESCENDING;
-      break;
-    default:
-      return NS_ERROR_INVALID_ARG;
-  }
-  return RecursiveSort(newSort);
-}
-
-/* void selectionChanged (); */
-NS_IMETHODIMP nsNavHistoryResult::SelectionChanged()
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void cycleCell (in long row, in nsITreeColumn col); */
-NS_IMETHODIMP nsNavHistoryResult::CycleCell(PRInt32 row, nsITreeColumn *col)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* boolean isEditable (in long row, in nsITreeColumn col); */
-NS_IMETHODIMP nsNavHistoryResult::IsEditable(PRInt32 row, nsITreeColumn *col, PRBool *_retval)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void setCellValue (in long row, in nsITreeColumn col, in AString value); */
-NS_IMETHODIMP nsNavHistoryResult::SetCellValue(PRInt32 row, nsITreeColumn *col, const nsAString & value)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void setCellText (in long row, in nsITreeColumn col, in AString value); */
-NS_IMETHODIMP nsNavHistoryResult::SetCellText(PRInt32 row, nsITreeColumn *col, const nsAString & value)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void performAction (in wstring action); */
-NS_IMETHODIMP nsNavHistoryResult::PerformAction(const PRUnichar *action)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void performActionOnRow (in wstring action, in long row); */
-NS_IMETHODIMP nsNavHistoryResult::PerformActionOnRow(const PRUnichar *action, PRInt32 row)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-/* void performActionOnCell (in wstring action, in long row, in nsITreeColumn col); */
-NS_IMETHODIMP nsNavHistoryResult::PerformActionOnCell(const PRUnichar *action, PRInt32 row, nsITreeColumn *col)
-{
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-
-// nsNavHistoryResult::GetColumnType
-//
-
-nsNavHistoryResult::ColumnType
-nsNavHistoryResult::GetColumnType(nsITreeColumn* col)
-{
-  const PRUnichar* idConst;
-  col->GetIdConst(&idConst);
-  switch(idConst[0]) {
-    case 't':
-      return Column_Title;
-    case 'u':
-      return Column_URL;
-    case 'd':
-      return Column_Date;
-    case 'v':
-      return Column_VisitCount;
-    default:
-      return Column_Unknown;
-  }
-}
-
-
-// nsNavHistoryResult::SortTypeToColumnType
-//
-//    Places whether its ascending or descending into the given
-//    boolean buffer
-
-nsNavHistoryResult::ColumnType
-nsNavHistoryResult::SortTypeToColumnType(PRUint32 aSortType,
-                                         PRBool* aDescending)
-{
-  switch(aSortType) {
-    case nsINavHistory::SORT_BY_TITLE_ASCENDING:
-      *aDescending = PR_FALSE;
-      return Column_Title;
-    case nsINavHistory::SORT_BY_TITLE_DESCENDING:
-      *aDescending = PR_TRUE;
-      return Column_Title;
-    case nsINavHistory::SORT_BY_DATE_ASCENDING:
-      *aDescending = PR_FALSE;
-      return Column_Date;
-    case nsINavHistory::SORT_BY_DATE_DESCENDING:
-      *aDescending = PR_TRUE;
-      return Column_Date;
-    case nsINavHistory::SORT_BY_URL_ASCENDING:
-      *aDescending = PR_FALSE;
-      return Column_URL;
-    case nsINavHistory::SORT_BY_URL_DESCENDING:
-      *aDescending = PR_TRUE;
-      return Column_URL;
-    case nsINavHistory::SORT_BY_VISITCOUNT_ASCENDING:
-      *aDescending = PR_FALSE;
-      return Column_VisitCount;
-    case nsINavHistory::SORT_BY_VISITCOUNT_DESCENDING:
-      *aDescending = PR_TRUE;
-      return Column_VisitCount;
-    default:
-      return Column_Unknown;
-  }
 }

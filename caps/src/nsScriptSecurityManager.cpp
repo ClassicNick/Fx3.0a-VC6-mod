@@ -68,7 +68,7 @@
 #include "nsIPluginInstance.h"
 #include "nsIXPConnect.h"
 #include "nsIScriptGlobalObject.h"
-#include "nsIDOMWindowInternal.h"
+#include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
 #include "nsIPrompt.h"
@@ -1305,6 +1305,7 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
         { "chrome",          ChromeProtocol },
         { "file",            PrefControlled },
         { "https",           AllowProtocol  },
+        { "moz-anno",        ChromeProtocol },
         { "mailbox",         DenyProtocol   },
         { "pop",             AllowProtocol  },
         { "imap",            DenyProtocol   },
@@ -1524,12 +1525,13 @@ nsScriptSecurityManager::GetRootDocShell(JSContext *cx, nsIDocShell **result)
     if (!scriptContext)
         return NS_ERROR_FAILURE;
 
-    nsIScriptGlobalObject *globalObject = scriptContext->GetGlobalObject();
-    if (!globalObject)
+    nsCOMPtr<nsPIDOMWindow> window =
+        do_QueryInterface(scriptContext->GetGlobalObject());
+    if (!window)
         return NS_ERROR_FAILURE;
 
     nsCOMPtr<nsIDocShellTreeItem> docshellTreeItem =
-        do_QueryInterface(globalObject->GetDocShell(), &rv);
+        do_QueryInterface(window->GetDocShell(), &rv);
     if (NS_FAILED(rv)) return rv;
 
     nsCOMPtr<nsIDocShellTreeItem> rootItem;
@@ -1556,12 +1558,25 @@ nsScriptSecurityManager::CanExecuteScripts(JSContext* cx,
     //-- See if the current window allows JS execution
     nsIScriptContext *scriptContext = GetScriptContext(cx);
     if (!scriptContext) return NS_ERROR_FAILURE;
-    nsIScriptGlobalObject *globalObject = scriptContext->GetGlobalObject();
-    if (!globalObject) return NS_ERROR_FAILURE;
+    nsIScriptGlobalObject *sgo = scriptContext->GetGlobalObject();
 
+    if (!sgo) {
+        return NS_ERROR_FAILURE;
+    }
+
+    // window can be null here if we're running with a non-DOM window
+    // as the script global (i.e. a XUL prototype document).
+    nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(sgo);
+    nsCOMPtr<nsIDocShell> docshell;
     nsresult rv;
-    nsCOMPtr<nsIDocShell> docshell = globalObject->GetDocShell();
-    nsCOMPtr<nsIDocShellTreeItem> globalObjTreeItem = do_QueryInterface(docshell);
+
+    if (window) {
+        docshell = window->GetDocShell();
+    }
+
+    nsCOMPtr<nsIDocShellTreeItem> globalObjTreeItem =
+        do_QueryInterface(docshell);
+
     if (globalObjTreeItem) 
     {
         nsCOMPtr<nsIDocShellTreeItem> treeItem(globalObjTreeItem);
@@ -2083,7 +2098,11 @@ nsScriptSecurityManager::GetObjectPrincipal(JSContext *aCx, JSObject *aObj,
 
 // static
 nsIPrincipal*
-nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj)
+nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj
+#ifdef DEBUG
+                                              , PRBool aAllowShortCircuit
+#endif
+                                              )
 {
     NS_ASSERTION(aCx && aObj, "Bad call to doGetObjectPrincipal()!");
     nsIPrincipal* result = nsnull;
@@ -2097,7 +2116,6 @@ nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj)
         {
             // No need to refcount |priv| here.
             nsISupports *priv = (nsISupports *)JS_GetPrivate(aCx, aObj);
-            nsCOMPtr<nsIScriptObjectPrincipal> objPrin;
 
             /*
              * If it's a wrapped native (as most
@@ -2107,16 +2125,37 @@ nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj)
             nsCOMPtr<nsIXPConnectWrappedNative> xpcWrapper =
                 do_QueryInterface(priv);
 
-            if (xpcWrapper)
+            if (NS_LIKELY(xpcWrapper != nsnull))
             {
-                objPrin = do_QueryWrappedNative(xpcWrapper);
+#ifdef DEBUG
+                if (aAllowShortCircuit)
+                {
+#endif
+                    result = xpcWrapper->GetObjectPrincipal();
+#ifdef DEBUG
+                }
+                else
+                {
+                    nsCOMPtr<nsIScriptObjectPrincipal> objPrin;
+                    objPrin = do_QueryWrappedNative(xpcWrapper);
+                    if (objPrin)
+                    {
+                        result = objPrin->GetPrincipal();
+                    }                    
+                }
+#endif
             }
             else
             {
+                nsCOMPtr<nsIScriptObjectPrincipal> objPrin;
                 objPrin = do_QueryInterface(priv);
+                if (objPrin)
+                {
+                    result = objPrin->GetPrincipal();
+                }
             }
 
-            if (objPrin && (result = objPrin->GetPrincipal()))
+            if (result)
             {
                 break;
             }
@@ -2125,6 +2164,10 @@ nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj)
         aObj = JS_GetParent(aCx, aObj);
     } while (aObj);
 
+    NS_ASSERTION(!aAllowShortCircuit ||
+                 result == doGetObjectPrincipal(aCx, aObj, PR_FALSE),
+                 "Principal mismatch.  Not good");
+    
     return result;
 }
 

@@ -50,7 +50,7 @@
  *      <script src="./mytest.js"></script>
  */
 
-var GLOBAL = "[object Window]";
+var GLOBAL = this + '';
 
 function writeLineToLog( string ) {
   document.write( string + "<br>\n");
@@ -93,8 +93,13 @@ function err( msg, page, line ) {
     testcase.passed = false;
     testcase.reason = "Error: " + msg + 
       " Source File: " + page + " Line: " + line + ".";
-    return
-      }
+    if (document.location.href.indexOf('-n.js') != -1)
+    {
+      // negative test
+      testcase.passed = true;
+    }
+    return;
+  }
 
   testcase = new TestCase(SECTION, DESCRIPTION, EXPECTED, "error");
   testcase.reason += "Error: " + msg + 

@@ -1,0 +1,273 @@
+<?xml version="1.0"?>
+
+<bindings id="placesToolbarBindings"
+          xmlns="http://www.mozilla.org/xbl"
+          xmlns:xbl="http://www.mozilla.org/xbl"
+          xmlns:html="http://www.w3.org/1999/xhtml"
+          xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+
+  <binding id="places-bar">
+    <implementation>
+      <constructor><![CDATA[ 
+        this._places = 
+          Cc["@mozilla.org/browser/nav-history;1"].
+          getService(Ci.nsINavHistory);
+        this._bms = 
+          Cc["@mozilla.org/browser/nav-bookmarks-service;1"].
+          getService(Ci.nsINavBookmarksService);
+          
+        this._bms.addObserver(this._observer);
+        this.init();
+      ]]></constructor>
+      
+      <destructor><![CDATA[ 
+        this._bms.removeObserver(this._observer);
+      ]]></destructor>
+      
+      <method name="init">
+        <body><![CDATA[
+        var query = this._places.getNewQuery();
+        query.setFolders([this._bms.toolbarRoot], 1);
+        var options = this._places.getNewQueryOptions();
+        options.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
+        this._result = this._places.executeQuery(query, options);
+        this._rebuild();
+        ]]></body>
+      </method>
+      
+      <field name="_selection">null</field>
+      
+      <field name="_result">null</field>
+      <method name="getResult">
+        <body><![CDATA[
+          return this._result;
+        ]]></body>
+      </method>
+      
+      <method name="_rebuild">
+        <body><![CDATA[ 
+          while (this.hasChildNodes())
+            this.removeChild(this.firstChild);
+          const XULNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
+          var cc = this._result.childCount;
+          for (var i = 0; i < cc; ++i) {
+            var child = this._result.getChild(i);
+            var button = document.createElementNS(XULNS, "toolbarbutton");
+            button.setAttribute("label", child.title);
+            if (PlacesController.nodeIsURL(child))
+              button.setAttribute("url", child.url)
+            else if (PlacesController.nodeIsFolder(child)) {
+              button.setAttribute("type", "menu");
+              button.setAttribute("container", "true");
+              var popup = document.createElementNS(XULNS, "menupopup");
+              popup.setAttribute("type", "places");
+              button.appendChild(popup);
+              popup.folderId = child.folderId;
+            }
+            button.className = "bookmark-item";
+            button.node = child;
+            this.appendChild(button);
+          }
+        ]]></body>
+      </method>
+      
+      <method name="load">
+        <parameter name="queries"/>
+        <parameter name="options"/>
+        <body><![CDATA[ 
+          this._result = this._places.executeQueries(queries, queries.length,
+                                                     options);
+          this._rebuild();
+        ]]></body>
+      </method>
+      
+      <property name="hasSelection">
+        <getter><![CDATA[ 
+          return this._selection != null;
+        ]]></getter>
+      </property>
+      
+      <property name="hasSingleSelection">
+        <getter><![CDATA[ 
+          return this.hasSelection;
+        ]]></getter>
+      </property>
+      
+      <method name="getSelectionNodes">
+        <body><![CDATA[
+          return this.hasSelection ? [this.selectedNode] : [];
+        ]]></body>
+      </method>
+      
+      <method name="getCopyableSelection">
+        <body><![CDATA[ 
+          return this.getSelectionNodes();
+        ]]></body>
+      </method>
+      
+      <property name="selectedNode">
+        <getter><![CDATA[ 
+          return this.hasSelection ? this._selection : null;
+        ]]></getter>
+      </property>
+      
+      <property name="selectedURLNode">
+        <getter><![CDATA[
+          var node = this.selectedNode;
+          return node && PlacesController.nodeIsURL(node) ? node : null;
+        ]]></getter>
+      </property>
+      
+      <property name="insertionPoint">
+        <getter><![CDATA[
+          // By default, the insertion point is at the top level, at the end. 
+          var index = -1;
+          var folderId = this._result.folderId;
+          
+          if (this.hasSelection) {
+            if(PlacesController.nodeIsFolder(this.selectedNode))
+              // If there is a folder selected, the insertion point is the
+              // end of the folder.
+              folderId = this.selectedNode.folderId;
+            else
+              // If there is another type of node selected, the insertion point
+              // is after that node.
+              index = PlacesController.getIndexOfNode(this.selectedNode)
+          }
+          return new InsertionPoint(folderId, index);
+        ]]></getter>
+      </property>
+      
+      <property name="browserWindow" onget="return window;"/>
+      
+      <field name="supportedDropTypes">
+        [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL]
+      </field>
+
+      <field name="supportedDropOnTypes">
+        [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL]
+      </field>
+      
+      <method name="selectAll">
+        <body><![CDATA[ 
+          // Nothing
+        ]]></body>
+      </method>
+      
+      <!-- nsINavBookmarkObserver -->
+      <field name="_observer"><![CDATA[({
+        _numBatches: 0,
+        _self: this,
+        onBeginUpdateBatch: function TB_O_onBeginUpdateBatch() {
+          ++this._numBatches;
+        },
+        onEndUpdateBatch: function TB_O_onEndUpdateBatch() {
+          if (!--this._numBatches)
+            this._self.init();
+        },
+        get wantAllDetails() { 
+          return false;
+        },
+        onItemAdded: function TB_O_onItemAdded(bookmark, folder, index) {
+          this._self.init();
+        },
+        onItemRemoved: function TB_O_onItemRemoved(bookmark, folder, index) {
+          this._self.init();
+        },
+        onItemMoved: function TB_O_onItemMoved(bookmark, folder, oldIndex, newIndex) {
+          this._self.init();
+        },
+        onItemChanged: function TB_O_onItemChanged(bookmark, property) {
+          this._self.init();
+        },
+        onFolderAdded: function TB_O_onFolderAdded(folder, parent, index) {
+          this._self.init();
+        },
+        onFolderRemoved: function TB_O_onFolderRemoved(folder, parent, index) {
+          this._self.init();
+        },
+        onFolderMoved: function TB_O_onFolderMoved(folder, oldParent, oldIndex, newParent, newIndex) {
+          this._self.init();
+        },
+        onFolderChanged: function TB_O_onFolderChanged(folder, property) {
+          this._self.init();
+        },
+      })]]></field>
+      <field name="_DNDObserver"><![CDATA[({
+        // XXXben ew.
+        _self: this,
+        onDragStart: function TBV_DO_onDragStart(event, xferData, dragAction) {
+          xferData.data = PlacesController.getTransferData();
+          // XXXben - the drag wrapper should do this automatically. 
+          if (event.ctrlKey)
+            dragAction.action = Ci.nsIDragService.DRAGDROP_ACTION_COPY;
+        },
+        
+        canDrop: function TBV_DO_canDrop(event, session) {
+          return PlacesControllerDragHelper.canDrop(this._self, -1);
+        },
+        onDragOver: function TBV_DO_onDragOver(event, flavor, session) {
+        },
+        onDrop: function TBV_DO_onDrop(event, dropData, session) {
+          var result = this._self.getResult();
+          var destContainer = result.folderId;
+          var destIndex = -1;
+          var orientation = 1;
+          if (event.target.localName == "toolbarbutton") {
+            if (PlacesController.nodeIsFolder(event.target.node)) {
+              destContainer = event.target.node.folderId;
+              destIndex = -1;
+              orientation = 0;
+            }
+            else {
+              destIndex = PlacesController.getIndexOfNode(event.target.node);
+              var bo = event.target.boxObject;
+              orientation = (event.screenX < bo.screenX + (bo.width / 2)) ? -1 : 1;
+              if (orientation == 1)
+                ++destIndex;
+            }
+          }
+          PlacesControllerDragHelper.onDrop(this._self, destContainer, 
+                                            destIndex, orientation);
+        },
+        getSupportedFlavours: function TBV_DO_getSupportedFlavours() {
+          var flavorSet = new FlavourSet();
+          for (var i = 0; i < this._self.supportedDropTypes.length; ++i)
+            flavorSet.appendFlavour(this._self.supportedDropTypes[i]);
+          return flavorSet;
+        },
+        
+      })]]></field>
+    </implementation>
+    <handlers>
+      <handler event="mousedown"><![CDATA[
+        // When the user clicks down on a button, set it as the selection and 
+        // tell the controller that we are the active view. 
+        if (event.target.localName == "toolbarbutton")
+          this._selection = event.target.node;
+        else 
+          this._selection = this.getResult();
+        PlacesController.activeView = this;
+        document.commandDispatcher.updateCommands("mousedown");
+      ]]></handler>
+      <handler event="click">
+        PlacesController.mouseLoadURI(event);
+      </handler>
+      <handler event="draggesture"><![CDATA[
+        // XXXben ew.
+        if (event.target.localName == "toolbarbutton" && 
+            !event.target.hasAttribute("type"))
+          nsDragAndDrop.startDrag(event, this._DNDObserver);
+      ]]></handler>
+      <handler event="dragover"><![CDATA[
+        // XXXben ew.
+        nsDragAndDrop.dragOver(event, this._DNDObserver);
+      ]]></handler>
+      <handler event="dragdrop"><![CDATA[
+        // XXXben ew.
+        nsDragAndDrop.drop(event, this._DNDObserver);
+      ]]></handler>
+    </handlers>
+  </binding>
+
+</bindings>

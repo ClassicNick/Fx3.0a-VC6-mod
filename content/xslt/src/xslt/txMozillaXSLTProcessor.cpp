@@ -251,7 +251,7 @@ NS_INTERFACE_MAP_BEGIN(txMozillaXSLTProcessor)
     NS_INTERFACE_MAP_ENTRY(nsIDocumentTransformer)
     NS_INTERFACE_MAP_ENTRY(nsIDocumentObserver)
     NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIXSLTProcessor)
-    NS_INTERFACE_MAP_ENTRY_EXTERNAL_DOM_CLASSINFO(XSLTProcessor)
+    NS_INTERFACE_MAP_ENTRY_CONTENT_CLASSINFO(XSLTProcessor)
 NS_INTERFACE_MAP_END
 
 txMozillaXSLTProcessor::txMozillaXSLTProcessor() : mStylesheetDocument(nsnull),
@@ -1001,7 +1001,7 @@ txMozillaXSLTProcessor::DocumentWillBeDestroyed(nsIDocument* aDocument)
     mStylesheetDocument = nsnull;
     mEmbeddedStylesheetRoot = nsnull;
 
-    // This might not be neccesary, but just in case some element ends up
+    // This might not be necessary, but just in case some element ends up
     // causing a notification as the document goes away we don't want to
     // invalidate the stylesheet.
     aDocument->RemoveObserver(this);

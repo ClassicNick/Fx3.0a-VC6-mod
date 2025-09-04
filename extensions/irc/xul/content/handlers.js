@@ -553,15 +553,15 @@ function onWindowKeyPress (e)
         case 119:
         case 120:
         case 121: /* F10 */
-            var modifier = (e.ctrlKey || e.shiftKey || e.Altkey || e.metaKey);
+            if (e.ctrlKey || e.shiftKey || e.Altkey || e.metaKey)
+                break;
             var idx = code - 112;
-            if (!modifier && (idx in client.viewsArray) &&
-                client.viewsArray[idx].source)
+            if ((idx in client.viewsArray) && client.viewsArray[idx].source)
             {
                 var newView = client.viewsArray[idx].source;
                 dispatch("set-current-view", { view: newView });
-                e.preventDefault();
             }
+            e.preventDefault();
             break;
 
         case 33: /* pgup */
@@ -1001,6 +1001,10 @@ function my_showtonet (e)
                 // This makes sure we have the *right* me object.
                 this.primServ.me.rehome(this.primServ);
             }
+            // Update the list of ignored users from the prefs:
+            var ignoreAry = this.prefs["ignoreList"];
+            for (var j = 0; j < ignoreAry.length; ++j)
+                this.ignoreList[ignoreAry[j]] = getHostmaskParts(ignoreAry[j]);
 
             // After rehoming it is now safe for the user's commands.
             var cmdary = this.prefs["autoperform"];

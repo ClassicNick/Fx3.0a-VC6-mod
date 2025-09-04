@@ -64,7 +64,7 @@ def test_interfaces():
                len(xpcom.components.interfaces.items()) == len(xpcom.components.interfaces) == \
                num_fetched, "The collection lengths were wrong"
     if num_nsisupports != 1:
-        print "Didnt find exactly 1 nsiSupports!"
+        print "Didn't find exactly 1 nsiSupports!"
     print "The interfaces object appeared to work!"
 
 def test_classes():
@@ -72,7 +72,7 @@ def test_classes():
     prog_id = "@mozilla.org/supports-array;1"
     clsid = xpcom.components.ID("{bda17d50-0d6b-11d3-9331-00104ba0fd40}")
 
-    # Check we can create the instance (dont check we can do anything with it tho!)
+    # Check we can create the instance (don't check we can do anything with it tho!)
     klass = xpcom.components.classes[prog_id]
     instance = klass.createInstance()
     
@@ -95,9 +95,9 @@ def test_classes():
     else:
         raise RuntimeError, "The collection lengths were wrong"
     if num_fetched <= 0:
-        raise RuntimeError, "Didnt get any classes!!!"
+        raise RuntimeError, "Didn't get any classes!!!"
     if num_mine != 1:
-        raise RuntimeError, "Didnt find exactly 1 of my contractid! (%d)" % (num_mine,)
+        raise RuntimeError, "Didn't find exactly 1 of my contractid! (%d)" % (num_mine,)
     print "The classes object appeared to work!"
     
 def test_id():
@@ -106,7 +106,7 @@ def test_id():
     print "The ID function appeared to work!"
     
 
-# regrtest doesnt like if __name__=='__main__' blocks - it fails when running as a test!
+# regrtest doesn't like if __name__=='__main__' blocks - it fails when running as a test!
 test_interfaces()
 test_classes()
 test_id()

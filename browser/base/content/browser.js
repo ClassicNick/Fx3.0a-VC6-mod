@@ -1185,10 +1185,8 @@ function SanitizeListener()
   if (gPrefService.prefHasUserValue(this.didSanitizeDomain)) {
     gPrefService.clearUserPref(this.didSanitizeDomain);
     // We need to persist this preference change, since we want to
-    // check it at next app start even if the browser exits abruptly,
-    // but we can afford some delay before I/O, so perceived 
-    // startup speed is not affected :)
-    window.setTimeout(function() { gPrefService.savePrefFile(null); }, 1000);
+    // check it at next app start even if the browser exits abruptly
+    gPrefService.savePrefFile(null);
   }
 }
 
@@ -1932,12 +1930,11 @@ function readFromClipboard()
 
 function BrowserViewSourceOfDocument(aDocument)
 {
-  var docCharset;
   var pageCookie;
   var webNav;
 
   // Get the document charset
-  docCharset = "charset=" + aDocument.characterSet;
+  var docCharset = "charset=" + aDocument.characterSet;
 
   // Get the nsIWebNavigation associated with the document
   try {
@@ -1973,16 +1970,17 @@ function BrowserViewSourceOfDocument(aDocument)
     // If no page descriptor is available, just use the view-source URL...
   }
 
-  BrowserViewSourceOfURL(webNav.currentURI.spec, docCharset, pageCookie);
+  ViewSourceOfURL(webNav.currentURI.spec, pageCookie, aDocument);
 }
 
-function BrowserViewSourceOfURL(url, charset, pageCookie)
+function ViewSourceOfURL(aURL, aPageDescriptor, aDocument)
 {
-  // try to open a view-source window while inheriting the charset (if any)
-  openDialog("chrome://global/content/viewSource.xul",
-             "_blank",
-             "scrollbars,resizable,chrome,dialog=no",
-             url, charset, pageCookie);
+  if (getBoolPref("view_source.editor.external", false)) {
+    gViewSourceUtils.openInExternalEditor(aURL, aPageDescriptor, aDocument);
+  }
+  else {
+    gViewSourceUtils.openInInternalViewer(aURL, aPageDescriptor, aDocument);
+  }
 }
 
 // doc - document to use for source, or null for this window's document
@@ -2626,10 +2624,12 @@ var newTabButtonObserver = {
   onDrop: function (aEvent, aXferData, aDragSession)
     {
       var xferData = aXferData.data.split("\n");
-      var url = xferData[0] ? xferData[0] : xferData[1];
+      var draggedText = xferData[0] || xferData[1];
+      var postData = {};
+      var url = getShortcutOrURI(draggedText, postData);
       if (url) {
         getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
-        openNewTabWith(url, null, null, aEvent);
+        openNewTabWith(url, null, postData.value, aEvent);
       }
     },
   getSupportedFlavours: function ()
@@ -2659,10 +2659,12 @@ var newWindowButtonObserver = {
   onDrop: function (aEvent, aXferData, aDragSession)
     {
       var xferData = aXferData.data.split("\n");
-      var url = xferData[0] ? xferData[0] : xferData[1];
+      var draggedText = xferData[0] || xferData[1];
+      var postData = {};
+      var url = getShortcutOrURI(draggedText, postData);
       if (url) {
         getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
-        openNewWindowWith(url, null, null);
+        openNewWindowWith(url, null, postData.value);
       }
     },
   getSupportedFlavours: function ()
@@ -2692,7 +2694,9 @@ var goButtonObserver = {
   onDrop: function (aEvent, aXferData, aDragSession)
     {
       var xferData = aXferData.data.split("\n");
-      var url = xferData[0] ? xferData[0] : xferData[1];
+      var draggedText = xferData[0] || xferData[1];
+      var postData = {};
+      var url = getShortcutOrURI(draggedText, postData);
       try {
         getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
         var uri = makeURI(url);
@@ -2700,7 +2704,7 @@ var goButtonObserver = {
                                  .getService(Components.interfaces.nsIScriptSecurityManager);
         const nsIScriptSecMan = Components.interfaces.nsIScriptSecurityManager;
         secMan.checkLoadURI(gBrowser.currentURI, uri, nsIScriptSecMan.DISALLOW_SCRIPT_OR_DATA);
-        loadURI(uri.spec, null, null);
+        loadURI(uri.spec, null, postData.value);
       } catch (ex) {}
     },
   getSupportedFlavours: function ()
@@ -5768,12 +5772,16 @@ function getPluginInfo(pluginElement)
     } else {
       pluginsPage = pluginElement.getAttribute("pluginspage");
     }
-    var doc = pluginElement.ownerDocument;
-    var docShell = findChildShell(doc, gBrowser.selectedBrowser.docShell, null);
-    try {
-      pluginsPage = makeURI(pluginsPage, doc.characterSet, docShell.currentURI).spec;
-    } catch (ex) { 
-      pluginsPage = "";
+
+    // only attempt if a pluginsPage is defined.
+    if (pluginsPage) {
+      var doc = pluginElement.ownerDocument;
+      var docShell = findChildShell(doc, gBrowser.selectedBrowser.docShell, null);
+      try {
+        pluginsPage = makeURI(pluginsPage, doc.characterSet, docShell.currentURI).spec;
+      } catch (ex) { 
+        pluginsPage = "";
+      }
     }
 
     tagMimetype = pluginElement.QueryInterface(Components.interfaces.nsIObjectLoadingContent)

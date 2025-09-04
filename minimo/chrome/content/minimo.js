@@ -47,11 +47,15 @@ var gRSSTag="minimo";
 var gGlobalHistory = null;
 var gURIFixup = null;
 var gShowingMenuPopup=null;
+var gFocusedElementHREFContextMenu=null;
+var gDeckMode=0; // 0 = site, 1 = sb, 2= rss. Used for the URLBAR selector, DeckMode impl.
+var gDeckMenuChecked=null; // to keep the state of the checked URLBAR selector mode. 
 
 var gPref = null;                    // so far snav toggles on / off via direct access to pref.
                                      // See bugzilla.mozilla.org/show_bug.cgi?id=311287#c1
-var gStateSNAV = false;              // Default SNAV is false. , see above bug. 
-                                     
+
+var gSNAV=-1; 
+
 function nsBrowserStatusHandler()
 {
 }
@@ -81,7 +85,6 @@ nsBrowserStatusHandler.prototype =
     this.urlBar = null;
     this.stopreloadButton = null;
     this.progressBGPosition = null;  /* To be removed, fix in onProgressChange ... */ 
-    
   },
 
   onStateChange : function(aWebProgress, aRequest, aStateFlags, aStatus)
@@ -94,6 +97,11 @@ nsBrowserStatusHandler.prototype =
 
       if (aStateFlags & nsIWebProgressListener.STATE_START)
       {
+        document.getElementById("statusbar").hidden=false;
+
+		if(aRequest && aWebProgress.DOMWindow == content) {
+			this.startDocumentLoad(aRequest);
+		}
         this.stopreloadButton.className = "stop-button";
         this.stopreloadButton.command = "cmd_BrowserStop";
         
@@ -102,32 +110,14 @@ nsBrowserStatusHandler.prototype =
       
       if (aStateFlags & nsIWebProgressListener.STATE_STOP)
       {
-      
-        /* Find this Browser and this Tab */ 
+        document.getElementById("statusbar").hidden=true;
         
-        if (getBrowser().mTabbedMode) {
-          for (var i = 0; i < getBrowser().mPanelContainer.childNodes.length; i++) {
-            if(getBrowser().getBrowserAtIndex(i).contentDocument==aWebProgress.DOMWindow.document) {				
-              refBrowser=getBrowser().getBrowserAtIndex(i);
-              tabItem=getBrowser().mTabContainer.childNodes[i];
-			} 
-          }
-        }
-        
-        /* Apply RSS fetch if the request type is for rss view. 
-           Gotta fix this to use a better approach.  */
-        
-        const rsschromemask = "rssblank";
-        if(aRequest.name.indexOf(rsschromemask)>-1) {
-          rssfetch(tabItem,refBrowser.contentDocument,refBrowser.contentDocument.body);
-        }
-      
         /* To be fixed. We dont want to directly access sytle from here */
         document.styleSheets[1].cssRules[0].style.backgroundPosition="1000px 100%";
 
         this.stopreloadButton.className = "reload-button";
         this.stopreloadButton.command= "cmd_BrowserReload";
-        
+
         return;
       }
       return;
@@ -142,12 +132,20 @@ nsBrowserStatusHandler.prototype =
       
       if (aStateFlags & nsIWebProgressListener.STATE_STOP)
       {
+        // 
+        //        try {
+        //          var imageCache = Components.classes["@mozilla.org/image/cache;1"]
+        //                                   .getService(Components.interfaces.imgICache);
+        //          imageCache.clearCache(false);
+        //        }
+        //        catch(e) {}
+
+
         return;
       }
       return;
     }
   },
-
   onProgressChange : function(aWebProgress, aRequest, aCurSelfProgress, aMaxSelfProgress, aCurTotalProgress, aMaxTotalProgress)
   {
     var percentage = parseInt((aCurTotalProgress * 100) / aMaxTotalProgress);
@@ -158,10 +156,22 @@ nsBrowserStatusHandler.prototype =
      /* Ideally we dont want to check this here.
      Better to have some other protocol view-rss in the chrome */
 
-     const rsschromemask = "chrome://minimo/content/rssview/rssblank.xhtml";
+     const rssmask = "chrome://minimo/content/rssview/rssload.xhtml?url=";
+     const sbmask = "chrome://minimo/content/rssview/rssload.xhtml?url=http://del.icio.us/rss/tag/";
 
-     if(aLocation.spec.substr(0, rsschromemask.length) == rsschromemask) {
-        this.urlBar.value="SB: "+gRSSTag; 
+     if(aLocation.spec.substr(0, rssmask .length) == rssmask ) {
+
+	     if(aLocation.spec.substr(0, sbmask .length) == sbmask ) {
+	        /* We trap the URL */ 
+	        this.urlBar.value="sb:"+gRSSTag; 
+  
+		} else {
+
+	        /* We trap the URL */ 
+	        this.urlBar.value="rss:"+gRSSTag; 
+
+		}
+
      } else {
       domWindow = aWebProgress.DOMWindow;
       // Update urlbar only if there was a load on the root docshell
@@ -169,12 +179,18 @@ nsBrowserStatusHandler.prototype =
         this.urlBar.value = aLocation.spec;
       }
     }
+
+    BrowserUpdateFeeds();
 },
 
   onStatusChange : function(aWebProgress, aRequest, aStatus, aMessage)
   {
+    document.getElementById("statusbar-text").label=aMessage;
   },
-
+  startDocumentLoad : function(aRequest)
+  {
+    getBrowser().mCurrentBrowser.feeds = null;
+  },
   onSecurityChange : function(aWebProgress, aRequest, aState)
   {
     /* Color is temporary. We shall dynamically assign a new class to the element and or to 
@@ -290,19 +306,123 @@ function MiniNavStartup()
    */
   getBrowser().mStrip.addEventListener("click",BrowserWithoutSNAV,false);
   document.getElementById("mini-toolbars").addEventListener("click",BrowserWithoutSNAV,false);
+  
 
-
-  /* 
-   * Toolkit in Minimo, box strip is active, as opposite to in FF
-   */
-  if(getBrowser().mPanelContainer.childNodes.length==1) {
-	getBrowser().mStrip.collapsed=true;
-  }
+  getBrowser().addEventListener("DOMLinkAdded", BrowserLinkAdded, false);
 
 }
 
+/*
+ * Page's new Link tag handlers. This should be able to be smart about RSS, CSS, and maybe other Minimo stuff?  
+ * So far we have this here, so we can experience and try some new stuff. To be tabrowsed.
+ */
+function BrowserLinkAdded(event) {
+// ref http://lxr.mozilla.org/mozilla/source/browser/base/content/browser.js#2070
+
+	/* 
+       * Taken from browser.js - yes this should be in tabbrowser
+       */
+
+	var erel = event.target.rel;
+	var etype = event.target.type;
+	var etitle = event.target.title;
+	var ehref = event.target.href;
+
+	const alternateRelRegex = /(^|\s)alternate($|\s)/i;
+	const rssTitleRegex = /(^|\s)rss($|\s)/i;
+
+	if (!alternateRelRegex.test(erel) || !etype) return;
+	
+	etype = etype.replace(/^\s+/, "");
+	etype = etype.replace(/\s+$/, "");
+	etype = etype.replace(/\s*;.*/, "");
+	etype = etype.toLowerCase();
+
+	if (etype == "application/rss+xml" || etype == "application/atom+xml" || (etype == "text/xml" || etype == "application/xml" || etype == "application/rdf+xml") && rssTitleRegex.test(etitle))
+	{
+
+		const targetDoc = event.target.ownerDocument;
+
+		var browsers = getBrowser().browsers;
+		var shellInfo = null;
+
+		for (var i = 0; i < browsers.length; i++) {
+			var shell = findChildShell(targetDoc, browsers[i].docShell, null);
+			if (shell) shellInfo = { shell: shell, browser: browsers[i] };
+		}
+
+		//var shellInfo = this._getContentShell(targetDoc);
+
+		var browserForLink = shellInfo.browser;
+
+		if(!browserForLink) return;
+
+		var feeds = [];
+		if (browserForLink.feeds != null) feeds = browserForLink.feeds;
+		var wrapper = event.target;
+		feeds.push({ href: wrapper.href, type: etype, title: wrapper.title});
+		browserForLink.feeds = feeds;
+
+		if (browserForLink == getBrowser() || browserForLink == getBrowser().mCurrentBrowser) {
+			var feedButton = document.getElementById("feed-button");
+			if (feedButton) {
+				feedButton.setAttribute("feeds", "true");
+//				feedButton.setAttribute("tooltiptext", gNavigatorBundle.getString("feedHasFeeds"));	
+                        document.getElementById("feed-button-menu").setAttribute("onpopupshowing","DoBrowserRSS('"+ehref+"')");
+			}
+		}
+	}
+}
+
+function BrowserUpdateFeeds() {
+	var feedButton = document.getElementById("feed-button");
+	if (!feedButton)
+		return;
+
+	var feeds = getBrowser().mCurrentBrowser.feeds;
+
+	if (!feeds || feeds.length == 0) {
+		if (feedButton.hasAttribute("feeds")) feedButton.removeAttribute("feeds");
+//		feedButton.setAttribute("tooltiptext",  gNavigatorBundle.getString("feedNoFeeds"));
+	} else {
+		feedButton.setAttribute("feeds", "true");
+            document.getElementById("feed-button-menu").setAttribute("onpopupshowing","DoBrowserRSS('"+feeds[0].href+"')");
+
+//		feedButton.setAttribute("tooltiptext", gNavigatorBundle.getString("feedHasFeeds"));
+	}
+}
+
+
+function findChildShell(aDocument, aDocShell, aSoughtURI) {
+		aDocShell.QueryInterface(Components.interfaces.nsIWebNavigation);
+		aDocShell.QueryInterface(Components.interfaces.nsIInterfaceRequestor);
+		var doc = aDocShell.getInterface(Components.interfaces.nsIDOMDocument);
+		if ((aDocument && doc == aDocument) || 
+			(aSoughtURI && aSoughtURI.spec == aDocShell.currentURI.spec))
+			return aDocShell;
+ 
+		var node = aDocShell.QueryInterface(Components.interfaces.nsIDocShellTreeNode);
+		for (var i = 0; i < node.childCount; ++i) {
+			var docShell = node.getChildAt(i);
+			docShell = findChildShell(aDocument, docShell, aSoughtURI);
+			if (docShell) return docShell;
+		}
+		return null;
+}
+
+
 function BrowserWithoutSNAV(e) {
-	BrowserSNAVToggle(false);
+ if(gSNAV==1||gSNAV==-1) {
+	gSNAV=0;
+      gPref.setBoolPref("snav.enabled", false);                                   
+ } 
+}
+
+function BrowserWithSNAV(e) {
+ if(gSNAV==0||gSNAV==-1) {
+	gSNAV=1;
+      gPref.setBoolPref("snav.enabled", true);                                   
+ } 
 }
 
 /*
@@ -321,13 +441,16 @@ function eventHandlerMenu(e) {
   if( e.keyCode==70) /*SoftKey1 or HWKey1*/ {
   	document.getElementById("menu-button").focus();
 	e.preventBubble();
-	BrowserSNAVToggle(false);
+	BrowserWithoutSNAV();
+	
   } 
   
   if(document.commandDispatcher&&document.commandDispatcher.focusedElement) { 
 
 	  var outnavTarget=document.commandDispatcher.focusedElement.getAttribute("accessrule");
-	  if(outnavTarget!="" && (e.keyCode==40||e.keyCode==38) && !gShowingMenuPopup) {
+
+	  if(outnavTarget && (e.keyCode==40||e.keyCode==38) && !gShowingMenuPopup) {
+
 	      e.preventBubble();
 	      if(e.keyCode==40) {
 	
@@ -344,24 +467,14 @@ function eventHandlerMenu(e) {
 				if(getBrowser().tabContainer) {
 					getBrowser().selectedTab.focus();
 
-					if(getBrowser().mStrip.collapsed) {
-				
-						BrowserSNAVToggle(true);
-
+					if(getBrowser().mStrip.collapsed) {				
+						getBrowser().contentWindow.focus();
 					} 
 
 				}
 			} 
-			if(tempElement=="#tabContent") { 
-				// THis is hack to go backwards and get into browser area. 
-				// The previous approach worked in toolkitFF desktop and failed in device. 
-				//document.commandDispatcher.advanceFocusIntoSubtree(document.getElementById("nav-bar"));
-				//document.commandDispatcher.rewindFocus();
-				
+			if(tempElement=="#tabContent") { 			
 				getBrowser().contentWindow.focus();
-				
-				BrowserSNAVToggle(true);
-
 			} 
        
 		  } else { 
@@ -399,6 +512,12 @@ function browserInit(refTab)
    * 
    */
   var refBrowser=getBrowser().getBrowserForTab(refTab);
+  
+  /* New Browser OnFocus SNAV Toggle */
+  
+  refBrowser.addEventListener("focus", BrowserWithSNAV , true);
+  
+  
   try {
     refBrowser.markupDocumentViewer.textZoom = .90;
   } catch (e) {
@@ -468,9 +587,10 @@ function BrowserOpenTab()
  */
 function BrowserOpenLinkAsTab() 
 {
-  if(document.commandDispatcher.focusedElement.href) {
+
+  if(gFocusedElementHREFContextMenu) {
     try { 
-      getBrowser().selectedTab = getBrowser().addTab(document.commandDispatcher.focusedElement.href);
+      getBrowser().selectedTab = getBrowser().addTab(gFocusedElementHREFContextMenu);
       browserInit(getBrowser().selectedTab);
     } catch (e) {
       alert(e);
@@ -515,6 +635,20 @@ function BrowserViewRSS() {
 }
 
 /**
+  * Deckmode urlbar selector. 
+  * Toggles menu item and deckmode.
+  */
+function BrowserViewDeckSB() {
+  if(gDeckMode==1) BrowserSetDeck(0,null); else BrowserSetDeck(1,document.getElementById("command_ViewDeckSB"));
+}
+
+function BrowserViewDeckSearch() {
+  if(gDeckMode==2) BrowserSetDeck(0,null); else BrowserSetDeck(2,document.getElementById("command_ViewDeckSearch"));
+}
+
+
+
+/**
   * Has to go through some other approach like a XML-based rule system. 
   * Those are constraints conditions and action. 
   **/
@@ -523,6 +657,19 @@ function BrowserViewSearch() {
   document.getElementById("toolbar-search").collapsed=!document.getElementById("toolbar-search").collapsed;
   if(document.getElementById("toolbar-search").collapsed &&  document.getElementById("command_ViewSearch").getAttribute("checked")=="true") {
 	document.getElementById("command_ViewSearch").setAttribute("checked","false");
+  }
+}
+
+
+/**
+  * Has to go through some other approach like a XML-based rule system. 
+  * Those are constraints conditions and action. 
+  **/
+  
+function BrowserViewFind() {
+  document.getElementById("toolbar-find").collapsed=!document.getElementById("toolbar-find").collapsed;
+  if(document.getElementById("toolbar-find").collapsed &&  document.getElementById("command_ViewFind").getAttribute("checked")=="true") {
+	document.getElementById("command_ViewFind").setAttribute("checked","false");
   }
 }
 
@@ -580,21 +727,37 @@ function BrowserUIResetZoomMinus() {
   to evaluate when the selected content area is a phone number, 
   thus mutate the popup menu to the right make call item 
 */ 
+
+
+
 function BrowserPopupShowing () {
 
   /*
    * Open Link as New Tab  
    */ 
+   
   if(document.commandDispatcher.focusedElement && document.commandDispatcher.focusedElement.href) {
+	gFocusedElementHREFContextMenu=document.commandDispatcher.focusedElement.href;
 	document.getElementById("link_as_new_tab").hidden=false;
+
+	document.getElementById("item-backbutton").hidden=true;
+	document.getElementById("item-forwardbutton").hidden=true;
+	document.getElementById("item-reloadbutton").hidden=true;
+
   } else {
 	document.getElementById("link_as_new_tab").hidden=true;
+	
+	document.getElementById("item-backbutton").hidden=false;
+	document.getElementById("item-forwardbutton").hidden=false;
+	document.getElementById("item-reloadbutton").hidden=false;
+	
   }
 
   var selectedRange=getBrowser().selectedBrowser.contentDocument.getSelection();
  
   /* Enable Copy */
   if(selectedRange.toString()) {
+
     document.getElementById("item-copy").style.display="block";
   }
   
@@ -625,20 +788,99 @@ function DoBrowserSearch() {
   }  
 }
 
-/* Toolbar specific code - to be removed from here */ 
+/* 
+ * Search extension to urlbar, deckmode.
+ * Called form the deckmode urlbar selector
+ */
 
-function DoBrowserRSS() {
-  BrowserViewRSS();
+function DoBrowserSearchURLBAR(vQuery) {
   try { 
-    if(document.getElementById("toolbar-rss-rsstag").value!="") {
-      gRSSTag=document.getElementById("toolbar-rss-rsstag").value;
+    if(vQuery!="") {
+	 getBrowser().selectedTab = getBrowser().addTab('http://www.google.com/xhtml?q='+vQuery+'&hl=en&lr=&safe=off&btnG=Search&site=search&mrestrict=xhtml');
+   	 browserInit(getBrowser().selectedTab);
     }
-    getBrowser().selectedTab = getBrowser().addTab('chrome://minimo/content/rssview/rssblank.xhtml');
-    browserInit(getBrowser().selectedTab);
   } catch (e) {
-   
   }  
 }
+
+/* Toolbar specific code - to be removed from here */ 
+
+function DoBrowserRSS(sKey) {
+
+	  if(!sKey) BrowserViewRSS(); // The toolbar is being used. Otherwise it is via the sb: trap protocol. 
+	
+	  try { 
+	  
+	    if(sKey) {
+	      gRSSTag=sKey;
+	    } else if(document.getElementById("toolbar-rss-rsstag").value!="") {
+	      gRSSTag=document.getElementById("toolbar-rss-rsstag").value;
+	    }
+
+	    getBrowser().selectedTab = getBrowser().addTab('chrome://minimo/content/rssview/rssload.xhtml?url='+gRSSTag);
+	    
+	    browserInit(getBrowser().selectedTab);
+	  } catch (e) {
+	   
+	  }  
+}
+
+
+/* Toolbar specific code - to be removed from here */ 
+
+function DoBrowserSB(sKey) {
+
+	  if(!sKey) BrowserViewRSS(); // The toolbar is being used. Otherwise it is via the sb: trap protocol. 
+	
+	  try { 
+	    if(sKey) {
+	      gRSSTag=sKey;
+	    } else if(document.getElementById("toolbar-rss-rsstag").value!="") {
+	      gRSSTag=document.getElementById("toolbar-rss-rsstag").value;
+	    }
+
+	    getBrowser().selectedTab = getBrowser().addTab('chrome://minimo/content/rssview/rssload.xhtml?url=http://del.icio.us/rss/tag/'+gRSSTag);
+	    browserInit(getBrowser().selectedTab);
+	  } catch (e) {
+	   
+	  }  
+}
+
+/* Toolbar specific code - to be removed from here */ 
+
+
+function DoBrowserFind() {
+//  BrowserViewFind();
+  try { 
+    var vQuery=document.getElementById("toolbar-find-tag").value;
+    if(vQuery!="") {
+	getBrowser().contentWindow.focus();
+
+	/* FIND DOCUMENTATION: 
+	 41 const FIND_NORMAL = 0;
+	 42 const FIND_TYPEAHEAD = 1;
+	 43 const FIND_LINKS = 2;
+	http://lxr.mozilla.org/mozilla/source/toolkit/components/typeaheadfind/content/findBar.js
+	*/
+	getBrowser().fastFind.find(vQuery,0);
+    }
+  } catch (e) {
+   alert(e);
+  }  
+}
+
+/* Toolbar specific code - to be removed from here */ 
+
+function DoBrowserFindNext() {
+  try { 
+	getBrowser().fastFind.findNext();
+  } catch (e) {
+   alert(e);
+  }  
+}
+
+
+
 
 function DoPanelPreferences() {
   window.openDialog("chrome://minimo/content/preferences/preferences.xul","preferences","modal,centerscreeen,chrome,resizable=no");
@@ -660,7 +902,11 @@ function DoFullScreen()
   
   document.getElementById("nav-bar").hidden = gFullScreen;
 
-  getBrowser().setStripVisibilityTo(!gFullScreen);
+  // Is this the simpler approach to count tabs? 
+  if(getBrowser().mPanelContainer.childNodes.length>1) {
+	  getBrowser().setStripVisibilityTo(!gFullScreen);
+  } 
+  
   window.fullScreen = gFullScreen;  
 
   document.getElementById("nav-bar-contextual").hidden = !gFullScreen;    
@@ -730,6 +976,32 @@ function URLBarEntered()
     if (gURLBar.value == "" || gURLBar.value == null)
       return;
 
+    /* Trap to SB 'protocol' */ 
+
+    if(gURLBar.value.substring(0,3)=="sb:") {
+		DoBrowserSB(gURLBar.value.split("sb:")[1]);
+		return;
+    }
+
+    /* Trap to RSS 'protocol' */ 
+
+    if(gURLBar.value.substring(0,4)=="rss:") {
+		DoBrowserRSS(gURLBar.value.split("rss:")[1]);
+		return;
+    }
+    
+    // SB mode
+    if(gDeckMode==1) {
+	DoBrowserSB(gURLBar.value);
+	return;
+    }
+
+    if(gDeckMode==2) {
+	DoBrowserSearchURLBAR(gURLBar.value);
+      return;
+    }
+    /* Other normal cases */ 
+
     var fixedUpURI = gURIFixup.createFixupURI(url, 2 /*fixup url*/ );
     gGlobalHistory.markPageAsTyped(fixedUpURI);
     
@@ -793,12 +1065,24 @@ function MenuPopupHidden() {
     gShowingMenuPopup=false;
 }
 
-/*
- *  So far the whole idea of pref is gone since this use the pref itself to toggle. 
- *  https://bugzilla.mozilla.org/show_bug.cgi?id=311287#c1 - we should have the snav interface here. 
+/* The URLBAR Deck mode selector 
  */
-function BrowserSNAVToggle(state) {
-} 
+ 
+function BrowserSetDeck(dMode,menuElement) {
+
+ if(gDeckMenuChecked!=null) {
+    gDeckMenuChecked.setAttribute("checked","false");
+ } 
+ gDeckMenuChecked=menuElement;
+
+ if(menuElement!=null) menuElement.setAttribute("checked","true");
+
+ gDeckMode=dMode;
+ if(dMode==2) document.getElementById("urlbar-deck").className='search';
+ if(dMode==1) document.getElementById("urlbar-deck").className='sb';
+ if(dMode==0) document.getElementById("urlbar-deck").className='';
+
+}
 
 
 

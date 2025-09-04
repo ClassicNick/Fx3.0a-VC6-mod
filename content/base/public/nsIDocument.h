@@ -39,7 +39,7 @@
 
 #include "nsISupports.h"
 #include "nsEvent.h"
-#include "nsString.h"
+#include "nsStringGlue.h"
 #include "nsCOMArray.h"
 #include "nsIDocumentObserver.h"
 #include "nsCOMPtr.h"
@@ -48,11 +48,9 @@
 #include "nsWeakPtr.h"
 #include "nsIWeakReferenceUtils.h"
 #include "nsILoadGroup.h"
-#include "nsReadableUtils.h"
 #include "nsCRT.h"
 #include "mozFlushType.h"
 #include "nsPropertyTable.h"
-#include "nsHashSets.h"
 #include "nsAutoPtr.h"
 #include "nsIAtom.h"
 
@@ -95,22 +93,16 @@ class nsIDOMUserDataHandler;
 
 // IID for the nsIDocument interface
 #define NS_IDOCUMENT_IID      \
-{ 0x6120dffe, 0xf8fc, 0x47b1, \
- { 0x98, 0xd3, 0x97, 0x68, 0x0c, 0xc9, 0xc3, 0xcd } }
-
-// The base value for the content ID counter.
-// This counter is used by the document to 
-// assign a monotonically increasing ID to each content
-// object it creates
-#define NS_CONTENT_ID_COUNTER_BASE 10000
-
+{ 0xbcb48147, 0xed60, 0x490e, \
+ { 0xa2, 0x47, 0xe2, 0x35, 0x3c, 0xf7, 0xc8, 0x68 } }
 
 // Flag for AddStyleSheet().
 #define NS_STYLESHEET_FROM_CATALOG                (1 << 0)
 
 //----------------------------------------------------------------------
 
-// Document interface
+// Document interface.  This is implemented by all document objects in
+// Gecko.
 class nsIDocument : public nsISupports
 {
 public:
@@ -119,12 +111,35 @@ public:
 
   nsIDocument()
     : mCharacterSet(NS_LITERAL_CSTRING("ISO-8859-1")),
-      mNextContentID(NS_CONTENT_ID_COUNTER_BASE),
       mNodeInfoManager(nsnull),
       mPartID(0)
   {
   }
 
+  /**
+   * Let the document know that we're starting to load data into it.
+   * @param aCommand The parser command
+   *                 XXXbz It's odd to have that here.
+   * @param aChannel The channel the data will come from
+   * @param aLoadGroup The loadgroup this document should use from now on.
+   *                   Note that the document might not be the only thing using
+   *                   this loadgroup.
+   * @param aContainer The container this document is in.  This may be null.
+   *                   XXXbz maybe we should make it more explicit (eg make the
+   *                   container an nsIWebNavigation or nsIDocShell or
+   *                   something)?
+   * @param [out] aDocListener the listener to pump data from the channel into.
+   *                           Generally this will be the parser this document
+   *                           sets up, or some sort of data-handler for media
+   *                           documents.
+   * @param aReset whether the document should call Reset() on itself.  If this
+   *               is false, the document will NOT set its principal to the
+   *               channel's owner, will not clear any event listeners that are
+   *               already set on it, etc.
+   * @param aSink The content sink to use for the data.  If this is null and
+   *              the document needs a content sink, it will create one based
+   *              on whatever it knows about the data it's going to load.
+   */  
   virtual nsresult StartDocumentLoad(const char* aCommand,
                                      nsIChannel* aChannel,
                                      nsILoadGroup* aLoadGroup,
@@ -132,13 +147,13 @@ public:
                                      nsIStreamListener **aDocListener,
                                      PRBool aReset,
                                      nsIContentSink* aSink = nsnull) = 0;
-
   virtual void StopDocumentLoad() = 0;
 
   /**
-   * Return the title of the document. May return null.
+   * Return the title of the document.  This will return a void string
+   * if there is no title for this document).
    */
-  const nsAFlatString& GetDocumentTitle() const
+  const nsString& GetDocumentTitle() const
   {
     return mDocumentTitle;
   }
@@ -199,7 +214,7 @@ public:
    * will trigger a startDocumentLoad if necessary to answer the
    * question.
    */
-  const nsAFlatCString& GetDocumentCharacterSet() const
+  const nsCString& GetDocumentCharacterSet() const
   {
     return mCharacterSet;
   }
@@ -247,7 +262,7 @@ public:
    */
   void GetContentLanguage(nsAString& aContentLanguage) const
   {
-    CopyASCIItoUCS2(mContentLanguage, aContentLanguage);
+    CopyASCIItoUTF16(mContentLanguage, aContentLanguage);
   }
 
   // The state BidiEnabled should persist across multiple views
@@ -492,6 +507,13 @@ public:
   virtual nsPIDOMWindow *GetWindow() = 0;
 
   /**
+   * Return the inner window used as the script compilation scope for
+   * this document. If you're not absolutely sure you need this, use
+   * GetWindow().
+   */
+  virtual nsPIDOMWindow *GetInnerWindow() = 0;
+
+  /**
    * Get the script loader for this document
    */ 
   virtual nsIScriptLoader* GetScriptLoader() = 0;
@@ -563,11 +585,6 @@ public:
    * (since those may affect the layout of this one).
    */
   virtual void FlushPendingNotifications(mozFlushType aType) = 0;
-
-  PRInt32 GetAndIncrementContentID()
-  {
-    return mNextContentID++;
-  }
 
   nsIBindingManager* BindingManager() const
   {
@@ -936,10 +953,6 @@ protected:
   // such element exists.
   nsIContent* mRootContent;
 
-  // A content ID counter used to give a monotonically increasing ID
-  // to the content objects in the document's content model
-  PRInt32 mNextContentID;
-
   nsCOMPtr<nsIBindingManager> mBindingManager;
   nsNodeInfoManager* mNodeInfoManager; // [STRONG]
 
@@ -957,7 +970,7 @@ protected:
   // defined in nsBidiUtils.h
   PRUint32 mBidiOptions;
 
-  nsXPIDLCString mContentLanguage;
+  nsCString mContentLanguage;
   nsCString mContentType;
 
   // The document's security info

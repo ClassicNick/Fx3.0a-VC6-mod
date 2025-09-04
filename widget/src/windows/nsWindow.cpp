@@ -857,6 +857,7 @@ nsWindow::nsWindow() : nsBaseWidget()
   mOldStyle           = 0;
   mOldExStyle         = 0;
   mPainting           = 0;
+  mOldIMC             = NULL;
 
   mLeadByte = '\0';
   mBlurEventSuppressionLevel = 0;
@@ -1651,6 +1652,12 @@ NS_METHOD nsWindow::Destroy()
     mEventCallback = nsnull;
     if (gAttentionTimerMonitor)
       gAttentionTimerMonitor->KillTimer(mWnd);
+
+    // if IME is disabled, restore it.
+    if (mOldIMC) {
+      NS_IMM_ASSOCIATECONTEXT(mWnd, mOldIMC, &mOldIMC);
+      NS_ASSERTION(!mOldIMC, "Another IMC was associated");
+    }
 
     HICON icon;
     icon = (HICON) nsToolkit::mSendMessage(mWnd, WM_SETICON, (WPARAM)ICON_BIG, (LPARAM) 0);
@@ -4648,15 +4655,6 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
       result = PR_TRUE;
       break;
 
-    case WM_ENABLE:
-      if (!wParam) {
-        // We must enable IME for common dialogs.
-        // NOTE: we don't need to recover IME status in nsWindow.
-        // Because when this window will be enabled, we will get focus event.
-        SetIMEEnabled(PR_TRUE);
-      }
-      break;
-
     case WM_ACTIVATE:
       if (mEventCallback) {
         PRInt32 fActive = LOWORD(wParam);
@@ -5856,7 +5854,7 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, nsPoint*
   PRBool insideMovementThreshold = (abs(gLastMousePoint.x - mp.x) < (short)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
                                    (abs(gLastMousePoint.y - mp.y) < (short)::GetSystemMetrics(SM_CYDOUBLECLK));
 
-  // Supress mouse moves caused by widget creation
+  // Suppress mouse moves caused by widget creation
   if ((aEventType == NS_MOUSE_MOVE) &&
       (gLastMouseMovePoint.x == mp.x) &&
       (gLastMouseMovePoint.y == mp.y))
@@ -6397,15 +6395,17 @@ nsWindow::HandleTextEvent(HIMC hIMEContext,PRBool aCheckAttr)
   //
   if (event.theReply.mCursorPosition.width || event.theReply.mCursorPosition.height)
   {
+    nsRect cursorPosition;
+    ResolveIMECaretPos(this, event.theReply.mCursorPosition, cursorPosition);
     CANDIDATEFORM candForm;
     candForm.dwIndex = 0;
     candForm.dwStyle = CFS_EXCLUDE;
-    candForm.ptCurrentPos.x = event.theReply.mCursorPosition.x;
-    candForm.ptCurrentPos.y = event.theReply.mCursorPosition.y;
+    candForm.ptCurrentPos.x = cursorPosition.x;
+    candForm.ptCurrentPos.y = cursorPosition.y;
     candForm.rcArea.right = candForm.rcArea.left = candForm.ptCurrentPos.x;
     candForm.rcArea.top = candForm.ptCurrentPos.y;
     candForm.rcArea.bottom = candForm.ptCurrentPos.y +
-                             event.theReply.mCursorPosition.height;
+                             cursorPosition.height;
 
     if (gPinYinIMECaretCreated)
     {
@@ -6429,18 +6429,18 @@ nsWindow::HandleTextEvent(HIMC hIMEContext,PRBool aCheckAttr)
     // left of next char, as what happens in wrapping.
     if (sIMECursorPosition && sIMECompCharPos &&
         sIMECursorPosition < IME_MAX_CHAR_POS) {
-      sIMECompCharPos[sIMECursorPosition-1].right = event.theReply.mCursorPosition.x;
-      sIMECompCharPos[sIMECursorPosition-1].top = event.theReply.mCursorPosition.y;
-      sIMECompCharPos[sIMECursorPosition-1].bottom = event.theReply.mCursorPosition.YMost();
-      if (sIMECompCharPos[sIMECursorPosition-1].top != event.theReply.mCursorPosition.y) {
+      sIMECompCharPos[sIMECursorPosition-1].right = cursorPosition.x;
+      sIMECompCharPos[sIMECursorPosition-1].top = cursorPosition.y;
+      sIMECompCharPos[sIMECursorPosition-1].bottom = cursorPosition.YMost();
+      if (sIMECompCharPos[sIMECursorPosition-1].top != cursorPosition.y) {
         // wrapping, invalidate left position
         sIMECompCharPos[sIMECursorPosition-1].left = -1;
       }
-      sIMECompCharPos[sIMECursorPosition].left = event.theReply.mCursorPosition.x;
-      sIMECompCharPos[sIMECursorPosition].top = event.theReply.mCursorPosition.y;
-      sIMECompCharPos[sIMECursorPosition].bottom = event.theReply.mCursorPosition.YMost();
+      sIMECompCharPos[sIMECursorPosition].left = cursorPosition.x;
+      sIMECompCharPos[sIMECursorPosition].top = cursorPosition.y;
+      sIMECompCharPos[sIMECursorPosition].bottom = cursorPosition.YMost();
     }
-    sIMECaretHeight = event.theReply.mCursorPosition.height;
+    sIMECaretHeight = cursorPosition.height;
   } else {
     // for some reason we don't know yet, theReply may contain invalid result
     // need more debugging in nsCaret to find out the reason
@@ -6476,11 +6476,13 @@ nsWindow::HandleStartComposition(HIMC hIMEContext)
   //
   if (event.theReply.mCursorPosition.width || event.theReply.mCursorPosition.height)
   {
+    nsRect cursorPosition;
+    ResolveIMECaretPos(this, event.theReply.mCursorPosition, cursorPosition);
     candForm.dwIndex = 0;
     candForm.dwStyle = CFS_CANDIDATEPOS;
-    candForm.ptCurrentPos.x = event.theReply.mCursorPosition.x + IME_X_OFFSET;
-    candForm.ptCurrentPos.y = event.theReply.mCursorPosition.y + IME_Y_OFFSET +
-                              event.theReply.mCursorPosition.height;
+    candForm.ptCurrentPos.x = cursorPosition.x + IME_X_OFFSET;
+    candForm.ptCurrentPos.y = cursorPosition.y + IME_Y_OFFSET +
+                              cursorPosition.height;
     candForm.rcArea.right = 0;
     candForm.rcArea.left = 0;
     candForm.rcArea.top = 0;
@@ -6500,11 +6502,11 @@ nsWindow::HandleStartComposition(HIMC hIMEContext)
     sIMECompCharPos = (RECT*)PR_MALLOC(IME_MAX_CHAR_POS*sizeof(RECT));
     if (sIMECompCharPos) {
       memset(sIMECompCharPos, -1, sizeof(RECT)*IME_MAX_CHAR_POS);
-      sIMECompCharPos[0].left = event.theReply.mCursorPosition.x;
-      sIMECompCharPos[0].top = event.theReply.mCursorPosition.y;
-      sIMECompCharPos[0].bottom = event.theReply.mCursorPosition.YMost();
+      sIMECompCharPos[0].left = cursorPosition.x;
+      sIMECompCharPos[0].top = cursorPosition.y;
+      sIMECompCharPos[0].bottom = cursorPosition.YMost();
     }
-    sIMECaretHeight = event.theReply.mCursorPosition.height;
+    sIMECaretHeight = cursorPosition.height;
   } else {
     // for some reason we don't know yet, theReply may contain invalid result
     // need more debugging in nsCaret to find out the reason
@@ -7218,8 +7220,8 @@ PRBool nsWindow::OnIMEQueryCharPosition(LPARAM aData, LRESULT *oResult, PRBool a
     }
     NS_RELEASE(event.widget);
 
-    nsRect screenRect, widgetRect(event.theReply.mCaretRect);
-    WidgetToScreen(widgetRect, screenRect);
+    nsRect screenRect;
+    ResolveIMECaretPos(nsnull, event.theReply.mCaretRect, screenRect);
     pCharPosition->pt.x = screenRect.x;
     pCharPosition->pt.y = screenRect.y;
 
@@ -7275,6 +7277,23 @@ PRBool nsWindow::OnIMEQueryCharPosition(LPARAM aData, LRESULT *oResult, PRBool a
 
   *oResult = TRUE;
   return PR_TRUE;
+}
+
+//==========================================================================
+void
+nsWindow::ResolveIMECaretPos(nsWindow* aClient,
+                             nsRect&   aEventResult,
+                             nsRect&   aResult)
+{
+  // RootView coordinates -> Screen coordinates
+  nsWindow* topWindow = GetTopLevelWindow();
+  topWindow->WidgetToScreen(aEventResult, aResult);
+  NS_RELEASE(topWindow);
+  // if aClient is nsnull, returns screen coordinates
+  if (!aClient)
+    return;
+  // screen coordinates -> client coordinates
+  aClient->ScreenToWidget(aResult, aResult);
 }
 
 //==========================================================================
@@ -7383,14 +7402,10 @@ NS_IMETHODIMP nsWindow::SetIMEEnabled(PRBool aState)
 {
   if (sIMEIsComposing)
     ResetInputState();
-  nsWinNLS &theWinNLS = nsWinNLS::LoadModule();
-  if (!theWinNLS.CanUseSetIMEEnableStatus()) {
-    NS_WARNING("WINNLSEnableIME API is not loaded.");
-    return NS_ERROR_FAILURE;
-  }
-  PRBool lastStatus = theWinNLS.SetIMEEnableStatus(mWnd, aState);
-  if (aState && !lastStatus)
-    ::SendMessage(mWnd, WM_IME_NOTIFY, IMN_OPENSTATUSWINDOW, 0L);
+  if (!aState != !mOldIMC)
+    return NS_OK;
+  NS_IMM_ASSOCIATECONTEXT(mWnd, aState ? mOldIMC : NULL, &mOldIMC);
+  NS_ASSERTION(!aState || !mOldIMC, "Another IMC was associated");
 
   return NS_OK;
 }
@@ -7398,12 +7413,7 @@ NS_IMETHODIMP nsWindow::SetIMEEnabled(PRBool aState)
 //==========================================================================
 NS_IMETHODIMP nsWindow::GetIMEEnabled(PRBool* aState)
 {
-  nsWinNLS &theWinNLS = nsWinNLS::LoadModule();
-  if (!theWinNLS.CanUseGetIMEEnableStatus()) {
-    NS_WARNING("WINNLSGetEnableStatus API is not loaded.");
-    return NS_ERROR_FAILURE;
-  }
-  *aState = !!theWinNLS.GetIMEEnableStatus(mWnd);
+  *aState = !mOldIMC;
   return NS_OK;
 }
 

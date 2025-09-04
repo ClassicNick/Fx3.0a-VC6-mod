@@ -166,6 +166,7 @@
     ICON_MODULE                              \
     MODULE(nsPluginModule)                   \
     MODULE(nsLayoutModule)                   \
+    MODULE(nsXMLExtrasModule)                \
     MODULE(docshell_provider)                \
     MODULE(embedcomponents)                  \
     MODULE(Browser_Embedding_Module)         \
@@ -181,6 +182,7 @@
     MODULE(application)                      \
     MODULE(Apprunner)                        \
     MODULE(CommandLineModule)                \
+    MODULE(tkAutoCompleteModule)             \
     MODULE(nsToolkitCompsModule)             \
     XREMOTE_MODULES                          \
     MODULE(nsSoftwareUpdate)                 \

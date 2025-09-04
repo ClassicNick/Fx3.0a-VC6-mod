@@ -621,7 +621,7 @@ NS_IMETHODIMP_(nsDTDMode) nsParser::GetParseMode(void)
 
 /**
  * Determine what DTD mode (and thus what layout nsCompatibility mode)
- * to use for this document based on the first chunk of data recieved
+ * to use for this document based on the first chunk of data received
  * from the network (each parsercontext can have its own mode).  (No,
  * this is not an optimal solution -- we really don't need to know until
  * after we've received the DOCTYPE, and this could easily be part of
@@ -1625,7 +1625,7 @@ nsParser::Parse(const nsAString& aSourceBuffer,
     CParserContext* pc=0;
 
     if((!mParserContext) || (mParserContext->mKey!=aKey))  { 
-      //only make a new context if we dont have one, OR if we do, but has a different context key... 
+      //only make a new context if we don't have one, OR if we do, but has a different context key... 
   
       nsScanner* theScanner = new nsScanner(mUnusedInput,mCharset,mCharsetSource);
       NS_ENSURE_TRUE(theScanner, NS_ERROR_OUT_OF_MEMORY);
@@ -2641,12 +2641,9 @@ PRBool nsParser::WillTokenize(PRBool aIsFinalChunk)
 
 
 /**
- *  This is the primary control routine to consume tokens. 
- *	It iteratively consumes tokens until an error occurs or 
- *	you run out of data.
- *  
- *  @update  gess 01/04/99
- *  @return  error code -- 0 if ok, non-zero if error.
+ * This is the primary control routine to consume tokens. 
+ * It iteratively consumes tokens until an error occurs or 
+ * you run out of data.
  */
 nsresult nsParser::Tokenize(PRBool aIsFinalChunk)
 {
@@ -2654,56 +2651,54 @@ nsresult nsParser::Tokenize(PRBool aIsFinalChunk)
     
   nsresult result = NS_ERROR_NOT_AVAILABLE;
   if (mParserContext) {
-    PRInt32 type = mParserContext->mDTD ? mParserContext->mDTD->GetType() : NS_IPARSER_FLAG_HTML;
+    PRInt32 type = mParserContext->mDTD ? mParserContext->mDTD->GetType()
+                                        : NS_IPARSER_FLAG_HTML;
     result = mParserContext->GetTokenizer(type, mSink, theTokenizer);
   }
 
   if (NS_SUCCEEDED(result)) {
     if (mFlags & NS_PARSER_FLAG_FLUSH_TOKENS) {
-      // For some reason tokens didn't get flushed ( probably
+      // For some reason tokens didn't get flushed (probably
       // the parser got blocked before all the tokens in the
-      // stack got handled ). Flush 'em now. Ref. bug 104856
-      if (theTokenizer->GetCount() == 0) {
-        mFlags &= ~NS_PARSER_FLAG_FLUSH_TOKENS; // reset since the tokens have been flushed.
-        // Resume tokenization for the rest of the document 
-        // since all the tokens in the tokenizer got flushed.
-        result = Tokenize(aIsFinalChunk); 
+      // stack got handled). Flush 'em now. Ref. bug 104856
+      if (theTokenizer->GetCount() != 0) {
+        return result;
       }
+
+      // Reset since the tokens have been flushed.
+      mFlags &= ~NS_PARSER_FLAG_FLUSH_TOKENS;
     }
-    else {
-      PRBool flushTokens=PR_FALSE;
 
-      MOZ_TIMER_START(mTokenizeTime);
+    PRBool flushTokens = PR_FALSE;
 
-      WillTokenize(aIsFinalChunk);
-      while (NS_SUCCEEDED(result)) {
-        mParserContext->mScanner->Mark();
-        result=theTokenizer->ConsumeToken(*mParserContext->mScanner, flushTokens);
-        if (NS_FAILED(result)) {
-          mParserContext->mScanner->RewindToMark();
-          if (kEOF == result){
-            break;
-          }
-          else if(NS_ERROR_HTMLPARSER_STOPPARSING==result) {
-            result = Terminate();
-            break;
-          }
-        }
-        else if (flushTokens && (mFlags & NS_PARSER_FLAG_OBSERVERS_ENABLED)) {
-          // I added the extra test of NS_PARSER_FLAG_OBSERVERS_ENABLED to fix Bug# 23931.
-          // Flush tokens on seeing </SCRIPT> -- Ref: Bug# 22485 --
-          // Also remember to update the marked position.
-          mFlags |= NS_PARSER_FLAG_FLUSH_TOKENS;
-          mParserContext->mScanner->Mark();
+    MOZ_TIMER_START(mTokenizeTime);
+
+    WillTokenize(aIsFinalChunk);
+    while (NS_SUCCEEDED(result)) {
+      mParserContext->mScanner->Mark();
+      result = theTokenizer->ConsumeToken(*mParserContext->mScanner, flushTokens);
+      if (NS_FAILED(result)) {
+        mParserContext->mScanner->RewindToMark();
+        if (kEOF == result){
           break;
         }
-      } 
-      DidTokenize(aIsFinalChunk);
+        if (NS_ERROR_HTMLPARSER_STOPPARSING == result) {
+          result = Terminate();
+          break;
+        }
+      } else if (flushTokens && (mFlags & NS_PARSER_FLAG_OBSERVERS_ENABLED)) {
+        // I added the extra test of NS_PARSER_FLAG_OBSERVERS_ENABLED to fix Bug# 23931.
+        // Flush tokens on seeing </SCRIPT> -- Ref: Bug# 22485 --
+        // Also remember to update the marked position.
+        mFlags |= NS_PARSER_FLAG_FLUSH_TOKENS;
+        mParserContext->mScanner->Mark();
+        break;
+      }
+    } 
+    DidTokenize(aIsFinalChunk);
 
-      MOZ_TIMER_STOP(mTokenizeTime);
-    }  
-  }
-  else {
+    MOZ_TIMER_STOP(mTokenizeTime);
+  } else {
     result = mInternalState = NS_ERROR_HTMLPARSER_BADTOKENIZER;
   }
   

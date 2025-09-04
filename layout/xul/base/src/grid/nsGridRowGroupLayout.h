@@ -47,6 +47,9 @@
 
 #include "nsGridRowLayout.h"
 
+/**
+ * The nsIBoxLayout implementation for nsGridRowGroupFrame.
+ */
 class nsGridRowGroupLayout : public nsGridRowLayout
 {
 public:
@@ -62,6 +65,7 @@ public:
   NS_IMETHOD BuildRows(nsIBox* aBox, nsGridRow* aRows, PRInt32* aCount);
   NS_IMETHOD GetTotalMargin(nsIBox* aBox, nsMargin& aMargin, PRBool aIsHorizontal);
   NS_IMETHOD GetRowCount(PRInt32& aRowCount);
+  NS_IMETHOD_(Type) GetType();
 
 protected:
   nsGridRowGroupLayout(nsIPresShell* aShell);

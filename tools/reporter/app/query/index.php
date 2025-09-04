@@ -49,14 +49,17 @@ session_start();
 header("Cache-control: private"); //IE 6 Fix
 printheaders();
 
+$method = 'html';
+
 $title = "Searching Results";
+
 $content = initializeTemplate();
+$content->assign('method', $method);
 
 // Open DB
-$db = NewADOConnection($config['db_dsn']);
+$db = NewDBConnection($config['db_dsn']);
 $db->SetFetchMode(ADODB_FETCH_ASSOC);
 
-// DELETED
 $query = new query;
 $query_input = $query->getQueryInputs();
 
@@ -68,24 +71,39 @@ $result = $query->doQuery($query_input['selected'],
                           $query_input['page'],
                           $query_input['count']
           );
-$output = $query->outputHTML($result, $query_input);
 
-if (sizeof($output['data']) == 0){
-    $content->assign('error', 'No Results found');
-    displayPage($content, 'query.tpl');
-    exit;
-}
+$continuity_params = $query->continuityParams($query_input);
 
-$content->assign('continuityParams', $query->continuityParams($query_input));
-$content->assign('count', $result['totalResults']);
-$content->assign('show', $query_input['show']);
-$content->assign('page', $query_input['page']);
-
-$content->assign('column', $output['columnHeaders']);
-$content->assign('row', $output['data']);
-displayPage($content, 'query.tpl');
+$output = $query->outputHTML($result, $query_input, $continuity_params, $columnHeaders);
 
 // disconnect database
 $db->Close();
 
+if (sizeof($output['data']) == 0){
+    $content->assign('error', 'No Results found');
+    displayPage($content, 'query', 'query.tpl');
+    exit;
+}
+
+// Start Next/Prev Navigation
+/*******
+ * We cap the navigation at 2000 items because php sometimes acts wierd
+ * when sessions get to big.  In most cases, this won't effect anyone.
+ *******/
+if($result['totalResults'] < 2000){
+    $_SESSION['reportList'] = $result['reportList'];
+} else {
+    unset($_SESSION['reportList']);
+    $content->assign('notice', 'This query returned too many reports for next/previous navigation to work');
+}
+
+$content->assign('continuity_params',  $continuity_params);
+$content->assign('column',             $query->columnHeaders($query_input, $continuity_params));
+$content->assign('row',                $output['data']);
+$content->assign('continuityParams',   $continuity_params[1]);
+$content->assign('count',              $result['totalResults']);
+$content->assign('show',               $query_input['show']);
+$content->assign('page',               $query_input['page']);
+
+displayPage($content, 'query', 'query.tpl');
 ?>

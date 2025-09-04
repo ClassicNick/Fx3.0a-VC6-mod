@@ -85,7 +85,6 @@
 #include "nsIViewManager.h"
 #include "nsINameSpaceManager.h"
 #include "nsDOMError.h"
-#include "nsIScriptGlobalObject.h"
 #include "nsIScriptLoader.h"
 #include "nsRuleData.h"
 
@@ -311,15 +310,6 @@ nsGenericHTMLElement::CopyInnerTo(nsGenericElement* aDst, PRBool aDeep) const
   }
 
   nsIDocument *newDoc = aDst->GetOwnerDoc();
-
-  PRInt32 id;
-  if (newDoc) {
-    id = newDoc->GetAndIncrementContentID();
-  } else {
-    id = PR_INT32_MAX;
-  }
-
-  aDst->SetContentID(id);
 
   if (aDeep) {
     nsIDocument *doc = GetOwnerDoc();
@@ -1531,8 +1521,7 @@ nsGenericHTMLElement::HandleDOMEventForAnchors(nsPresContext* aPresContext,
             // If the window is not active, do not allow the focus to bring the
             // window to the front.  We update the focus controller, but do
             // nothing else.
-            nsCOMPtr<nsPIDOMWindow> win =
-              do_QueryInterface(document->GetScriptGlobalObject());
+            nsPIDOMWindow *win = document->GetWindow();
             if (win) {
               nsIFocusController *focusController =
                 win->GetRootFocusController();
@@ -1737,22 +1726,23 @@ nsGenericHTMLElement::GetEventListenerManagerForAttr(nsIEventListenerManager** a
   // Attributes on the body and frameset tags get set on the global object
   if (mNodeInfo->Equals(nsHTMLAtoms::body) ||
       mNodeInfo->Equals(nsHTMLAtoms::frameset)) {
-    nsIScriptGlobalObject *sgo;
+    nsPIDOMWindow *win;
 
-    // If we have a document, and it has a script global, add the
-    // event listener on the global. If not, proceed as normal.
+    // If we have a document, and it has a window, add the event
+    // listener on the window (the inner window). If not, proceed as
+    // normal.
     // XXXbz sXBL/XBL2 issue: should we instead use GetCurrentDoc() here,
     // override BindToTree for those classes and munge event listeners there?
     nsIDocument *document = GetOwnerDoc();
     nsresult rv = NS_OK;
-    if (document && (sgo = document->GetScriptGlobalObject())) {
-      nsCOMPtr<nsIDOMEventReceiver> receiver(do_QueryInterface(sgo));
+    if (document && (win = document->GetInnerWindow())) {
+      nsCOMPtr<nsIDOMEventReceiver> receiver(do_QueryInterface(win));
       NS_ENSURE_TRUE(receiver, NS_ERROR_FAILURE);
 
       rv = receiver->GetListenerManager(aManager);
 
       if (NS_SUCCEEDED(rv)) {
-        NS_ADDREF(*aTarget = sgo);
+        NS_ADDREF(*aTarget = win);
       }
       *aDefer = PR_FALSE;
     } else {
@@ -2027,29 +2017,40 @@ nsGenericHTMLElement::IsContentOfType(PRUint32 aFlags) const
 
 
 PRBool
-nsGenericHTMLElement::ParseAttribute(nsIAtom* aAttribute,
+nsGenericHTMLElement::ParseAttribute(PRInt32 aNamespaceID,
+                                     nsIAtom* aAttribute,
                                      const nsAString& aValue,
                                      nsAttrValue& aResult)
 {
-  if (aAttribute == nsHTMLAtoms::dir) {
-    return aResult.ParseEnumValue(aValue, kDirTable);
-  }
-  if (aAttribute == nsHTMLAtoms::style) {
-    ParseStyleAttribute(this, mNodeInfo->NamespaceEquals(kNameSpaceID_XHTML),
-                        aValue, aResult);
-    return PR_TRUE;
-  }
-  if (aAttribute == nsHTMLAtoms::kClass) {
-    aResult.ParseAtomArray(aValue);
+  if (aNamespaceID == kNameSpaceID_None) {
+    if (aAttribute == nsHTMLAtoms::dir) {
+      return aResult.ParseEnumValue(aValue, kDirTable);
+    }
+    if (aAttribute == nsHTMLAtoms::style) {
+      ParseStyleAttribute(this, mNodeInfo->NamespaceEquals(kNameSpaceID_XHTML),
+                          aValue, aResult);
+      return PR_TRUE;
+    }
+    if (aAttribute == nsHTMLAtoms::kClass) {
+      aResult.ParseAtomArray(aValue);
 
-    return PR_TRUE;
+      return PR_TRUE;
+    }
+  
+    if (aAttribute == nsHTMLAtoms::tabindex) {
+      return aResult.ParseIntWithBounds(aValue, -32768, 32767);
+    }
+
+    if (aAttribute == nsHTMLAtoms::name && !aValue.IsEmpty()) {
+      // Store name as an atom.  name="" means that the element has no name,
+      // not that it has an emptystring as the name.
+      aResult.ParseAtom(aValue);
+      return PR_TRUE;
+    }
   }
 
-  if (aAttribute == nsHTMLAtoms::tabindex) {
-    return aResult.ParseIntWithBounds(aValue, -32768, 32767);
-  }
-
-  return nsGenericElement::ParseAttribute(aAttribute, aValue, aResult);
+  return nsGenericElement::ParseAttribute(aNamespaceID, aAttribute, aValue,
+                                          aResult);
 }
 
 PRBool
@@ -3067,14 +3068,14 @@ nsGenericHTMLFormElement::GetDesiredIMEState()
   nsCOMPtr<nsIEditor> editor = nsnull;
   nsresult rv = GetEditorInternal(getter_AddRefs(editor));
   if (NS_FAILED(rv) || !editor)
-    return nsIContent::GetDesiredIMEState();
+    return nsGenericHTMLElement::GetDesiredIMEState();
   nsCOMPtr<nsIEditorIMESupport> imeEditor = do_QueryInterface(editor);
   if (!imeEditor)
-    return nsIContent::GetDesiredIMEState();
+    return nsGenericHTMLElement::GetDesiredIMEState();
   PRUint32 state;
   rv = imeEditor->GetPreferredIMEState(&state);
   if (NS_FAILED(rv))
-    return nsIContent::GetDesiredIMEState();
+    return nsGenericHTMLElement::GetDesiredIMEState();
   return state;
 }
 
@@ -3833,8 +3834,14 @@ nsGenericHTMLElement::GetHostFromHrefString(const nsAString& aHref,
   aHost.Truncate();
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_NewURI(getter_AddRefs(uri), aHref);
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      // Don't throw from these methods!  Not a valid URI means return
+      // empty string.
+      rv = NS_OK;
+    }
     return rv;
+  }
 
   nsCAutoString hostport;
   rv = uri->GetHostPort(hostport);
@@ -3857,8 +3864,14 @@ nsGenericHTMLElement::GetHostnameFromHrefString(const nsAString& aHref,
   aHostname.Truncate();
   nsCOMPtr<nsIURI> url;
   nsresult rv = NS_NewURI(getter_AddRefs(url), aHref);
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      // Don't throw from these methods!  Not a valid URI means return
+      // empty string.
+      rv = NS_OK;
+    }
     return rv;
+  }
 
   nsCAutoString host;
   rv = url->GetHost(host);
@@ -3882,8 +3895,12 @@ nsGenericHTMLElement::GetPathnameFromHrefString(const nsAString& aHref,
   nsCOMPtr<nsIURI> uri;
 
   nsresult rv = NS_NewURI(getter_AddRefs(uri), aHref);
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      rv = NS_OK;
+    }
     return rv;
+  }
 
   nsCOMPtr<nsIURL> url(do_QueryInterface(uri));
 
@@ -3912,8 +3929,12 @@ nsGenericHTMLElement::GetSearchFromHrefString(const nsAString& aHref,
   nsCOMPtr<nsIURI> uri;
 
   nsresult rv = NS_NewURI(getter_AddRefs(uri), aHref);
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      rv = NS_OK;
+    }
     return rv;
+  }
 
   nsCOMPtr<nsIURL> url(do_QueryInterface(uri));
 
@@ -3943,8 +3964,12 @@ nsGenericHTMLElement::GetPortFromHrefString(const nsAString& aHref,
   aPort.Truncate();
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_NewURI(getter_AddRefs(uri), aHref);
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      rv = NS_OK;
+    }
     return rv;
+  }
 
   PRInt32 port;
   rv = uri->GetPort(&port);
@@ -3974,8 +3999,12 @@ nsGenericHTMLElement::GetHashFromHrefString(const nsAString& aHref,
   nsCOMPtr<nsIURI> uri;
 
   nsresult rv = NS_NewURI(getter_AddRefs(uri), aHref);
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      rv = NS_OK;
+    }
     return rv;
+  }
 
   nsCOMPtr<nsIURL> url(do_QueryInterface(uri));
 

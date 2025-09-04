@@ -640,16 +640,11 @@ MOZCE_SHUNT_API BOOL mozce_GetTextExtentExPointA(HDC inDC, const char * inStr, i
   mozce_printf("mozce_GetTextExtentExPointA called (%d)\n", inLen);
 #endif
 
-    char* mutableStr = (char*) inStr;
     BOOL retval = FALSE;
 
-    if (!mutableStr)
-        return retval;
-
-    mutableStr[inLen] = '\0';
-
-    LPTSTR wStr = a2w_malloc(mutableStr, inLen, NULL);
-
+    // BUG:  if inString has any embedded nulls, this function will not produce the desired effect!
+	LPTSTR wStr = a2w_malloc(inStr, inLen, NULL);
+	
     if(NULL != wStr)
     {
         retval = GetTextExtentExPointW(inDC, wStr, inLen, inMaxExtent, outFit, outDx, inSize);
@@ -664,31 +659,38 @@ MOZCE_SHUNT_API BOOL mozce_ExtTextOutA(HDC inDC, int inX, int inY, UINT inOption
     MOZCE_PRECHECK
 
 #ifdef DEBUG
-    mozce_printf("mozce_ExtTextOutA called\n");
+        mozce_printf("mozce_ExtTextOutA (%s) called\n", inString);
 #endif
-
+    
     BOOL retval = false;
     
     if (inCount == -1)
-		inCount = strlen(inString);
-
+        inCount = strlen(inString);
+    
     int wLen = 0;
     LPTSTR wStr = a2w_malloc(inString, inCount, &wLen);
-
+    
     if(NULL != wStr)
-    {
+    {	
         retval = ExtTextOutW(inDC, inX, inY, inOptions, inRect, wStr, wLen, inDx);
+        
         free(wStr);
         wStr = NULL;
     }
-
+    
     return retval;
 }
 
 
 MOZCE_SHUNT_API BOOL mozce_TextOutA(HDC hdc, int nXStart, int nYStart, const char* lpString, int cbString)
 {
-  return mozce_ExtTextOutA(hdc, nXStart, nYStart, 0, NULL, lpString, cbString, NULL);
+    MOZCE_PRECHECK
+
+#ifdef DEBUG
+    mozce_printf("mozce_TextOutA (%s) called\n", lpString);
+#endif
+    
+    return mozce_ExtTextOutA(hdc, nXStart, nYStart, 0, NULL, lpString, cbString, NULL);
 }
 
 MOZCE_SHUNT_API DWORD mozce_GetGlyphOutlineA(HDC inDC, CHAR inChar, UINT inFormat, void* inGM, DWORD inBufferSize, LPVOID outBuffer, CONST mozce_MAT2* inMAT2)

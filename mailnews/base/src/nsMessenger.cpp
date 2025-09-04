@@ -88,8 +88,7 @@
 #include "nsIWebBrowserPrint.h"
 
 /* for access to docshell */
-#include "nsIDOMWindowInternal.h"
-#include "nsIScriptGlobalObject.h"
+#include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellLoadInfo.h"
 #include "nsIDocShellTreeItem.h"
@@ -371,10 +370,10 @@ nsMessenger::SetWindow(nsIDOMWindowInternal *aWin, nsIMsgWindow *aMsgWindow)
   
   mWindow = aWin;
   
-  nsCOMPtr<nsIScriptGlobalObject> globalObj( do_QueryInterface(aWin) );
-  NS_ENSURE_TRUE(globalObj, NS_ERROR_FAILURE);
+  nsCOMPtr<nsPIDOMWindow> win( do_QueryInterface(aWin) );
+  NS_ENSURE_TRUE(win, NS_ERROR_FAILURE);
 
-  nsIDocShell *docShell = globalObj->GetDocShell();
+  nsIDocShell *docShell = win->GetDocShell();
   nsCOMPtr<nsIDocShellTreeItem> docShellAsItem(do_QueryInterface(docShell));
   NS_ENSURE_TRUE(docShellAsItem, NS_ERROR_FAILURE);
   
@@ -1520,9 +1519,7 @@ NS_IMETHODIMP nsMessenger::GetUndoTransactionType(PRUint32 *txnType)
     rv = mTxnMgr->PeekUndoStack(getter_AddRefs(txn));
     if (NS_SUCCEEDED(rv) && txn)
     {
-        nsCOMPtr<nsMsgTxn> msgTxn = do_QueryInterface(txn, &rv);
-        if (NS_SUCCEEDED(rv) && msgTxn)
-            rv = msgTxn->GetTransactionType(txnType);
+        rv = NS_STATIC_CAST(nsMsgTxn*, NS_STATIC_CAST(nsITransaction*, txn.get()))->GetTransactionType(txnType);
     }
     return rv;
 }
@@ -1550,9 +1547,7 @@ NS_IMETHODIMP nsMessenger::GetRedoTransactionType(PRUint32 *txnType)
     rv = mTxnMgr->PeekRedoStack(getter_AddRefs(txn));
     if (NS_SUCCEEDED(rv) && txn)
     {
-        nsCOMPtr<nsMsgTxn> msgTxn = do_QueryInterface(txn, &rv);
-        if (NS_SUCCEEDED(rv) && msgTxn)
-            rv = msgTxn->GetTransactionType(txnType);
+        rv = NS_STATIC_CAST(nsMsgTxn*, NS_STATIC_CAST(nsITransaction*, txn.get()))->GetTransactionType(txnType);
     }
     return rv;
 }
@@ -1584,9 +1579,7 @@ nsMessenger::Undo(nsIMsgWindow *msgWindow)
         rv = mTxnMgr->PeekUndoStack(getter_AddRefs(txn));
         if (NS_SUCCEEDED(rv) && txn)
         {
-            nsCOMPtr<nsMsgTxn> msgTxn = do_QueryInterface(txn, &rv);
-            if (NS_SUCCEEDED(rv) && msgTxn)
-                msgTxn->SetMsgWindow(msgWindow);
+            NS_STATIC_CAST(nsMsgTxn*, NS_STATIC_CAST(nsITransaction*, txn.get()))->SetMsgWindow(msgWindow);
         }
         mTxnMgr->UndoTransaction();
     }
@@ -1608,9 +1601,7 @@ nsMessenger::Redo(nsIMsgWindow *msgWindow)
         rv = mTxnMgr->PeekRedoStack(getter_AddRefs(txn));
         if (NS_SUCCEEDED(rv) && txn)
         {
-            nsCOMPtr<nsMsgTxn> msgTxn = do_QueryInterface(txn, &rv);
-            if (NS_SUCCEEDED(rv) && msgTxn)
-                msgTxn->SetMsgWindow(msgWindow);
+            NS_STATIC_CAST(nsMsgTxn*, NS_STATIC_CAST(nsITransaction*, txn.get()))->SetMsgWindow(msgWindow);
         }
         mTxnMgr->RedoTransaction();
     }
@@ -1751,7 +1742,7 @@ nsMessenger::SendUnsentMessages(nsIMsgIdentity *aIdentity, nsIMsgWindow *aMsgWin
   if (NS_SUCCEEDED(rv) && pMsgSendLater)
   { 
 #ifdef DEBUG
-        printf("We succesfully obtained a nsIMsgSendLater interface....\n"); 
+        printf("We successfully obtained a nsIMsgSendLater interface....\n"); 
 #endif
 
     SendLaterListener *sendLaterListener = new SendLaterListener(this);

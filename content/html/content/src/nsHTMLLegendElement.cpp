@@ -45,7 +45,6 @@
 #include "nsIFormControl.h"
 #include "nsIEventStateManager.h"
 #include "nsIFocusController.h"
-#include "nsIScriptGlobalObject.h"
 #include "nsIDocument.h"
 #include "nsPIDOMWindow.h"
 
@@ -85,7 +84,8 @@ public:
   virtual void UnbindFromTree(PRBool aDeep = PR_TRUE,
                               PRBool aNullParent = PR_TRUE);
   virtual void SetFocus(nsPresContext* aPresContext);
-  virtual PRBool ParseAttribute(nsIAtom* aAttribute,
+  virtual PRBool ParseAttribute(PRInt32 aNamespaceID,
+                                nsIAtom* aAttribute,
                                 const nsAString& aValue,
                                 nsAttrValue& aResult);
   virtual nsChangeHint GetAttributeChangeHint(const nsIAtom* aAttribute,
@@ -155,15 +155,17 @@ static const nsAttrValue::EnumTable kAlignTable[] = {
 };
 
 PRBool
-nsHTMLLegendElement::ParseAttribute(nsIAtom* aAttribute,
+nsHTMLLegendElement::ParseAttribute(PRInt32 aNamespaceID,
+                                    nsIAtom* aAttribute,
                                     const nsAString& aValue,
                                     nsAttrValue& aResult)
 {
-  if (aAttribute == nsHTMLAtoms::align) {
+  if (aAttribute == nsHTMLAtoms::align && aNamespaceID == kNameSpaceID_None) {
     return aResult.ParseEnumValue(aValue, kAlignTable);
   }
 
-  return nsGenericHTMLElement::ParseAttribute(aAttribute, aValue, aResult);
+  return nsGenericHTMLElement::ParseAttribute(aNamespaceID, aAttribute, aValue,
+                                              aResult);
 }
 
 nsChangeHint
@@ -258,11 +260,12 @@ nsHTMLLegendElement::SetFocus(nsPresContext* aPresContext)
   } else {
     // If the legend isn't focusable (no tabindex) we focus whatever is
     // focusable following the legend instead, bug 81481.
-    nsCOMPtr<nsPIDOMWindow> ourWindow = do_QueryInterface(document->GetScriptGlobalObject());
+    nsCOMPtr<nsPIDOMWindow> ourWindow = document->GetWindow();
     if (ourWindow) {
-      nsIFocusController* focusController = ourWindow->GetRootFocusController();
-      nsIDOMElement* domElement = nsnull;
-      CallQueryInterface(this, &domElement);
+      nsIFocusController* focusController =
+        ourWindow->GetRootFocusController();
+      nsCOMPtr<nsIDOMElement> domElement =
+        do_QueryInterface(NS_STATIC_CAST(nsIContent *, this));
       if (focusController && domElement) {
         focusController->MoveFocus(PR_TRUE, domElement);
       }

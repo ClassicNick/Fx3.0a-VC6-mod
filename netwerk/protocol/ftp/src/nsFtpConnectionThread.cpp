@@ -610,7 +610,7 @@ nsFtpState::OnStopRequest(nsIRequest *request, nsISupports *aContext,
         return NS_OK;
     }        
 
-    if (NS_FAILED(aStatus)) // aStatus will be NS_OK if we are sucessfully disconnecing the control connection. 
+    if (NS_FAILED(aStatus)) // aStatus will be NS_OK if we are successfully disconnecing the control connection. 
         StopProcessing();
 
     return NS_OK;
@@ -2367,7 +2367,7 @@ nsFtpState::KillControlConnection()
 
         LOG_ALWAYS(("(%x) nsFtpState caching control connection", this));
 
-        // Store connection persistant data
+        // Store connection persistent data
         mControlConnection->mServerType = mServerType;           
         mControlConnection->mPassword = mPassword;
         mControlConnection->mPwd = mPwd;

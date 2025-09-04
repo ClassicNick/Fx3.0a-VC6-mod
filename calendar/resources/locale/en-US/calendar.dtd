@@ -259,7 +259,7 @@
 <!ENTITY calendar.tools.modify.tooltip         "Modify Event" >
 
 <!ENTITY calendar.newtask.button.tooltip          "Create a new task" >
-<!ENTITY calendar.newevent.button.tooltip         "Create a new calendar event" >
+<!ENTITY calendar.newevent.button.tooltip         "Create a new event" >
 <!ENTITY calendar.delete.button.tooltip           "Delete selected event" >
 <!ENTITY calendar.edit.button.tooltip             "Edit selected event" >
 
@@ -306,8 +306,6 @@
 <!ENTITY calendar.weekview.button.tooltip         "Switch to week view" >
 <!ENTITY calendar.monthview.button.tooltip        "Switch to month view" >
 <!ENTITY calendar.multiweekview.button.tooltip        "Switch to multiweek view" >
-<!ENTITY calendar.newevent.button.tooltip         "Create a new event" >
-<!ENTITY calendar.newtask.button.tooltip          "Create a new task" >
 
 <!ENTITY calendar.nextday.button.tooltip        "Next Day" >
 <!ENTITY calendar.prevday.button.tooltip        "Previous Day" >
@@ -409,10 +407,14 @@
 <!ENTITY calendar.context.modifyevent.accesskey       "E">
 <!ENTITY calendar.context.modifytask.label            "Edit Task…">
 <!ENTITY calendar.context.modifytask.accesskey        "E">
+<!ENTITY calendar.context.modifyitem.label            "Edit Item">
+<!ENTITY calendar.context.modifyitem.accesskey        "E">
 <!ENTITY calendar.context.deleteevent.label           "Delete Selected Event">
 <!ENTITY calendar.context.deleteevent.accesskey       "l">
 <!ENTITY calendar.context.deletetask.label            "Delete Task">
 <!ENTITY calendar.context.deletetask.accesskey        "l">
+<!ENTITY calendar.context.deleteitem.label            "Delete Item">
+<!ENTITY calendar.context.deleteitem.accesskey        "l">
 <!ENTITY calendar.context.cutevent.label              "Cut">
 <!ENTITY calendar.context.cutevent.accesskey          "t">
 <!ENTITY calendar.context.copyevent.label             "Copy">

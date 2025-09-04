@@ -54,6 +54,18 @@ class nsCStringContainer;
 class nsIComponentLoader;
 
 /**
+ * During this shutdown notification all threads which run XPCOM code must
+ * be joined.
+ */
+#define NS_XPCOM_SHUTDOWN_THREADS_OBSERVER_ID "xpcom-shutdown-threads"
+
+/**
+ * During this shutdown notification all module loaders must unload XPCOM
+ * modules.
+ */
+#define NS_XPCOM_SHUTDOWN_LOADERS_OBSERVER_ID "xpcom-shutdown-loaders"
+
+/**
  * Private Method to register an exit routine.  This method
  * allows you to setup a callback that will be called from 
  * the NS_ShutdownXPCOM function after all services and 
@@ -188,6 +200,7 @@ NS_GetFrozenFunctions(XPCOMFunctions *entryPoints, const char* libraryPath);
 /* XPCOM Specific Defines
  *
  * XPCOM_DLL              - name of the loadable xpcom library on disk. 
+ * XUL_DLL                - name of the loadable XUL library on disk
  * XPCOM_SEARCH_KEY       - name of the environment variable that can be 
  *                          modified to include additional search paths.
  * GRE_CONF_NAME          - Name of the GRE Configuration file
@@ -199,6 +212,7 @@ NS_GetFrozenFunctions(XPCOMFunctions *entryPoints, const char* libraryPath);
 #define GRE_CONF_NAME     "gre.config"
 #define GRE_WIN_REG_LOC   "Software\\mozilla.org\\GRE"
 #define XPCOM_DLL         "xpcom.dll"
+#define XUL_DLL           "xul.dll"
 
 #elif defined(XP_BEOS)
 
@@ -206,6 +220,7 @@ NS_GetFrozenFunctions(XPCOMFunctions *entryPoints, const char* libraryPath);
 #define GRE_CONF_NAME ".gre.config"
 #define GRE_CONF_PATH "/boot/home/config/settings/GRE/gre.conf"
 #define XPCOM_DLL "libxpcom"MOZ_DLL_SUFFIX
+#define XUL_DLL   "libxul"MOZ_DLL_SUFFIX
 
 #else // Unix
 
@@ -215,8 +230,10 @@ NS_GetFrozenFunctions(XPCOMFunctions *entryPoints, const char* libraryPath);
 #ifdef XP_MACOSX  
 #define XPCOM_SEARCH_KEY  "DYLD_LIBRARY_PATH"
 #define GRE_FRAMEWORK_NAME "XUL.framework"
+#define XUL_DLL            "XUL"
 #else
 #define XPCOM_SEARCH_KEY  "LD_LIBRARY_PATH"
+#define XUL_DLL   "libxul"MOZ_DLL_SUFFIX
 #endif
 
 #define GRE_CONF_NAME ".gre.config"

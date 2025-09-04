@@ -1,4 +1,5 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sw=4 et tw=80:
  *
  * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
@@ -483,14 +484,17 @@ js_CompileTokenStream(JSContext *cx, JSObject *chain, JSTokenStream *ts,
 #endif
 
         /*
-         * No need to emit code here -- Statements already has, for each
+         * No need to emit bytecode here -- Statements already has, for each
          * statement in turn.  Search for TCF_COMPILING in Statements, below.
          * That flag is set for every tc == &cg->treeContext, and it implies
          * that the tc can be downcast to a cg and used to emit code during
          * parsing, rather than at the end of the parse phase.
+         *
+         * Update: the threaded interpreter needs a stop instruction, so we
+         * do have to emit that here.
          */
         JS_ASSERT(cg->treeContext.flags & TCF_COMPILING);
-        ok = JS_TRUE;
+        ok = js_Emit1(cx, cg, JSOP_STOP) >= 0;
     }
 
 #ifdef METER_PARSENODES
@@ -528,10 +532,9 @@ HasFinalReturn(JSParseNode *pn)
         return HasFinalReturn(PN_LAST(pn));
 
       case TOK_IF:
-        rv = HasFinalReturn(pn->pn_kid2);
-        if (pn->pn_kid3)
-            rv &= HasFinalReturn(pn->pn_kid3);
-        return rv;
+        if (!pn->pn_kid3)
+            return ENDS_IN_OTHER;
+        return HasFinalReturn(pn->pn_kid2) & HasFinalReturn(pn->pn_kid3);
 
 #if JS_HAS_SWITCH_STATEMENT
       case TOK_SWITCH:
@@ -705,10 +708,17 @@ js_CompileFunctionBody(JSContext *cx, JSTokenStream *ts, JSFunction *fun)
                   : JSFRAME_COMPILING;
     cx->fp = &frame;
 
-    /* Ensure that the body looks like a block statement to js_EmitTree. */
+    /*
+     * Farble the body so that it looks like a block statement to js_EmitTree,
+     * which is called beneath FunctionBody (see Statements, further below in
+     * this file).
+     *
+     * NB: with threaded interpretation, we must emit a stop opcode at the end
+     * of every scripted function and top-level script.
+     */
     CURRENT_TOKEN(ts).type = TOK_LC;
     pn = FunctionBody(cx, ts, fun, &funcg.treeContext);
-    if (!pn) {
+    if (!pn || js_Emit1(cx, &funcg, JSOP_STOP) < 0) {
         ok = JS_FALSE;
     } else {
         /*

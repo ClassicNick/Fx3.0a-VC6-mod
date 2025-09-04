@@ -608,7 +608,11 @@ nsLocalFile::nsLocalFileConstructor(nsISupports* outer, const nsIID& aIID, void*
 // nsLocalFile::nsISupports
 //-----------------------------------------------------------------------------
 
-NS_IMPL_THREADSAFE_ISUPPORTS3(nsLocalFile, nsILocalFile, nsIFile, nsILocalFileOS2)
+NS_IMPL_THREADSAFE_ISUPPORTS4(nsLocalFile,
+                              nsILocalFile,
+                              nsIFile,
+                              nsILocalFileOS2,
+                              nsIHashable)
 
 
 //-----------------------------------------------------------------------------
@@ -2343,6 +2347,27 @@ nsLocalFile::GetTarget(nsAString &_retval)
         rv = NS_CopyNativeToUnicode(tmp, _retval);
 
     return rv;
+}
+
+// nsIHashable
+
+NS_IMETHODIMP
+nsLocalFile::Equals(nsIHashable* aOther, PRBool *aResult)
+{
+    nsCOMPtr<nsIFile> otherfile(do_QueryInterface(aOther));
+    if (!otherfile) {
+        *aResult = PR_FALSE;
+        return NS_OK;
+    }
+
+    return Equals(otherfile, aResult);
+}
+
+NS_IMETHODIMP
+nsLocalFile::GetHashCode(PRUint32 *aResult)
+{
+    *aResult = nsCRT::HashCode(mWorkingPath.get());
+    return NS_OK;
 }
 
 nsresult

@@ -696,6 +696,10 @@
 #endif
 #define OleSetClipboard          mozce_OleSetClipboard
 
+#ifdef AlphaBlend
+#undef AlphaBlend
+#endif
+#define AlphaBlend mozce_AlphaBlend
 
 // From win32a.cpp
 
@@ -1158,6 +1162,7 @@
 #define FindNextFile               FindNextFileW
 
 
+#if 1
 
 #ifdef GetProp
 #undef GetProp
@@ -1174,6 +1179,7 @@
 #endif
 #define RemoveProp                mozce_RemovePropA
 
+#endif
 
 
 // From win32w.cpp
@@ -1296,6 +1302,19 @@ extern "C" {
   MOZCE_SHUNT_API size_t mozce_strftime(char *strDest, size_t maxsize, const char *format, const struct tm *timeptr);
 
   // from win32.cpp
+
+  MOZCE_SHUNT_API BOOL mozce_AlphaBlend(  HDC hdcDest,
+										  int nXOriginDest,
+										  int nYOriginDest,
+										  int nWidthDest,
+										  int nHeightDest,
+										  HDC hdcSrc,
+										  int nXOriginSrc,
+										  int nYOriginSrc,
+										  int nWidthSrc,
+										  int nHeightSrc,
+                                          BLENDFUNCTION blendFunction);
+
 
   MOZCE_SHUNT_API struct lconv * mozce_localeconv(void);
        

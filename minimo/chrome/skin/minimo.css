@@ -60,7 +60,7 @@ toolbar *, #appcontent *, * {
 }
 
 .tabs-closebutton-box{
-    list-style-image: url("chrome://minimo/skin/close.png");
+    list-style-image: url("chrome://minimo/skin/close-11px.png");
 }
 
 #lock-icon.security-na {
@@ -121,53 +121,53 @@ caption {
 }
 
 #menu-button {
-	background: url("chrome://minimo/skin/m.png") no-repeat 50% 50%;
-      width:20px !important;
-      height:12px !important;
+	background: url("chrome://minimo/skin/m-color.png") no-repeat 50% 50%;
+    width:15px !important;
+    height:15px !important;
 }
 
 #back-button
   {
-	  list-style-image      : url("chrome://minimo/skin/back.gif");
+	  list-style-image      : url("chrome://minimo/skin/back-color.png");
 	  margin-left:2px;
   }
 
 #forward-button
   {
-	  list-style-image      : url("chrome://minimo/skin/forward.gif");
+	  list-style-image      : url("chrome://minimo/skin/forward-color.png");
   }
 
 #stop-button 
   {
-	  list-style-image      : url("chrome://minimo/skin/stop.gif");
+	  list-style-image      : url("chrome://minimo/skin/stop-color.png");
   }
 
 .menu-button
   {
-    background: url("chrome://minimo/skin/m.png") no-repeat 50% 50%;
-    width:20px !important;
-    height:12px !important;
+    background: url("chrome://minimo/skin/m-color.png") no-repeat 50% 50%;
+    width:15px !important;
+    height:15px !important;
   }
 
 .back-button
   {
-	  list-style-image      : url("chrome://minimo/skin/back.gif");
+	  list-style-image      : url("chrome://minimo/skin/back-color.png");
 	  margin-left:2px;
   }
 
 .forward-button
   {
-	  list-style-image      : url("chrome://minimo/skin/forward.gif");
+	  list-style-image      : url("chrome://minimo/skin/forward-color.png");
   }
 
 .stop-button 
   {
-	  list-style-image      : url("chrome://minimo/skin/stop.gif");
+	  list-style-image      : url("chrome://minimo/skin/stop-color.png");
   }
 
 .reload-button 
   {
-	  list-style-image      : url("chrome://minimo/skin/reload.gif");
+	  list-style-image      : url("chrome://minimo/skin/reload-color.png");
   }
   
 .separator-menu {
@@ -189,5 +189,58 @@ caption {
 #zoomminusitem {
   list-style-image: url("chrome://minimo/skin/down.png");
 }
+
+
+/* Feed icon - not reviewed yet, TOOK from the browser code */
+
+
+
+#feed-button, #feed-button > .button-box,
+#feed-button:hover:active > .button-box {
+  padding: 0px;
+  margin: 0px;
+  border: 0px; 
+  background-color: transparent;
+}
+
+#feed-button .button-menu-dropmarker,
+#feed-button .button-text {
+  display: none;
+}
+
+
+#feed-button {
+  -moz-binding: url("chrome://global/content/bindings/button.xml#menu");
+  -moz-appearance: none; 
+  min-width: 0px; 
+  margin-right: 1px !important;
+}
+
+
+#feed-button[feeds] {
+  list-style-image: url("chrome://minimo/skin/rssfavicon.png");
+}
+#feed-button[chromedir="rtl"][feeds] {
+  list-style-image: url("chrome://minimo/skin/rssfavicon.png");
+}
+
+/*
+ * urlbar selector icons, these are extensions
+ * and should be placed somewhere else. 
+ */ 
+ 
+#urlbar-deck {
+
+}
+
+#urlbar-deck.sb {
+  list-style-image: url("chrome://minimo/skin/extensions/icon-delicious.png");
+}
+
+#urlbar-deck.search {
+  list-style-image: url("chrome://minimo/skin/extensions/icon-google.png");
+}
+
+ 
 
 

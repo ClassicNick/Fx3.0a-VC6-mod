@@ -565,15 +565,15 @@ nsXULElement::GetEventListenerManagerForAttr(nsIEventListenerManager** aManager,
 
     nsIContent *root = doc->GetRootContent();
     if ((!root || root == this) && !mNodeInfo->Equals(nsXULAtoms::overlay)) {
-        nsIScriptGlobalObject *global = doc->GetScriptGlobalObject();
+        nsPIDOMWindow *window = doc->GetInnerWindow();
 
-        nsCOMPtr<nsIDOMEventReceiver> receiver = do_QueryInterface(global);
-        if (! receiver)
+        nsCOMPtr<nsIDOMEventReceiver> receiver = do_QueryInterface(window);
+        if (!receiver)
             return NS_ERROR_UNEXPECTED;
 
         nsresult rv = receiver->GetListenerManager(aManager);
         if (NS_SUCCEEDED(rv)) {
-            NS_ADDREF(*aTarget = global);
+            NS_ADDREF(*aTarget = window);
         }
         *aDefer = PR_FALSE;
         return rv;
@@ -1234,7 +1234,8 @@ nsXULElement::AfterSetAttr(PRInt32 aNamespaceID, nsIAtom* aName,
 }
 
 PRBool
-nsXULElement::ParseAttribute(nsIAtom* aAttribute,
+nsXULElement::ParseAttribute(PRInt32 aNamespaceID,
+                             nsIAtom* aAttribute,
                              const nsAString& aValue,
                              nsAttrValue& aResult)
 {
@@ -1243,18 +1244,21 @@ nsXULElement::ParseAttribute(nsIAtom* aAttribute,
     // WARNING!!
     // This code is largely duplicated in nsXULPrototypeElement::SetAttrAt.
     // Any changes should be made to both functions.
-    if (aAttribute == nsXULAtoms::style) {
-        nsGenericHTMLElement::ParseStyleAttribute(this, PR_TRUE, aValue,
-                                                  aResult);
-        return PR_TRUE;
+    if (aNamespaceID == kNameSpaceID_None) {
+        if (aAttribute == nsXULAtoms::style) {
+            nsGenericHTMLElement::ParseStyleAttribute(this, PR_TRUE, aValue,
+                                                      aResult);
+            return PR_TRUE;
+        }
+
+        if (aAttribute == nsXULAtoms::clazz) {
+            aResult.ParseAtomArray(aValue);
+            return PR_TRUE;
+        }
     }
 
-    if (aAttribute == nsXULAtoms::clazz) {
-        aResult.ParseAtomArray(aValue);
-        return PR_TRUE;
-    }
-
-    if (!nsGenericElement::ParseAttribute(aAttribute, aValue, aResult)) {
+    if (!nsGenericElement::ParseAttribute(aNamespaceID, aAttribute, aValue,
+                                          aResult)) {
         // Fall back to parsing as atom for short values
         aResult.ParseStringOrAtom(aValue);
     }
@@ -1990,17 +1994,6 @@ nsXULElement::HandleDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent,
     return ret;
 }
 
-
-PRUint32
-nsXULElement::ContentID() const
-{
-    return 0;
-}
-
-void
-nsXULElement::SetContentID(PRUint32 aID)
-{
-}
 
 nsresult
 nsXULElement::RangeAdd(nsIDOMRange* aRange)

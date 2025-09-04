@@ -324,7 +324,7 @@ my $modules = [
     },
     {
         name => 'MIME::Base64',
-        version => $^O =~ /MSWin32/i ? '3.01' : '3.03'
+        version => '3.01'
     },
     {
         name => 'MIME::Parser',
@@ -408,8 +408,8 @@ if (!$xmlparser && !$silent) {
 }
 if (!$imagemagick && !$silent) {
     print "If you want to convert BMP image attachments to PNG to conserve\n",
-          "disk space, you will need to install the ImageMagick application\n ",
-          "Available from http://www.imagemagick.org, and the Image::Magick",
+          "disk space, you will need to install the ImageMagick application\n",
+          "Available from http://www.imagemagick.org, and the Image::Magick\n",
           "Perl module by running (as $::root):\n\n",
     "   " . install_command("Image::Magick") . "\n\n";
 
@@ -1220,27 +1220,6 @@ unless ($switch{'no_templates'}) {
        }
     }
 
-    # Search for template directories
-    # We include the default and custom directories separately to make
-    # sure we compile all templates
-    my @templatepaths = ();
-    {
-        use File::Spec; 
-        opendir(DIR, $templatedir) || die "Can't open '$templatedir': $!";
-        my @files = grep { /^[a-z-]+$/i } readdir(DIR);
-        closedir DIR;
-
-        foreach my $dir (@files) {
-            next if($dir =~ /^CVS$/i);
-            my $path = File::Spec->catdir($templatedir, $dir, 'custom');
-            push(@templatepaths, $path) if(-d $path);
-            $path = File::Spec->catdir($templatedir, $dir, 'extension');
-            push(@templatepaths, $path) if(-d $path);
-            $path = File::Spec->catdir($templatedir, $dir, 'default');
-            push(@templatepaths, $path) if(-d $path);
-        }
-    }
-
     # Precompile stuff. This speeds up initial access (so the template isn't
     # compiled multiple times simultaneously by different servers), and helps
     # to get the permissions right.
@@ -1267,12 +1246,25 @@ unless ($switch{'no_templates'}) {
         
         # Don't hang on templates which use the CGI library
         eval("use CGI qw(-no_debug)");
-        $::template = Bugzilla::Template->create();
+        
+        use File::Spec; 
+        opendir(DIR, $templatedir) || die "Can't open '$templatedir': $!";
+        my @files = grep { /^[a-z-]+$/i } readdir(DIR);
+        closedir DIR;
 
-        foreach $::templatepath (@templatepaths) {
-           # Traverse the template hierarchy. 
-           find({ wanted => \&compile, no_chdir => 1 }, $::templatepath);
-       }
+        foreach my $dir (@files) {
+            next if($dir =~ /^CVS$/i);
+            local $ENV{'HTTP_ACCEPT_LANGUAGE'} = $dir;
+            SetParam("languages", "$dir,en");
+            $::template = Bugzilla::Template->create(clean_cache => 1);
+            my @templatepaths;
+            foreach my $subdir (qw(custom extension default)) {
+                $::templatepath = File::Spec->catdir($templatedir, $dir, $subdir);
+                next unless -d $::templatepath;
+                # Traverse the template hierarchy. 
+                find({ wanted => \&compile, no_chdir => 1 }, $::templatepath);
+            }
+        }
     }
 }
 
@@ -1450,7 +1442,10 @@ require Bugzilla::User::Setting;
 import Bugzilla::User::Setting qw(add_setting);
 
 require Bugzilla::Util;
-import Bugzilla::Util qw(bz_crypt trim html_quote);
+import Bugzilla::Util qw(bz_crypt trim html_quote is_7bit_clean);
+
+require Bugzilla::User;
+import Bugzilla::User qw(insert_new_user);
 
 # globals.pl clears the PATH, but File::Find uses Cwd::cwd() instead of
 # Cwd::getcwd(), which we need to do because `pwd` isn't in the path - see
@@ -4415,10 +4410,6 @@ if ($sth->rows == 0) {
     }
 
     if ($admin_create) {
-
-        require Bugzilla::Util;
-        import Bugzilla::Util 'is_7bit_clean';
-
         while( $realname eq "" ) {
             print "Enter the real name of the administrator: ";
             $realname = $answer{'ADMIN_REALNAME'} 
@@ -4474,9 +4465,6 @@ if ($sth->rows == 0) {
             }
         }
 
-        # Crypt the administrator's password
-        my $cryptedpassword = bz_crypt($pass1);
-
         if ($^O !~ /MSWin32/i) {
             system("stty","echo"); # re-enable input echoing
         }
@@ -4486,12 +4474,7 @@ if ($sth->rows == 0) {
         $SIG{QUIT} = 'DEFAULT';
         $SIG{TERM} = 'DEFAULT';
 
-        $dbh->do(
-          q{INSERT INTO profiles (login_name, realname, cryptpassword, 
-                                  disabledtext, refreshed_when)
-            VALUES (?, ?, ?, ?, ?)},
-            undef, $login, $realname, $cryptedpassword, 
-            '', '1900-01-01 00:00:00');
+        insert_new_user($login, $realname, $pass1);
     }
 
     # Put the admin in each group if not already    
@@ -4550,4 +4533,21 @@ $dbh->do("UPDATE components " .
 
 unlink "$datadir/versioncache";
 
+# Check if the default parameter for urlbase is still set, and if so, give
+# notification that they should go and visit editparams.cgi 
+
+my @params = Bugzilla::Config::Core::get_param_list();
+my $urlbase_default = '';
+foreach my $item (@params) {
+    next unless $item->{'name'} eq 'urlbase';
+    $urlbase_default = $item->{'default'};
+    last;
+}
+
+if (Param('urlbase') eq $urlbase_default) {
+    print "Now that you have installed Bugzilla, you should visit the \n" .
+          "'Parameters' page (linked in the footer of the Administrator \n" .
+          "account) to ensure it is set up as you wish - this includes \n" .
+          "setting the 'urlbase' option to the correct url.\n" unless $silent;
+}
 ################################################################################

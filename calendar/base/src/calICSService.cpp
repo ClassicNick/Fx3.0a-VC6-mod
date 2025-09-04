@@ -39,6 +39,7 @@
 
 #include "calICSService.h"
 #include "calDateTime.h"
+#include "calDuration.h"
 #include "nsString.h"
 #include "nsCOMPtr.h"
 #include "nsInterfaceHashtable.h"
@@ -67,12 +68,26 @@ calIcalProperty::GetIcalProperty()
 }
 
 NS_IMETHODIMP
-calIcalProperty::GetStringValue(nsACString &str)
+calIcalProperty::GetValue(nsACString &str)
 {
-    const char *icalstr = icalproperty_get_value_as_string(mProperty);
+    icalvalue_kind kind = icalproperty_kind_to_value_kind(icalproperty_isa(mProperty));
+
+    const char *icalstr;
+    if (kind == ICAL_TEXT_VALUE) {
+        icalvalue *v = icalproperty_get_value(mProperty);
+        icalstr = icalvalue_get_text(v);
+    } else if (kind == ICAL_X_VALUE) {
+        icalvalue *v = icalproperty_get_value(mProperty);
+        icalstr = icalvalue_get_x(v);
+    } else {
+        icalstr = icalproperty_get_value_as_string(mProperty);
+    }
+
     if (!icalstr) {
         if (icalerrno == ICAL_BADARG_ERROR) {
             str.Truncate();
+            // Set string to null, because we don't have a value
+            // (which is something different then an empty value)
             str.SetIsVoid(PR_TRUE);
             return NS_OK;
         }
@@ -89,7 +104,49 @@ calIcalProperty::GetStringValue(nsACString &str)
 }
 
 NS_IMETHODIMP
-calIcalProperty::SetStringValue(const nsACString &str)
+calIcalProperty::SetValue(const nsACString &str)
+{
+    icalvalue_kind kind = icalproperty_kind_to_value_kind(icalproperty_isa(mProperty));
+    if (kind == ICAL_TEXT_VALUE) {
+        icalvalue *v = icalvalue_new_text(PromiseFlatCString(str).get());
+        icalproperty_set_value(mProperty, v);
+    } else if (kind == ICAL_X_VALUE) {
+        icalvalue *v = icalvalue_new_x(PromiseFlatCString(str).get());
+        icalproperty_set_value(mProperty, v);
+    } else {
+        icalproperty_set_value_from_string(mProperty,
+                                           PromiseFlatCString(str).get(),
+                                           icalvalue_kind_to_string(kind));
+    }
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+calIcalProperty::GetValueAsIcalString(nsACString &str)
+{
+    const char *icalstr = icalproperty_get_value_as_string(mProperty);
+    if (!icalstr) {
+        if (icalerrno == ICAL_BADARG_ERROR) {
+            str.Truncate();
+            // Set string to null, because we don't have a value
+            // (which is something different then an empty value)
+            str.SetIsVoid(PR_TRUE);
+            return NS_OK;
+        }
+        
+#ifdef DEBUG
+        fprintf(stderr, "Error getting string value: %d (%s)\n",
+                icalerrno, icalerror_strerror(icalerrno));
+#endif
+        return NS_ERROR_FAILURE;
+    }
+
+    str.Assign(icalstr);
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+calIcalProperty::SetValueAsIcalString(const nsACString &str)
 {
     const char *kindstr = 
         icalvalue_kind_to_string(icalproperty_kind_to_value_kind(icalproperty_isa(mProperty)));
@@ -380,7 +437,7 @@ calIcalComponent::AddTimezoneReference(calIIcalComponent *aTimezone)
     }
 
     nsCAutoString tzid;
-    rv = tzidProp->GetStringValue(tzid);
+    rv = tzidProp->GetValue(tzid);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // figure out if we already have this tzid 
@@ -669,6 +726,27 @@ calIcalComponent::Set##Attrname(calIDateTime *dt)                       \
     return NS_OK;                                                       \
 }
 
+#define RO_COMP_DURATION_ATTRIBUTE(Attrname, ICALNAME)                  \
+NS_IMETHODIMP                                                           \
+calIcalComponent::Get##Attrname(calIDuration **dtp)                     \
+{                                                                       \
+    icalproperty *prop =                                                \
+        icalcomponent_get_first_property(mComponent,                    \
+                                         ICAL_##ICALNAME##_PROPERTY);   \
+    calDuration *dt;                                                    \
+    if (!prop) {                                                        \
+        *dtp = nsnull;  /* invalid duration */                          \
+        return NS_OK;                                                   \
+    }                                                                   \
+    struct icaldurationtype idt =                                       \
+        icalvalue_get_duration(icalproperty_get_value(prop));           \
+    dt = new calDuration(&idt);                                         \
+    if (!dt)                                                            \
+        return NS_ERROR_OUT_OF_MEMORY;                                  \
+    NS_ADDREF(*dtp = dt);                                               \
+    return NS_OK;                                                       \
+}
+
 NS_IMPL_ISUPPORTS1(calIcalComponent, calIIcalComponent)
 
 icalcomponent*
@@ -750,6 +828,7 @@ COMP_INT_ATTRIBUTE(Priority, PRIORITY, priority)
 COMP_STRING_TO_GENERAL_ENUM_ATTRIBUTE(IcalClass, CLASS, class)
 COMP_DATE_ATTRIBUTE(StartTime, DTSTART)
 COMP_DATE_ATTRIBUTE(EndTime, DTEND)
+RO_COMP_DURATION_ATTRIBUTE(Duration, DURATION)
 COMP_DATE_ATTRIBUTE(DueTime, DUE)
 COMP_DATE_ATTRIBUTE(StampTime, DTSTAMP)
 COMP_DATE_ATTRIBUTE(LastModified, LASTMODIFIED)

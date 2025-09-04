@@ -61,7 +61,8 @@ public class IvAlgorithmParameters extends AlgorithmParametersSpi {
         if( clazz != null && !(clazz.isInstance(ivParamSpec)) ) {
             Class paramSpecClass = ivParamSpec.getClass();
             throw new InvalidParameterSpecException(
-                "Parameter spec has class " + paramSpecClass.getName());
+                "Mozilla-JSS IvParameter spec class error" 
+                    + paramSpecClass.getName());
         }
         return ivParamSpec;
     }

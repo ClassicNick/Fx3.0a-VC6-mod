@@ -84,7 +84,8 @@ static const char kXPConnectServiceContractID[] = "@mozilla.org/js/xpc/XPConnect
 static const char kObserverServiceContractID[] = "@mozilla.org/observer-service;1";
 
 /* Some platforms don't have an implementation of PR_MemMap(). */
-#if !defined(XP_BEOS) && !defined(XP_OS2)
+/* See bug 318077 for WinCE.                                   */
+#if !defined(XP_BEOS) && !defined(XP_OS2) && !defined(WINCE)
 #define HAVE_PR_MEMMAP
 #endif
 
@@ -1502,7 +1503,7 @@ mozJSComponentLoader::GlobalForLocation(const char *aLocation,
 
         char *buf = NS_STATIC_CAST(char*, PR_MemMap(map, 0, fileSize32));
         if (!buf) {
-            NS_ERROR("Failed to map file");
+            NS_WARNING("Failed to map file");
             return NS_ERROR_FAILURE;
         }
 

@@ -2774,7 +2774,7 @@ js_EmitFunctionBody(JSContext *cx, JSCodeGenerator *cg, JSParseNode *body,
                   ? JSFRAME_COMPILING | JSFRAME_COMPILE_N_GO
                   : JSFRAME_COMPILING;
     cx->fp = &frame;
-    ok = js_EmitTree(cx, cg, body);
+    ok = js_EmitTree(cx, cg, body) && js_Emit1(cx, cg, JSOP_STOP) >= 0;
     cx->fp = fp;
     if (!ok)
         return JS_FALSE;
@@ -4375,6 +4375,19 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 #endif
           default:
             JS_ASSERT(0);
+        }
+
+        /*
+         * Allocate another stack slot for GC protection in case the initial
+         * value being post-incremented or -decremented is not a number, but
+         * converts to a jsdouble.  In the TOK_NAME cases, op has 0 operand
+         * uses and 1 definition, so we don't need an extra stack slot -- we
+         * can use the one allocated for the def.
+         */
+        if (pn2->pn_type != TOK_NAME &&
+            (js_CodeSpec[op].format & JOF_POST) &&
+            (uintN)cg->stackDepth == cg->maxStackDepth) {
+            ++cg->maxStackDepth;
         }
         break;
 

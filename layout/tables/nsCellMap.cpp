@@ -1450,7 +1450,7 @@ void nsCellMap::InsertCells(nsTableCellMap& aMap,
   PRInt32 startColIndex;
   for (startColIndex = aColIndexBefore + 1; startColIndex < numCols; startColIndex++) {
     CellData* data = GetDataAt(aMap, aRowIndex, startColIndex, PR_TRUE);
-    if (!data || data->IsOrig()) { // stop unless it is a span
+    if (!data || data->IsOrig() || data->IsDead()) { // stop unless it is a span
       break; 
     }
   }
@@ -2046,7 +2046,7 @@ void nsCellMap::RebuildConsideringCells(nsTableCellMap& aMap,
     }
   }
 
-  // For for cell deletion, since the row is not being deleted, 
+  // For cell deletion, since the row is not being deleted, 
   // keep mRowCount the same as before. 
   mRowCount = PR_MAX(mRowCount, mRowCountOrig);
 

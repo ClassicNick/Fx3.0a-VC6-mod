@@ -137,6 +137,7 @@ pref("mail.file_attach_binary",             false);
 pref("mail.show_headers",                   1); // some
 pref("mail.pane_config",                    0);
 pref("mail.addr_book.mapit_url.format", "chrome://messenger-region/locale/region.properties");
+pref("mail.addr_book.im.online_check_allowed", false);
 
 // the format for "mail.addr_book.quicksearchquery.format" is:
 // @V == the escaped value typed in the quick search bar in the addressbook
@@ -174,6 +175,8 @@ pref("mail.request.return_receipt", 2);                // 1: DSN 2: MDN 3: Both
 pref("mail.receipt.request_header_type", 0);           // 0: MDN-DNT header  1: RRT header 2: Both (MC)
 pref("mail.receipt.request_return_receipt_on", false);
 pref("mail.mdn.report.enabled", true);                 // false: Never send true: Send sometimes
+
+pref("mail.showPreviewText", false);
 
 pref("news.default_cc",                     "");
 pref("news.default_fcc",                    ""); // mailbox:URL or Imap://Host/OnlineFolderName
@@ -630,7 +633,7 @@ pref("mailnews.fakeaccount.server", "");
 
 // message display properties
 pref("mailnews.message_display.disable_remote_image", false);
-pref("mailnews.message_display.allow.plugins", true);
+pref("mailnews.message_display.allow.plugins", false);
 
 // default msg compose font prefs
 pref("msgcompose.font_face",                "");

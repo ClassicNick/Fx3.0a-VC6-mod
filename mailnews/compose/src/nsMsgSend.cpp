@@ -1824,7 +1824,7 @@ nsMsgComposeAndSend::GetBodyFromEditor()
   else
     return NS_ERROR_FAILURE;
 
-  // If our holder for the orignal body text is STILL null, then just 
+  // If our holder for the original body text is STILL null, then just 
   // just copy what we have as the original body text.
   //
   if (!origHTMLBody)
@@ -2841,12 +2841,8 @@ nsMsgComposeAndSend::InitCompositionFields(nsMsgCompFields *fields,
 {
   nsresult        rv = NS_OK;
   const char      *pStr = nsnull;
-  nsMsgCompFields *tPtr = new nsMsgCompFields();
 
-  if (!tPtr)
-    return NS_ERROR_OUT_OF_MEMORY;
-
-  mCompFields = do_QueryInterface( tPtr );
+  mCompFields = new nsMsgCompFields();
   if (!mCompFields)
     return NS_ERROR_OUT_OF_MEMORY;
 

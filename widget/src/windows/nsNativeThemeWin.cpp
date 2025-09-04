@@ -1818,6 +1818,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
 #endif
 #endif
 
+  rv = NS_OK;
   switch (aWidgetType) { 
     // Draw button
     case NS_THEME_BUTTON: {
@@ -1859,8 +1860,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
         ::DrawFocusRect(hdc, &widgetRect);
         ::SetTextColor(hdc, oldColor);
       }
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     }
     // Draw controls with 2px 3D inset border
     case NS_THEME_TEXTFIELD:
@@ -1878,8 +1878,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       else
         ::FillRect(hdc, &widgetRect, (HBRUSH) (COLOR_WINDOW+1));
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     }
     case NS_THEME_TREEVIEW: {
       // Draw inset edge
@@ -1888,8 +1887,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       // Fill in window color background
       ::FillRect(hdc, &widgetRect, (HBRUSH) (COLOR_WINDOW+1));
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     }
     // Draw ToolTip background
     case NS_THEME_TOOLTIP:
@@ -1900,8 +1898,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       InflateRect(&widgetRect, -1, -1);
       ::FillRect(hdc, &widgetRect, (HBRUSH) (COLOR_INFOBK+1));
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     // Draw 3D face background controls
     case NS_THEME_PROGRESSBAR:
     case NS_THEME_PROGRESSBAR_VERTICAL:
@@ -1914,8 +1911,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
     case NS_THEME_STATUSBAR_RESIZER_PANEL: {
       ::FillRect(hdc, &widgetRect, (HBRUSH) (COLOR_BTNFACE+1));
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     }
     // Draw 3D inset statusbar panel
     case NS_THEME_STATUSBAR_PANEL: {
@@ -1924,16 +1920,14 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
 
       ::DrawEdge(hdc, &widgetRect, BDR_SUNKENOUTER, BF_RECT | BF_MIDDLE);
 
-      RestoreDC(hdc, -1);
-      return NS_OK;  
+      break;
     }
     // Draw scrollbar thumb
     case NS_THEME_SCROLLBAR_THUMB_VERTICAL:
     case NS_THEME_SCROLLBAR_THUMB_HORIZONTAL:
       ::DrawEdge(hdc, &widgetRect, EDGE_RAISED, BF_RECT | BF_MIDDLE);
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     // Draw scrollbar track background
     case NS_THEME_SCROLLBAR_TRACK_VERTICAL:
     case NS_THEME_SCROLLBAR_TRACK_HORIZONTAL: {
@@ -1988,15 +1982,13 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       // XXX should invert the part of the track being clicked here
       // but the track is never :active
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     }
     case NS_THEME_PROGRESSBAR_CHUNK:
     case NS_THEME_PROGRESSBAR_CHUNK_VERTICAL:
       ::FillRect(hdc, &widgetRect, (HBRUSH) (COLOR_HIGHLIGHT+1));
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     // Draw Tab
     case NS_THEME_TAB:
     case NS_THEME_TAB_LEFT_EDGE:
@@ -2007,17 +1999,15 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
         aWidgetType != NS_THEME_TAB_RIGHT_EDGE,
         aWidgetType != NS_THEME_TAB_LEFT_EDGE);      
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     }
     case NS_THEME_TAB_PANELS:
       ::DrawEdge(hdc, &widgetRect, EDGE_RAISED, BF_SOFT | BF_MIDDLE |
           BF_LEFT | BF_RIGHT | BF_BOTTOM);
 
-      RestoreDC(hdc, -1);
-      return NS_OK;
+      break;
     case NS_THEME_MENUBAR:
-      return NS_OK;
+      break;
     case NS_THEME_MENUPOPUP:
       if (mFlatMenus) {
         ::FillRect(hdc, &widgetRect, (HBRUSH) (COLOR_MENU+1));
@@ -2025,7 +2015,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       } else {
         ::DrawEdge(hdc, &widgetRect, EDGE_RAISED, BF_RECT | BF_MIDDLE);
       }
-      return NS_OK;
+      break;
     case NS_THEME_MENUITEM:
     case NS_THEME_CHECKMENUITEM:
     case NS_THEME_RADIOMENUITEM: {
@@ -2090,12 +2080,14 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
         }
 #endif
       }
-      return NS_OK;
+      break;
     }
-
+    default:
+      rv = NS_ERROR_FAILURE;
+      break;
   }
   RestoreDC(hdc, -1);
-  return NS_ERROR_FAILURE;
+  return rv;
 }
 
 

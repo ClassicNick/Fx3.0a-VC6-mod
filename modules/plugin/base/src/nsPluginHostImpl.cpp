@@ -4914,9 +4914,9 @@ nsresult nsPluginHostImpl::ScanPluginsDirectory(nsIFile * pluginsDir,
 
     delete pfd;
     if (pluginTag) {
-      // If plugin changed, delete cachedPluginTag and dont use cache
+      // If plugin changed, delete cachedPluginTag and don't use cache
       if (LL_NE(fileModTime, pluginTag->mLastModifiedTime)) {
-        // Plugins has changed. Dont use cached plugin info.
+        // Plugins has changed. Don't use cached plugin info.
         delete pluginTag;
         pluginTag = nsnull;
 
@@ -5713,7 +5713,8 @@ NS_IMETHODIMP nsPluginHostImpl::NewPluginURLStream(const nsString& aURL,
 
       if (doc)
       {
-        // Get the script global object owner and use that as the notification callback
+        // Get the script global object owner and use that as the
+        // notification callback.
         nsIScriptGlobalObject* global = doc->GetScriptGlobalObject();
 
         if (global)

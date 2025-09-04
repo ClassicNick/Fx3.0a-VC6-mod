@@ -50,7 +50,7 @@
  *      <script src="./mytest.js"></script>
  */
 
-GLOBAL = "[object Window]";
+GLOBAL = this + '';
 
 var TT = "<tt>";
 var TT_ = "</tt>";
@@ -106,6 +106,11 @@ function err( msg, page, line ) {
     testcase.passed = false;
     testcase.reason = "Error: " + msg + 
       " Source File: " + page + " Line: " + line + ".";
+    if (document.location.href.indexOf('-n.js') != -1)
+    {
+      // negative test
+      testcase.passed = true;
+    }
     return;
   }
 

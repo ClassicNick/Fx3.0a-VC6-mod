@@ -204,34 +204,6 @@ NS_IMETHODIMP nsDeviceContextMac :: GetScrollBarDimensions(float &aWidth, float 
 
 
 /** ---------------------------------------------------
- *  
- */
-static bool HasAppearanceManager()
-{
-
-#define APPEARANCE_MIN_VERSION	0x0110		// we require version 1.1
-	
-	static bool inited = false;
-	static bool hasAppearanceManager = false;
-
-	if (inited)
-		return hasAppearanceManager;
-	inited = true;
-
-	SInt32 result;
-	if (::Gestalt(gestaltAppearanceAttr, &result) != noErr)
-		return false;		// no Appearance Mgr
-
-	if (::Gestalt(gestaltAppearanceVersion, &result) != noErr)
-		return false;		// still version 1.0
-
-	hasAppearanceManager = (result >= APPEARANCE_MIN_VERSION);
-
-	return hasAppearanceManager;
-}
-
-
-/** ---------------------------------------------------
  *  See documentation in nsIDeviceContext.h
  *	@update 12/9/98 dwc
  */
@@ -281,7 +253,7 @@ NS_IMETHODIMP nsDeviceContextMac :: GetSystemFont(nsSystemFontID aID, nsFont *aF
             aFont->name.AssignLiteral("sans-serif");
             aFont->size = NSToCoordRound(aFont->size * 0.875f); // quick hack
       }
-      else if (HasAppearanceManager())
+      else
       {
         ThemeFontID fontID = kThemeViewsFont;
         switch (aID)
@@ -307,6 +279,7 @@ NS_IMETHODIMP nsDeviceContextMac :: GetSystemFont(nsSystemFontID aID, nsFont *aF
               // moz
           case eSystemFont_Tooltips:      fontID = kThemeSmallSystemFont;    break;
           case eSystemFont_Widget:        fontID = kThemeSmallSystemFont;    break;
+          default: break;
         }
 
         Str255 fontName;
@@ -338,19 +311,10 @@ NS_IMETHODIMP nsDeviceContextMac :: GetSystemFont(nsSystemFontID aID, nsFont *aF
                                                               kTextEncodingDefaultVariant,
                                                               kTextEncodingDefaultFormat);
                                                               
-        // MacOS 8.6 do not have FMxxx etc so we have to check
-        if (HaveFontManager90()) {       
-          FMFontFamily fontFamily;
-          fontFamily = ::FMGetFontFamilyFromName(fontName);
-          err = ::FMGetFontFamilyTextEncoding(fontFamily, &fontEncoding);
-        } else {
-          short	fondID;
-          ::GetFNum(fontName, &fondID);
-          ScriptCode script = ::FontToScript(fondID);
-          err = ::UpgradeScriptInfoToTextEncoding(script, kTextLanguageDontCare, 
-                                                  kTextRegionDontCare, NULL, &fontEncoding);
+        FMFontFamily fontFamily;
+        fontFamily = ::FMGetFontFamilyFromName(fontName);
+        err = ::FMGetFontFamilyTextEncoding(fontFamily, &fontEncoding);
 
-        }
         if (err == noErr)
         {
            err = ::TECCreateConverter(&converter, fontEncoding, unicodeEncoding);
@@ -380,10 +344,6 @@ NS_IMETHODIMP nsDeviceContextMac :: GetSystemFont(nsSystemFontID aID, nsFont *aF
           aFont->style = NS_FONT_STYLE_ITALIC;
         if (fontStyle & underline)
           aFont->decorations = NS_FONT_DECORATION_UNDERLINE;
-      }
-      else
-      {
-        aFont->name.AssignLiteral("geneva");
       }
       break;
 
@@ -479,7 +439,6 @@ nsDeviceContextMac :: FindScreenForSurface ( nsIScreen** outScreen )
   Rect bounds;
   ::GetWindowPortBounds ( window, &bounds );
 
-  nsresult rv = NS_OK;
   if ( mScreenManager ) {
     if ( !(bounds.top || bounds.left || bounds.bottom || bounds.right) ) {
       NS_WARNING ( "trying to find screen for sizeless window" );
@@ -523,8 +482,8 @@ NS_IMETHODIMP nsDeviceContextMac::GetDeviceSurfaceDimensions(PRInt32 & outWidth,
 
 	if( mSpec ) {
 	  // we have a printer device
-		outWidth = (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits;
-		outHeight = (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits;
+		outWidth = NS_STATIC_CAST(PRInt32, (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits);
+		outHeight = NS_STATIC_CAST(PRInt32, (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits);
 	}
 	else {
     // we have a screen device. find the screen that the window is on and
@@ -559,8 +518,8 @@ nsDeviceContextMac::GetRect(nsRect &aRect)
 	  // we have a printer device
 	  aRect.x = 0;
 	  aRect.y = 0;
-		aRect.width = (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits;
-		aRect.height = (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits;
+		aRect.width = NS_STATIC_CAST(nscoord, (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits);
+		aRect.height = NS_STATIC_CAST(nscoord, (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits);
 	}
 	else {
     // we have a screen device. find the screen that the window is on and
@@ -595,8 +554,8 @@ NS_IMETHODIMP nsDeviceContextMac::GetClientRect(nsRect &aRect)
 	if( mSpec ) {
 	  // we have a printer device
 	  aRect.x = aRect.y = 0;
-		aRect.width = (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits;
-		aRect.height = (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits;
+		aRect.width = NS_STATIC_CAST(nscoord, (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits);
+		aRect.height = NS_STATIC_CAST(nscoord, (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits);
 	}
 	else {
     // we have a screen device. find the screen that the window is on and
@@ -651,8 +610,8 @@ NS_IMETHODIMP nsDeviceContextMac::GetDeviceContextFor(nsIDeviceContextSpec *aDev
         double top, left, bottom, right;
         printingContext->GetPageRect(&top, &left, &bottom, &right);
         Rect& pageRect = macDC->mPageRect;
-        pageRect.top = top, pageRect.left = left;
-        pageRect.bottom = bottom, pageRect.right = right;
+        pageRect.top = (PRInt16)top, pageRect.left = (PRInt16)left;
+        pageRect.bottom = (PRInt16)bottom, pageRect.right = (PRInt16)right;
     }
 
 
@@ -730,19 +689,11 @@ NS_IMETHODIMP nsDeviceContextMac::BeginPage(void)
  */
 NS_IMETHODIMP nsDeviceContextMac::EndPage(void)
 {
-#if !TARGET_CARBON
- 	if(((nsDeviceContextSpecMac*)(this->mSpec).get())->mPrintManagerOpen) {
- 		::SetPort((GrafPtr)(((nsDeviceContextSpecMac*)(this->mSpec).get())->mPrinterPort));
-		::PrClosePage(((nsDeviceContextSpecMac*)(this->mSpec).get())->mPrinterPort);
-	}
-    return NS_OK;
-#else
     nsresult rv = NS_ERROR_FAILURE;
     nsCOMPtr<nsIPrintingContext> printingContext = do_QueryInterface(mSpec);
     if (printingContext)
         rv = printingContext->EndPage();
     return rv;
-#endif
 }
 
 
@@ -803,27 +754,31 @@ void nsDeviceContextMac :: InitFontInfoList()
 		if (!gFontInfoList)
 			return;
 
-#if TARGET_CARBON
         // use the new Font Manager enumeration API.
-        FMFontFamilyIterator iter;
-        err = FMCreateFontFamilyIterator(NULL, NULL, kFMDefaultOptions, &iter);
+        ATSFontFamilyIterator iter;
+        err = ::ATSFontFamilyIteratorCreate(kATSFontContextLocal,
+			NULL, NULL, // filter and its refcon
+			kATSOptionFlagsDefaultScope,
+			&iter);
         if (err != noErr)
             return;
         
 		TextEncoding unicodeEncoding = ::CreateTextEncoding(kTextEncodingUnicodeDefault, 
 															kTextEncodingDefaultVariant,
-													 		kTextEncodingDefaultFormat);
+													 		kUnicodeUTF8Format);
         // enumerate all fonts.
-        TECObjectRef converter = 0;
+        TECObjectRef converter = NULL;
         TextEncoding oldFontEncoding = 0;
-        FMFontFamily fontFamily;
-        while (FMGetNextFontFamily(&iter, &fontFamily) == noErr) {
+        ATSFontFamilyRef fontFamily;
+        while (::ATSFontFamilyIteratorNext(iter, &fontFamily) == noErr) {
+		    // we'd like to use ATSFontFamilyGetName here, but it's ignorant of the
+        // font encodings, resulting in garbage names for non-western fonts.
             Str255 fontName;
-            err = ::FMGetFontFamilyName(fontFamily, fontName);
+            err = ::ATSFontFamilyGetQuickDrawName(fontFamily, fontName);
             if (err != noErr || fontName[0] == 0 || fontName[1] == '.' || fontName[1] == '%')
                 continue;
             TextEncoding fontEncoding;
-            err = ::FMGetFontFamilyTextEncoding(fontFamily, &fontEncoding);
+            fontEncoding = ::ATSFontFamilyGetEncoding(fontFamily);
             if (oldFontEncoding != fontEncoding) {
                 oldFontEncoding = fontEncoding;
                 if (converter)
@@ -833,73 +788,19 @@ void nsDeviceContextMac :: InitFontInfoList()
                     continue;
             }
             // convert font name to UNICODE.
-			PRUnichar unicodeFontName[sizeof(fontName)];
+			char unicodeFontName[sizeof(fontName)];
 			ByteCount actualInputLength, actualOutputLength;
 			err = ::TECConvertText(converter, &fontName[1], fontName[0], &actualInputLength, 
 										(TextPtr)unicodeFontName , sizeof(unicodeFontName), &actualOutputLength);	
-			unicodeFontName[actualOutputLength / sizeof(PRUnichar)] = '\0';
+			unicodeFontName[actualOutputLength] = '\0';
 
-			nsAutoString temp(unicodeFontName);
+			nsString temp = NS_ConvertUTF8toUTF16(nsDependentCString(unicodeFontName));
     		FontNameKey key(temp);
-			gFontInfoList->Put(&key, (void*)fontFamily);
+			gFontInfoList->Put(&key, (void*)::FMGetFontFamilyFromATSFontFamilyRef(fontFamily));
         }
         if (converter)
             err = ::TECDisposeConverter(converter);
-        err = FMDisposeFontFamilyIterator(&iter);
-#else
-		short numFONDs = ::CountResources('FOND');
-		TextEncoding unicodeEncoding = ::CreateTextEncoding(kTextEncodingUnicodeDefault, 
-															kTextEncodingDefaultVariant,
-													 		kTextEncodingDefaultFormat);
-		TECObjectRef converter = nil;
-		ScriptCode lastscript = smUninterp;
-		for (short i = 1; i <= numFONDs ; i++)
-		{
-			Handle fond = ::GetIndResource('FOND', i);
-			if (fond)
-			{
-				short	fondID;
-				OSType	resType;
-				Str255	fontName;
-				::GetResInfo(fond, &fondID, &resType, fontName); 
-				if( (0 != fontName[0]) && ('.' != fontName[1]) && ('%' != fontName[1]))
-				{
-					ScriptCode script = ::FontToScript(fondID);
-					if (script != lastscript)
-					{
-						lastscript = script;
-
-						TextEncoding sourceEncoding;
-						err = ::UpgradeScriptInfoToTextEncoding(script, kTextLanguageDontCare, 
-									kTextRegionDontCare, NULL, &sourceEncoding);
-								
-						if (converter)
-							err = ::TECDisposeConverter(converter);
-
-						err = ::TECCreateConverter(&converter, sourceEncoding, unicodeEncoding);
-						if (err != noErr)
-							converter = nil;
-					}
-
-					if (converter)
-					{
-						PRUnichar unicodeFontName[sizeof(fontName)];
-						ByteCount actualInputLength, actualOutputLength;
-						err = ::TECConvertText(converter, &fontName[1], fontName[0], &actualInputLength, 
-													(TextPtr)unicodeFontName , sizeof(unicodeFontName), &actualOutputLength);	
-						unicodeFontName[actualOutputLength / sizeof(PRUnichar)] = '\0';
-						nsAutoString fontNameString(unicodeFontName);
-
-		        		FontNameKey key(fontNameString);
-						gFontInfoList->Put(&key, (void*)fondID);
-					}
-					::ReleaseResource(fond);
-				}
-			}
-		}
-		if (converter)
-			err = ::TECDisposeConverter(converter);				
-#endif /* !TARGET_CARBON */
+        err = ::ATSFontFamilyIteratorRelease(&iter);
 	}
 }
 
@@ -996,11 +897,6 @@ PRUint32 nsDeviceContextMac::GetScreenResolution()
 	}
 
 	return mPixelsPerInch;
-}
-
-PRBool nsDeviceContextMac::HaveFontManager90()
-{
-  return (kUnresolvedCFragSymbolAddress != (UInt32) FMGetFontFamilyFromName);
 }
 
 
@@ -1114,7 +1010,7 @@ EnumerateFont(nsHashKey *aKey, void *aData, void* closure)
   PRUnichar** array = info->mArray;
   int j = info->mCount;
   PRBool match = PR_FALSE;
-#if TARGET_CARBON
+
   // we need to match the cast of FMFontFamily in nsDeviceContextMac :: InitFontInfoList()
   FMFontFamily fontFamily = (FMFontFamily) NS_PTR_TO_INT32(aData);
   TextEncoding fontEncoding;
@@ -1124,11 +1020,7 @@ EnumerateFont(nsHashKey *aKey, void *aData, void* closure)
     status = ::RevertTextEncodingToScriptInfo(fontEncoding, &script, nsnull, nsnull);
     match = ((noErr == status) && (script == info->mScript));
   }
-#else
-  short	fondID = (short) aData;
-  ScriptCode script = ::FontToScript(fondID);
-	match = (script == info->mScript) ;
-#endif
+
   if (match) {
 	  PRUnichar* str = ToNewUnicode(((FontNameKey*)aKey)->mString);
 	  if (!str) {

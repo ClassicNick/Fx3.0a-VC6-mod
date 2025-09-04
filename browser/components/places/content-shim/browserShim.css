@@ -1,0 +1,7 @@
+#bookmarksBarContent {
+  -moz-binding: url("chrome://browser/content/places/toolbar.xml#places-bar");
+}
+
+menupopup[type="places"] {
+  -moz-binding: url("chrome://browser/content/places/menu.xml#places-menupopup");
+}

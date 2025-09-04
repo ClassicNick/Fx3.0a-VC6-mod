@@ -449,7 +449,7 @@ net_pop3_free_state(Pop3UidlHost* host)
 /*
 Look for a specific UIDL string in our hash tables, if we have it then we need
 to mark the message for deletion so that it can be deleted later. If the uidl of the
-message is not found, then the message was downloaded completly and already deleted
+message is not found, then the message was downloaded completely and already deleted
 from the server. So this only applies to messages kept on the server or too big
 for download. */
 /* static */
@@ -1994,7 +1994,7 @@ nsPop3Protocol::GetStat()
   if (!m_pop3ConData->only_check_for_new_mail) 
   {
       // The following was added to prevent the loss of Data when we try and
-      // write to somewhere we dont have write access error to (See bug 62480)
+      // write to somewhere we don't have write access error to (See bug 62480)
       // (Note: This is only a temp hack until the underlying XPCOM is fixed
       // to return errors)
 
@@ -3214,7 +3214,7 @@ nsPop3Protocol::RetrResponse(nsIInputStream* inputStream,
           m_pop3ConData->truncating_cur_msg ? m_pop3ConData->cur_msg_size : 0);
 
         // The following was added to prevent the loss of Data when we try
-        // and write to somewhere we dont have write access error to (See
+        // and write to somewhere we don't have write access error to (See
         // bug 62480)
         // (Note: This is only a temp hack until the underlying XPCOM is
         // fixed to return errors)
@@ -3385,7 +3385,7 @@ nsPop3Protocol::HandleLine(char *line, PRUint32 line_length)
               m_pop3ConData->truncating_cur_msg ? m_pop3ConData->cur_msg_size : 0);
 
             // The following was added to prevent the loss of Data when we try
-            // and write to somewhere we dont have write access error to (See
+            // and write to somewhere we don't have write access error to (See
             // bug 62480)
             // (Note: This is only a temp hack until the underlying XPCOM is
             // fixed to return errors)

@@ -276,7 +276,7 @@ nsThebesDeviceContext::CreateRenderingContext(nsIDrawingSurface *aSurface,
 
 NS_IMETHODIMP
 nsThebesDeviceContext::CreateRenderingContext(nsIWidget *aWidget,
-                                             nsIRenderingContext *&aContext)
+                                              nsIRenderingContext *&aContext)
 {
     nsresult rv;
 
@@ -284,7 +284,11 @@ nsThebesDeviceContext::CreateRenderingContext(nsIWidget *aWidget,
     nsCOMPtr<nsIRenderingContext> pContext;
     rv = CreateRenderingContextInstance(*getter_AddRefs(pContext));
     if (NS_SUCCEEDED(rv)) {
-        rv = pContext->Init(this, aWidget);
+        nsRefPtr<gfxASurface> surface(aWidget->GetThebesSurface());
+        if (surface)
+            rv = pContext->Init(this, surface);
+        else
+            rv = pContext->Init(this, aWidget);
         if (NS_SUCCEEDED(rv)) {
             aContext = pContext;
             NS_ADDREF(aContext);
@@ -479,54 +483,10 @@ nsThebesDeviceContext::GetClientRect(nsRect &aRect)
     return rv;
 }
 
-#if defined(MOZ_ENABLE_GLITZ)
-void*
-nsThebesDeviceContext::GetGlitzDrawableFormat()
-{
-    glitz_drawable_format_t* format = nsnull;
-#ifdef MOZ_ENABLE_GTK2
-    glitz_drawable_format_t templ;
-    memset(&templ, 0, sizeof(templ));
-    templ.samples = 1; // change this to change FSAA?
-
-    int defaultScreen = gdk_x11_get_default_screen();
-    unsigned long mask = GLITZ_FORMAT_SAMPLES_MASK;
-    
-    format = glitz_glx_find_window_format (GDK_DISPLAY(), defaultScreen, mask, &templ, 0);
-#endif
-    return format;
-}
-#endif
-
-#if defined(MOZ_ENABLE_GLITZ) && defined(MOZ_ENABLE_GTK2)
-void*
-nsThebesDeviceContext::GetDesiredVisual()
-{
-    Display* dpy = GDK_DISPLAY();
-    int defaultScreen = gdk_x11_get_default_screen();
-    glitz_drawable_format_t* format = (glitz_drawable_format_t*) GetGlitzDrawableFormat();
-    if (format) {
-        XVisualInfo* vinfo = glitz_glx_get_visual_info_from_format(dpy, defaultScreen, format);
-        GdkScreen* screen = gdk_display_get_screen(gdk_x11_lookup_xdisplay(dpy), defaultScreen);
-        GdkVisual* vis = gdk_x11_screen_lookup_visual(screen, vinfo->visualid);
-        return vis;
-    } else {
-        // GL/GLX not available, force glitz off
-        nsThebesDrawingSurface::mGlitzMode = 0;
-    }
-
-    return nsnull;
-}
-#endif
-
 NS_IMETHODIMP
 nsThebesDeviceContext::PrepareNativeWidget(nsIWidget* aWidget, void** aOut)
 {
-#if defined(MOZ_ENABLE_GLITZ) && defined(MOZ_ENABLE_GTK2)
-    *aOut = GetDesiredVisual();
-#else
     *aOut = nsnull;
-#endif
     return NS_OK;
 }
 

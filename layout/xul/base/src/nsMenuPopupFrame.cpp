@@ -54,9 +54,8 @@
 #include "nsWidgetsCID.h"
 #include "nsMenuFrame.h"
 #include "nsIPopupSetFrame.h"
-#include "nsIDOMWindowInternal.h"
+#include "nsPIDOMWindow.h"
 #include "nsIDOMScreen.h"
-#include "nsIScriptGlobalObject.h"
 #include "nsIPresShell.h"
 #include "nsFrameManager.h"
 #include "nsIDocument.h"
@@ -407,7 +406,7 @@ nsMenuPopupFrame::GetRootViewForPopup(nsIFrame* aStartFrame,
     }
     
     while (view) {
-      // Walk up the view hierachy looking for a view whose widget has a 
+      // Walk up the view hierarchy looking for a view whose widget has a 
       // window type of eWindowType_popup - in other words a popup window
       // widget. If we find one, this is the view we want. 
       nsIWidget* widget = view->GetWidget();
@@ -827,7 +826,7 @@ nsMenuPopupFrame::SyncViewWithFrame(nsPresContext* aPresContext,
   // Compute info about the screen dimensions. Because of multiple monitor systems,
   // the left or top sides of the screen may be in negative space (main monitor is on the
   // right, etc). We need to be sure to do the right thing.
-  nsCOMPtr<nsIDOMWindowInternal> window(do_QueryInterface(document->GetScriptGlobalObject()));
+  nsPIDOMWindow *window = document->GetWindow();
   if (!window)
     return NS_OK;
 

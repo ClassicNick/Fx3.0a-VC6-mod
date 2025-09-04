@@ -1,3 +1,5 @@
+<!ENTITY places.title
+  "Places">
 <!ENTITY cmd.find.label 
   "Find in Bookmarks/History...">
 <!ENTITY cmd.find.accesskey
@@ -69,7 +71,7 @@
 <!ENTITY cmd.sortby_name.accesskey
   "S">
 <!ENTITY cmd.new_folder.label
-  "New Folder">
+  "New Folder...">
 <!ENTITY cmd.new_folder.accesskey
   "F">
 <!ENTITY cmd.new_separator.label
@@ -98,4 +100,35 @@
   "Group by Post">
 <!ENTITY cmd.groupby_post.accesskey
   "P">
-
+<!ENTITY col.title.label
+  "Title">
+<!ENTITY col.url.label
+  "Location">
+<!ENTITY col.lastvisit.label
+  "Last Visit Date">
+<!ENTITY col.visitcount.label
+  "Visit Count">
+<!ENTITY advancedSearch.label
+  "More Options...">
+<!ENTITY advancedSearch.accesskey
+  "O">
+<!ENTITY search.label
+  "Search:">
+<!ENTITY search.accesskey
+  "S">
+<!ENTITY search.collection.label
+  "Current Collection Only">
+<!ENTITY search.collection.accesskey
+  "C">
+<!ENTITY search.bookmarks.label
+  "All Bookmarks">
+<!ENTITY search.bookmarks.accesskey
+  "B">
+<!ENTITY search.history.label
+  "All History">
+<!ENTITY search.history.accesskey
+  "H">
+<!ENTITY search.all.label
+  "All Bookmarks and History">
+<!ENTITY search.all.accesskey
+  "A">

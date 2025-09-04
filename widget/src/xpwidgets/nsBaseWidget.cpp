@@ -612,7 +612,13 @@ nsIRenderingContext* nsBaseWidget::GetRenderingContext()
 
   rv = mContext->CreateRenderingContextInstance(*getter_AddRefs(renderingCtx));
   if (NS_SUCCEEDED(rv)) {
+    // this should be all MOZ_CAIRO_GFX, but none of the other
+    // platforms have GetThebesSurface() implemented yet
+#if defined(MOZ_CAIRO_GFX) && defined(MOZ_WIDGET_GTK2)
+    rv = renderingCtx->Init(mContext, GetThebesSurface());
+#else
     rv = renderingCtx->Init(mContext, this);
+#endif
     if (NS_SUCCEEDED(rv)) {
       nsIRenderingContext *ret = renderingCtx;
       /* Increment object refcount that the |ret| object is still a valid one
@@ -667,6 +673,24 @@ nsIAppShell *nsBaseWidget::GetAppShell()
   return theAppShell;
 }
 
+
+#ifdef MOZ_CAIRO_GFX
+//-------------------------------------------------------------------------
+//
+// Get the thebes surface
+//
+//-------------------------------------------------------------------------
+gfxASurface *nsBaseWidget::GetThebesSurface()
+{
+  nsIWidget *parent = GetParent();
+  if (!parent)
+    return nsnull;
+
+  // in theory we should get our parent's surface,
+  // clone it, and set a device offset before returning
+  return nsnull;
+}
+#endif
 
 //-------------------------------------------------------------------------
 //

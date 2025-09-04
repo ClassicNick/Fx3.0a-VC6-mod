@@ -38,9 +38,9 @@
 # Contributor(s): 
 
 
-# $Revision: 1.70 $ 
-# $Date: 2004/06/08 04:27:13 $ 
-# $Author: kestes%walrus.com $ 
+# $Revision: 1.72 $ 
+# $Date: 2005/11/25 21:57:10 $ 
+# $Author: timeless%mozdev.org $ 
 # $Source: /home/hwine/cvs_conversion/cvsroot/mozilla/webtools/tinderbox2/src/lib/TinderDB/VC_Bonsai.pm,v $ 
 # $Name:  $ 
 
@@ -105,7 +105,7 @@ use HTMLPopUp;
 use VCDisplay;
 
 
-$VERSION = ( qw $Revision: 1.70 $ )[1];
+$VERSION = ( qw $Revision: 1.72 $ )[1];
 
 @ISA = qw(TinderDB::BasicTxtDB);
 
@@ -244,7 +244,7 @@ sub get_all_bonsai_data {
 }
 
 
-# Return the most recent times that we recieved treestate and checkin
+# Return the most recent times that we received treestate and checkin
 # data.
 
 sub find_last_data {
@@ -310,9 +310,9 @@ sub apply_db_updates {
   # Data::Dumper takes a long time and reducing the data that it needs
   # to process really helps speed things up.
 
-  # If we delete too many duplicates then we loose information when
-  # the database is trimmed. We need to keep some duplicates arround
-  # for debuging and for "redundancy". Only delete duplicates during
+  # If we delete too many duplicates then we lose information when
+  # the database is trimmed. We need to keep some duplicates around
+  # for debugging and for "redundancy". Only delete duplicates during
   # the last hour.  Notice we are still removing 90% of the
   # duplicates.
 

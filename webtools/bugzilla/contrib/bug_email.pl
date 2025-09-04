@@ -38,7 +38,7 @@
 #
 # You need to work with bug_email.pl the MIME::Parser installed.
 # 
-# $Id: bug_email.pl,v 1.29 2005/08/26 23:11:32 bugreport%peshkin.net Exp $
+# $Id: bug_email.pl,v 1.31 2005/11/25 21:57:07 timeless%mozdev.org Exp $
 ###############################################################
 
 # 02/12/2000 (SML)
@@ -193,7 +193,7 @@ sub horLine( )
 # Check if $Name is in $GroupName
 
 # This is no more CreateBugs group, so I'm using this routine to just determine if the user is
-# in the database.  Eventually, here should be a seperate routine or renamed, or something (SML)
+# in the database.  Eventually, here should be a separate routine or renamed, or something (SML)
 sub CheckPermissions {
     my ($GroupName, $Name) = @_;
     
@@ -448,16 +448,16 @@ sub FetchAllSQLData( )
 # BugMailError takes two arguments: The first one is a flag, how heavy
 # the error is:
 # 
-# 0 - Its an error, but bugzilla can process the bug. The user should
+# 0 - It's an error, but Bugzilla can process the bug. The user should
 #     handle that as a warning.
 # 
-# 1 - Its a real bug. Bugzilla cant store the bug. The mail has to be
+# 1 - It's a real bug. Bugzilla can't store the bug. The mail has to be
 #     resent.
 # 
 # 2 - Permission error: The user does not have the permission to send
 #     a bug.
 # 
-# The second argument is a Text which describs the bug.
+# The second argument is a Text which describes the bug.
 # 
 # 
 # #
@@ -465,7 +465,7 @@ sub BugMailError($ $ )
 {
     my ( $errflag, $text ) = @_;
 
-    # On permission error, dont sent all other Errors back -> just quit !
+    # On permission error, don't sent all other Errors back -> just quit !
     if( $errflag == 2 ) {            # Permission-Error
         Reply( $SenderShort, $Message_ID, "Bugzilla Error", "Permission denied.\n\n" .
                "You do not have the permissions to create a new bug. Sorry.\n" );
@@ -677,7 +677,7 @@ sub extractControls( $ )
         }
     }
 
-    # thats it.
+    # that's it.
     return( $backbody );
 }
 
@@ -747,7 +747,7 @@ my $Sender = $entity->get( 'From' );
 $Sender ||=  $entity->get( 'Reply-To' );
 $Message_ID = $entity->get( 'Message-Id' );
 
-die (" *** Cant find Sender-adress in sent mail ! ***\n" ) unless defined( $Sender );
+die (" *** Can't find Sender-address in sent mail ! ***\n" ) unless defined( $Sender );
 chomp( $Sender );
 chomp( $Message_ID );
 
@@ -852,7 +852,7 @@ my $Product = $DEFAULT_PRODUCT;
 $Product = CheckProduct( $Control{'product'} ) if( defined( $Control{ 'product'} ));
 
 if ( $Product eq "" ) {
-    my $Text = "You didnt send a value for the required key \@product !\n\n";
+    my $Text = "You didn't send a value for the required key \@product !\n\n";
 
     $Text = "You sent the invalid product \"$Control{'product'}\"!\n\n"
         if( defined( $Control{ 'product'} ));

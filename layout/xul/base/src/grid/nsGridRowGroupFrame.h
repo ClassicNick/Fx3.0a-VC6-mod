@@ -48,6 +48,12 @@
 
 #include "nsBoxFrame.h"
 
+/**
+ * A frame representing a grid row (or column) group, which is usually
+ * an element that is a child of a grid and contains all the rows (or
+ * all the columns).  However, multiple levels of groups are allowed, so
+ * the parent or child could instead be another group.
+ */
 class nsGridRowGroupFrame : public nsBoxFrame
 {
 public:

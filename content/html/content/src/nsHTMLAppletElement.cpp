@@ -84,8 +84,8 @@ public:
   NS_IMETHOD GetTabIndex(PRInt32* aTabIndex);
   NS_IMETHOD SetTabIndex(PRInt32 aTabIndex);
   // Let applet decide whether it wants focus from mouse clicks
-  virtual PRBool IsFocusable(PRInt32 *aTabIndex = nsnull)
-    { if (aTabIndex) GetTabIndex(aTabIndex); return PR_TRUE; }
+  virtual PRBool IsFocusable(PRInt32 *aTabIndex = nsnull);
+  virtual PRUint32 GetDesiredIMEState();
 
   virtual nsresult BindToTree(nsIDocument* aDocument, nsIContent* aParent,
                               nsIContent* aBindingParent,
@@ -96,7 +96,8 @@ public:
                            nsIAtom* aPrefix, const nsAString& aValue,
                            PRBool aNotify);
 
-  virtual PRBool ParseAttribute(nsIAtom* aAttribute,
+  virtual PRBool ParseAttribute(PRInt32 aNamespaceID,
+                                nsIAtom* aAttribute,
                                 const nsAString& aValue,
                                 nsAttrValue& aResult);
   virtual nsMapRuleToAttributesFunc GetAttributeMappingFunction() const;
@@ -191,19 +192,23 @@ NS_IMPL_STRING_ATTR(nsHTMLAppletElement, Width, width)
 NS_IMPL_INT_ATTR(nsHTMLAppletElement, TabIndex, tabindex)
   
 PRBool
-nsHTMLAppletElement::ParseAttribute(nsIAtom* aAttribute,
+nsHTMLAppletElement::ParseAttribute(PRInt32 aNamespaceID,
+                                    nsIAtom* aAttribute,
                                     const nsAString& aValue,
                                     nsAttrValue& aResult)
 {
-  if (aAttribute == nsHTMLAtoms::align) {
-    return nsGenericHTMLElement::ParseAlignValue(aValue, aResult);
-  }
-  if (nsGenericHTMLElement::ParseImageAttribute(aAttribute,
-                                                aValue, aResult)) {
-    return PR_TRUE;
+  if (aNamespaceID == kNameSpaceID_None) {
+    if (aAttribute == nsHTMLAtoms::align) {
+      return nsGenericHTMLElement::ParseAlignValue(aValue, aResult);
+    }
+    if (nsGenericHTMLElement::ParseImageAttribute(aAttribute,
+                                                  aValue, aResult)) {
+      return PR_TRUE;
+    }
   }
 
-  return nsGenericHTMLElement::ParseAttribute(aAttribute, aValue, aResult);
+  return nsGenericHTMLElement::ParseAttribute(aNamespaceID, aAttribute, aValue,
+                                              aResult);
 }
 
 static void
@@ -310,3 +315,28 @@ nsHTMLAppletElement::IntrinsicState() const
 {
   return nsGenericHTMLElement::IntrinsicState() | ObjectState();
 }
+
+PRBool
+nsHTMLAppletElement::IsFocusable(PRInt32 *aTabIndex)
+{
+  if (Type() == eType_Plugin) {
+    // Has plugin content (java): let the plugin decide what to do in terms of
+    // internal focus from mouse clicks
+    if (aTabIndex) {
+      GetTabIndex(aTabIndex);
+    }
+  
+    return PR_TRUE;
+  }
+
+  return nsGenericHTMLElement::IsFocusable(aTabIndex);
+}
+
+PRUint32
+nsHTMLAppletElement::GetDesiredIMEState()
+{
+  if (Type() == eType_Plugin)
+    return nsIContent::IME_STATUS_ENABLE;
+  return nsGenericHTMLElement::GetDesiredIMEState();
+}
+

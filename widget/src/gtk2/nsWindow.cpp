@@ -95,6 +95,16 @@ static const char sAccessibilityKey [] = "config.use_system_prefs.accessibility"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsAutoPtr.h"
 
+#ifdef MOZ_CAIRO_GFX
+#include "gfxPlatformGtk.h"
+#include "gfxXlibSurface.h"
+
+#ifdef MOZ_ENABLE_GLITZ
+#include "gfxGlitzSurface.h"
+#include "glitz-glx.h"
+#endif
+#endif
+
 /* For PrepareNativeWidget */
 static NS_DEFINE_IID(kDeviceContextCID, NS_DEVICE_CONTEXT_CID);
 
@@ -154,9 +164,9 @@ static gboolean visibility_notify_event_cb(GtkWidget *widget,
                                            GdkEventVisibility *event);
 static gboolean window_state_event_cb     (GtkWidget *widget,
                                            GdkEventWindowState *event);
-static void     style_set_cb              (GtkWidget *widget,
-                                           GtkStyle *previous_style,
-                                           gpointer data);
+static void     theme_changed_cb          (GtkSettings *settings,
+                                           GParamSpec *pspec,
+                                           nsWindow *data);
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -377,6 +387,10 @@ nsWindow::Destroy(void)
     LOG(("nsWindow::Destroy [%p]\n", (void *)this));
     mIsDestroyed = PR_TRUE;
     mCreated = PR_FALSE;
+
+    g_signal_handlers_disconnect_by_func(gtk_settings_get_default(),
+                                         (gpointer)G_CALLBACK(theme_changed_cb),
+                                         this);
 
     // ungrab if required
     nsCOMPtr<nsIWidget> rollupWidget = do_QueryReferent(gRollupWindow);
@@ -1426,6 +1440,7 @@ nsWindow::OnDeleteEvent(GtkWidget *aWidget, GdkEventAny *aEvent)
 void
 nsWindow::OnEnterNotifyEvent(GtkWidget *aWidget, GdkEventCrossing *aEvent)
 {
+    // XXXldb Is this the right test for embedding cases?
     if (aEvent->subwindow != NULL)
         return;
 
@@ -1443,6 +1458,7 @@ nsWindow::OnEnterNotifyEvent(GtkWidget *aWidget, GdkEventCrossing *aEvent)
 void
 nsWindow::OnLeaveNotifyEvent(GtkWidget *aWidget, GdkEventCrossing *aEvent)
 {
+    // XXXldb Is this the right test for embedding cases?
     if (aEvent->subwindow != NULL)
         return;
 
@@ -2302,14 +2318,29 @@ nsWindow::NativeCreate(nsIWidget        *aParent,
     }
 
     GdkVisual* visual = nsnull;
-    if (!aContext) {
-        nsCOMPtr<nsIDeviceContext> dc = do_CreateInstance(kDeviceContextCID);
-        // no parent widget to initialize with
-        dc->Init(nsnull);
-        dc->PrepareNativeWidget(this, (void**)&visual);
-    } else {
-        aContext->PrepareNativeWidget(this, (void**)&visual);
+#ifdef MOZ_ENABLE_GLITZ
+    if (gfxPlatform::UseGlitz()) {
+        nsCOMPtr<nsIDeviceContext> dc = aContext;
+        if (!dc) {
+            nsCOMPtr<nsIDeviceContext> dc = do_CreateInstance(kDeviceContextCID);
+            // no parent widget to initialize with
+            dc->Init(nsnull);
+        }
+
+        Display* dpy = GDK_DISPLAY();
+        int defaultScreen = gdk_x11_get_default_screen();
+        glitz_drawable_format_t* format = glitz_glx_find_window_format (dpy, defaultScreen,
+                                                                        0, NULL, 0);
+        if (format) {
+            XVisualInfo* vinfo = glitz_glx_get_visual_info_from_format(dpy, defaultScreen, format);
+            GdkScreen* screen = gdk_display_get_screen(gdk_x11_lookup_xdisplay(dpy), defaultScreen);
+            visual = gdk_x11_screen_lookup_visual(screen, vinfo->visualid);
+        } else {
+            // couldn't find a GLX visual; force Glitz off
+            gfxPlatform::SetUseGlitz(PR_FALSE);
+        }
     }
+#endif
 
     // ok, create our windows
     switch (mWindowType) {
@@ -2448,8 +2479,17 @@ nsWindow::NativeCreate(nsIWidget        *aParent,
                          G_CALLBACK(delete_event_cb), NULL);
         g_signal_connect(G_OBJECT(mShell), "window_state_event",
                          G_CALLBACK(window_state_event_cb), NULL);
-        g_signal_connect(G_OBJECT(mShell), "style_set",
-                         G_CALLBACK(style_set_cb), NULL);
+
+        GtkSettings* default_settings = gtk_settings_get_default();
+        g_signal_connect_after(default_settings,
+                               "notify::gtk-theme-name",
+                               G_CALLBACK(theme_changed_cb), this);
+        g_signal_connect_after(default_settings,
+                               "notify::gtk-key-theme-name",
+                               G_CALLBACK(theme_changed_cb), this);
+        g_signal_connect_after(default_settings,
+                               "notify::gtk-font-name",
+                               G_CALLBACK(theme_changed_cb), this);
     }
 
     if (mContainer) {
@@ -3574,7 +3614,7 @@ get_gtk_cursor(nsCursor aCursor)
         break;
     }
 
-    // if by now we dont have a xcursor, this means we have to make a
+    // if by now we don't have a xcursor, this means we have to make a
     // custom one
     if (newType != 0xff) {
         gdk_color_parse("#000000", &fg);
@@ -3930,11 +3970,9 @@ window_state_event_cb (GtkWidget *widget, GdkEventWindowState *event)
 
 /* static */
 void
-style_set_cb (GtkWidget *widget, GtkStyle *previous_style, gpointer data)
+theme_changed_cb (GtkSettings *settings, GParamSpec *pspec, nsWindow *data)
 {
-    nsWindow *window = get_window_for_gtk_widget(widget);
-    if (window)
-        window->ThemeChanged();
+    data->ThemeChanged();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -4794,4 +4832,76 @@ IM_get_input_context(MozDrawingarea *aArea)
     return owningWindow->mIMContext;
 }
 
+#endif
+
+#ifdef MOZ_CAIRO_GFX
+// return the gfxASurface for rendering to this widget
+gfxASurface*
+nsWindow::GetThebesSurface()
+{
+    // XXXvlad always create a new thebes surface for now,
+    // because the old clip doesn't get cleared otherwise.
+    // we should fix this at some point, and just reset
+    // the clip.
+    mThebesSurface = nsnull;
+
+    if (!mThebesSurface) {
+        GdkDrawable* d = GDK_DRAWABLE(mDrawingarea->inner_window);
+        if (!gfxPlatform::UseGlitz()) {
+            mThebesSurface = new gfxXlibSurface
+                (GDK_WINDOW_XDISPLAY(d),
+                 GDK_WINDOW_XWINDOW(d),
+                 GDK_VISUAL_XVISUAL(gdk_drawable_get_visual(d)));
+            gfxPlatformGtk::GetPlatform()->SetSurfaceGdkWindow(mThebesSurface, GDK_WINDOW(d));
+        } else {
+#ifdef MOZ_ENABLE_GLITZ
+            glitz_surface_t *gsurf;
+            glitz_drawable_t *gdraw;
+
+            glitz_drawable_format_t *gdformat = glitz_glx_find_window_format (GDK_DISPLAY(),
+                                                                              gdk_x11_get_default_screen(),
+                                                                              0, NULL, 0);
+            if (!gdformat)
+                NS_ERROR("Failed to find glitz drawable format");
+
+            Display* dpy = GDK_WINDOW_XDISPLAY(d);
+            Window wnd = GDK_WINDOW_XWINDOW(d);
+            
+            Window root_ignore;
+            int x_ignore, y_ignore;
+            unsigned int bwidth_ignore, width, height, depth;
+
+            XGetGeometry(dpy,
+                         wnd,
+                         &root_ignore, &x_ignore, &y_ignore,
+                         &width, &height,
+                         &bwidth_ignore, &depth);
+
+            gdraw =
+                glitz_glx_create_drawable_for_window (dpy,
+                                                      DefaultScreen(dpy),
+                                                      gdformat,
+                                                      wnd,
+                                                      width,
+                                                      height);
+            glitz_format_t *gformat =
+                glitz_find_standard_format (gdraw, GLITZ_STANDARD_RGB24);
+            gsurf =
+                glitz_surface_create (gdraw,
+                                      gformat,
+                                      width,
+                                      height,
+                                      0,
+                                      NULL);
+            glitz_surface_attach (gsurf, gdraw, GLITZ_DRAWABLE_BUFFER_FRONT_COLOR);
+
+
+            //fprintf (stderr, "## nsThebesDrawingSurface::Init Glitz DRAWABLE %p (DC: %p)\n", aWidget, aDC);
+            mThebesSurface = new gfxGlitzSurface (gdraw, gsurf, PR_TRUE);
+#endif
+        }
+    }
+
+    return mThebesSurface;
+}
 #endif

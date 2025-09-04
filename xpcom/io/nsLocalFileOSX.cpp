@@ -334,10 +334,11 @@ nsLocalFile::~nsLocalFile()
 #pragma mark -
 #pragma mark [nsISupports]
 
-NS_IMPL_THREADSAFE_ISUPPORTS3(nsLocalFile,
+NS_IMPL_THREADSAFE_ISUPPORTS4(nsLocalFile,
                               nsILocalFileMac,
                               nsILocalFile,
-                              nsIFile)
+                              nsIFile,
+                              nsIHashable)
                               
 NS_METHOD nsLocalFile::nsLocalFileConstructor(nsISupports* outer, const nsIID& aIID, void* *aInstancePtr)
 {
@@ -889,7 +890,7 @@ NS_IMETHODIMP nsLocalFile::IsHidden(PRBool *_retval)
   
   FSCatalogInfo catalogInfo;
   HFSUniStr255 leafName;  
-  OSErr err = ::FSGetCatalogInfo(&fsRef, kFSCatInfoNodeFlags, &catalogInfo,
+  OSErr err = ::FSGetCatalogInfo(&fsRef, kFSCatInfoFinderInfo, &catalogInfo,
                                 &leafName, nsnull, nsnull);
   if (err != noErr)
     return MacErrorMapper(err);
@@ -2036,6 +2037,28 @@ nsresult nsLocalFile::CFStringReftoUTF8(CFStringRef aInStrRef, nsACString& aOutS
     }
   }
   return rv;
+}
+
+// nsIHashable
+
+NS_IMETHODIMP
+nsLocalFile::Equals(nsIHashable* aOther, PRBool *aResult)
+{
+    nsCOMPtr<nsIFile> otherfile(do_QueryInterface(aOther));
+    if (!otherfile) {
+        *aResult = PR_FALSE;
+        return NS_OK;
+    }
+
+    return Equals(otherfile, aResult);
+}
+
+NS_IMETHODIMP
+nsLocalFile::GetHashCode(PRUint32 *aResult)
+{
+    CFURLRef whichURLRef = mFollowLinks ? mTargetRef : mBaseRef;
+    *aResult = CFHash(whichURLRef);
+    return NS_OK;
 }
 
 //*****************************************************************************

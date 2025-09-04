@@ -252,9 +252,10 @@ nsLocalFile::nsLocalFile(const nsLocalFile& other)
 {
 }
 
-NS_IMPL_THREADSAFE_ISUPPORTS2(nsLocalFile,
+NS_IMPL_THREADSAFE_ISUPPORTS3(nsLocalFile,
                               nsIFile,
-                              nsILocalFile)
+                              nsILocalFile,
+                              nsIHashable)
 
 nsresult
 nsLocalFile::nsLocalFileConstructor(nsISupports *outer, 
@@ -1750,6 +1751,28 @@ nsLocalFile::GetTarget(nsAString &_retval)
 {   
     GET_UCS(GetNativeTarget, _retval);
 }
+
+// nsIHashable
+
+NS_IMETHODIMP
+nsLocalFile::Equals(nsIHashable* aOther, PRBool *aResult)
+{
+    nsCOMPtr<nsIFile> otherFile(do_QueryInterface(aOther));
+    if (!otherFile) {
+        *aResult = PR_FALSE;
+        return NS_OK;
+    }
+
+    return Equals(otherFile, aResult);
+}
+
+NS_IMETHODIMP
+nsLocalFile::GetHashCode(PRUint32 *aResult)
+{
+    *aResult = nsCRT::HashCode(mPath.get());
+    return NS_OK;
+}
+
 nsresult 
 NS_NewLocalFile(const nsAString &path, PRBool followLinks, nsILocalFile* *result)
 {

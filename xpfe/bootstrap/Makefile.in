@@ -100,6 +100,7 @@ REQUIRES	= xpcom \
 		  profile \
 		  chrome \
 		  xremoteclient \
+		  layout \
 		  $(NULL)
 # for jprof
 REQUIRES	+= jprof
@@ -217,6 +218,9 @@ ifeq ($(MOZ_WIDGET_TOOLKIT),beos)
 BEOS_PROGRAM_RESOURCE = $(srcdir)/apprunner-beos.rsrc
 CPPSRCS += nsNativeAppSupportBeOS.cpp
 CPPSRCS += nsNativeAppSupportBase.cpp
+ifdef BUILD_STATIC_LIBS
+OS_LIBS += -ltracker -lgame
+endif
 endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),photon)

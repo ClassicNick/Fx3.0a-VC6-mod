@@ -139,7 +139,7 @@ moz_run_program()
 	fi
 	##
 	## Use md5sum to crc a core file.  If md5sum is not found on the system,
-	## then dont debug core files.
+	## then don't debug core files.
 	##
 	moz_test_binary /bin/type
 	if [ $? -eq 1 ]
@@ -160,6 +160,12 @@ moz_run_program()
 			crc_old=`$crc_prog core | awk '{print $1;}' `
 		fi
 	fi
+	##
+	## Reset GTK_MODULES, strip atk-bridge if exists
+	## Mozilla will load libatk-bridge.so later if necessary
+	##
+	GTK_MODULES=`echo $GTK_MODULES | sed -e 's/atk-bridge//g'`
+	export GTK_MODULES
 	##
 	## Run the program
 	##

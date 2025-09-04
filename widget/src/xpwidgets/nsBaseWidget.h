@@ -110,6 +110,9 @@ public:
   virtual nsIDeviceContext* GetDeviceContext();
   virtual nsIAppShell *   GetAppShell();
   virtual nsIToolkit*     GetToolkit();  
+#ifdef MOZ_CAIRO_GFX
+  virtual gfxASurface*    GetThebesSurface();
+#endif
   NS_IMETHOD              SetModal(PRBool aModal); 
   NS_IMETHOD              ModalEventFilter(PRBool aRealEvent, void *aEvent,
                             PRBool *aForWindow);
@@ -180,7 +183,7 @@ protected:
   PRInt32           mZIndex;
   nsSizeMode        mSizeMode;
     
-    // Enumeration of the methods which are accessable on the "main GUI thread"
+    // Enumeration of the methods which are accessible on the "main GUI thread"
     // via the CallMethod(...) mechanism...
     // see nsSwitchToUIThread
   enum {

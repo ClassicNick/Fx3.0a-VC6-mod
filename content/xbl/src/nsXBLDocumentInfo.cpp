@@ -71,18 +71,10 @@ public:
   virtual nsIScriptContext *GetContext();
   virtual nsresult SetNewDocument(nsIDOMDocument *aDocument,
                                   nsISupports *aState,
-                                  PRBool aRemoveEventListeners,
                                   PRBool aClearScope);
-  virtual void SetDocShell(nsIDocShell *aDocShell);
-  virtual nsIDocShell *GetDocShell();
   virtual void SetOpenerWindow(nsIDOMWindowInternal *aOpener);
   virtual void SetGlobalObjectOwner(nsIScriptGlobalObjectOwner* aOwner);
   virtual nsIScriptGlobalObjectOwner *GetGlobalObjectOwner();
-  virtual nsresult HandleDOMEvent(nsPresContext* aPresContext, 
-                                  nsEvent* aEvent, 
-                                  nsIDOMEvent** aDOMEvent,
-                                  PRUint32 aFlags,
-                                  nsEventStatus* aEventStatus);
   virtual JSObject *GetGlobalJSObject();
   virtual void OnFinalize(JSObject *aObject);
   virtual void SetScriptsEnabled(PRBool aEnabled, PRBool aFireTimeouts);
@@ -286,25 +278,10 @@ nsXBLDocGlobalObject::GetContext()
 nsresult
 nsXBLDocGlobalObject::SetNewDocument(nsIDOMDocument *aDocument,
                                      nsISupports *aState,
-                                     PRBool aRemoveEventListeners,
                                      PRBool aClearScope)
 {
   NS_NOTREACHED("waaah!");
   return NS_ERROR_UNEXPECTED;
-}
-
-
-void
-nsXBLDocGlobalObject::SetDocShell(nsIDocShell *aDocShell)
-{
-  NS_NOTREACHED("waaah!");
-}
-
-
-nsIDocShell *
-nsXBLDocGlobalObject::GetDocShell()
-{
-  return nsnull;
 }
 
 
@@ -328,17 +305,6 @@ nsXBLDocGlobalObject::GetGlobalObjectOwner()
   return mGlobalObjectOwner;
 }
 
-
-nsresult
-nsXBLDocGlobalObject::HandleDOMEvent(nsPresContext* aPresContext, 
-                                       nsEvent* aEvent, 
-                                       nsIDOMEvent** aDOMEvent,
-                                       PRUint32 aFlags,
-                                       nsEventStatus* aEventStatus)
-{
-  NS_NOTREACHED("waaah!");
-  return NS_ERROR_UNEXPECTED;
-}
 
 JSObject *
 nsXBLDocGlobalObject::GetGlobalJSObject()

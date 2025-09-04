@@ -137,7 +137,6 @@ static NS_DEFINE_CID(kDOMEventGroupCID, NS_DOMEVENTGROUP_CID);
 
 #include "nsDateTimeFormatCID.h"
 #include "nsIDateTimeFormat.h"
-#include "nsIComponentRegistrar.h"
 
 static NS_DEFINE_CID(kCharsetAliasCID, NS_CHARSETALIAS_CID);
 static NS_DEFINE_CID(kDateTimeFormatCID, NS_DATETIMEFORMAT_CID);
@@ -784,9 +783,6 @@ nsDocument::~nsDocument()
   delete mBoxObjectTable;
 }
 
-PRBool gCheckedForXPathDOM = PR_FALSE;
-PRBool gHaveXPathDOM = PR_FALSE;
-
 NS_INTERFACE_MAP_BEGIN(nsDocument)
   NS_INTERFACE_MAP_ENTRY(nsIDocument)
   NS_INTERFACE_MAP_ENTRY(nsIDOMDocument)
@@ -814,21 +810,6 @@ NS_INTERFACE_MAP_BEGIN(nsDocument)
       aIID.Equals(NS_GET_IID(nsIXPathEvaluatorInternal))) {
     if (!mXPathEvaluatorTearoff) {
       nsresult rv;
-      if (!gCheckedForXPathDOM) {
-        nsCOMPtr<nsIComponentRegistrar> cr;
-        rv = NS_GetComponentRegistrar(getter_AddRefs(cr));
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        gCheckedForXPathDOM = PR_TRUE;
-
-        cr->IsContractIDRegistered(NS_XPATH_EVALUATOR_CONTRACTID,
-                                   &gHaveXPathDOM);
-      }
-
-      if (!gHaveXPathDOM) {
-        return NS_ERROR_NO_INTERFACE;
-      }
-
       mXPathEvaluatorTearoff =
         do_CreateInstance(NS_XPATH_EVALUATOR_CONTRACTID,
                           NS_STATIC_CAST(nsIDocument *, this), &rv);
@@ -2042,6 +2023,14 @@ nsDocument::GetWindow()
   return win->GetOuterWindow();
 }
 
+nsPIDOMWindow *
+nsDocument::GetInnerWindow()
+{
+  nsCOMPtr<nsPIDOMWindow> win(do_QueryInterface(GetScriptGlobalObject()));
+
+  return win;
+}
+
 nsIScriptLoader *
 nsDocument::GetScriptLoader()
 {
@@ -2154,9 +2143,10 @@ nsDocument::DispatchContentLoadedEvents()
   // loading.
   nsCOMPtr<nsIDOMEventTarget> target_frame;
 
-  if (mScriptGlobalObject) {
+  nsPIDOMWindow *win = GetWindow();
+  if (win) {
     nsCOMPtr<nsIDocShellTreeItem> docShellAsItem =
-      do_QueryInterface(mScriptGlobalObject->GetDocShell());
+      do_QueryInterface(win->GetDocShell());
 
     if (docShellAsItem) {
       docShellAsItem->GetSameTypeParent(getter_AddRefs(docShellParent));
@@ -3106,21 +3096,12 @@ nsDocument::CreateTreeWalker(nsIDOMNode *aRoot,
 NS_IMETHODIMP
 nsDocument::GetDefaultView(nsIDOMAbstractView** aDefaultView)
 {
-  *aDefaultView = nsnull;
-
-  nsCOMPtr<nsPIDOMWindow> win(do_QueryInterface(mScriptGlobalObject));
-
+  nsPIDOMWindow* win = GetWindow();
   if (win) {
-    // The default view is our outer window.
-    nsPIDOMWindow *outer = win->GetOuterWindow();
-
-    if (outer) {
-      return CallQueryInterface(outer, aDefaultView);
-    }
-
-    // Fall through here and return null in case our window no longer
-    // has an outer window.
+    return CallQueryInterface(win, aDefaultView);
   }
+
+  *aDefaultView = nsnull;
 
   return NS_OK;
 }
@@ -4211,11 +4192,12 @@ nsDocument::HandleDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent,
     aFlags |= NS_EVENT_FLAG_BUBBLE | NS_EVENT_FLAG_CAPTURE;
   }
 
+  nsPIDOMWindow *window = GetWindow();
+
   // Capturing stage
-  if (NS_EVENT_FLAG_CAPTURE & aFlags && mScriptGlobalObject) {
-    mScriptGlobalObject->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                                        aFlags & NS_EVENT_CAPTURE_MASK,
-                                        aEventStatus);
+  if (NS_EVENT_FLAG_CAPTURE & aFlags && window) {
+    window->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
+                           aFlags & NS_EVENT_CAPTURE_MASK, aEventStatus);
   }
 
   // Local handling stage
@@ -4233,10 +4215,9 @@ nsDocument::HandleDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent,
   }
 
   // Bubbling stage
-  if (NS_EVENT_FLAG_BUBBLE & aFlags && mScriptGlobalObject) {
-    mScriptGlobalObject->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                                        aFlags & NS_EVENT_BUBBLE_MASK,
-                                        aEventStatus);
+  if (NS_EVENT_FLAG_BUBBLE & aFlags && window) {
+    window->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
+                           aFlags & NS_EVENT_BUBBLE_MASK, aEventStatus);
   }
 
   if (NS_EVENT_FLAG_INIT & aFlags) {
@@ -4434,8 +4415,10 @@ nsDocument::CreateEventGroup(nsIDOMEventGroup **aInstancePtrResult)
 void
 nsDocument::FlushPendingNotifications(mozFlushType aType)
 {
+  nsPIDOMWindow *window = GetWindow();
+
   if (aType == (aType & (Flush_Content | Flush_SinkNotifications)) ||
-      !mScriptGlobalObject) {
+      !window) {
     // Nothing to do here
     return;
   }
@@ -4445,17 +4428,17 @@ nsDocument::FlushPendingNotifications(mozFlushType aType)
   // the current code!
 
   nsCOMPtr<nsIDocShellTreeItem> docShellAsItem =
-    do_QueryInterface(mScriptGlobalObject->GetDocShell());
+    do_QueryInterface(window->GetDocShell());
 
   if (docShellAsItem) {
     nsCOMPtr<nsIDocShellTreeItem> docShellParent;
     docShellAsItem->GetSameTypeParent(getter_AddRefs(docShellParent));
 
-    nsCOMPtr<nsIDOMWindow> win(do_GetInterface(docShellParent));
+    nsCOMPtr<nsIDOMWindow> parentWin(do_GetInterface(docShellParent));
 
-    if (win) {
+    if (parentWin) {
       nsCOMPtr<nsIDOMDocument> dom_doc;
-      win->GetDocument(getter_AddRefs(dom_doc));
+      parentWin->GetDocument(getter_AddRefs(dom_doc));
 
       nsCOMPtr<nsIDocument> doc(do_QueryInterface(dom_doc));
 
@@ -4898,8 +4881,6 @@ nsDocument::CreateElement(nsINodeInfo *aNodeInfo, PRInt32 aElementType,
                               aNodeInfo);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  content->SetContentID(mNextContentID++);
-
   content.swap(*aResult);
 
   return NS_OK;
@@ -5282,8 +5263,8 @@ nsDocument::DoUnblockOnload()
 void
 nsDocument::DispatchEventToWindow(nsEvent *aEvent)
 {
-  nsIScriptGlobalObject *sgo = GetScriptGlobalObject();
-  if (!sgo)
+  nsPIDOMWindow *window = GetWindow();
+  if (!window)
     return;
 
   nsEventStatus status = nsEventStatus_eIgnore;
@@ -5307,7 +5288,8 @@ nsDocument::DispatchEventToWindow(nsEvent *aEvent)
   privEvt->SetTarget(this);
 
   nsIDOMEvent *domEvtPtr = domEvt;
-  sgo->HandleDOMEvent(nsnull, aEvent, &domEvtPtr, NS_EVENT_FLAG_INIT, &status);
+  window->HandleDOMEvent(nsnull, aEvent, &domEvtPtr, NS_EVENT_FLAG_INIT,
+                         &status);
 
   NS_ASSERTION(domEvtPtr == domEvt, "event modified during dipatch");
 }

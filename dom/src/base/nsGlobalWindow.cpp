@@ -298,7 +298,6 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mIsPopupSpam(PR_FALSE),
     mArguments(nsnull),
     mGlobalObjectOwner(nsnull),
-    mDocShell(nsnull),
     mTimeouts(nsnull),
     mTimeoutInsertionPoint(&mTimeouts),
     mTimeoutPublicIdCounter(1),
@@ -805,17 +804,14 @@ NS_IMPL_ISUPPORTS1(WindowStateHolder, WindowStateHolder)
 nsresult
 nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
                                nsISupports* aState,
-                               PRBool aRemoveEventListeners,
                                PRBool aClearScopeHint)
 {
-  return SetNewDocument(aDocument, aState, aRemoveEventListeners,
-                        aClearScopeHint, PR_FALSE);
+  return SetNewDocument(aDocument, aState, aClearScopeHint, PR_FALSE);
 }
 
 nsresult
 nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
                                nsISupports* aState,
-                               PRBool aRemoveEventListeners,
                                PRBool aClearScopeHint,
                                PRBool aIsInternalCall)
 {
@@ -829,7 +825,6 @@ nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
 
     return GetOuterWindowInternal()->SetNewDocument(aDocument,
                                                     aState,
-                                                    aRemoveEventListeners,
                                                     aClearScopeHint, PR_TRUE);
   }
 
@@ -911,12 +906,6 @@ nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
 
   PRBool reUseInnerWindow = WouldReuseInnerWindow(newDoc, PR_FALSE);
 
-  // XXX We used to share event listeners between inner windows in special
-  // circumstances (that were remarkably close to the conditions that we set
-  // reUseInnerWindow in) but that left dangling pointers to the old (destroyed)
-  // inner window (bug 303765). Setting this here should be a no-op.
-  aRemoveEventListeners = !reUseInnerWindow;
-
   // Remember the old document's principal.
   nsIPrincipal *oldPrincipal = nsnull;
 
@@ -973,7 +962,7 @@ nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
         currentInner->mChromeEventHandler = nsnull;
       }
 
-      if (aRemoveEventListeners && currentInner->mListenerManager) {
+      if (!reUseInnerWindow && currentInner->mListenerManager) {
         currentInner->mListenerManager->RemoveAllListeners(PR_FALSE);
         currentInner->mListenerManager = nsnull;
       }
@@ -1131,12 +1120,6 @@ nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
       mInnerWindow = newInnerWindow;
     }
 
-    if ((!reUseInnerWindow || newDoc != oldDoc) && !aState) {
-      nsCOMPtr<nsIHTMLDocument> html_doc(do_QueryInterface(mDocument));
-      nsWindowSH::InstallGlobalScopePolluter(cx, newInnerWindow->mJSObject,
-                                             html_doc);
-    }
-
     if (!aState && !reUseInnerWindow) {
       // Loading a new page and creating a new inner window, *not*
       // restoring from session history.
@@ -1181,6 +1164,23 @@ nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
 
       ::JS_SetPrototype(cx, newInnerWindow->mJSObject, proto);
       ::JS_SetPrototype(cx, proto, innerProtoProto);
+    }
+
+    // Now that the prototype is all set up, install the global scope
+    // polluter. This must happen after the above prototype fixup. If
+    // the GSP was to be installed on the inner window's real
+    // prototype (as it would be if this was done before the prototype
+    // fixup above) we would end up holding the GSP alive (through
+    // XPConnect's internal marking of wrapper prototypes) as long as
+    // the inner window was around, and if the GSP had properties on
+    // it that held an element alive we'd hold the document alive,
+    // which could hold event handlers alive, which hold the context
+    // alive etc.
+
+    if ((!reUseInnerWindow || newDoc != oldDoc) && !aState) {
+      nsCOMPtr<nsIHTMLDocument> html_doc(do_QueryInterface(mDocument));
+      nsWindowSH::InstallGlobalScopePolluter(cx, newInnerWindow->mJSObject,
+                                             html_doc);
     }
 
     if (aState) {
@@ -1230,7 +1230,6 @@ nsGlobalWindow::SetNewDocument(nsIDOMDocument* aDocument,
         ::JS_DeleteProperty(cx, currentInner->mJSObject, "document");
       } else {
         rv = newInnerWindow->SetNewDocument(aDocument, nsnull,
-                                            aRemoveEventListeners,
                                             aClearScopeHint, PR_TRUE);
         NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1401,12 +1400,6 @@ nsGlobalWindow::SetDocShell(nsIDocShell* aDocShell)
       else NS_NewWindowRoot(this, getter_AddRefs(mChromeEventHandler));
     }
   }
-}
-
-nsIDocShell *
-nsGlobalWindow::GetDocShell()
-{
-  return GetDocShellInternal();
 }
 
 void
@@ -1580,7 +1573,7 @@ nsGlobalWindow::HandleDOMEvent(nsPresContext* aPresContext, nsEvent* aEvent,
     nsCOMPtr<nsIContent> content(do_QueryInterface(GetFrameElementInternal()));
 
     nsCOMPtr<nsIDocShellTreeItem> treeItem =
-      do_QueryInterface(GetDocShellInternal());
+      do_QueryInterface(GetDocShell());
 
     PRInt32 itemType = nsIDocShellTreeItem::typeChrome;
 
@@ -1759,8 +1752,8 @@ nsGlobalWindow::GetDocument(nsIDOMDocument** aDocument)
 {
   // This method *should* forward calls to the outer window, but since
   // there's nothing here that *depends* on anything in the outer
-  // (GetDocShellInternal() eliminates that dependency), we won't do
-  // that to avoid the extra virtual function call.
+  // (GetDocShell() eliminates that dependency), we won't do that to
+  // avoid the extra virtual function call.
 
   // lazily instantiate an about:blank document if necessary, and if
   // we have what it takes to do so. Note that domdoc here is the same
@@ -1768,7 +1761,7 @@ nsGlobalWindow::GetDocument(nsIDOMDocument** aDocument)
   // member variable because the docshell has already called
   // SetNewDocument().
   nsIDocShell *docShell;
-  if (!mDocument && (docShell = GetDocShellInternal()))
+  if (!mDocument && (docShell = GetDocShell()))
     nsCOMPtr<nsIDOMDocument> domdoc(do_GetInterface(docShell));
 
   NS_IF_ADDREF(*aDocument = mDocument);
@@ -2215,10 +2208,10 @@ nsGlobalWindow::GetOpener(nsIDOMWindowInternal** aOpener)
   // We don't want to reveal the opener if the opener is a mail window,
   // because opener can be used to spoof the contents of a message (bug 105050).
   // So, we look in the opener's root docshell to see if it's a mail window.
-  nsCOMPtr<nsIScriptGlobalObject> openerSGO(do_QueryInterface(mOpener));
-  if (openerSGO) {
+  nsCOMPtr<nsPIDOMWindow> openerPwin(do_QueryInterface(mOpener));
+  if (openerPwin) {
     nsCOMPtr<nsIDocShellTreeItem> docShellAsItem =
-      do_QueryInterface(openerSGO->GetDocShell());
+      do_QueryInterface(openerPwin->GetDocShell());
 
     if (docShellAsItem) {
       nsCOMPtr<nsIDocShellTreeItem> openerRootItem;
@@ -2927,11 +2920,11 @@ nsGlobalWindow::WindowExists(const nsAString& aName)
 
   if (!caller) {
     // If we can't reach a caller, try to use our own docshell
-    caller = do_QueryInterface(GetDocShellInternal());
+    caller = do_QueryInterface(GetDocShell());
   }
 
   nsCOMPtr<nsIDocShellTreeItem> docShell =
-    do_QueryInterface(GetDocShellInternal());
+    do_QueryInterface(GetDocShell());
 
   if (docShell) {
     nsCOMPtr<nsIDocShellTreeItem> namedItem;
@@ -5232,15 +5225,15 @@ nsGlobalWindow::GetPrivateRoot()
 {
   FORWARD_TO_OUTER(GetPrivateRoot, (), nsnull);
 
-  nsCOMPtr<nsIDOMWindow> parent;
-  GetTop(getter_AddRefs(parent));
+  nsCOMPtr<nsIDOMWindow> top;
+  GetTop(getter_AddRefs(top));
 
-  nsCOMPtr<nsIScriptGlobalObject> parentTop = do_QueryInterface(parent);
-  NS_ASSERTION(parentTop, "cannot get parentTop");
-  if (!parentTop)
+  nsCOMPtr<nsPIDOMWindow> ptop = do_QueryInterface(top);
+  NS_ASSERTION(ptop, "cannot get ptop");
+  if (!ptop)
     return nsnull;
 
-  nsIDocShell *docShell = parentTop->GetDocShell();
+  nsIDocShell *docShell = ptop->GetDocShell();
 
   // Get the chrome event handler from the doc shell, since we only
   // want to deal with XUL chrome handlers and not the new kind of
@@ -5252,17 +5245,15 @@ nsGlobalWindow::GetPrivateRoot()
   if (chromeElement) {
     nsIDocument* doc = chromeElement->GetDocument();
     if (doc) {
-      parent = do_QueryInterface(doc->GetScriptGlobalObject());
+      nsIDOMWindow *parent = doc->GetWindow();
       if (parent) {
-        nsCOMPtr<nsIDOMWindow> tempParent;
-        parent->GetTop(getter_AddRefs(tempParent));
-        tempParent.swap(parent);
+        parent->GetTop(getter_AddRefs(top));
       }
     }
   }
 
   return NS_STATIC_CAST(nsGlobalWindow *,
-                        NS_STATIC_CAST(nsIDOMWindow *, parent));
+                        NS_STATIC_CAST(nsIDOMWindow *, top));
 }
 
 
@@ -6906,8 +6897,7 @@ nsGlobalWindow::SuspendTimeouts()
   }
 
   // Suspend our children as well.
-  nsCOMPtr<nsIDocShellTreeNode> node =
-    do_QueryInterface(GetDocShellInternal());
+  nsCOMPtr<nsIDocShellTreeNode> node(do_QueryInterface(GetDocShell()));
   if (node) {
     PRInt32 childCount = 0;
     node->GetChildCount(&childCount);
@@ -6960,7 +6950,7 @@ nsGlobalWindow::ResumeTimeouts()
 
   // Resume our children as well.
   nsCOMPtr<nsIDocShellTreeNode> node =
-    do_QueryInterface(GetDocShellInternal());
+    do_QueryInterface(GetDocShell());
   if (node) {
     PRInt32 childCount = 0;
     node->GetChildCount(&childCount);

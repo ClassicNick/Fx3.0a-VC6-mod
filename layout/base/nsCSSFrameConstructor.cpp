@@ -4099,7 +4099,7 @@ nsCSSFrameConstructor::ConstructTableForeignFrame(nsFrameConstructorState& aStat
                parentFrame == aState.mPseudoFrames.mCellInner.mFrame,
                "Weird parent in ConstructTableForeignFrame");
 
-  // Push the parent as the floater containing block
+  // Push the parent as the float containing block
   nsFrameConstructorSaveState saveState;
   aState.PushFloatContainingBlock(parentFrame, saveState, PR_FALSE, PR_FALSE);
   
@@ -5087,7 +5087,7 @@ nsCSSFrameConstructor::ConstructSelectFrame(nsFrameConstructorState& aState,
         // Construct a frame-based combo box.
         // The frame-based combo box is built out of three parts. A display area, a button and
         // a dropdown list. The display area and button are created through anonymous content.
-        // The drop-down list's frame is created explicitly. The combobox frame shares it's content
+        // The drop-down list's frame is created explicitly. The combobox frame shares its content
         // with the drop-down list.
       PRUint32 flags = NS_BLOCK_SHRINK_WRAP | NS_BLOCK_SPACE_MGR;
       nsIFrame* comboboxFrame = NS_NewComboboxControlFrame(mPresShell, flags);
@@ -5219,7 +5219,7 @@ nsCSSFrameConstructor::ConstructSelectFrame(nsFrameConstructorState& aState,
 }
 
 /**
- * Used to be InitializeScrollFrame but now its only used for the select tag
+ * Used to be InitializeScrollFrame but now it's only used for the select tag
  * But the select tag should really be fixed to use GFX scrollbars that can
  * be create with BuildScrollFrame.
  */
@@ -6412,7 +6412,7 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
       // if our parent is a block frame then do things the way html likes it
       // if not then we are in a box so do what boxes like. On example is boxes
       // do not support the absolute positioning of their children. While html blocks
-      // thats why we call different things here.
+      // that's why we call different things here.
       nsIAtom* frameType = geometricParent->GetType();
       if ((frameType == nsLayoutAtoms::blockFrame) ||
           (frameType == nsLayoutAtoms::areaFrame)) {
@@ -7480,7 +7480,7 @@ nsCSSFrameConstructor::SVGSwitchProcessChildren(nsFrameConstructorState& aState,
     nsAutoString str;
     child->Tag()->ToString(str);
     printf("Child tag: %s\n", NS_ConvertUCS2toUTF8(str).get());
-    printf("SwitchProcessChildren: Required Extentions = %s, Required Features = %s, System Language = %s\n",
+    printf("SwitchProcessChildren: Required Extensions = %s, Required Features = %s, System Language = %s\n",
             hasRequiredExtensions ? "true" : "false",
             hasRequiredFeatures ? "true" : "false",
             hasSystemLanguage ? "true" : "false");
@@ -7681,7 +7681,7 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
 #ifdef MOZ_SVG_FOREIGNOBJECT
     if (aTag == nsSVGAtoms::foreignObject) {
       // Claim to be relatively positioned so that we end up being the
-      // absolute containing block.  Also, push "null" as the floater
+      // absolute containing block.  Also, push "null" as the float
       // containing block so that we get the SPACE_MGR bit set.
       nsFrameConstructorSaveState saveState;
       aState.PushFloatContainingBlock(nsnull, saveState, PR_FALSE, PR_FALSE);
@@ -8188,6 +8188,35 @@ nsCSSFrameConstructor::GetFloatContainingBlock(nsIFrame* aFrame)
 }
 
 /**
+ * This function will check whether aContainer has :after generated content.
+ * If so, appending to it should actually insert.  The return value is the
+ * parent to use for newly-appended content.  *aAfterFrame points to the :after
+ * frame before which appended content should go, if there is one.
+ */
+static nsIFrame*
+AdjustAppendParentForAfterContent(nsPresContext* aPresContext,
+                                  nsIContent* aContainer,
+                                  nsIFrame* aParentFrame,
+                                  nsIFrame** aAfterFrame)
+{
+  // See if the parent has an :after pseudo-element.  Check for the presence
+  // of style first, since nsLayoutUtils::GetAfterFrame is sorta expensive.
+  nsStyleContext* parentStyle = aParentFrame->GetStyleContext();
+  if (nsLayoutUtils::HasPseudoStyle(aContainer, parentStyle,
+                                    nsCSSPseudoElements::after,
+                                    aPresContext)) {
+    nsIFrame* afterFrame = nsLayoutUtils::GetAfterFrame(aParentFrame);
+    if (afterFrame) {
+      *aAfterFrame = afterFrame;
+      return afterFrame->GetParent();
+    }
+  }
+
+  *aAfterFrame = nsnull;
+  return aParentFrame;
+}
+
+/**
  * This function is called by ContentAppended() and ContentInserted()
  * when appending flowed frames to a parent's principal child list. It
  * handles the case where the parent frame has :after pseudo-element
@@ -8197,35 +8226,26 @@ nsresult
 nsCSSFrameConstructor::AppendFrames(const nsFrameConstructorState& aState,
                                     nsIContent*                    aContainer,
                                     nsIFrame*                      aParentFrame,
-                                    nsIFrame*                      aFrameList)
+                                    nsIFrame*                      aFrameList,
+                                    nsIFrame*                      aAfterFrame)
 {
-  // See if the parent has an :after pseudo-element.  Check for the presence
-  // of style first, since nsLayoutUtils::GetAfterFrame is sorta expensive.
-  nsStyleContext* parentStyle = aParentFrame->GetStyleContext();
-  nsFrameManager* frameManager = aState.mFrameManager;
-  if (nsLayoutUtils::HasPseudoStyle(aContainer, parentStyle,
-                                    nsCSSPseudoElements::after,
-                                    aState.mPresContext)) {
-    nsIFrame* afterFrame = nsLayoutUtils::GetAfterFrame(aParentFrame);
-    if (afterFrame) {
-      // aParentFrame may have next-in-flows.  If there's no :after content
-      // around, we automatically get the right in-flow as aParentFrame.  But
-      // in this case, we could have ended up with the prev-in-flow of the
-      // right thing (the "right thing" being the last-in-flow for an append).
-      // Looking for afterFrame in the child list of it would then fail, and we
-      // could end up inserting our new frame at the wrong place.  So just set
-      // aParentFrame to the parent of afterFrame.  That will make sure we're
-      // getting our ordering right, and if our frame needs to be pulled up to
-      // the prev-in-flow that will happen when we reflow.
-      aParentFrame = afterFrame->GetParent();
-      nsFrameList frames(aParentFrame->GetFirstChild(nsnull));
+#ifdef DEBUG
+  nsIFrame* debugAfterFrame;
+  nsIFrame* debugNewParent =
+    ::AdjustAppendParentForAfterContent(aState.mPresContext, aContainer,
+                                        aParentFrame, &debugAfterFrame);
+  NS_ASSERTION(debugNewParent == aParentFrame, "Incorrect parent");
+  NS_ASSERTION(debugAfterFrame == aAfterFrame, "Incorrect after frame");
+#endif
 
-      // Insert the frames before the :after pseudo-element.
-      return frameManager->InsertFrames(aParentFrame,
-                                        nsnull,
-                                        frames.GetPrevSiblingFor(afterFrame),
-                                        aFrameList);
-    }
+  nsFrameManager* frameManager = aState.mFrameManager;
+  if (aAfterFrame) {
+    nsFrameList frames(aParentFrame->GetFirstChild(nsnull));
+
+    // Insert the frames before the :after pseudo-element.
+    return frameManager->InsertFrames(aParentFrame, nsnull,
+                                      frames.GetPrevSiblingFor(aAfterFrame),
+                                      aFrameList);
   }
 
   return frameManager->AppendFrames(aParentFrame, nsnull, aFrameList);
@@ -8822,6 +8842,14 @@ nsCSSFrameConstructor::ContentAppended(nsIContent*     aContainer,
   // Deal with inner/outer tables, fieldsets
   parentFrame = ::GetAdjustedParentFrame(parentFrame, frameType,
                                          aContainer, aNewIndexInContainer);
+
+  // Deal with possible :after generated content on the parent
+  nsIFrame* parentAfterFrame;
+  parentFrame =
+    ::AdjustAppendParentForAfterContent(mPresShell->GetPresContext(),
+                                        aContainer, parentFrame,
+                                        &parentAfterFrame);
+  
   // Create some new frames
   PRUint32                count;
   nsIFrame*               firstAppendedFrame = nsnull;
@@ -8943,17 +8971,19 @@ nsCSSFrameConstructor::ContentAppended(nsIContent*     aContainer,
         }
       }
       if (frameItems.childList) { // append children of the inner table
-        AppendFrames(state, aContainer, parentFrame, frameItems.childList);
+        AppendFrames(state, aContainer, parentFrame, frameItems.childList,
+                     parentAfterFrame);
       }
     }
     else {
-      AppendFrames(state, aContainer, parentFrame, firstAppendedFrame);
+      AppendFrames(state, aContainer, parentFrame, firstAppendedFrame,
+                   parentAfterFrame);
     }
+  }
 
-    // Recover first-letter frames
-    if (haveFirstLetterStyle) {
-      RecoverLetterFrames(state, containingBlock);
-    }
+  // Recover first-letter frames
+  if (haveFirstLetterStyle) {
+    RecoverLetterFrames(state, containingBlock);
   }
 
 #ifdef DEBUG
@@ -9267,6 +9297,7 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
     : FindPreviousAnonymousSibling(mPresShell, mDocument, aContainer, aChild);
 
   PRBool    isAppend = PR_FALSE;
+  nsIFrame* appendAfterFrame;  // This is only looked at when isAppend is true
   nsIFrame* nextSibling = nsnull;
     
   // If there is no previous sibling, then find the frame that follows
@@ -9295,6 +9326,10 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
     // Deal with inner/outer tables, fieldsets
     parentFrame = ::GetAdjustedParentFrame(parentFrame, parentFrame->GetType(),
                                            aContainer, aIndexInContainer);
+    parentFrame =
+      ::AdjustAppendParentForAfterContent(mPresShell->GetPresContext(),
+                                          aContainer, parentFrame,
+                                          &appendAfterFrame);
   }
 
   if (parentFrame->GetType() == nsLayoutAtoms::frameSetFrame) {
@@ -9356,12 +9391,12 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
 
   // In order to shave off some cycles, we only dig up the
   // containing block haveFirst* flags if the parent frame where
-  // the insertion/append is occuring is an inline or block
+  // the insertion/append is occurring is an inline or block
   // container. For other types of containers this isn't relevant.
   const nsStyleDisplay* parentDisplay = parentFrame->GetStyleDisplay();
 
   // Examine the parentFrame where the insertion is taking
-  // place. If its a certain kind of container then some special
+  // place. If it's a certain kind of container then some special
   // processing is done.
   if ((NS_STYLE_DISPLAY_BLOCK == parentDisplay->mDisplay) ||
       (NS_STYLE_DISPLAY_LIST_ITEM == parentDisplay->mDisplay) ||
@@ -9484,7 +9519,7 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
   if (NS_SUCCEEDED(rv) && newFrame) {
     // Notify the parent frame
     if (isAppend) {
-      AppendFrames(state, aContainer, parentFrame, newFrame);
+      AppendFrames(state, aContainer, parentFrame, newFrame, appendAfterFrame);
     }
     else {
       if (!prevSibling) {
@@ -9501,12 +9536,6 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
       }
       state.mFrameManager->InsertFrames(parentFrame,
                                         nsnull, prevSibling, newFrame);
-    }
-
-    if (haveFirstLetterStyle) {
-      // Recover the letter frames for the containing block when
-      // it has first-letter style.
-      RecoverLetterFrames(state, state.mFloatedItems.containingBlock);
     }
   }
   else {
@@ -9529,6 +9558,12 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
                                           newCaptionFrame);
       }
     }
+  }
+
+  if (haveFirstLetterStyle) {
+    // Recover the letter frames for the containing block when
+    // it has first-letter style.
+    RecoverLetterFrames(state, state.mFloatedItems.containingBlock);
   }
 
 #ifdef DEBUG
@@ -9577,7 +9612,7 @@ nsCSSFrameConstructor::ReinsertContent(nsIContent*     aContainer,
  *
  * @param   aRemovedFrame this is the frame that was removed from the
  *            content model. As we recurse we need to remember this so we
- *            can check if out-of-flow frames are a descendent of the frame
+ *            can check if out-of-flow frames are a descendant of the frame
  *            being removed
  * @param   aFrame the local subtree that is being deleted. This is initially
  *            the same as aRemovedFrame, but as we recurse down the tree
@@ -11569,7 +11604,7 @@ nsCSSFrameConstructor::HaveSpecialBlockStyle(nsIContent* aContent,
  * Request to process the child content elements and create frames.
  *
  * @param   aContent the content object whose child elements to process
- * @param   aFrame the the associated with aContent. This will be the
+ * @param   aFrame the frame associated with aContent. This will be the
  *            parent frame (both content and geometric) for the flowed
  *            child frames
  */
@@ -11898,7 +11933,7 @@ nsCSSFrameConstructor::InsertFirstLineFrames(
       }
       else {
         // Easy case: the regular insertion logic can insert the new
-        // frame because its a block frame.
+        // frame because it's a block frame.
       }
     }
   }
@@ -12746,7 +12781,7 @@ nsCSSFrameConstructor::ConstructInline(nsFrameConstructorState& aState,
   // This inline frame contains several types of children. Therefore
   // this frame has to be chopped into several pieces. We will produce
   // as a result of this 3 lists of children. The first list contains
-  // all of the inline children that preceed the first block child
+  // all of the inline children that precede the first block child
   // (and may be empty). The second list contains all of the block
   // children and any inlines that are between them (and must not be
   // empty, otherwise - why are we here?). The final list contains all
@@ -13250,6 +13285,10 @@ nsCSSFrameConstructor::ProcessPendingRestyles()
   // already processing, sending us into an infinite loop.
   mPendingRestyles.Clear();
 
+  // Make sure to not rebuild quote or counter lists while we're
+  // processing restyles
+  BeginUpdate();
+
   for (nsCSSFrameConstructor::RestyleEnumerateData* currentRestyle =
          restylesToProcess;
        currentRestyle != lastRestyle;
@@ -13260,6 +13299,8 @@ nsCSSFrameConstructor::ProcessPendingRestyles()
   }
 
   delete [] restylesToProcess;
+
+  EndUpdate();
 
 #ifdef DEBUG
   mPresShell->VerifyStyleTree();
@@ -13364,7 +13405,7 @@ nsCSSFrameConstructor::CreateInsertionPointChildren(nsFrameConstructorState &aSt
 
   if (NS_SUCCEEDED(rv) && insertionItems.childList) {
     rv = AppendFrames(aState, creatorContent, insertionFrame,
-                      insertionItems.childList);
+                      insertionItems.childList, nsnull);
   }
 
   return rv;
