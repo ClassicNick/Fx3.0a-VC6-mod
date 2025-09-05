@@ -116,6 +116,7 @@
 // compose
 #include "nsMsgCompCID.h"
 #include "nsMsgI18N.h"
+#include "nsNativeCharsetUtils.h"
 
 // draft/folders/sendlater/etc
 #include "nsIMsgCopyService.h"
@@ -192,7 +193,7 @@ ConvertBufToPlainText(nsString &aConBuf)
 
     parser->SetContentSink(sink);
 
-    parser->Parse(aConBuf, 0, NS_LITERAL_CSTRING("text/html"), PR_FALSE, PR_TRUE);
+    parser->Parse(aConBuf, 0, NS_LITERAL_CSTRING("text/html"), PR_TRUE);
 
     //
     // Now if we get here, we need to get from ASCII text to 
@@ -215,7 +216,7 @@ nsresult ConvertAndSanitizeFileName(const char * displayName, PRUnichar ** unico
      The display name is in UTF-8 because it has been escaped from JS
   */ 
   NS_UnescapeURL(unescapedName);
-  NS_ConvertUTF8toUCS2 ucs2Str(unescapedName);
+  NS_ConvertUTF8toUTF16 ucs2Str(unescapedName);
 
   nsresult rv = NS_OK;
 #if defined(XP_MAC)  /* reviewed for 1.4, XP_MACOSX not needed */
@@ -234,7 +235,7 @@ nsresult ConvertAndSanitizeFileName(const char * displayName, PRUnichar ** unico
 
   if (result) {
     nsCAutoString nativeStr;
-    rv =  nsMsgI18NCopyUTF16ToNative(ucs2Str, nativeStr);
+    rv =  NS_CopyUnicodeToNative(ucs2Str, nativeStr);
     *result = ToNewCString(nativeStr);
   }
 
@@ -487,7 +488,8 @@ nsMessenger::PromptIfFileExists(nsFileSpec &fileSpec)
         PRBool dialogResult = PR_FALSE;
         nsXPIDLString errorMessage;
 
-        nsMsgI18NCopyNativeToUTF16(fileSpec.GetNativePathCString(), path);
+        NS_CopyNativeToUnicode(
+            nsDependentCString(fileSpec.GetNativePathCString()), path);
         const PRUnichar *pathFormatStrings[] = { path.get() };
 
         if (!mStringBundle)
@@ -1284,7 +1286,7 @@ nsMessenger::Alert(const char *stringName)
 
         if (dialog) {
             rv = dialog->Alert(nsnull,
-                               GetString(NS_ConvertASCIItoUCS2(stringName)).get());
+                               GetString(NS_ConvertASCIItoUTF16(stringName)).get());
         }
     }
     return rv;

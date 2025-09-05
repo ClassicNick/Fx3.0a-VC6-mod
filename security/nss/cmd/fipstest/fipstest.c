@@ -45,7 +45,11 @@
 #include "secoidt.h"
 #include "keythi.h"
 #include "ec.h"
+#include "hasht.h"
+#include "lowkeyi.h"
+#include "softoken.h"
 #include "pqgutil.h"
+
 #if 0
 #include "../../lib/freebl/mpi/mpi.h"
 #endif
@@ -58,9 +62,13 @@ EC_DecodeParams(const SECItem *encodedParams, ECParams **ecparams);
 #define ENCRYPT 1
 #define DECRYPT 0
 #define BYTE unsigned char
+#define DEFAULT_RSA_PUBLIC_EXPONENT   0x10001
+#define RSA_MAX_TEST_MODULUS_BITS     4096
+#define RSA_MAX_TEST_MODULUS_BYTES    RSA_MAX_TEST_MODULUS_BITS/8
+#define RSA_MAX_TEST_EXPONENT_BYTES    8         /* rsa.c */
 
 SECStatus
-hex_from_2char(const unsigned char *c2, unsigned char *byteval)
+hex_from_2char(const char *c2, unsigned char *byteval)
 {
     int i;
     unsigned char offset;
@@ -83,7 +91,7 @@ hex_from_2char(const unsigned char *c2, unsigned char *byteval)
 }
 
 SECStatus
-char2_from_hex(unsigned char byteval, unsigned char *c2, char a)
+char2_from_hex(unsigned char byteval, char *c2, char a)
 {
     int i;
     unsigned char offset;
@@ -2549,17 +2557,253 @@ loser:
 }
 #endif /* NSS_ENABLE_ECC */
 
-void do_random()
+/*
+ * Perform the RNG Variable Seed Test (VST) for the RNG algorithm
+ * "DSA - Generation of X", used both as specified and as a generic
+ * purpose RNG.  The presence of "Q = ..." in the REQUEST file
+ * indicates we are using the algorithm as specified.
+ *
+ * reqfn is the pathname of the REQUEST file.
+ *
+ * The output RESPONSE file is written to stdout.
+ */
+void
+rng_vst(char *reqfn)
 {
-    int i, j, k = 0;
-    unsigned char buf[500];
-    for (i=0; i<5; i++) {
-	RNG_GenerateGlobalRandomBytes(buf, sizeof buf);
-	for (j=0; j<sizeof buf / 2; j++) {
-	    printf("0x%02x%02x", buf[2*j], buf[2*j+1]);
-	    if (++k % 8 == 0) printf("\n"); else printf(" ");
+    char buf[256];      /* holds one line from the input REQUEST file.
+                         * needs to be large enough to hold the longest
+                         * line "XSeed = <128 hex digits>\n".
+                         */
+    FILE *rngreq;       /* input stream from the REQUEST file */
+    FILE *rngresp;      /* output stream to the RESPONSE file */
+    unsigned int i, j;
+    unsigned char Q[DSA_SUBPRIME_LEN];
+    PRBool hasQ = PR_FALSE;
+    unsigned int b;  /* 160 <= b <= 512, b is a multiple of 8 */
+    unsigned char XKey[512/8];
+    unsigned char XSeed[512/8];
+    unsigned char GENX[2*SHA1_LENGTH];
+    unsigned char DSAX[DSA_SUBPRIME_LEN];
+    SECStatus rv;
+
+    rngreq = fopen(reqfn, "r");
+    rngresp = stdout;
+    while (fgets(buf, sizeof buf, rngreq) != NULL) {
+	/* a comment or blank line */
+	if (buf[0] == '#' || buf[0] == '\n') {
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* [Xchange - SHA1] */
+	if (buf[0] == '[') {
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* Q = ... */
+	if (buf[0] == 'Q') {
+	    i = 1;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    for (j=0; j<sizeof Q; i+=2,j++) {
+		hex_from_2char(&buf[i], &Q[j]);
+	    }
+	    fputs(buf, rngresp);
+	    hasQ = PR_TRUE;
+	    continue;
+	}
+	/* "COUNT = x" begins a new data set */
+	if (strncmp(buf, "COUNT", 5) == 0) {
+	    /* zeroize the variables for the test with this data set */
+	    b = 0;
+	    memset(XKey, 0, sizeof XKey);
+	    memset(XSeed, 0, sizeof XSeed);
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* b = ... */
+	if (buf[0] == 'b') {
+	    i = 1;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    b = atoi(&buf[i]);
+	    if (b < 160 || b > 512 || b%8 != 0) {
+		goto loser;
+	    }
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* XKey = ... */
+	if (strncmp(buf, "XKey", 4) == 0) {
+	    i = 4;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    for (j=0; j<b/8; i+=2,j++) {
+		hex_from_2char(&buf[i], &XKey[j]);
+	    }
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* XSeed = ... */
+	if (strncmp(buf, "XSeed", 5) == 0) {
+	    i = 5;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    for (j=0; j<b/8; i+=2,j++) {
+		hex_from_2char(&buf[i], &XSeed[j]);
+	    }
+	    fputs(buf, rngresp);
+
+	    rv = FIPS186Change_GenerateX(XKey, XSeed, GENX);
+	    if (rv != SECSuccess) {
+		goto loser;
+	    }
+	    fputs("X = ", rngresp);
+	    if (hasQ) {
+		rv = FIPS186Change_ReduceModQForDSA(GENX, Q, DSAX);
+		if (rv != SECSuccess) {
+		    goto loser;
+		}
+		to_hex_str(buf, DSAX, sizeof DSAX);
+	    } else {
+		to_hex_str(buf, GENX, sizeof GENX);
+	    }
+	    fputs(buf, rngresp);
+	    fputc('\n', rngresp);
+	    continue;
 	}
     }
+loser:
+    fclose(rngreq);
+}
+
+/*
+ * Perform the RNG Monte Carlo Test (MCT) for the RNG algorithm
+ * "DSA - Generation of X", used both as specified and as a generic
+ * purpose RNG.  The presence of "Q = ..." in the REQUEST file
+ * indicates we are using the algorithm as specified.
+ *
+ * reqfn is the pathname of the REQUEST file.
+ *
+ * The output RESPONSE file is written to stdout.
+ */
+void
+rng_mct(char *reqfn)
+{
+    char buf[256];      /* holds one line from the input REQUEST file.
+                         * needs to be large enough to hold the longest
+                         * line "XSeed = <128 hex digits>\n".
+                         */
+    FILE *rngreq;       /* input stream from the REQUEST file */
+    FILE *rngresp;      /* output stream to the RESPONSE file */
+    unsigned int i, j;
+    unsigned char Q[DSA_SUBPRIME_LEN];
+    PRBool hasQ = PR_FALSE;
+    unsigned int b;  /* 160 <= b <= 512, b is a multiple of 8 */
+    unsigned char XKey[512/8];
+    unsigned char XSeed[512/8];
+    unsigned char GENX[2*SHA1_LENGTH];
+    unsigned char DSAX[DSA_SUBPRIME_LEN];
+    SECStatus rv;
+
+    rngreq = fopen(reqfn, "r");
+    rngresp = stdout;
+    while (fgets(buf, sizeof buf, rngreq) != NULL) {
+	/* a comment or blank line */
+	if (buf[0] == '#' || buf[0] == '\n') {
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* [Xchange - SHA1] */
+	if (buf[0] == '[') {
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* Q = ... */
+	if (buf[0] == 'Q') {
+	    i = 1;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    for (j=0; j<sizeof Q; i+=2,j++) {
+		hex_from_2char(&buf[i], &Q[j]);
+	    }
+	    fputs(buf, rngresp);
+	    hasQ = PR_TRUE;
+	    continue;
+	}
+	/* "COUNT = x" begins a new data set */
+	if (strncmp(buf, "COUNT", 5) == 0) {
+	    /* zeroize the variables for the test with this data set */
+	    b = 0;
+	    memset(XKey, 0, sizeof XKey);
+	    memset(XSeed, 0, sizeof XSeed);
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* b = ... */
+	if (buf[0] == 'b') {
+	    i = 1;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    b = atoi(&buf[i]);
+	    if (b < 160 || b > 512 || b%8 != 0) {
+		goto loser;
+	    }
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* XKey = ... */
+	if (strncmp(buf, "XKey", 4) == 0) {
+	    i = 4;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    for (j=0; j<b/8; i+=2,j++) {
+		hex_from_2char(&buf[i], &XKey[j]);
+	    }
+	    fputs(buf, rngresp);
+	    continue;
+	}
+	/* XSeed = ... */
+	if (strncmp(buf, "XSeed", 5) == 0) {
+	    unsigned int k;
+	    i = 5;
+	    while (isspace(buf[i]) || buf[i] == '=') {
+		i++;
+	    }
+	    for (j=0; j<b/8; i+=2,j++) {
+		hex_from_2char(&buf[i], &XSeed[j]);
+	    }
+	    fputs(buf, rngresp);
+
+	    for (k = 0; k < 10000; k++) {
+		rv = FIPS186Change_GenerateX(XKey, XSeed, GENX);
+		if (rv != SECSuccess) {
+		    goto loser;
+		}
+	    }
+	    fputs("X = ", rngresp);
+	    if (hasQ) {
+		rv = FIPS186Change_ReduceModQForDSA(GENX, Q, DSAX);
+		if (rv != SECSuccess) {
+		    goto loser;
+		}
+		to_hex_str(buf, DSAX, sizeof DSAX);
+	    } else {
+		to_hex_str(buf, GENX, sizeof GENX);
+	    }
+	    fputs(buf, rngresp);
+	    fputc('\n', rngresp);
+	    continue;
+	}
+    }
+loser:
+    fclose(rngreq);
 }
 
 /*
@@ -2658,7 +2902,7 @@ void sha_test(char *reqfn)
     int i, j;
     unsigned int MDlen;   /* the length of the Message Digest in Bytes  */
     unsigned int msgLen;  /* the length of the input Message in Bytes */
-    char *msg = NULL;      /* holds the message to digest.*/
+    unsigned char *msg = NULL; /* holds the message to digest.*/
     size_t bufSize = 25608; /*MAX buffer size */
     char *buf = NULL;      /* holds one line from the input REQUEST file.*/
     unsigned char seed[HASH_LENGTH_MAX];   /* max size of seed 64 bytes */
@@ -2782,9 +3026,9 @@ loser:
 static SECStatus
 hmac_calc(unsigned char *hmac_computed,
           const unsigned int hmac_length,
-          const char *secret_key,
+          const unsigned char *secret_key,
           const unsigned int secret_key_length,
-          const char *message,
+          const unsigned char *message,
           const unsigned int message_length,
           const HASH_HashType hashAlg )
 {
@@ -2828,10 +3072,10 @@ void hmac_test(char *reqfn)
     size_t bufSize =      288;    /* MAX buffer size */
     char *buf = NULL;  /* holds one line from the input REQUEST file.*/
     unsigned int keyLen;          /* Key Length */  
-    char key[140];                /* key MAX size = 140 */
+    unsigned char key[140];       /* key MAX size = 140 */
     unsigned int msgLen = 128;    /* the length of the input  */
                                   /*  Message is always 128 Bytes */
-    char *msg = NULL;             /* holds the message to digest.*/
+    unsigned char *msg = NULL;    /* holds the message to digest.*/
     unsigned int HMACLen;         /* the length of the HMAC Bytes  */
     unsigned char HMAC[HASH_LENGTH_MAX];  /* computed HMAC */
     HASH_HashType hash_alg;       /* HMAC type */
@@ -3209,7 +3453,7 @@ dsa_pqgver_test(char *reqfn)
         /* c = ... */
         if (buf[0] == 'c') {
 
-            if (sscanf(buf, "c = %d", &vfy.counter) != 1) {
+            if (sscanf(buf, "c = %u", &vfy.counter) != 1) {
                 goto loser;
             }
 
@@ -3650,7 +3894,6 @@ dsa_sigver_test(char *reqfn)
         /* Msg = ... */
         if (strncmp(buf, "Msg", 3) == 0) {
             unsigned char msg[128]; /* MAX msg 128 */
-            unsigned int len = 0;
             memset(sha1, 0, sizeof sha1);
 
             i = 3;
@@ -3741,6 +3984,480 @@ loser:
     }
 }
 
+ /*
+ * Perform the RSA Signature Generation Test.
+ *
+ * reqfn is the pathname of the REQUEST file.
+ *
+ * The output RESPONSE file is written to stdout.
+ */
+void
+rsa_siggen_test(char *reqfn)
+{
+    char buf[2*RSA_MAX_TEST_MODULUS_BYTES+1];
+                        /* buf holds one line from the input REQUEST file
+                         * or to the output RESPONSE file.
+                         * 2x for HEX output + 1 for \n
+                         */
+    FILE *rsareq;     /* input stream from the REQUEST file */
+    FILE *rsaresp;    /* output stream to the RESPONSE file */
+    int i, j;
+    unsigned char  sha[HASH_LENGTH_MAX];    /* SHA digest */
+    unsigned int   shaLength = 0;           /* length of SHA */
+    HASH_HashType  shaAlg = HASH_AlgNULL;   /* type of SHA Alg */
+    int modulus;                                /* the Modulus size */
+    int  publicExponent  = DEFAULT_RSA_PUBLIC_EXPONENT;
+    SECItem pe = {0, 0, 0 };
+    unsigned char pubEx[4];
+    int peCount = 0;
+
+    RSAPrivateKey  *rsaBlapiPrivKey = NULL;   /* holds RSA private and
+                                              * public keys */
+    RSAPublicKey   *rsaBlapiPublicKey = NULL; /* hold RSA public key */
+
+    rsareq = fopen(reqfn, "r");
+    rsaresp = stdout;
+
+    /* calculate the exponent */
+    for (i=0; i < 4; i++) {
+        if (peCount || (publicExponent & ((unsigned long)0xff000000L >>
+            (i*8)))) {
+            pubEx[peCount] =  (unsigned char)((publicExponent >>
+            (3-i)*8) & 0xff);
+        peCount++;
+        }
+    }
+    pe.len = peCount;
+    pe.data = &pubEx[0];
+    pe.type = siBuffer;
+
+    while (fgets(buf, sizeof buf, rsareq) != NULL) {
+        /* a comment or blank line */
+        if (buf[0] == '#' || buf[0] == '\n') {
+            fputs(buf, rsaresp);
+            continue;
+        }
+
+        /* [mod = ...] */
+        if (buf[0] == '[') {
+
+            if (sscanf(buf, "[mod = %d]", &modulus) != 1) {
+                goto loser;
+            }
+            if (modulus > RSA_MAX_TEST_MODULUS_BITS) {
+                fprintf(rsaresp,"ERROR: modulus greater than test maximum\n");
+                goto loser;
+            }
+
+            fputs(buf, rsaresp);
+
+            if (rsaBlapiPrivKey != NULL) {
+                PORT_FreeArena(rsaBlapiPrivKey->arena, PR_TRUE);
+                rsaBlapiPrivKey = NULL;
+                rsaBlapiPublicKey = NULL;
+            }
+
+            rsaBlapiPrivKey = RSA_NewKey(modulus, &pe);
+            if (rsaBlapiPrivKey == NULL) {
+                fprintf(rsaresp, "Error unable to create RSA key\n");
+                goto loser;
+            }
+
+            to_hex_str(buf, rsaBlapiPrivKey->modulus.data,
+                       rsaBlapiPrivKey->modulus.len);
+            fprintf(rsaresp, "n = %s\n\n", buf);
+            to_hex_str(buf, rsaBlapiPrivKey->publicExponent.data,
+                       rsaBlapiPrivKey->publicExponent.len);
+            fprintf(rsaresp, "e = %s\n", buf);
+            /* convert private key to public key.  Memory
+             * is freed with private key's arena  */
+            rsaBlapiPublicKey = (RSAPublicKey *)PORT_ArenaAlloc(
+                                                  rsaBlapiPrivKey->arena,
+                                                  sizeof(RSAPublicKey));
+
+            rsaBlapiPublicKey->modulus.len = rsaBlapiPrivKey->modulus.len;
+            rsaBlapiPublicKey->modulus.data = rsaBlapiPrivKey->modulus.data;
+            rsaBlapiPublicKey->publicExponent.len =
+                rsaBlapiPrivKey->publicExponent.len;
+            rsaBlapiPublicKey->publicExponent.data =
+                rsaBlapiPrivKey->publicExponent.data;
+            continue;
+        }
+
+        /* SHAAlg = ... */
+        if (strncmp(buf, "SHAAlg", 6) == 0) {
+           i = 6;
+           while (isspace(buf[i]) || buf[i] == '=') {
+               i++;
+           }
+           /* set the SHA Algorithm */
+           if (strncmp(&buf[i], "SHA1", 4) == 0) {
+                shaAlg = HASH_AlgSHA1;
+           } else if (strncmp(&buf[i], "SHA256", 6) == 0) {
+                shaAlg = HASH_AlgSHA256;
+           } else if (strncmp(&buf[i], "SHA384", 6)== 0) {
+               shaAlg = HASH_AlgSHA384;
+           } else if (strncmp(&buf[i], "SHA512", 6) == 0) {
+               shaAlg = HASH_AlgSHA512;
+           } else {
+               fprintf(rsaresp, "ERROR: Unable to find SHAAlg type");
+               goto loser;
+           }
+           fputs(buf, rsaresp);
+           continue;
+
+        }
+        /* Msg = ... */
+        if (strncmp(buf, "Msg", 3) == 0) {
+
+            unsigned char msg[128]; /* MAX msg 128 */
+            unsigned int rsa_bytes_signed;
+            unsigned char rsa_computed_signature[RSA_MAX_TEST_MODULUS_BYTES];
+            SECStatus       rv = SECFailure;
+            NSSLOWKEYPublicKey  * rsa_public_key;
+            NSSLOWKEYPrivateKey * rsa_private_key;
+            NSSLOWKEYPrivateKey   low_RSA_private_key = { NULL,
+                                                NSSLOWKEYRSAKey, };
+            NSSLOWKEYPublicKey    low_RSA_public_key = { NULL,
+                                                NSSLOWKEYRSAKey, };
+
+            low_RSA_private_key.u.rsa = *rsaBlapiPrivKey;
+            low_RSA_public_key.u.rsa = *rsaBlapiPublicKey;
+
+            rsa_private_key = &low_RSA_private_key;
+            rsa_public_key = &low_RSA_public_key;
+
+            memset(sha, 0, sizeof sha);
+            memset(msg, 0, sizeof msg);
+            rsa_bytes_signed = 0;
+            memset(rsa_computed_signature, 0, sizeof rsa_computed_signature);
+
+            i = 3;
+            while (isspace(buf[i]) || buf[i] == '=') {
+                i++;
+            }
+            for (j=0; isxdigit(buf[i]) && j >= sizeof(msg); i+=2,j++) {
+                hex_from_2char(&buf[i], &msg[j]);
+            }
+
+            if (shaAlg == HASH_AlgSHA1) {
+                if (SHA1_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA1");
+                     goto loser;
+                }
+                shaLength = SHA1_LENGTH;
+            } else if (shaAlg == HASH_AlgSHA256) {
+                if (SHA256_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA256");
+                     goto loser;
+                }
+                shaLength = SHA256_LENGTH;
+            } else if (shaAlg == HASH_AlgSHA384) {
+                if (SHA384_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA384");
+                     goto loser;
+                }
+                shaLength = SHA384_LENGTH;
+            } else if (shaAlg == HASH_AlgSHA512) {
+                if (SHA512_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA512");
+                     goto loser;
+                }
+                shaLength = SHA512_LENGTH;
+            } else {
+                fprintf(rsaresp, "ERROR: SHAAlg not defined.");
+                goto loser;
+            }
+
+            /* Perform RSA signature with the RSA private key. */
+            rv = RSA_Sign( rsa_private_key, rsa_computed_signature,
+                           &rsa_bytes_signed,
+                           nsslowkey_PrivateModulusLen(rsa_private_key),
+                           sha,
+                           shaLength);
+
+            if( rv != SECSuccess ) {
+                 fprintf(rsaresp, "ERROR: RSA_Sign failed");
+                 goto loser;
+            }
+
+            /* Output the signature */
+            fputs(buf, rsaresp);
+            to_hex_str(buf, rsa_computed_signature, rsa_bytes_signed);
+            fprintf(rsaresp, "S = %s\n", buf);
+
+            /* Perform RSA verification with the RSA public key. */
+            rv = RSA_CheckSign( rsa_public_key,
+                                rsa_computed_signature,
+                                rsa_bytes_signed,
+                                sha,
+                                shaLength);
+            if( rv != SECSuccess ) {
+                 fprintf(rsaresp, "ERROR: RSA_CheckSign failed");
+                 goto loser;
+            }
+            continue;
+        }
+    }
+loser:
+    fclose(rsareq);
+
+    if (rsaBlapiPrivKey != NULL) {
+        /* frees private and public key */
+        PORT_FreeArena(rsaBlapiPrivKey->arena, PR_TRUE);
+        rsaBlapiPrivKey = NULL;
+        rsaBlapiPublicKey = NULL;
+    }
+
+}
+/*
+ * Perform the RSA Signature Verification Test.
+ *
+ * reqfn is the pathname of the REQUEST file.
+ *
+ * The output RESPONSE file is written to stdout.
+ */
+void
+rsa_sigver_test(char *reqfn)
+{
+    char buf[2*RSA_MAX_TEST_MODULUS_BYTES+7];
+                        /* buf holds one line from the input REQUEST file
+                         * or to the output RESPONSE file.
+                         * s = 2x for HEX output + 1 for \n
+                         */
+    FILE *rsareq;     /* input stream from the REQUEST file */
+    FILE *rsaresp;    /* output stream to the RESPONSE file */
+    int i, j;
+    unsigned char   sha[HASH_LENGTH_MAX];   /* SHA digest */
+    unsigned int    shaLength = 0;              /* actual length of the digest */
+    HASH_HashType   shaAlg = HASH_AlgNULL;
+    int modulus = 0;                            /* the Modulus size */
+    unsigned char   signature[513];    /* largest signature size + '\n' */
+    unsigned int    signatureLength = 0;   /* actual length of the signature */
+    PRBool keyvalid = PR_TRUE;
+
+    RSAPublicKey   rsaBlapiPublicKey; /* hold RSA public key */
+
+    rsareq = fopen(reqfn, "r");
+    rsaresp = stdout;
+    memset(&rsaBlapiPublicKey, 0, sizeof(RSAPublicKey));
+
+    while (fgets(buf, sizeof buf, rsareq) != NULL) {
+        /* a comment or blank line */
+        if (buf[0] == '#' || buf[0] == '\n') {
+            fputs(buf, rsaresp);
+            continue;
+        }
+
+        /* [Mod = ...] */
+        if (buf[0] == '[') {
+            unsigned int flen;  /* length in bytes of the field size */
+
+            if (rsaBlapiPublicKey.modulus.data) { /* n */
+                SECITEM_ZfreeItem(&rsaBlapiPublicKey.modulus, PR_FALSE);
+            }
+            if (sscanf(buf, "[mod = %d]", &modulus) != 1) {
+                goto loser;
+            }
+
+            if (modulus > RSA_MAX_TEST_MODULUS_BITS) {
+                fprintf(rsaresp,"ERROR: modulus greater than test maximum\n");
+                goto loser;
+            }
+
+            fputs(buf, rsaresp);
+
+            signatureLength = flen = modulus/8;
+
+            SECITEM_AllocItem(NULL, &rsaBlapiPublicKey.modulus, flen);
+            if (rsaBlapiPublicKey.modulus.data == NULL) {
+                goto loser;
+            }
+            continue;
+        }
+
+        /* n = ... modulus */
+        if (buf[0] == 'n') {
+            i = 1;
+            while (isspace(buf[i]) || buf[i] == '=') {
+                i++;
+            }
+            keyvalid = from_hex_str(&rsaBlapiPublicKey.modulus.data[0],
+                                    rsaBlapiPublicKey.modulus.len,
+                                    &buf[i]);
+
+            if (!keyvalid) {
+                fprintf(rsaresp, "ERROR: rsa_sigver n not valid.\n");
+                                 goto loser;
+            }
+            fputs(buf, rsaresp);
+            continue;
+        }
+
+        /* SHAAlg = ... */
+        if (strncmp(buf, "SHAAlg", 6) == 0) {
+           i = 6;
+           while (isspace(buf[i]) || buf[i] == '=') {
+               i++;
+           }
+           /* set the SHA Algorithm */
+           if (strncmp(&buf[i], "SHA1", 4) == 0) {
+                shaAlg = HASH_AlgSHA1;
+           } else if (strncmp(&buf[i], "SHA256", 6) == 0) {
+                shaAlg = HASH_AlgSHA256;
+           } else if (strncmp(&buf[i], "SHA384", 6) == 0) {
+               shaAlg = HASH_AlgSHA384;
+           } else if (strncmp(&buf[i], "SHA512", 6) == 0) {
+               shaAlg = HASH_AlgSHA512;
+           } else {
+               fprintf(rsaresp, "ERROR: Unable to find SHAAlg type");
+               goto loser;
+           }
+           fputs(buf, rsaresp);
+           continue;
+        }
+
+        /* e = ... public Key */
+        if (buf[0] == 'e') {
+            unsigned char data[RSA_MAX_TEST_EXPONENT_BYTES];
+            unsigned char t;
+
+            memset(data, 0, sizeof data);
+
+            if (rsaBlapiPublicKey.publicExponent.data) { /* e */
+                SECITEM_ZfreeItem(&rsaBlapiPublicKey.publicExponent, PR_FALSE);
+            }
+
+            i = 1;
+            while (isspace(buf[i]) || buf[i] == '=') {
+                i++;
+            }
+            /* skip leading zero's */
+            while (isxdigit(buf[i])) {
+                hex_from_2char(&buf[i], &t);
+                if (t == 0) {
+                    i+=2;
+                } else break;
+            }
+        
+            /* get the exponent */
+            for (j=0; isxdigit(buf[i]) && j <= sizeof RSA_MAX_TEST_EXPONENT_BYTES; i+=2,j++) {
+                hex_from_2char(&buf[i], &data[j]);
+            }
+
+            if (j == 0) { j = 1; }  /* to handle 1 byte length exponents */
+
+            SECITEM_AllocItem(NULL, &rsaBlapiPublicKey.publicExponent,  j);
+            if (rsaBlapiPublicKey.publicExponent.data == NULL) {
+                goto loser;
+            }
+
+            for (i=0; i < j; i++) {
+                rsaBlapiPublicKey.publicExponent.data[i] = data[i];
+            }
+
+            fputs(buf, rsaresp);
+            continue;
+        }
+
+        /* Msg = ... */
+        if (strncmp(buf, "Msg", 3) == 0) {
+            unsigned char msg[128]; /* MAX msg 128 */
+
+            memset(sha, 0, sizeof sha);
+            memset(msg, 0, sizeof msg);
+
+            i = 3;
+            while (isspace(buf[i]) || buf[i] == '=') {
+                i++;
+            }
+
+            for (j=0; isxdigit(buf[i]) && j <= sizeof msg; i+=2,j++) {
+                hex_from_2char(&buf[i], &msg[j]);
+            }
+
+            if (shaAlg == HASH_AlgSHA1) {
+                if (SHA1_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA1");
+                     goto loser;
+                }
+                shaLength = SHA1_LENGTH;
+            } else if (shaAlg == HASH_AlgSHA256) {
+                if (SHA256_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA256");
+                     goto loser;
+                }
+                shaLength = SHA256_LENGTH;
+            } else if (shaAlg == HASH_AlgSHA384) {
+                if (SHA384_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA384");
+                     goto loser;
+                }
+                shaLength = SHA384_LENGTH;
+            } else if (shaAlg == HASH_AlgSHA512) {
+                if (SHA512_HashBuf(sha, msg, j) != SECSuccess) {
+                     fprintf(rsaresp, "ERROR: Unable to generate SHA512");
+                     goto loser;
+                }
+                shaLength = SHA512_LENGTH;
+            } else {
+                fprintf(rsaresp, "ERROR: SHAAlg not defined.");
+                goto loser;
+            }
+
+            fputs(buf, rsaresp);
+            continue;
+
+        }
+
+        /* S = ... */
+        if (buf[0] == 'S') {
+            SECStatus rv = SECFailure;
+            NSSLOWKEYPublicKey  * rsa_public_key;
+            NSSLOWKEYPublicKey    low_RSA_public_key = { NULL,
+                                                  NSSLOWKEYRSAKey, };
+
+            /* convert to a low RSA public key */
+            low_RSA_public_key.u.rsa = rsaBlapiPublicKey;
+            rsa_public_key = &low_RSA_public_key;
+
+            memset(signature, 0, sizeof(signature));
+            i = 1;
+            while (isspace(buf[i]) || buf[i] == '=') {
+                i++;
+            }
+
+            for (j=0; isxdigit(buf[i]) && j <= sizeof signature; i+=2,j++) {
+                hex_from_2char(&buf[i], &signature[j]);
+            }
+
+            signatureLength = j;
+            fputs(buf, rsaresp);
+
+            /* Perform RSA verification with the RSA public key. */
+            rv = RSA_CheckSign( rsa_public_key,
+                                signature,
+                                signatureLength,
+                                sha,
+                                shaLength);
+            if( rv == SECSuccess ) {
+                fputs("Result = P\n", rsaresp);
+            } else {
+                fputs("Result = F\n", rsaresp);
+            }
+            continue;
+        }
+    }
+loser:
+    fclose(rsareq);
+    if (rsaBlapiPublicKey.modulus.data) { /* n */
+        SECITEM_ZfreeItem(&rsaBlapiPublicKey.modulus, PR_FALSE);
+    }
+    if (rsaBlapiPublicKey.publicExponent.data) { /* e */
+        SECITEM_ZfreeItem(&rsaBlapiPublicKey.publicExponent, PR_FALSE);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) exit (-1);
@@ -3793,6 +4510,19 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "sha") == 0) {
         sha_test(argv[2]);
     /*************/
+    /*   RSA     */
+    /*************/
+    } else if (strcmp(argv[1], "rsa") == 0) {
+        /* argv[2]=siggen|sigver */
+        /* argv[3]=<test name>.req */
+        if (strcmp(argv[2], "siggen") == 0) {
+            /* Signature Generation Test */
+            rsa_siggen_test(argv[3]);
+        } else if (strcmp(argv[2], "sigver") == 0) {
+            /* Signature Verification Test */
+            rsa_sigver_test(argv[3]);
+        }
+    /*************/
     /*   HMAC    */
     /*************/
     } else if (strcmp(argv[1], "hmac") == 0) {
@@ -3843,7 +4573,14 @@ int main(int argc, char **argv)
     /*   RNG     */
     /*************/
     } else if (strcmp(argv[1], "rng") == 0) {
-	do_random();
+	/* argv[2]=vst|mct argv[3]=<test name>.req */
+	if (       strcmp(argv[2], "vst") == 0) {
+	    /* Variable Seed Test */
+	    rng_vst(argv[3]);
+	} else if (strcmp(argv[2], "mct") == 0) {
+	    /* Monte Carlo Test */
+	    rng_mct(argv[3]);
+	}
     }
     return 0;
 }

@@ -80,6 +80,7 @@
 #include "nsIFragmentContentSink.h"
 #include "nsIContentSink.h"
 #include "nsIDocument.h"
+#include "nsNavBookmarks.h"
 
 static NS_DEFINE_CID(kCParserCID, NS_PARSER_CID);
 
@@ -218,6 +219,10 @@ nsLivemarkLoadListener::OnStopRequest(nsIRequest *aRequest,
     mLivemark->locked = PR_FALSE;
     return NS_OK;
   }
+
+  // enclose all the changes (deletes and a bunch of adds) in a batch to
+  // avoid UI and DB updates
+  nsBookmarksUpdateBatcher bookmarksBatch;
 
   // Clear out any child nodes of the livemark folder, since
   // they're about to be replaced.
@@ -450,7 +455,11 @@ nsLivemarkLoadListener::ParseHTMLFragment(nsAString &aFragString,
   
   // parse the fragment
   parser->SetContentSink(sink);
+#ifdef MOZILLA_1_8_BRANCH
   parser->Parse(aFragString, (void*)0, NS_LITERAL_CSTRING("text/html"), PR_FALSE, PR_TRUE, eDTDMode_fragment);
+#else
+  parser->Parse(aFragString, (void*)0, NS_LITERAL_CSTRING("text/html"), PR_TRUE, eDTDMode_fragment);
+#endif
   // get the fragment node
   nsCOMPtr<nsIDOMDocumentFragment> contextfrag;
   rv = fragSink->GetFragment(getter_AddRefs(contextfrag));

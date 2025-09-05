@@ -51,7 +51,7 @@ my @seen_schedules = ();
 # allow the database to keep their SQL compiled.
 my $sth_run_queries =
     $dbh->prepare("SELECT " .
-                  "id, query_name, title, onemailperbug " .
+                  "query_name, title, onemailperbug " .
                   "FROM whine_queries " .
                   "WHERE eventid=? " .
                   "ORDER BY sortkey");
@@ -425,18 +425,19 @@ sub run_queries {
     my $return_queries = [];
 
     $sth_run_queries->execute($args->{'eventid'});
-    my $queries = {};
+    my @queries = ();
     for (@{$sth_run_queries->fetchall_arrayref}) {
-        $queries->{$_->[0]} = {
-            'name'          => $_->[1],
-            'title'         => $_->[2],
-            'onemailperbug' => $_->[3],
-            'bugs'          => [],
-        };
+        push(@queries,
+            {
+              'name'          => $_->[0],
+              'title'         => $_->[1],
+              'onemailperbug' => $_->[2],
+              'bugs'          => [],
+            }
+        );
     }
 
-    for my $query_id (keys %{$queries}) {
-        my $thisquery = $queries->{$query_id};
+    foreach my $thisquery (@queries) {
         next unless $thisquery->{'name'};   # named query is blank
 
         my $savedquery = get_query($thisquery->{'name'}, $args->{'author'});
@@ -563,6 +564,10 @@ sub reset_timer {
                           "WHERE id=?" );
     $sth->execute($schedule_id);
     my ($run_day, $run_time) = $sth->fetchrow_array;
+
+    # It may happen that the run_time field is NULL or blank due to
+    # a bug in editwhines.cgi when this field was initially 0.
+    $run_time ||= 0;
 
     my $run_today = 0;
     my $minute_offset = 0;

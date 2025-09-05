@@ -632,7 +632,6 @@ nsSoftKeyBoardService::CloseSIP()
   if (hWndSIP)
   {
     ShowWindow( hWndSIP, SW_HIDE );
-    SetWindowPos(hWndSIP, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
   }
 
   hWndSIP = FindWindow( _T( "MS_SIPBUTTON" ), NULL );
@@ -812,7 +811,7 @@ nsSoftKeyBoardService::Observe(nsISupports *aSubject, const char *aTopic, const 
     
     prefBranch->AddObserver("skey.", this, PR_FALSE);
 
-    HandlePref("snav.enabled", prefBranch);
+    HandlePref("skey.enabled", prefBranch);
     return NS_OK;
   }
 
@@ -821,7 +820,7 @@ nsSoftKeyBoardService::Observe(nsISupports *aSubject, const char *aTopic, const 
     nsCOMPtr<nsIPrefBranch2> prefBranch = do_QueryInterface(aSubject);
     nsXPIDLCString cstr;
     
-    const char* pref = NS_ConvertUCS2toUTF8(aData).get();
+    const char* pref = NS_ConvertUTF16toUTF8(aData).get();
 
     HandlePref(pref, prefBranch);
     return NS_OK;

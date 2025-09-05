@@ -582,11 +582,17 @@ nsFileControlFrame::GetFormProperty(nsIAtom* aName, nsAString& aValue) const
   aValue.Truncate();  // initialize out param
 
   if (nsHTMLAtoms::value == aName) {
-    if (mTextFrame) {
-      mTextFrame->GetValue(aValue, PR_FALSE);
-    }
-    else if (mCachedState) {
+    NS_ASSERTION(!mCachedState || !mTextFrame,
+                 "If we have a cached state, we better have no mTextFrame");
+    if (mCachedState) {
       aValue.Assign(*mCachedState);
+    } else if (mTextContent) {
+      nsCOMPtr<nsIDOMHTMLInputElement> textControl =
+        do_QueryInterface(mTextContent);
+      NS_ASSERTION(textControl,
+                   "<input> element not implementing nsIDOMHTMLInputElement?");
+
+      textControl->GetValue(aValue);
     }
   }
   return NS_OK;
@@ -597,9 +603,17 @@ nsFileControlFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                      const nsRect&           aDirtyRect,
                                      const nsDisplayListSet& aLists)
 {
-  nsresult rv = nsAreaFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
+  // Our background is inherited to the text input, and we don't really want to
+  // paint it or out padding and borders (which we never have anyway, per
+  // styles in forms.css) -- doing it just makes us look ugly in some cases and
+  // has no effect in others.
+  nsDisplayListCollection tempList;
+  nsresult rv = nsAreaFrame::BuildDisplayList(aBuilder, aDirtyRect, tempList);
   if (NS_FAILED(rv))
     return rv;
+
+  tempList.BorderBackground()->DeleteAll();
+  tempList.MoveTo(aLists);
   
   // Disabled file controls don't pass mouse events to their children, so we
   // put an invisible item in the display list above the children

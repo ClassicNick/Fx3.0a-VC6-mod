@@ -940,8 +940,8 @@ nsPrintEngine::Print(nsIPrintSettings*       aPrintSettings,
           PRUnichar * docURLStr;
 
           GetDisplayTitleAndURL(mPrt->mPrintObject, mPrt->mPrintSettings, mPrt->mBrandName, &docTitleStr, &docURLStr, eDocTitleDefURLDoc); 
-          PR_PL(("Title: %s\n", docTitleStr?NS_LossyConvertUCS2toASCII(docTitleStr).get():""));
-          PR_PL(("URL:   %s\n", docURLStr?NS_LossyConvertUCS2toASCII(docURLStr).get():""));
+          PR_PL(("Title: %s\n", docTitleStr?NS_LossyConvertUTF16toASCII(docTitleStr).get():""));
+          PR_PL(("URL:   %s\n", docURLStr?NS_LossyConvertUTF16toASCII(docURLStr).get():""));
 
           rv = mPrt->mPrintDC->PrepareDocument(docTitleStr, fileName);
 
@@ -2383,14 +2383,6 @@ nsPrintEngine::SetupToPrintContent(nsIDeviceContext* aDContext,
   PR_PL(("-------------------------------------------------------\n"));
   PR_PL(("\n"));
 
-  // Set up the clipping rectangle for all documents
-  // When frames are being printed as part of a frame set and also IFrames,
-  // they are reflowed with a very large page height. We need to setup the
-  // clipping so they do not rpint over top of anything else
-  PR_PL(("SetClipRect-------------------------------------------------------\n"));
-  nsRect clipRect(-1,-1,-1, -1);
-  SetClipRect(mPrt->mPrintObject, clipRect, 0, 0, PR_FALSE);
-
   CalcNumPrintableDocsAndPages(mPrt->mNumPrintableDocs, mPrt->mNumPrintablePages);
 
   PR_PL(("--- Printing %d docs and %d pages\n", mPrt->mNumPrintableDocs, mPrt->mNumPrintablePages));
@@ -2514,46 +2506,6 @@ nsPrintEngine::ReflowDocList(nsPrintObject* aPO, PRBool aSetPixelScale, PRBool a
   return NS_OK;
 }
 
-PR_STATIC_CALLBACK(void *)
-HandleBarrierEvent(PLEvent *aEvent)
-{
-  PRBool *b = NS_STATIC_CAST(PRBool *, PL_GetEventOwner(aEvent));
-  *b = PR_TRUE;
-  return nsnull;
-}
-
-PR_STATIC_CALLBACK(void)
-DestroyBarrierEvent(PLEvent *aEvent)
-{
-}
-
-static void
-FlushEventQueue()
-{
-  PRBool hitBarrier = PR_FALSE;
-  nsCOMPtr<nsIEventQueue> eventQ;
-  nsresult rv = NS_GetMainEventQ(getter_AddRefs(eventQ));
-  if (NS_FAILED(rv))
-    return;
-
-  PLEvent evt;
-
-  PL_InitEvent(&evt, &hitBarrier, HandleBarrierEvent, DestroyBarrierEvent);
-
-  if (NS_FAILED(eventQ->PostEvent(&evt)))
-    return;
-
-  while (!hitBarrier) {
-    PLEvent *next;
-    eventQ->GetEvent(&next);
-    if (!next) {
-      NS_ERROR("barrier event not found!");
-      return;
-    }
-    eventQ->HandleEvent(next);
-  }
-}
-
 //-------------------------------------------------------
 // Reflow a nsPrintObject
 nsresult
@@ -2609,10 +2561,6 @@ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO, PRBool aDoCalcShrink)
     delete aPO->mStyleSet;
     return rv;
   }
-
-  // Don't paint selection stuff for images while printing.
-  // XXXbz should we be painting it for text, even?
-  aPO->mPresShell->SetSelectionFlags(nsISelectionDisplay::DISPLAY_TEXT);
 
   aPO->mStyleSet->EndUpdate();
   
@@ -2768,7 +2716,6 @@ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO, PRBool aDoCalcShrink)
 
   aPO->mPresContext->SetPageDim(adjRect);
   rv = aPO->mPresShell->InitialReflow(width, height);
-  FlushEventQueue();
   if (NS_SUCCEEDED(rv)) {
     // Transfer Selection Ranges to the new Print PresShell
     nsCOMPtr<nsISelection> selection;
@@ -3508,40 +3455,6 @@ nsPrintEngine::PrintPage(nsPresContext*   aPresContext,
     nsPrintData::DoOnProgressChange(mPrt->mPrintProgressListeners, curPage, endPage);
   }
 
-  // Set Clip when Printing "AsIs" or
-  // when printing an IFrame for SelectedFrame or EachFrame
-  PRBool setClip = PR_FALSE;
-  switch (mPrt->mPrintFrameType) {
-
-    case nsIPrintSettings::kFramesAsIs:
-      setClip = PR_TRUE;
-      break;
-
-    case nsIPrintSettings::kSelectedFrame:
-      if (aPO->mPrintAsIs) {
-        if (aPO->mFrameType == eIFrame) {
-          setClip = aPO != mPrt->mSelectedPO;
-        }
-      }
-      break;
-
-    case nsIPrintSettings::kEachFrameSep:
-      if (aPO->mPrintAsIs) {
-        if (aPO->mFrameType == eIFrame) {
-          setClip = PR_TRUE;
-        }
-      }
-      break;
-
-  } //switch
-
-  if (setClip) {
-    // Always set the clip x,y to zero because it isn't going to have any margins
-    aPO->mClipRect.x = 0;
-    aPO->mClipRect.y = 0;
-    mPageSeqFrame->SetClipRect(aPO->mPresContext, &aPO->mClipRect);
-  }
-
   // Print the Page
   // if a print job was cancelled externally, an EndPage or BeginPage may
   // fail and the failure is passed back here.
@@ -4047,72 +3960,6 @@ nsPrintEngine::SetPrintAsIs(nsPrintObject* aPO, PRBool aAsIs)
     SetPrintAsIs((nsPrintObject*)aPO->mKids[i], aAsIs);
   }
 }
-
-
-//-------------------------------------------------------
-// Recursively sets the clip rect on all thchildren
-void
-nsPrintEngine::SetClipRect(nsPrintObject*  aPO,
-                                const nsRect& aClipRect,
-                                nscoord       aOffsetX,
-                                nscoord       aOffsetY,
-                                PRBool        aDoingSetClip)
-{
-  NS_ASSERTION(aPO, "Pointer is null!");
-
-  nsRect clipRect = aClipRect;
-  if (aDoingSetClip) {
-    nscoord width  = (aPO->mRect.x+aPO->mRect.width) > aClipRect.width?aClipRect.width-aPO->mRect.x:aPO->mRect.width;
-    nscoord height = (aPO->mRect.y+aPO->mRect.height) > aClipRect.height?aClipRect.height-aPO->mRect.y:aPO->mRect.height;
-    aPO->mClipRect.SetRect(aPO->mRect.x, aPO->mRect.y, width, height);
-
-  }
-
-  PRBool doClip = aDoingSetClip;
-
-  if (aPO->mFrameType == eFrame) {
-    if (aDoingSetClip) {
-      aPO->mClipRect.SetRect(aOffsetX, aOffsetY, aPO->mClipRect.width, aPO->mClipRect.height);
-      clipRect = aPO->mClipRect;
-    } else if (mPrt->mPrintFrameType == nsIPrintSettings::kFramesAsIs) {
-      aPO->mClipRect.SetRect(aOffsetX, aOffsetY, aPO->mRect.width, aPO->mRect.height);
-      clipRect = aPO->mClipRect;
-      doClip = PR_TRUE;
-    }
-
-  } else if (aPO->mFrameType == eIFrame) {
-
-    if (aDoingSetClip) {
-      aPO->mClipRect.SetRect(aOffsetX, aOffsetY, aPO->mClipRect.width, aPO->mClipRect.height);
-      clipRect = aPO->mClipRect;
-    } else {
-
-      if (mPrt->mPrintFrameType == nsIPrintSettings::kSelectedFrame) {
-        if (aPO->mParent && aPO->mParent == mPrt->mSelectedPO) {
-          aPO->mClipRect.SetRect(aOffsetX, aOffsetY, aPO->mRect.width, aPO->mRect.height);
-          clipRect = aPO->mClipRect;
-          doClip = PR_TRUE;
-        }
-      } else {
-        aPO->mClipRect.SetRect(aOffsetX, aOffsetY, aPO->mRect.width, aPO->mRect.height);
-        clipRect = aPO->mClipRect;
-        doClip = PR_TRUE;
-      }
-    }
-
-  }
-
-
-  PR_PL(("In DV::SetClipRect PO: %p (%9s) ", aPO, gFrameTypesStr[aPO->mFrameType]));
-  PR_PL(("%5d,%5d,%5d,%5d\n", aPO->mClipRect.x, aPO->mClipRect.y,aPO->mClipRect.width, aPO->mClipRect.height));
-
-  PRInt32 cnt = aPO->mKids.Count();
-  for (PRInt32 i=0;i<cnt;i++) {
-    SetClipRect((nsPrintObject *)aPO->mKids[i], clipRect,
-                aOffsetX+aPO->mRect.x, aOffsetY+aPO->mRect.y, doClip);
-  }
-}
-
 
 //-------------------------------------------------------
 // Given a DOMWindow it recursively finds the PO object that matches
@@ -4730,7 +4577,7 @@ static void DumpFrames(FILE*                 out,
     if (NS_SUCCEEDED(CallQueryInterface(child, &frameDebug))) {
       frameDebug->GetFrameName(tmp);
     }
-    fputs(NS_LossyConvertUCS2toASCII(tmp).get(), out);
+    fputs(NS_LossyConvertUTF16toASCII(tmp).get(), out);
     PRBool isSelected;
     if (NS_SUCCEEDED(child->IsVisibleForPainting(aPresContext, *aRendContext, PR_TRUE, &isSelected))) {
       fprintf(out, " %p %s", child, isSelected?"VIS":"UVS");

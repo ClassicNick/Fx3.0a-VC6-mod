@@ -231,6 +231,12 @@ nsMenuBarX::AquifyMenuBar()
     // so we can invoke its command later.
     HideItem(domDoc, NS_LITERAL_STRING("menu_PrefsSeparator"), nsnull);
     HideItem(domDoc, NS_LITERAL_STRING("menu_preferences"), getter_AddRefs(mPrefItemContent));
+    
+    // hide items that we use for the Application menu
+    HideItem(domDoc, NS_LITERAL_STRING("menu_mac_services"), nsnull);
+    HideItem(domDoc, NS_LITERAL_STRING("menu_mac_hide_app"), nsnull);
+    HideItem(domDoc, NS_LITERAL_STRING("menu_mac_hide_others"), nsnull);
+    HideItem(domDoc, NS_LITERAL_STRING("menu_mac_show_all"), nsnull);
   }
 } // AquifyMenuBar
 
@@ -250,8 +256,7 @@ nsMenuBarX::InstallCommandEventHandler()
    WindowRef myWindowRef = (WindowRef)[myWindow windowRef];
    NS_ASSERTION(myWindowRef, "Can't get WindowRef to install command handler!");
    if (myWindowRef && sCommandEventHandler) {
-     const EventTypeSpec commandEventList[] = {{kEventClassCommand, kEventCommandProcess},
-                                               {kEventClassCommand, kEventCommandUpdateStatus}};
+     const EventTypeSpec commandEventList[] = {{kEventClassCommand, kEventCommandProcess}};
      err = ::InstallWindowEventHandler(myWindowRef, sCommandEventHandler, 2, commandEventList, this, NULL);
      NS_ASSERTION(err == noErr, "Uh oh, command handler not installed");
    }
@@ -329,22 +334,6 @@ nsMenuBarX::CommandEventHandler(EventHandlerCallRef inHandlerChain, EventRef inE
           break;
         }
       } // switch on commandID
-      break;
-    }
-      
-    // enable/disable menu id's
-    case kEventCommandUpdateStatus:
-    {
-      //XXXJOSH implement this Cocoa-style
-      // only enable the preferences item in the app menu if we found a pref
-      // item DOM node in this menubar.
-      if (command.commandID == kHICommandPreferences) {
-        if (self->mPrefItemContent)
-          ::EnableMenuCommand(nsnull, kHICommandPreferences);
-        else
-          ::DisableMenuCommand(nsnull, kHICommandPreferences);
-        handled = noErr;
-      }
       break;
     }
   } // switch on event type
@@ -572,27 +561,29 @@ NSMenuItem* nsMenuBarX::CreateNativeAppMenuItem(nsIMenu* inMenu, const nsAString
   // Get more information about the key equivalent. Start by
   // finding the key node we need.
   NSString* keyEquiv = [@"" retain];
-  unsigned int macKeyModifiers;
-  nsCOMPtr<nsIDOMElement> keyElement;
-  domdoc->GetElementById(key, getter_AddRefs(keyElement));
-  if (keyElement) {
-    nsCOMPtr<nsIContent> keyContent (do_QueryInterface(keyElement));
-    // first grab the key equivalent character
-    nsAutoString keyChar(NS_LITERAL_STRING(" "));
-    keyContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::key, keyChar);
-    if (!keyChar.EqualsLiteral(" ")) {
-      keyEquiv = (NSString*)::CFStringCreateWithCharacters(kCFAllocatorDefault, (UniChar*)keyChar.get(),
-                                                           keyChar.Length());
-      [keyEquiv autorelease];
-      keyEquiv = [[keyEquiv lowercaseString] retain];
+  unsigned int macKeyModifiers = 0;
+  if (!key.IsEmpty()) {
+    nsCOMPtr<nsIDOMElement> keyElement;
+    domdoc->GetElementById(key, getter_AddRefs(keyElement));
+    if (keyElement) {
+      nsCOMPtr<nsIContent> keyContent (do_QueryInterface(keyElement));
+      // first grab the key equivalent character
+      nsAutoString keyChar(NS_LITERAL_STRING(" "));
+      keyContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::key, keyChar);
+      if (!keyChar.EqualsLiteral(" ")) {
+        keyEquiv = (NSString*)::CFStringCreateWithCharacters(kCFAllocatorDefault, (UniChar*)keyChar.get(),
+                                                             keyChar.Length());
+        [keyEquiv autorelease];
+        keyEquiv = [[keyEquiv lowercaseString] retain];
+      }
+      // now grab the key equivalent modifiers
+      nsAutoString modifiersStr;
+      keyContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::modifiers, modifiersStr);
+      char* str = ToNewCString(modifiersStr);
+      PRUint8 geckoModifiers = MenuHelpersX::GeckoModifiersForNodeAttribute(str);
+      nsMemory::Free(str);
+      macKeyModifiers = MenuHelpersX::MacModifiersForGeckoModifiers(geckoModifiers);
     }
-    // now grab the key equivalent modifiers
-    nsAutoString modifiersStr;
-    keyContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::modifiers, modifiersStr);
-    char* str = ToNewCString(modifiersStr);
-    PRUint8 geckoModifiers = MenuHelpersX::GeckoModifiersForNodeAttribute(str);
-    nsMemory::Free(str);
-    macKeyModifiers = MenuHelpersX::MacModifiersForGeckoModifiers(geckoModifiers);
   }
 
   // put together the actual NSMenuItem

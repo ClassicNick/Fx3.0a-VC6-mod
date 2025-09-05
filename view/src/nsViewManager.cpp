@@ -42,6 +42,7 @@
 #define PL_ARENA_CONST_ALIGN_MASK (sizeof(void*)-1)
 #include "plarena.h"
 
+#include "nsAutoPtr.h"
 #include "nsViewManager.h"
 #include "nsUnitConversion.h"
 #include "nsIRenderingContext.h"
@@ -63,6 +64,10 @@
 #include "nsScrollPortView.h"
 #include "nsHashtable.h"
 #include "nsCOMArray.h"
+
+#ifdef MOZ_CAIRO_GFX
+#include "gfxContext.h"
+#endif
 
 static NS_DEFINE_IID(kBlenderCID, NS_BLENDER_CID);
 static NS_DEFINE_IID(kRegionCID, NS_REGION_CID);
@@ -602,12 +607,56 @@ void nsViewManager::Refresh(nsView *aView, nsIRenderingContext *aContext,
 
   // damageRect is the clipped damage area bounds, in twips-relative-to-view-origin
   nsRect damageRect = damageRegion.GetBounds();
+  float t2p = mContext->AppUnitsToDevUnits();
+
+#ifdef MOZ_CAIRO_GFX
+  nsRefPtr<gfxContext> ctx = (gfxContext*) localcx->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+  PRBool usingDoubleBuffer = (aUpdateFlags & NS_VMREFRESH_DOUBLE_BUFFER);
+
+  ctx->Save();
+
+  ctx->Translate(gfxPoint(NSToIntRound(viewRect.x * t2p), NSToIntRound(viewRect.y * t2p)));
+  ctx->NewPath();
+
+  if (aRegion) {
+    nsRegionRectSet *rs = nsnull;
+    aRegion->GetRects(&rs);
+    for (int i = 0; i < rs->mNumRects; i++) {
+      ctx->Rectangle(gfxRect(rs->mRects[i].x,
+                             rs->mRects[i].y,
+                             rs->mRects[i].width,
+                             rs->mRects[i].height));
+    }
+    aRegion->FreeRects(rs);
+  }
+
+  ctx->Rectangle(gfxRect(NSToIntRound(damageRect.x * t2p),
+                         NSToIntRound(damageRect.y * t2p),
+                         NSToIntRound(damageRect.width * t2p),
+                         NSToIntRound(damageRect.height * t2p)));
+  ctx->Clip();
+
+  if (usingDoubleBuffer)
+    ctx->PushGroup(gfxContext::CONTENT_COLOR);
+
+  nsRegion opaqueRegion;
+  AddCoveringWidgetsToOpaqueRegion(opaqueRegion, mContext, aView);
+  damageRegion.Sub(damageRegion, opaqueRegion);
+
+  RenderViews(aView, *localcx, damageRegion, ds);
+
+  if (usingDoubleBuffer) {
+    ctx->PopGroupToSource();
+    ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
+    ctx->Paint();
+  }
+
+  ctx->Restore();
+#else
   // widgetDamageRectInPixels is the clipped damage area bounds,
   // in pixels-relative-to-widget-origin
   nsRect widgetDamageRectInPixels = damageRect;
   widgetDamageRectInPixels.MoveBy(-viewRect.x, -viewRect.y);
-  float t2p;
-  t2p = mContext->AppUnitsToDevUnits();
   widgetDamageRectInPixels.ScaleRoundOut(t2p);
 
   // On the Mac, we normally turn doublebuffering off because Quartz is
@@ -691,6 +740,7 @@ void nsViewManager::Refresh(nsView *aView, nsIRenderingContext *aContext,
     localcx->CopyOffScreenBits(ds, 0, 0, widgetDamageRectInPixels, NS_COPYBITS_USE_SOURCE_CLIP_REGION);
     localcx->ReleaseBackbuffer();
   }
+#endif
 
   SetPainting(PR_FALSE);
 

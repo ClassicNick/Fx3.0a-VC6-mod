@@ -77,28 +77,6 @@
 #include <windows.h>
 #include <process.h>
 
-static PRBool dummy = nsToolkit::InitVersionInfo();
-
-#ifdef WINCE
-
-#define NS_VK_APP1  0x0201
-#define NS_VK_APP2  0x0202
-#define NS_VK_APP3  0x0203
-#define NS_VK_APP4  0x0204
-#define NS_VK_APP5  0x0205
-#define NS_VK_APP6  0x0206
-#define NS_VK_APP7  0x0207
-#define NS_VK_APP8  0x0208
-#define NS_VK_APP9  0x0209
-#define NS_VK_APP10 0x020A
-#define NS_VK_APP11 0x020B
-
-
-#include "aygshell.h"
-#include "imm.h"
-#include "tpcshell.h"
-#endif
-
 // unknwn.h is needed to build with WIN32_LEAN_AND_MEAN
 #include <unknwn.h>
 
@@ -154,6 +132,14 @@ static PRBool dummy = nsToolkit::InitVersionInfo();
 #include "prprf.h"
 #include "prmem.h"
 
+#ifdef WINCE
+#include "aygshell.h"
+#include "tpcshell.h"
+
+PRBool gOverrideHWKeys = PR_FALSE;
+PRBool gUseOkayButton  = PR_FALSE;
+#endif
+
 static const char kMozHeapDumpMessageString[] = "MOZ_HeapDump";
 
 #define kWindowPositionSlop 20
@@ -208,121 +194,6 @@ static UpdateLayeredWindowProc* GetUpdateLayeredWindowProc()
 static UpdateLayeredWindowProc* pUpdateLayeredWindow = GetUpdateLayeredWindowProc();
 
 static inline PRBool IsAlphaTranslucencySupported() { return pUpdateLayeredWindow != nsnull; }
-
-#endif
-
-
-#ifdef WINCE
-static PRBool gUseOkayButton  = PR_FALSE;
-static PRBool gOverrideHWKeys = PR_TRUE;
-
-typedef BOOL (__stdcall *UnregisterFunc1Proc)( UINT, UINT );
-static UnregisterFunc1Proc gProcUnregisterFunc = NULL;
-static HINSTANCE gCoreDll = NULL;
-
-UINT gHardwareKeys[][2] =
-  {
-    { 0xc1, MOD_WIN },
-    { 0xc2, MOD_WIN },
-    { 0xc3, MOD_WIN },
-    { 0xc4, MOD_WIN },
-    { 0xc5, MOD_WIN },
-    { 0xc6, MOD_WIN },
-
-    { 0x72, 0 },// Answer - 0x72 Modifier - 0  
-    { 0x73, 0 },// Hangup - 0x73 Modifier - 0 
-    { 0x74, 0 },// 
-    { 0x75, 0 },// Volume Up   - 0x75 Modifier - 0
-    { 0x76, 0 },// Volume Down - 0x76 Modifier - 0
-    { 0, 0 },
-  };
-
-static void MapHardwareButtons(HWND window)
-{
-  if (!window)
-    return;
-
-  // handle hardware buttons so that they broadcast into our
-  // application. the following code is based on an article
-  // on the Pocket PC Developer Network:
-  //
-  // http://www.pocketpcdn.com/articles/handle_hardware_keys.html
-  
-  if (gOverrideHWKeys)
-  {
-    if (!gProcUnregisterFunc)
-    {
-      gCoreDll = LoadLibrary(_T("coredll.dll")); // leak
-      
-      if (gCoreDll)
-        gProcUnregisterFunc = (UnregisterFunc1Proc)GetProcAddress( gCoreDll, _T("UnregisterFunc1"));
-    }
-    
-    if (gProcUnregisterFunc)
-    {    
-      for (int i=0; gHardwareKeys[i][0]; i++)
-      {
-        UINT mod = gHardwareKeys[i][1];
-        UINT kc = gHardwareKeys[i][0];
-        
-        gProcUnregisterFunc(mod, kc);
-        RegisterHotKey(window, kc, mod, kc);
-      }
-    }
-  }
-}
-
-static void UnmapHardwareButtons()
-{
-  if (!gProcUnregisterFunc)
-    return;
-
-  for (int i=0; gHardwareKeys[i][0]; i++)
-  {
-    UINT mod = gHardwareKeys[i][1];
-    UINT kc = gHardwareKeys[i][0];
-
-    gProcUnregisterFunc(mod, kc);
-  }
-}
-
-HWND CreateSoftKeyMenuBar(HWND wnd)
-{
-  if (!wnd)
-    return nsnull;
-
-  SHMENUBARINFO mbi;
-  ZeroMemory(&mbi, sizeof(SHMENUBARINFO));
-  mbi.cbSize = sizeof(SHMENUBARINFO);
-  mbi.hwndParent = wnd;
-
-  //  On windows ce smartphone, events never occur if the
-  //  menubar is empty.  This doesn't work: 
-  //  mbi.dwFlags = SHCMBF_EMPTYBAR;
-
-  mbi.nToolBarId = IDC_DUMMY_CE_MENUBAR;
-  mbi.hInstRes   = GetModuleHandle(NULL);
-  
-  if (!SHCreateMenuBar(&mbi))
-    return nsnull;
-
-  SetWindowPos(mbi.hwndMB, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE);
-
-  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TBACK,
-              MAKELPARAM(SHMBOF_NODEFAULT | SHMBOF_NOTIFY,
-                         SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
-  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT1, 
-              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
-                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
-  
-  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT2, 
-              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
-                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-
-  return mbi.hwndMB;
-}
 
 #endif
 
@@ -518,6 +389,8 @@ static PRBool is_vk_down(int vk)
 //
 #define IME_X_OFFSET  0
 #define IME_Y_OFFSET  0
+
+
 
 #define IS_IME_CODEPAGE(cp) ((932==(cp))||(936==(cp))||(949==(cp))||(950==(cp)))
 
@@ -820,6 +693,7 @@ nsWindow::nsWindow() : nsBaseWidget()
 #endif
 {
   mWnd                = 0;
+  mPaintDC                 = 0;
   mPrevWndProc        = NULL;
   mBackground         = ::GetSysColor(COLOR_BTNFACE);
   mBrush              = ::CreateSolidBrush(NSRGB_2_COLOREF(mBackground));
@@ -914,9 +788,6 @@ nsWindow::nsWindow() : nsBaseWidget()
       prefBranch->GetBoolPref("config.wince.overrideHWKeys", &gOverrideHWKeys);
     }
   }
-
-  mSoftKeyMenuBar = nsnull;
-
 #endif
 }
 
@@ -977,9 +848,6 @@ nsWindow::~nsWindow()
 
   NS_IF_RELEASE(mNativeDragTarget);
 
-#ifdef WINCE
-  // XXX do we free mSoftKeyMenuBar.  MSDN isn't sure.
-#endif
 }
 
 
@@ -1590,13 +1458,6 @@ nsWindow::StandardWindowCreate(nsIWidget *aParent,
       }
     }
   }
-#ifdef WINCE
-    if (mWindowType == eWindowType_dialog || mWindowType == eWindowType_toplevel )
-      mSoftKeyMenuBar = CreateSoftKeyMenuBar(mWnd);
-
-    MapHardwareButtons(mWnd);
-#endif
-
   return NS_OK;
 }
 
@@ -2248,11 +2109,6 @@ NS_METHOD nsWindow::SetFocus(PRBool aRaise)
     if (::IsIconic(toplevelWnd))
       ::OpenIcon(toplevelWnd);
     ::SetFocus(mWnd);
-
-#ifdef WINCE
-    MapHardwareButtons(mWnd);
-#endif
-
   }
   return NS_OK;
 }
@@ -5761,6 +5617,7 @@ PRBool nsWindow::OnPaint(HDC aDC)
 #endif // NS_DEBUG
 
   HDC hDC = aDC ? aDC : (::BeginPaint(mWnd, &ps));
+  mPaintDC = hDC;
   RECT paintRect;
 
 #ifdef MOZ_XUL
@@ -5804,13 +5661,25 @@ PRBool nsWindow::OnPaint(HDC aDC)
                            (PRInt32) mWnd);
 #endif // NS_DEBUG
 
+#ifdef MOZ_CAIRO_GFX
+      nsCOMPtr<nsIRenderingContext> rc = getter_AddRefs(GetRenderingContext());
+      event.renderingContext = rc;
+      result = DispatchWindowEvent(&event, eventStatus);
+      event.renderingContext = nsnull;
+
+      if (mIsTranslucent && IsAlphaTranslucencySupported())
+      {
+        // Data from offscreen drawing surface was copied to memory bitmap of transparent
+        // bitmap. Now it can be read from memory bitmap to apply alpha channel and after
+        // that displayed on the screen.
+        UpdateTranslucentWindow();
+      }
+      rc = nsnull;
+#else
+
       if (NS_SUCCEEDED(CallCreateInstance(kRenderingContextCID, &event.renderingContext)))
       {
-#ifdef MOZ_CAIRO_GFX
-        nsIThebesRenderingContext *winrc;
-#else
         nsIRenderingContextWin *winrc;
-#endif
         if (NS_SUCCEEDED(CallQueryInterface(event.renderingContext, &winrc)))
         {
           nsIDrawingSurface* surf;
@@ -5841,6 +5710,7 @@ PRBool nsWindow::OnPaint(HDC aDC)
       }
       else
         result = PR_FALSE;
+#endif
 
       NS_RELEASE(event.widget);
     }
@@ -5849,6 +5719,8 @@ PRBool nsWindow::OnPaint(HDC aDC)
   if (!aDC) {
     ::EndPaint(mWnd, &ps);
   }
+
+  mPaintDC = nsnull;
 
 #ifdef NS_DEBUG
   if (debug_WantPaintFlashing())
@@ -8188,6 +8060,18 @@ nsWindow* nsWindow::GetTopLevelWindow()
       return curWindow;
   }
 }
+
+#ifdef MOZ_CAIRO_GFX
+#include "gfxWindowsSurface.h"
+
+gfxASurface *nsWindow::GetThebesSurface()
+{
+  if (mPaintDC)
+    return (new gfxWindowsSurface(mPaintDC));
+
+  return (new gfxWindowsSurface(mWnd));
+}
+#endif
 
 void nsWindow::ResizeTranslucentWindow(PRInt32 aNewWidth, PRInt32 aNewHeight)
 {

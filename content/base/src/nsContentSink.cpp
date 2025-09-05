@@ -61,7 +61,6 @@
 #include "nsHTMLAtoms.h"
 #include "nsIDOMWindowInternal.h"
 #include "nsIPrincipal.h"
-#include "nsIScriptSecurityManager.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsNetCID.h"
 #include "nsICookieService.h"
@@ -328,24 +327,16 @@ nsContentSink::ProcessHeaderData(nsIAtom* aHeader, const nsAString& aValue,
     // We use the original codebase in case the codebase was changed
     // by SetDomain
 
-    nsIPrincipal *docPrincipal = mDocument->GetPrincipal();
+    nsIPrincipal *docPrincipal = mDocument->GetNodePrincipal();
     if (!docPrincipal) {
       return NS_ERROR_FAILURE;
     }
 
-    nsCOMPtr<nsIPrincipal> systemPrincipal;
-    nsContentUtils::GetSecurityManager()->
-      GetSystemPrincipal(getter_AddRefs(systemPrincipal));
-    NS_ASSERTION(systemPrincipal, "No system principal");
-    
-    if (docPrincipal == systemPrincipal) {
-      // Document's principal is not a codebase, so we can't set cookies
-      return NS_OK;
-    }
-
+    // Note that a non-codebase principal (eg the system principal) will return
+    // a null URI.
     nsCOMPtr<nsIURI> codebaseURI;
     rv = docPrincipal->GetURI(getter_AddRefs(codebaseURI));
-    NS_ENSURE_SUCCESS(rv, rv);
+    NS_ENSURE_TRUE(codebaseURI, rv);
 
     nsCOMPtr<nsIPrompt> prompt;
     nsCOMPtr<nsIDOMWindowInternal> window (do_QueryInterface(mDocument->GetScriptGlobalObject()));
@@ -360,7 +351,7 @@ nsContentSink::ProcessHeaderData(nsIAtom* aHeader, const nsAString& aValue,
 
     rv = cookieServ->SetCookieString(codebaseURI,
                                      prompt,
-                                     NS_ConvertUCS2toUTF8(aValue).get(),
+                                     NS_ConvertUTF16toUTF8(aValue).get(),
                                      channel);
     if (NS_FAILED(rv)) {
       return rv;
@@ -395,7 +386,7 @@ nsContentSink::ProcessHeaderData(nsIAtom* aHeader, const nsAString& aValue,
         const char* header;
         (void)aHeader->GetUTF8String(&header);
         (void)httpChannel->SetResponseHeader(nsDependentCString(header),
-                                             NS_ConvertUCS2toUTF8(aValue),
+                                             NS_ConvertUTF16toUTF8(aValue),
                                              PR_TRUE);
       }
     }
@@ -758,7 +749,7 @@ nsContentSink::ScrollToRef(PRBool aReallyScroll)
   nsresult rv = NS_ERROR_FAILURE;
   // We assume that the bytes are in UTF-8, as it says in the spec:
   // http://www.w3.org/TR/html4/appendix/notes.html#h-B.2.1
-  NS_ConvertUTF8toUCS2 ref(unescapedRef);
+  NS_ConvertUTF8toUTF16 ref(unescapedRef);
 
   PRInt32 i, ns = mDocument->GetNumberOfShells();
   for (i = 0; i < ns; i++) {

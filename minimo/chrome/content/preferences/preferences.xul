@@ -75,7 +75,6 @@
       <preferenceitem preftype="string"  id="browser.startup.homepage" name="browserStartupHomepage" />
       <preferenceitem preftype="int"     id="permissions.default.image" name="enableImages" />
       <preferenceitem preftype="bool"    id="ssr.enabled" name="ssr"/>
-      <preferenceitem preftype="bool"    id="ssr.site.enabled" name="sitessr" />
       <preferenceitem preftype="bool"    id="skey.enabled" name="skey" />
       <preferenceitem preftype="bool"    id="config.wince.dumpJSConsole" name="dumpJS" />
       <preferenceitem preftype="int"     id="network.proxy.type" name="UseProxy" />
@@ -87,6 +86,8 @@
       -->
       <preferenceitem preftype="bool"    id="network.prefetch-next" name="enablePreFetching" />
       <preferenceitem preftype="int"     id="browser.cache.disk.capacity" name="cacheSizeField" />
+      <preferenceitem preftype="file"    id="browser.download.dir" name="downloadDir" />
+      <preferenceitem preftype="bool"    id="browser.download.progressDnlgDialog.dontAskForLaunch" name="dontAskForLaunch" />
   </preferenceset>
   
 
@@ -118,9 +119,7 @@
     <!-- =================================================== -->
     
     <box id="pref-panes" flex="1">  
-
     </box>
 
   </vbox>
-
 </window>

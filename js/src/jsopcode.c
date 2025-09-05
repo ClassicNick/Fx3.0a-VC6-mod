@@ -1917,6 +1917,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 /* FALL THROUGH */
 
               case JSOP_GETPROP:
+              case JSOP_GETXPROP:
                 atom = GET_ATOM(cx, jp->script, pc);
 
               do_getprop:
@@ -1968,6 +1969,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 /* FALL THROUGH */
 
               case JSOP_GETELEM:
+              case JSOP_GETXELEM:
                 op = JSOP_NOP;           /* turn off parens */
                 xval = POP_STR();
                 op = JSOP_GETELEM;
@@ -2370,6 +2372,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 #if JS_HAS_LEXICAL_CLOSURE
               BEGIN_LITOPX_CASE(JSOP_CLOSURE)
                 JS_ASSERT(ATOM_IS_OBJECT(atom));
+                todo = -2;
                 goto do_function;
               END_LITOPX_CASE
 #endif

@@ -260,6 +260,7 @@ nsXFormsModelElement::nsXFormsModelElement()
     mDocumentLoaded(PR_FALSE),
     mNeedsRefresh(PR_FALSE),
     mInstancesInitialized(PR_FALSE),
+    mReadyHandled(PR_FALSE),
     mInstanceDocuments(nsnull),
     mLazyModel(PR_FALSE)
 {
@@ -551,6 +552,7 @@ nsXFormsModelElement::HandleDefault(nsIDOMEvent *aEvent, PRBool *aHandled)
     rv = ConstructDone();
   } else if (type.EqualsASCII(sXFormsEventsEntries[eEvent_Ready].name)) {
     Ready();
+    mReadyHandled = PR_TRUE;
   } else if (type.EqualsASCII(sXFormsEventsEntries[eEvent_Reset].name)) {
     Reset();
   } else if (type.EqualsASCII(sXFormsEventsEntries[eEvent_BindingException].name)) {
@@ -767,7 +769,7 @@ nsXFormsModelElement::Revalidate()
     nsAutoString name;
     node->GetNodeName(name);
     printf("\t%s [%p]\n",
-           NS_ConvertUCS2toUTF8(name).get(),
+           NS_ConvertUTF16toUTF8(name).get(),
            (void*) node);
   }
 #endif
@@ -827,7 +829,7 @@ nsXFormsModelElement::Refresh()
             boundNode->GetNodeName(boundName);
           printf("\tDependencies: %d, Bound to: '%s' [%p]\n",
                  depCount,
-                 NS_ConvertUCS2toUTF8(boundName).get(),
+                 NS_ConvertUTF16toUTF8(boundName).get(),
                  (void*) boundNode);
 
           nsAutoString depNodeName;
@@ -836,7 +838,7 @@ nsXFormsModelElement::Refresh()
             if (tmpdep) {
               tmpdep->GetNodeName(depNodeName);
               printf("\t\t%s [%p]\n",
-                     NS_ConvertUCS2toUTF8(depNodeName).get(),
+                     NS_ConvertUTF16toUTF8(depNodeName).get(),
                      (void*) tmpdep);
             }
           }
@@ -1169,6 +1171,20 @@ nsXFormsModelElement::HandleInstanceDataNode(nsIDOMNode *aInstanceDataNode, unsi
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsXFormsModelElement::GetLazyAuthored(PRBool *aLazyInstance)
+{
+  *aLazyInstance = mLazyModel;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXFormsModelElement::GetIsReady(PRBool *aIsReady)
+{
+  *aIsReady = mReadyHandled;
+  return NS_OK;
+}
+
 // nsIXFormsContextControl
 
 NS_IMETHODIMP
@@ -1221,13 +1237,6 @@ nsXFormsModelElement::GetContext(nsAString      &aModelID,
   mElement->GetAttribute(NS_LITERAL_STRING("id"), id);
   aModelID.Assign(id);
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsXFormsModelElement::GetLazyAuthored(PRBool *aLazyInstance)
-{
-  *aLazyInstance = mLazyModel;
   return NS_OK;
 }
 
@@ -1474,7 +1483,7 @@ nsXFormsModelElement::MaybeNotifyCompletion()
   for (i = 0; i < models->Count(); ++i) {
     nsXFormsModelElement *model =
         NS_STATIC_CAST(nsXFormsModelElement *, models->ElementAt(i));
-    nsXFormsUtils::DispatchEvent(model->mElement, eEvent_Ready);  
+    nsXFormsUtils::DispatchEvent(model->mElement, eEvent_Ready);
   }
 }
 
@@ -1527,7 +1536,7 @@ nsXFormsModelElement::ProcessBind(nsIXFormsXPathEvaluator *aEvaluator,
   if (expr.IsEmpty()) {
     expr = NS_LITERAL_STRING(".");
   }
-  rv = aEvaluator->Evaluate(expr, aContextNode, aContextSize, aContextPosition,
+  rv = aEvaluator->Evaluate(expr, aContextNode, aContextPosition, aContextSize,
                             aBindElement,
                             nsIDOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE,
                             nsnull, getter_AddRefs(result));
@@ -1696,6 +1705,15 @@ nsXFormsModelElement::AddInstanceElement(nsIInstanceElementPrivate *aInstEle)
 {
   NS_ENSURE_STATE(mInstanceDocuments);
   mInstanceDocuments->AddInstance(aInstEle);
+
+  return NS_OK;
+}
+
+nsresult
+nsXFormsModelElement::RemoveInstanceElement(nsIInstanceElementPrivate *aInstEle)
+{
+  NS_ENSURE_STATE(mInstanceDocuments);
+  mInstanceDocuments->RemoveInstance(aInstEle);
 
   return NS_OK;
 }
@@ -1909,6 +1927,12 @@ nsXFormsModelInstanceDocuments::AddInstance(nsIInstanceElementPrivate *aInst)
   // document order since the first instance element is the default instance
   // document for the model.
   mInstanceList.AppendObject(aInst);
+}
+
+void
+nsXFormsModelInstanceDocuments::RemoveInstance(nsIInstanceElementPrivate *aInst)
+{
+  mInstanceList.RemoveObject(aInst);
 }
 
 void

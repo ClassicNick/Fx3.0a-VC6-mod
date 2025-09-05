@@ -55,9 +55,6 @@
 #include "nsIFormControl.h"
 #include "nsIDeviceContext.h"
 #include "nsHTMLAtoms.h"
-#include "nsIButton.h"  // remove this when GetCID is pure virtual
-#include "nsICheckButton.h"  //remove this
-#include "nsITextWidget.h"  //remove this
 #include "nsISupports.h"
 #include "nsStyleConsts.h"
 #include "nsUnitConversion.h"
@@ -316,14 +313,6 @@ nsFormControlHelper::PaintCheckMark(nsIRenderingContext& aRenderingContext,
   }
   
   aRenderingContext.FillPolygon(checkedPolygon, checkpoints);
-}
-
-PRBool
-nsFormControlHelper::GetValueAttr(nsIContent* aContent, nsAString* aResult)
-{
-  NS_PRECONDITION(aResult, "Null pointer bad!");
-  return aContent->IsContentOfType(nsIContent::eHTML) &&
-         aContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::value, *aResult);
 }
 
 //----------------------------------------------------------------------------------

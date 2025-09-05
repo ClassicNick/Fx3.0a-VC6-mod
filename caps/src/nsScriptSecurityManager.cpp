@@ -1405,8 +1405,8 @@ nsScriptSecurityManager::ReportError(JSContext* cx, const nsAString& messageTag,
 
     // Localize the error message
     nsXPIDLString message;
-    NS_ConvertASCIItoUCS2 ucsSourceSpec(sourceSpec);
-    NS_ConvertASCIItoUCS2 ucsTargetSpec(targetSpec);
+    NS_ConvertASCIItoUTF16 ucsSourceSpec(sourceSpec);
+    NS_ConvertASCIItoUTF16 ucsTargetSpec(targetSpec);
     const PRUnichar *formatStrings[] = { ucsSourceSpec.get(), ucsTargetSpec.get() };
     rv = sStrBundle->FormatStringFromName(PromiseFlatString(messageTag).get(),
                                           formatStrings,
@@ -1437,7 +1437,7 @@ nsScriptSecurityManager::ReportError(JSContext* cx, const nsAString& messageTag,
 
         console->LogStringMessage(message.get());
 #ifdef DEBUG
-        fprintf(stderr, "%s\n", NS_LossyConvertUCS2toASCII(message).get());
+        fprintf(stderr, "%s\n", NS_LossyConvertUTF16toASCII(message).get());
 #endif
     }
     return NS_OK;
@@ -1516,31 +1516,6 @@ nsScriptSecurityManager::CheckFunctionAccess(JSContext *aCx, void *aFunObj,
     return CheckSameOriginPrincipalInternal(subject, object, PR_TRUE);
 }
 
-nsresult
-nsScriptSecurityManager::GetRootDocShell(JSContext *cx, nsIDocShell **result)
-{
-    nsresult rv;
-    *result = nsnull;
-    nsIScriptContext *scriptContext = GetScriptContext(cx);
-    if (!scriptContext)
-        return NS_ERROR_FAILURE;
-
-    nsCOMPtr<nsPIDOMWindow> window =
-        do_QueryInterface(scriptContext->GetGlobalObject());
-    if (!window)
-        return NS_ERROR_FAILURE;
-
-    nsCOMPtr<nsIDocShellTreeItem> docshellTreeItem =
-        do_QueryInterface(window->GetDocShell(), &rv);
-    if (NS_FAILED(rv)) return rv;
-
-    nsCOMPtr<nsIDocShellTreeItem> rootItem;
-    rv = docshellTreeItem->GetRootTreeItem(getter_AddRefs(rootItem));
-    if (NS_FAILED(rv)) return rv;
-
-    return rootItem->QueryInterface(NS_GET_IID(nsIDocShell), (void**)result);
-}
-
 NS_IMETHODIMP
 nsScriptSecurityManager::CanExecuteScripts(JSContext* cx,
                                            nsIPrincipal *aPrincipal,
@@ -1558,6 +1533,13 @@ nsScriptSecurityManager::CanExecuteScripts(JSContext* cx,
     //-- See if the current window allows JS execution
     nsIScriptContext *scriptContext = GetScriptContext(cx);
     if (!scriptContext) return NS_ERROR_FAILURE;
+
+    if (!scriptContext->GetScriptsEnabled()) {
+        // No scripting on this context, folks
+        *result = PR_FALSE;
+        return NS_OK;
+    }
+    
     nsIScriptGlobalObject *sgo = scriptContext->GetGlobalObject();
 
     if (!sgo) {
@@ -2107,6 +2089,10 @@ nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj
     NS_ASSERTION(aCx && aObj, "Bad call to doGetObjectPrincipal()!");
     nsIPrincipal* result = nsnull;
 
+#ifdef DEBUG
+    JSObject* origObj = aObj;
+#endif
+    
     do
     {
         const JSClass *jsClass = JS_GetClass(aCx, aObj);
@@ -2165,7 +2151,7 @@ nsScriptSecurityManager::doGetObjectPrincipal(JSContext *aCx, JSObject *aObj
     } while (aObj);
 
     NS_ASSERTION(!aAllowShortCircuit ||
-                 result == doGetObjectPrincipal(aCx, aObj, PR_FALSE),
+                 result == doGetObjectPrincipal(aCx, origObj, PR_FALSE),
                  "Principal mismatch.  Not good");
     
     return result;
@@ -2947,7 +2933,7 @@ nsScriptSecurityManager::Observe(nsISupports* aObject, const char* aTopic,
                                  const PRUnichar* aMessage)
 {
     nsresult rv = NS_OK;
-    NS_ConvertUCS2toUTF8 messageStr(aMessage);
+    NS_ConvertUTF16toUTF8 messageStr(aMessage);
     const char *message = messageStr.get();
 
     static const char jsPrefix[] = "javascript.";

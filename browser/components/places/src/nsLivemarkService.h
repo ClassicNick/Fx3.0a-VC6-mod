@@ -105,6 +105,8 @@ private:
   nsXPIDLString mLivemarkLoading;
   nsXPIDLString mLivemarkFailed;
 
+  nsCOMPtr<nsIURI> mIconURI;
+
   nsCOMPtr<nsIAnnotationService> mAnnotationService;
   nsCOMPtr<nsINavBookmarksService> mBookmarksService;
 

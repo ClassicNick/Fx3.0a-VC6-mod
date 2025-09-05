@@ -49,8 +49,12 @@ var PlacesUIHook = {
   _bundle: null,
   
   init: function PUIH_init(placesList) {
+    this._bundle = document.getElementById("placeBundle");
+    
     try {
       this._topWindow = placesList.browserWindow;
+      PlacesController.topWindow = this._topWindow;
+      PlacesController.tm = PlacesController.topWindow.PlacesTransactionManager;
       this._tabbrowser = this._topWindow.getBrowser();
 
       // Hook into the tab strip to get notifications about when the Places Page is
@@ -61,12 +65,11 @@ var PlacesUIHook = {
       }
       this._tabbrowser.mTabContainer.addEventListener("select", onTabSelect, false);
 
-      this._showPlacesUI();
+      this.showPlacesUI();
     }
     catch (e) { 
+      LOG("Something bad happened initializing the UI Hook: " + e);
     }
-    
-    this._bundle = document.getElementById("placeBundle");
     
     // Stop the browser from handling certain types of events. 
     function onDragEvent(event) {
@@ -106,31 +109,53 @@ var PlacesUIHook = {
         removeAttribute("disabled");
   },
   
-  uninit: function PUIH_uninit() {
-    this._hidePlacesUI();
-  },
-
   onTabSelect: function PP_onTabSelect(event) {
-    var tabURI = this._tabbrowser.selectedBrowser.currentURI.spec;
-    var isPlaces = tabURI.substr(0, this._placesURI.length) == this._placesURI;
-    isPlaces ? this._showPlacesUI() : this._hidePlacesUI();
+    var tabURI = this._tabbrowser.selectedBrowser.currentURI;
+    if (!tabURI)
+      var isPlaces = false;
+    else
+      isPlaces = 
+        tabURI.spec.substr(0, this._placesURI.length) == this._placesURI;
+    isPlaces ? this.showPlacesUI() : this.hidePlacesUI();
   },
   
   _topElement: function PUIH__topElement(id) {
     return this._topWindow.document.getElementById(id);
   },
+  
+  onFindActivated: function PUIH_onFindActivated(event) {
+    PlacesSearchBox.focus();
+  },
 
-  _showPlacesUI: function PP__showPlacesUI() {
+  _findWasHidden: false,
+  
+  showPlacesUI: function PP_showPlacesUI() {
+    ASSERT(PlacesController, "PlacesController does not exist anymore?!");
+
     this._tabbrowser.setAttribute("places", "true");
     var statusbar = this._topElement("status-bar");
     statusbar.hidden = true;
+    
+    var findbar = this._topWindow.document.getElementById("FindToolbar");
+    this._findWasHidden = findbar.hidden;
+    findbar.hidden = true;    
+    
     this._disableCommands();
     
     var findItem = this._topWindow.document.getElementById("menu_find");
     findItem.setAttribute("label", this._bundle.getString("findPlaceLabel"));
+
+    PlacesController.tm.hidePageTransactions = false;
+    PlacesController.tm.updateCommands();
+    
+    // Disable the find bar so that we can capture key presses. 
+    this._topWindow.gFindEnabled = false;
+    this._topWindow.addEventListener("find-activated", this.onFindActivated, false);
   },
 
-  _hidePlacesUI: function PP__hidePlacesUI() {
+  hidePlacesUI: function PP_hidePlacesUI() {
+    ASSERT(PlacesController, "PlacesController does not exist anymore?!");
+
     this._tabbrowser.removeAttribute("places");
     
     // Approaches that cache the value of the status bar before the Places page
@@ -142,10 +167,23 @@ var PlacesUIHook = {
     var statusbarMenu = this._topWindow.document.getElementById("toggle_taskbar");
     var statusbar = this._topElement("status-bar");
     statusbar.hidden = statusbarMenu.getAttribute("checked") != "true";
+    
+    if (!this._findWasHidden) {
+      var findbar = this._topWindow.document.getElementById("FindToolbar");
+      findbar.hidden = false;
+    }
+    
     this._enableCommands();
 
     var findItem = this._topWindow.document.getElementById("menu_find");
     findItem.setAttribute("label", this._bundle.getString("findPageLabel"));
+    
+    PlacesController.tm.hidePageTransactions = true;
+    PlacesController.tm.updateCommands();
+
+    // Enable the find bar again
+    this._topWindow.gFindEnabled = true;
+    this._topWindow.removeEventListener("find-activated", this.onFindActivated, false);
   },
 };
 
@@ -172,10 +210,10 @@ var PlacesPage = {
     
     this._places.init(new ViewConfig([TYPE_X_MOZ_PLACE_CONTAINER],
                                      ViewConfig.GENERIC_DROP_TYPES,
-                                     true, false, 3));
+                                     true, false, 4, true));
     this._content.init(new ViewConfig(ViewConfig.GENERIC_DROP_TYPES,
                                       ViewConfig.GENERIC_DROP_TYPES,
-                                      false, false, 0));
+                                      false, false, 0, true));
 
     PlacesController.groupableView = this._content;
 
@@ -213,12 +251,20 @@ var PlacesPage = {
     
     // Set up the advanced query builder UI
     PlacesQueryBuilder.init();
+    
+    // We attach event listeners like this instead of using the more succinct
+    // "onpageshow/hide" inline handlers because they don't work for XUL. See:
+    //   https://bugzilla.mozilla.org/show_bug.cgi?id=326260
+    function onPageShow() {
+      PlacesUIHook.showPlacesUI();
+    }
+    function onPageHide() {
+      PlacesUIHook.hidePlacesUI();
+    }
+    window.addEventListener("pageshow", onPageShow, false);
+    window.addEventListener("pagehide", onPageHide, false);
   },
 
-  uninit: function PP_uninit() {
-    PlacesUIHook.uninit();
-  },
-  
   /**
    * A range has been selected from the calendar picker. Update the view
    * to show only those results within the selected range. 
@@ -306,32 +352,40 @@ var PlacesPage = {
   /**
    * Called when a place folder is selected in the left pane.
    */
-  placeSelected: function PP_placeSelected(event) {
-    var node = this._places.selectedNode;
-    if (!node || this._places.suppressSelection)
+  onPlaceSelected: function PP_onPlaceSelected(event) {
+    var node = asQuery(this._places.selectedNode);
+    if (!node)
       return;
-    if (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER)
-      node.QueryInterface(Ci.nsINavHistoryFolderResultNode);
-    else if (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY)
-      node.QueryInterface(Ci.nsINavHistoryQueryResultNode);
-    else
-      return; // should not get here
-    var queries = node.getQueries({});
-    var newQueries = [];
-    for (var i = 0; i < queries.length; ++i) {
-      var query = queries[i].clone();
-      newQueries.push(query);
-    }
-    var newOptions = node.queryOptions.clone();
-
-    var isBookmark = PlacesController.nodeIsFolder(node);
-    if (isBookmark)
-      groupings = PlacesController.groupers.bookmark.value;
-
-    this._content.load(newQueries, newOptions);
+      
+    var sortingMode = node.queryOptions.sortingMode;    
+    var groupings = PlacesController.groupers.generic;
+    if (PlacesController.nodeIsFolder(node)) 
+      groupings = PlacesController.groupers.bookmark;
+    PlacesController.loadNodeIntoView(this._content, node, groupings, 
+                                      sortingMode);
 
     this._setHeader("showing", node.title);
   },
+
+  /**
+   * Shows all subscribed feeds (Live Bookmarks) grouped under their parent 
+   * feed.
+   */
+  groupByFeed: function PP_groupByFeed() {
+    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
+    var sortingMode = Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
+    PlacesController.groupByAnnotation("livemark/feedURI", [], 0);
+  },
+  
+  /**
+   * Shows all subscribed feed (Live Bookmarks) content in a flat list
+   */
+  groupByPost: function PP_groupByPost() {
+    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
+    var sortingMode = Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
+    PlacesController.groupByAnnotation("livemark/bookmarkFeedURI", [], 0);
+  },
+  
   
   /**
    * Updates the calendar widget to show the range of dates selected in the
@@ -409,13 +463,15 @@ var PlacesPage = {
    */
   onContentChanged: function PP_onContentChanged() {
     var panelID = "commands_history";
-    var filterButtonID = "filterList_history";
+    
     var isBookmarks = this._content.isBookmarks;
-    if (isBookmarks) {
-      // if (query.annotation == "feed") {
+    var node = asQuery(this._content.getResult().root);
+    var queries = node.getQueries({});
+    if (queries[0].annotation.indexOf("livemark/") > -1)
+      panelID = "commands_feed";
+    else if (isBookmarks)
       panelID = "commands_bookmark";
-      filterButtonID = "filterList_bookmark";
-    }
+
     var commandBar = document.getElementById("commandBar");
     commandBar.selectedPanel = document.getElementById(panelID);
 
@@ -459,10 +515,17 @@ var PlacesSearchBox = {
     return searchFilter.getAttribute("collection");
   },
   set filterCollection(collectionName) {
-    LOG("SET COLN: " + collectionName);
     var searchFilter = document.getElementById("searchFilter");
     searchFilter.setAttribute("collection", collectionName);
     return collectionName;
+  },
+  
+  /**
+   * Focus the search box
+   */
+  focus: function PS_focus() {
+    var searchFilter = document.getElementById("searchFilter");
+    searchFilter.focus();
   },
   
   /**

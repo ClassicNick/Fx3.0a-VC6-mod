@@ -3385,7 +3385,7 @@ NS_IMETHODIMP nsPluginHostImpl::InstantiateEmbeddedPlugin(const char *aMimeType,
     if (!doc)
       return NS_ERROR_NULL_POINTER;
 
-    rv = secMan->CheckLoadURIWithPrincipal(doc->GetPrincipal(), aURL, 0);
+    rv = secMan->CheckLoadURIWithPrincipal(doc->GetNodePrincipal(), aURL, 0);
     if (NS_FAILED(rv))
       return rv;
 
@@ -4304,7 +4304,7 @@ public:
   NS_METHOD NamedItem(const nsAString& aName, nsIDOMMimeType** aReturn)
   {
     for (int index = mPluginTag.mVariants - 1; index >= 0; --index) {
-      if (aName.Equals(NS_ConvertASCIItoUCS2(mPluginTag.mMimeTypeArray[index])))
+      if (aName.Equals(NS_ConvertASCIItoUTF16(mPluginTag.mMimeTypeArray[index])))
         return Item(index, aReturn);
     }
     return NS_OK;
@@ -4933,7 +4933,7 @@ nsresult nsPluginHostImpl::ScanPluginsDirectory(nsIFile * pluginsDir,
     PRInt64 fileModTime = pfd->mModTime;
 
     // Look for it in our cache
-    nsPluginTag *pluginTag = RemoveCachedPluginsInfo(NS_ConvertUCS2toUTF8(pfd->mFilename).get());
+    nsPluginTag *pluginTag = RemoveCachedPluginsInfo(NS_ConvertUTF16toUTF8(pfd->mFilename).get());
 
     if (pluginTag) {
       // If plugin changed, delete cachedPluginTag and don't use cache
@@ -5758,7 +5758,7 @@ NS_IMETHODIMP nsPluginHostImpl::NewPluginURLStream(const nsString& aURL,
       if (doc)
       {
         // Set the owner of channel to the document principal...
-        channel->SetOwner(doc->GetPrincipal());
+        channel->SetOwner(doc->GetNodePrincipal());
       }
 
       // deal with headers and post data
@@ -5840,7 +5840,7 @@ nsPluginHostImpl::DoURLLoadSecurityCheck(nsIPluginInstance *aInstance,
   if (NS_FAILED(rv))
     return rv;
 
-  return secMan->CheckLoadURIWithPrincipal(doc->GetPrincipal(), targetURL,
+  return secMan->CheckLoadURIWithPrincipal(doc->GetNodePrincipal(), targetURL,
                                            nsIScriptSecurityManager::STANDARD);
 
 }
@@ -6740,6 +6740,15 @@ nsresult nsPluginStreamListenerPeer::ServeStreamAsFile(nsIRequest *request,
     if (owner) {
       nsPluginWindow    *window = nsnull;
       owner->GetWindow(window);
+#if defined (MOZ_WIDGET_GTK) || defined (MOZ_WIDGET_GTK2)
+      // Should call GetPluginPort() here.
+      // This part is copied from nsPluginInstanceOwner::GetPluginPort(). 
+      nsCOMPtr<nsIWidget> widget;
+      ((nsPluginNativeWindow*)window)->GetPluginWidget(getter_AddRefs(widget));
+      if (widget) {
+        window->window = (nsPluginPort*) widget->GetNativeData(NS_NATIVE_PLUGIN_PORT);
+      }
+#endif
       if (window->window)
       {
         nsCOMPtr<nsIPluginInstance> inst = mInstance;

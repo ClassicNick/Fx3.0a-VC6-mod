@@ -1,103 +1,143 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Netscape Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/NPL/
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
  *
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
  *
  * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is Netscape
- * Communications Corporation.  Portions created by Netscape are
- * Copyright (C) 1998 Netscape Communications Corporation. All
- * Rights Reserved.
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
+ * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): 
- */
+ * Contributor(s):
+ *   Roland Mainz <roland.mainz@informatik.med.uni-giessen.de>
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
-#ifndef nsDeviceContextSpecG_h___
-#define nsDeviceContextSpecG_h___
+#ifndef nsDeviceContextSpecGTK_h___
+#define nsDeviceContextSpecGTK_h___
 
 #include "nsIDeviceContextSpec.h"
-#include "nsDeviceContextSpecG.h"
+#include "nsIPrintSettings.h"
+#include "nsIPrintOptions.h" 
+#include "nsVoidArray.h"
+#include "nsCOMPtr.h"
+#ifdef USE_POSTSCRIPT
 #include "nsIDeviceContextSpecPS.h"
+#endif /* USE_POSTSCRIPT */
+#ifdef USE_XPRINT
+#include "nsIDeviceContextSpecXPrint.h"
+#endif /* USE_XPRINT */
+#include "nsCRT.h" /* should be <limits.h>? */
 
-#include "nsPrintdGTK.h"
+#define NS_PORTRAIT  0
+#define NS_LANDSCAPE 1
 
-class nsDeviceContextSpecGTK : public nsIDeviceContextSpec ,
-                                      public nsIDeviceContextSpecPS
+typedef enum
+{
+  pmInvalid = 0,
+  pmXprint,
+  pmPostScript
+} PrintMethod;
+
+class nsDeviceContextSpecGTK : public nsIDeviceContextSpec
+#ifdef USE_POSTSCRIPT
+                              , public nsIDeviceContextSpecPS
+#endif /* USE_POSTSCRIPT */
+#ifdef USE_XPRINT
+                              , public nsIDeviceContextSpecXp
+#endif /* USE_XPRINT */
 {
 public:
-/**
- * Construct a nsDeviceContextSpecMac, which is an object which contains and manages a mac printrecord
- * @update  dc 12/02/98
- */
   nsDeviceContextSpecGTK();
 
   NS_DECL_ISUPPORTS
 
-/**
- * Initialize the nsDeviceContextSpecMac for use.  This will allocate a printrecord for use
- * @update   dc 2/16/98
- * @param aQuiet if PR_TRUE, prevent the need for user intervention
- *        in obtaining device context spec. if nsnull is passed in for
- *        the aOldSpec, this will typically result in getting a device
- *        context spec for the default output device (i.e. default
- *        printer).
- * @return error status
- */
-  NS_IMETHOD Init(PRBool	aQuiet);
-  
-  
-/**
- * Closes the printmanager if it is open.
- * @update   dc 2/13/98
- * @update   syd 3/20/99
- * @return error status
- */
+#ifdef MOZ_CAIRO_GFX
+  NS_IMETHOD GetSurfaceForPrinter(gfxASurface **surface);
+#endif
 
-  NS_IMETHOD ClosePrintManager();
+  NS_IMETHOD Init(nsIPrintSettings* aPS, PRBool aIsPrintPreview);
+  NS_IMETHOD ClosePrintManager(); 
 
-  NS_IMETHOD GetToPrinter( PRBool &aToPrinter ); 
-
-  NS_IMETHOD GetFirstPageFirst ( PRBool &aFpf );     
-
-  NS_IMETHOD GetGrayscale( PRBool &aGrayscale );   
-
-  NS_IMETHOD GetSize ( int &aSize ); 
-
-  NS_IMETHOD GetTopMargin ( float &value ); 
-
-  NS_IMETHOD GetBottomMargin ( float &value ); 
-
-  NS_IMETHOD GetLeftMargin ( float &value ); 
-
-  NS_IMETHOD GetRightMargin ( float &value ); 
-
-  NS_IMETHOD GetCommand ( char **aCommand );   
-
-  NS_IMETHOD GetPath ( char **aPath );    
-
-  NS_IMETHOD GetPageDimensions (float &aWidth, float &aHeight );
-
-  NS_IMETHOD GetUserCancelled( PRBool &aCancel );      
-
-protected:
-/**
- * Destuct a nsDeviceContextSpecMac, this will release the printrecord
- * @update  dc 2/16/98
- */
+  NS_IMETHOD GetToPrinter(PRBool &aToPrinter); 
+  NS_IMETHOD GetIsPrintPreview(PRBool &aIsPPreview);
+  NS_IMETHOD GetPrinterName ( const char **aPrinter );
+  NS_IMETHOD GetCopies ( int &aCopies );
+  NS_IMETHOD GetFirstPageFirst(PRBool &aFpf);     
+  NS_IMETHOD GetGrayscale(PRBool &aGrayscale);   
+  NS_IMETHOD GetTopMargin(float &value); 
+  NS_IMETHOD GetBottomMargin(float &value); 
+  NS_IMETHOD GetLeftMargin(float &value); 
+  NS_IMETHOD GetRightMargin(float &value); 
+  NS_IMETHOD GetCommand(const char **aCommand);   
+  NS_IMETHOD GetPath (const char **aPath);    
+  NS_IMETHOD GetLandscape (PRBool &aLandscape);
+  NS_IMETHOD GetUserCancelled(PRBool &aCancel);      
+  NS_IMETHOD GetPrintMethod(PrintMethod &aMethod);
+  static nsresult GetPrintMethod(const char *aPrinter, PrintMethod &aMethod);
+  NS_IMETHOD GetPageSizeInTwips(PRInt32 *aWidth, PRInt32 *aHeight);
+  NS_IMETHOD GetPaperName(const char **aPaperName);
+  NS_IMETHOD GetPlexName(const char **aPlexName);
+  NS_IMETHOD GetResolutionName(const char **aResolutionName);
+  NS_IMETHOD GetColorspace(const char **aColorspace);
+  NS_IMETHOD GetDownloadFonts(PRBool &aDownloadFonts);   
   virtual ~nsDeviceContextSpecGTK();
-
+  
 protected:
-
-  UnixPrData mPrData;
-	
+  nsCOMPtr<nsIPrintSettings> mPrintSettings;
+  PRPackedBool mToPrinter : 1;      /* If PR_TRUE, print to printer */
+  PRPackedBool mIsPPreview : 1;     /* If PR_TRUE, is print preview */
+  PRPackedBool mFpf : 1;            /* If PR_TRUE, first page first */
+  PRPackedBool mGrayscale : 1;      /* If PR_TRUE, print grayscale */
+  PRPackedBool mDownloadFonts : 1;  /* If PR_TRUE, download fonts to printer */
+  PRPackedBool mCancel : 1;         /* If PR_TRUE, user cancelled */
+  int    mOrientation;        /* Orientation e.g. Portrait */
+  char   mCommand[PATH_MAX];  /* Print command e.g., lpr */
+  char   mPath[PATH_MAX];     /* If toPrinter = PR_FALSE, dest file */
+  char   mPrinter[256];       /* Printer name */
+  char   mPaperName[256];     /* Printer name */
+  char   mPlexName[256];      /* Plex mode name */
+  char   mResolutionName[256];/* Resolution name */
+  char   mColorspace[256];    /* Colorspace */
+  int    mCopies;             /* number of copies */
+  float  mLeft;               /* left margin */
+  float  mRight;              /* right margin */
+  float  mTop;                /* top margin */
+  float  mBottom;             /* bottom margin */
 };
 
-#endif
+//-------------------------------------------------------------------------
+// Printer Enumerator
+//-------------------------------------------------------------------------
+class nsPrinterEnumeratorGTK : public nsIPrinterEnumerator
+{
+public:
+  nsPrinterEnumeratorGTK();
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSIPRINTERENUMERATOR
+};
+
+#endif /* !nsDeviceContextSpecGTK_h___ */

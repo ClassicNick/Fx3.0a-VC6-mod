@@ -214,7 +214,7 @@ XBL_ProtoErrorReporter(JSContext *cx,
 
     errorObject->Init
          (NS_REINTERPRET_CAST(const PRUnichar*, report->ucmessage),
-          NS_ConvertUTF8toUCS2(report->filename).get(),
+          NS_ConvertUTF8toUTF16(report->filename).get(),
           NS_REINTERPRET_CAST(const PRUnichar*, report->uclinebuf),
           report->lineno, column, report->flags,
           "xbl javascript"
@@ -343,7 +343,7 @@ nsXBLDocGlobalObject::GetPrincipal()
   rv = docInfo->GetDocument(getter_AddRefs(document));
   NS_ENSURE_SUCCESS(rv, nsnull);
 
-  return document->GetPrincipal();
+  return document->GetNodePrincipal();
 }
 
 static PRBool IsChromeURI(nsIURI* aURI)

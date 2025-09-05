@@ -169,6 +169,14 @@ nsMorkHistoryImporter::AddToHistoryCB(const nsACString &aRowID,
   if (uri) {
     PRBool isTyped = values[kTypedColumn].EqualsLiteral("1");
     nsINavHistoryService *history = data->history;
+
+    if (date != -1 && count != 0) {
+      // We have a last visit date, so we'll be adding a visit on that date.
+      // Since that will increment the visit count by 1, we need to initially
+      // add the entry with count - 1 visits.
+      --count;
+    }
+
     history->SetPageDetails(uri, nsDependentString(title, titleLength),
                             data->voidString, count,
                             values[kHiddenColumn].EqualsLiteral("1"), isTyped);
@@ -181,7 +189,7 @@ nsMorkHistoryImporter::AddToHistoryCB(const nsACString &aRowID,
       // page already.
 
       PRInt64 visitID;
-      history->AddVisit(uri, date, 0, transition, 0, &visitID);
+      history->AddVisit(uri, date, 0, transition, PR_FALSE, 0, &visitID);
     }
   }
   return PL_DHASH_NEXT;
@@ -234,7 +242,14 @@ nsMorkHistoryImporter::ImportHistory(nsIFile *aFile,
   mozIStorageConnection *conn = history->GetStorageConnection();
   NS_ENSURE_TRUE(conn, NS_ERROR_NOT_INITIALIZED);
   mozStorageTransaction transaction(conn, PR_FALSE);
+#ifdef IN_MEMORY_LINKS
+  mozIStorageConnection *memoryConn = history->GetMemoryStorageConnection();
+  mozStorageTransaction memTransaction(memoryConn, PR_FALSE);
+#endif
 
   reader.EnumerateRows(AddToHistoryCB, &data);
+#ifdef IN_MEMORY_LINKS
+  memTransaction.Commit();
+#endif
   return transaction.Commit();
 }

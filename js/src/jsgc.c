@@ -580,7 +580,11 @@ js_RemoveRoot(JSRuntime *rt, void *rp)
     return JS_TRUE;
 }
 
-#ifdef DEBUG_brendan
+#if defined(DEBUG_brendan) || defined(DEBUG_timeless)
+#define DEBUG_gchist
+#endif
+
+#ifdef DEBUG_gchist
 #define NGCHIST 64
 
 static struct GCHist {
@@ -728,7 +732,7 @@ js_NewGCThing(JSContext *cx, uintN flags, size_t nbytes)
      */
     thing->next = NULL;
     thing->flagp = NULL;
-#ifdef DEBUG_brendan
+#ifdef DEBUG_gchist
     gchist[gchpos].lastDitch = tried_gc;
     gchist[gchpos].freeList = arenaList->freeList;
     if (++gchpos == NGCHIST)
@@ -1580,6 +1584,7 @@ js_GC(JSContext *cx, uintN gcflags)
     JSStackFrame *fp, *chain;
     uintN i, depth, nslots, type;
     JSStackHeader *sh;
+    JSTempValueRooter *tvr;
     size_t nbytes, nflags, limit, offset;
     JSGCArena *a, **ap;
     uint8 flags, *flagp, *firstPage;
@@ -1737,7 +1742,7 @@ js_GC(JSContext *cx, uintN gcflags)
     /* Drop atoms held by the property cache, and clear property weak links. */
     js_DisablePropertyCache(cx);
     js_FlushPropertyCache(cx);
-#ifdef DEBUG_notme
+#ifdef DEBUG_scopemeters
   { extern void js_DumpScopeMeters(JSRuntime *rt);
     js_DumpScopeMeters(rt);
   }
@@ -1851,6 +1856,16 @@ restart:
 
         if (acx->localRootStack)
             js_MarkLocalRoots(cx, acx->localRootStack);
+        for (tvr = acx->tempValueRooters; tvr; tvr = tvr->down) {
+            if (tvr->count < 0) {
+                if (JSVAL_IS_GCTHING(tvr->u.value)) {
+                    GC_MARK(cx, JSVAL_TO_GCTHING(tvr->u.value), "tvr->u.value",
+                            NULL);
+                }
+            } else {
+                GC_MARK_JSVALS(cx, tvr->count, tvr->u.array, "tvr->u.array");
+            }
+        }
     }
 #ifdef DUMP_CALL_TABLE
     js_DumpCallTable(cx);
@@ -1985,7 +2000,7 @@ restart:
 
     if (rt->gcCallback)
         (void) rt->gcCallback(cx, JSGC_FINALIZE_END);
-#ifdef DEBUG_notme
+#ifdef DEBUG_srcnotesize
   { extern void DumpSrcNoteSizeHist();
     DumpSrcNoteSizeHist();
     printf("GC HEAP SIZE %lu (%lu)\n",

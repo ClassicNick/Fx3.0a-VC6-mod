@@ -47,9 +47,6 @@ class nsVoidArray;
 #define PREF_LDAP_VERSION_NAME     "ldap_2.version"
 #define PREF_LDAP_SERVER_TREE_NAME "ldap_2.servers"
 
-#define kABFileName_PreviousSuffix ".na2" /* final v2 address book format */
-#define kABFileName_PreviousSuffixLen 4
-#define kABFileName_CurrentSuffix ".mab"  /* v3 address book extension */
 #define kMainLdapAddressBook "ldap.mab"   /* v3 main ldap address book file */
 
 /* DIR_Server.dirType */
@@ -190,8 +187,7 @@ nsresult DIR_SaveServerPreferences(nsVoidArray *wholeList);
 void    DIR_GetPrefsForOneServer(DIR_Server *server, PRBool reinitialize, PRBool oldstyle);
 void    DIR_SavePrefsForOneServer(DIR_Server *server);
 
-char   *DIR_CreateServerPrefName (DIR_Server *server, char *name);
-void	DIR_SetServerFileName(DIR_Server* pServer, const char* leafName);
+void DIR_SetServerFileName(DIR_Server* pServer);
 
 DIR_PrefId  DIR_AtomizePrefName(const char *prefname);
 

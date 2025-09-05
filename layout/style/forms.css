@@ -125,7 +125,8 @@ textarea > .anonymous-div,
 input > .anonymous-div {
   overflow: auto;
   border: 0px !important;
-  padding: 0px;
+  /* The 1px horizontal padding is for parity with Win/IE */
+  padding: 0px 1px;
   margin: 0px;
   /* XXXldb I'm not sure if we really want the 'text-decoration: inherit',
      but it's needed to make 'text-decoration' "work" on text inputs. */
@@ -688,6 +689,16 @@ input[type="file"] > input[type="button"]::-moz-focus-inner {
 /* tweak position of button part of file selector */
 input[type="file"] > input[type="button"] {
   margin: 0px 0px 2px 5px !important;
+}
+
+/* make sure disabled images have transparent background */
+input[type="image"][disabled] {
+  background-color: transparent;
+}
+
+/* avoid flickering size when file selector buttons with large text are activated */
+input[type="file"] > input[type="button"]:active:hover {
+  font-size: inherit;
 }
 
 %endif

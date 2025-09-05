@@ -722,7 +722,7 @@ static JSBool
 call_enumerate(JSContext *cx, JSObject *obj)
 {
     JSStackFrame *fp;
-    JSObject *funobj;
+    JSObject *funobj, *pobj;
     JSScope *scope;
     JSScopeProperty *sprop, *cprop;
     JSPropertyOp getter;
@@ -771,9 +771,20 @@ call_enumerate(JSContext *cx, JSObject *obj)
         JS_ASSERT(atom->flags & ATOM_HIDDEN);
         atom = atom->entry.value;
 
-        if (!js_LookupProperty(cx, obj, ATOM_TO_JSID(atom), &obj, &prop))
+        if (!js_LookupProperty(cx, obj, ATOM_TO_JSID(atom), &pobj, &prop))
             return JS_FALSE;
-        JS_ASSERT(obj && prop);
+
+        /*
+         * If we found the property in a different object, don't try sticking
+         * it into wrong slots vector. This can occur because we have a mutable
+         * __proto__ slot, and cloned function objects rely on their __proto__
+         * to delegate to the object that contains the var and arg properties.
+         */
+        if (!prop || pobj != obj) {
+            if (prop)
+                OBJ_DROP_PROPERTY(cx, pobj, prop);
+            continue;
+        }
         cprop = (JSScopeProperty *)prop;
         LOCKED_OBJ_SET_SLOT(obj, cprop->slot, vec[(uint16) sprop->shortid]);
         OBJ_DROP_PROPERTY(cx, obj, prop);
@@ -1174,13 +1185,12 @@ fun_xdrObject(JSXDRState *xdr, JSObject **objp)
 {
     JSContext *cx;
     JSFunction *fun;
-    JSString *atomstr;
+    uint32 nullAtom;            /* flag to indicate if fun->atom is NULL */
     uint32 flagsword;           /* originally only flags was JS_XDRUint8'd */
     uint16 extraUnused;         /* variable for no longer used field */
-    char *propname;
+    JSAtom *propAtom;
     JSScopeProperty *sprop;
     uint32 userid;              /* NB: holds a signed int-tagged jsval */
-    JSAtom *atom;
     uintN i, n, dupflag;
     uint32 type;
 #ifdef DEBUG
@@ -1203,18 +1213,21 @@ fun_xdrObject(JSXDRState *xdr, JSObject **objp)
                                  JS_GetFunctionName(fun));
             return JS_FALSE;
         }
-        atomstr = fun->atom ? ATOM_TO_STRING(fun->atom) : NULL;
+        nullAtom = !fun->atom;
         flagsword = ((uint32)fun->u.i.nregexps << 16) | fun->flags;
         extraUnused = 0;
     } else {
         fun = js_NewFunction(cx, NULL, NULL, 0, 0, NULL, NULL);
         if (!fun)
             return JS_FALSE;
-        atomstr = NULL;
     }
 
-    if (!JS_XDRStringOrNull(xdr, &atomstr) ||
-        !JS_XDRUint16(xdr, &fun->nargs) ||
+    if (!JS_XDRUint32(xdr, &nullAtom))
+        return JS_FALSE;
+    if (!nullAtom && !js_XDRStringAtom(xdr, &fun->atom))
+        return JS_FALSE;
+
+    if (!JS_XDRUint16(xdr, &fun->nargs) ||
         !JS_XDRUint16(xdr, &extraUnused) ||
         !JS_XDRUint16(xdr, &fun->u.i.nvars) ||
         !JS_XDRUint32(xdr, &flagsword)) {
@@ -1264,12 +1277,10 @@ fun_xdrObject(JSXDRState *xdr, JSObject **objp)
                        ? JSXDR_FUNCONST
                        : JSXDR_FUNVAR;
                 userid = INT_TO_JSVAL(sprop->shortid);
-                /* XXX lossy conversion, need new XDR version for ECMAv3 */
-                propname = JS_GetStringBytes(ATOM_TO_STRING(JSID_TO_ATOM(sprop->id)));
-                if (!propname ||
-                    !JS_XDRUint32(xdr, &type) ||
+                propAtom = JSID_TO_ATOM(sprop->id);
+                if (!JS_XDRUint32(xdr, &type) ||
                     !JS_XDRUint32(xdr, &userid) ||
-                    !JS_XDRCString(xdr, &propname)) {
+                    !js_XDRCStringAtom(xdr, &propAtom)) {
                     if (mark)
                         JS_ARENA_RELEASE(&cx->tempPool, mark);
                     return JS_FALSE;
@@ -1285,7 +1296,7 @@ fun_xdrObject(JSXDRState *xdr, JSObject **objp)
 
                 if (!JS_XDRUint32(xdr, &type) ||
                     !JS_XDRUint32(xdr, &userid) ||
-                    !JS_XDRCString(xdr, &propname)) {
+                    !js_XDRCStringAtom(xdr, &propAtom)) {
                     return JS_FALSE;
                 }
                 JS_ASSERT(type == JSXDR_FUNARG || type == JSXDR_FUNVAR ||
@@ -1304,18 +1315,15 @@ fun_xdrObject(JSXDRState *xdr, JSObject **objp)
                     getter = NULL;
                     setter = NULL;
                 }
-                atom = js_Atomize(cx, propname, strlen(propname), 0);
-                JS_free(cx, propname);
-                if (!atom)
-                    return JS_FALSE;
 
                 /* Flag duplicate argument if atom is bound in fun->object. */
                 dupflag = SCOPE_GET_PROPERTY(OBJ_SCOPE(fun->object),
-                                             ATOM_TO_JSID(atom))
+                                             ATOM_TO_JSID(propAtom))
                           ? SPROP_IS_DUPLICATE
                           : 0;
 
-                if (!js_AddHiddenProperty(cx, fun->object, ATOM_TO_JSID(atom),
+                if (!js_AddHiddenProperty(cx, fun->object,
+                                          ATOM_TO_JSID(propAtom),
                                           getter, setter, SPROP_INVALID_SLOT,
                                           attrs | JSPROP_SHARED,
                                           dupflag | SPROP_HAS_SHORTID,
@@ -1335,13 +1343,6 @@ fun_xdrObject(JSXDRState *xdr, JSObject **objp)
         fun->u.i.nregexps = (uint16) (flagsword >> 16);
 
         *objp = fun->object;
-        if (atomstr) {
-            /* XXX only if this was a top-level function! */
-            fun->atom = js_AtomizeString(cx, atomstr, 0);
-            if (!fun->atom)
-                return JS_FALSE;
-        }
-
         js_CallNewScriptHook(cx, fun->u.i.script, fun);
     }
 

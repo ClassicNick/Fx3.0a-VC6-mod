@@ -211,6 +211,10 @@ nsIFrame*
 NS_NewSVGUseFrame(nsIPresShell* aPresShell, nsIContent* aContent);
 PRBool 
 NS_SVG_TestFeatures (const nsAString& value);
+PRBool 
+NS_SVG_TestsSupported (const nsIAtom *atom);
+PRBool 
+NS_SVG_LangSupported (const nsIAtom *atom);
 extern nsIFrame*
 NS_NewSVGLinearGradientFrame(nsIPresShell *aPresShell, nsIContent *aContent);
 extern nsIFrame*
@@ -542,7 +546,11 @@ GetIBContainingBlockFor(nsIFrame* aFrame)
       return aFrame;
     }
 
-    if (!IsFrameSpecial(parentFrame))
+    // Note that we ignore non-special frames which have a pseudo on their
+    // style context -- they're not the frames we're looking for!  In
+    // particular, they may be hiding a real parent that _is_ special.
+    if (!IsFrameSpecial(parentFrame) &&
+        !parentFrame->GetStyleContext()->GetPseudoType())
       break;
 
     aFrame = parentFrame;
@@ -3944,11 +3952,6 @@ nsCSSFrameConstructor::ConstructTableColFrame(nsFrameConstructorState& aState,
   }
   InitAndRestoreFrame(aState, aContent, parentFrame, aStyleContext, nsnull,
                       aNewFrame);
-  // if the parent frame was anonymous then reparent the style context
-  if (aIsPseudoParent) {
-    aState.mFrameManager->
-      ReParentStyleContext(aNewFrame, parentFrame->GetStyleContext());
-  }
 
   // construct additional col frames if the col frame has a span > 1
   PRInt32 span = 1;
@@ -7601,8 +7604,8 @@ nsCSSFrameConstructor::TestSVGConditions(nsIContent* aContent,
       langPrefs.StripWhitespace();
       value.StripWhitespace();
 #ifdef  DEBUG_scooter
-      printf("Calling SVG_TestLanguage('%s','%s')\n", NS_ConvertUCS2toUTF8(value).get(), 
-                                                      NS_ConvertUCS2toUTF8(langPrefs).get());
+      printf("Calling SVG_TestLanguage('%s','%s')\n", NS_ConvertUTF16toUTF8(value).get(), 
+                                                      NS_ConvertUTF16toUTF8(langPrefs).get());
 #endif
       aHasSystemLanguage = SVG_TestLanguage(value, langPrefs);
     } else {
@@ -7650,7 +7653,7 @@ nsCSSFrameConstructor::SVGSwitchProcessChildren(nsFrameConstructorState& aState,
 #ifdef DEBUG_scooter
     nsAutoString str;
     child->Tag()->ToString(str);
-    printf("Child tag: %s\n", NS_ConvertUCS2toUTF8(str).get());
+    printf("Child tag: %s\n", NS_ConvertUTF16toUTF8(str).get());
     printf("SwitchProcessChildren: Required Extensions = %s, Required Features = %s, System Language = %s\n",
             hasRequiredExtensions ? "true" : "false",
             hasRequiredFeatures ? "true" : "false",
@@ -7747,6 +7750,32 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     // adding to the undisplayed content map.
     *aHaltProcessing = PR_TRUE;
     return NS_OK;
+  }
+  
+  // See if this element supports conditionals & if it does,
+  // handle it
+  if (((aContent->HasAttr(kNameSpaceID_None, nsSVGAtoms::requiredFeatures) ||
+        aContent->HasAttr(kNameSpaceID_None, nsSVGAtoms::requiredExtensions)) &&
+        NS_SVG_TestsSupported(aTag)) ||
+      (aContent->HasAttr(kNameSpaceID_None, nsSVGAtoms::systemLanguage) &&
+       NS_SVG_LangSupported(aTag))) {
+
+    PRBool hasRequiredExtentions = PR_FALSE;
+    PRBool hasRequiredFeatures = PR_FALSE;
+    PRBool hasSystemLanguage = PR_FALSE;
+    TestSVGConditions(aContent, hasRequiredExtentions, 
+                      hasRequiredFeatures, hasSystemLanguage);
+    // Note that just returning is probably not right.  According
+    // to the spec, <use> is allowed to use an element that fails its
+    // conditional, but because we never actually create the frame when
+    // a conditional fails and when we use GetReferencedFrame to find the
+    // references, things don't work right.
+    // XXX FIXME XXX
+    if (!hasRequiredExtentions || !hasRequiredFeatures ||
+        !hasSystemLanguage) {
+      *aHaltProcessing = PR_TRUE;
+      return NS_OK;
+    }
   }
 
   // Make sure to keep IsSpecialContent in synch with this code
@@ -7845,7 +7874,7 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     // printf("Warning: Creating SVGGenericContainerFrame for tag <");
     // nsAutoString str;
     // aTag->ToString(str);
-    // printf("%s>\n", NS_ConvertUCS2toUTF8(str).get());
+    // printf("%s>\n", NS_ConvertUTF16toUTF8(str).get());
 #endif
     newFrame = NS_NewSVGGenericContainerFrame(mPresShell, aContent);
   }  
@@ -9301,13 +9330,19 @@ PRBool NotifyListBoxBody(nsPresContext*    aPresContext,
       nsIListBoxObject* listboxBody = listBoxObject->GetListBoxBody();
       if (listboxBody) {
         nsListBoxBodyFrame *listBoxBodyFrame = NS_STATIC_CAST(nsListBoxBodyFrame*, listboxBody);
-        if (aOperation == CONTENT_REMOVED)
-          listBoxBodyFrame->OnContentRemoved(aPresContext, aChildFrame, aIndexInContainer);
-        else
+        if (aOperation == CONTENT_REMOVED) {
+          // Except if we have an aChildFrame and its parent is not the right
+          // thing, then we don't do this.  Pseudo frames are so much fun....
+          if (!aChildFrame || aChildFrame->GetParent() == listBoxBodyFrame) {
+            listBoxBodyFrame->OnContentRemoved(aPresContext, aChildFrame,
+                                               aIndexInContainer);
+            return PR_TRUE;
+          }
+        } else {
           listBoxBodyFrame->OnContentInserted(aPresContext, aChild);
-        //NS_RELEASE(listBoxBodyFrame); frames aren't refcounted
+          return PR_TRUE;
+        }
       }
-      return PR_TRUE;
     }
   }
 
@@ -9853,17 +9888,10 @@ DeletingFrameSubtree(nsPresContext*  aPresContext,
 
   nsAutoVoidArray destroyQueue;
 
-  // If it's a "special" block-in-inline frame, then we need to
-  // remember to delete our special siblings, too.  Since every one of
-  // the next-in-flows has the same special sibling, just do this
-  // once, rather than in the loop below.
-  if (IsFrameSpecial(aFrame)) {
-    nsIFrame* specialSibling;
-    GetSpecialSibling(aFrameManager, aFrame, &specialSibling);
-    if (specialSibling) {
-      DeletingFrameSubtree(aPresContext, aFrameManager, specialSibling);
-    }
-  }
+  // If it's a "special" block-in-inline frame, then we can't really deal.
+  // That really shouldn't be happening.
+  NS_ASSERTION(!IsFrameSpecial(aFrame),
+               "DeletingFrameSubtree on a special frame.  Prepare to crash.");
 
   do {
     DoDeletingFrameSubtree(aPresContext, aFrameManager, destroyQueue,

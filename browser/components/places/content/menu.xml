@@ -90,9 +90,8 @@
               if (PlacesController.nodeIsURI(child)) {
                 element = document.createElementNS(XULNS, "menuitem");
                 element.setAttribute("label", child.title);
-                element.setAttribute("url", child.QueryInterface(Ci.nsINavHistoryURIResultNode).uri);
+                element.setAttribute("url", child.uri);
                 element.setAttribute("statustext", child.url);
-                element.setAttribute("image", child.icon.spec);
                 element.className = "menuitem-iconic bookmark-item";
               }
               else if (PlacesController.nodeIsContainer(child)) {
@@ -115,6 +114,8 @@
                 element.node = child;
                 this.appendChild(element);
               }
+              if (child.icon)
+                element.setAttribute("image", child.icon.spec);
             }
           } else {
             var bundle = document.getElementById("placeBundle");
@@ -149,6 +150,12 @@
       <method name="getSelectionNodes">
         <body><![CDATA[
           return this.hasSelection ? [this.selectedNode] : [];
+        ]]></body>
+      </method>
+      
+      <method name="getRemovableSelectionRanges">
+        <body><![CDATA[ 
+          return [this.getSelectionNodes()];
         ]]></body>
       </method>
       
@@ -196,12 +203,14 @@
       
       <property name="browserWindow" onget="return window;"/>
       
+      <field name="filterTransactions">false</field>
+      
       <field name="supportedDropTypes">
-        [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL]
+        [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE_SEPARATOR, TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL]
       </field>
 
       <field name="supportedDropOnTypes">
-        [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL]
+        [TYPE_X_MOZ_PLACE_CONTAINER, TYPE_X_MOZ_PLACE_SEPARATOR, TYPE_X_MOZ_PLACE, TYPE_X_MOZ_URL]
       </field>
       
       <method name="selectAll">
@@ -211,6 +220,7 @@
       </method>
       
       <method name="saveSelection">
+        <parameter name="mode"/>
         <body><![CDATA[
         ]]></body>
       </method>

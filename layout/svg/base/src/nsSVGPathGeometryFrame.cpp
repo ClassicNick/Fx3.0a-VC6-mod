@@ -266,7 +266,7 @@ nsSVGPathGeometryFrame::PaintSVG(nsISVGRendererCanvas* canvas,
     }
   }
 
-  nsISVGOuterSVGFrame* outerSVGFrame = GetOuterSVGFrame();
+  nsISVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
 
   /* check for a clip path */
 
@@ -555,7 +555,7 @@ nsSVGPathGeometryFrame::WillModifySVGObservable(nsISVGValue* observable,
   // need to handle filters because we might be the topmost filtered frame and
   // the filter region could be changing.
   if (filter && mFilterRegion) {
-    nsISVGOuterSVGFrame *outerSVGFrame = GetOuterSVGFrame();
+    nsISVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
     if (!outerSVGFrame)
       return NS_ERROR_FAILURE;
 
@@ -865,7 +865,8 @@ nsSVGPathGeometryFrame::GetStrokePattern(nsISVGPattern **aPat)
     // Now have the URI.  Get the gradient 
     rv = NS_GetSVGPattern(getter_AddRefs(mStrokePattern), aServer, mContent, 
                           nsSVGPathGeometryFrameBase::GetPresContext()->PresShell());
-    NS_ADD_SVGVALUE_OBSERVER(mStrokePattern);
+    if (mStrokePattern)
+      NS_ADD_SVGVALUE_OBSERVER(mStrokePattern);
   }
   *aPat = mStrokePattern;
   return rv;
@@ -929,7 +930,8 @@ nsSVGPathGeometryFrame::GetFillPattern(nsISVGPattern **aPat)
     // Now have the URI.  Get the pattern 
     rv = NS_GetSVGPattern(getter_AddRefs(mFillPattern), aServer, mContent, 
                           nsSVGPathGeometryFrameBase::GetPresContext()->PresShell());
-    NS_ADD_SVGVALUE_OBSERVER(mFillPattern);
+    if (mFillPattern)
+      NS_ADD_SVGVALUE_OBSERVER(mFillPattern);
   }
   *aPat = mFillPattern;
   return rv;
@@ -1034,7 +1036,7 @@ nsSVGPathGeometryFrame::InitSVG()
   NS_ADD_SVGVALUE_OBSERVER(transforms);
 
   // construct a pathgeometry object:
-  nsISVGOuterSVGFrame* outerSVGFrame = GetOuterSVGFrame();
+  nsISVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame) {
     NS_ERROR("Null outerSVGFrame");
     return NS_ERROR_FAILURE;
@@ -1063,8 +1065,8 @@ void nsSVGPathGeometryFrame::UpdateGraphic(PRUint32 flags,
                                            PRBool suppressInvalidation)
 {
   mUpdateFlags |= flags;
-  
-  nsISVGOuterSVGFrame *outerSVGFrame = GetOuterSVGFrame();
+
+  nsISVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame) {
     NS_ERROR("null outerSVGFrame");
     return;
@@ -1114,18 +1116,4 @@ void nsSVGPathGeometryFrame::UpdateGraphic(PRUint32 flags,
   }
 }
 
-nsISVGOuterSVGFrame *
-nsSVGPathGeometryFrame::GetOuterSVGFrame()
-{
-  NS_ASSERTION(mParent, "null parent");
-  
-  nsISVGContainerFrame *containerFrame;
-  mParent->QueryInterface(NS_GET_IID(nsISVGContainerFrame), (void**)&containerFrame);
-  if (!containerFrame) {
-    NS_ERROR("invalid container");
-    return nsnull;
-  }
-
-  return containerFrame->GetOuterSVGFrame();  
-}
 

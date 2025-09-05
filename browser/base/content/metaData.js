@@ -207,7 +207,7 @@ function checkForImage(elem, htmllocalname)
     }        
      
     if (imgType == "img") {
-      setInfo("image-desc", getAbsoluteURL(img.longDesc, img));
+      setInfo("image-desc", img.longDesc);
     } else {
       setInfo("image-desc", "");
     }
@@ -234,6 +234,8 @@ function checkForLink(elem, htmllocalname)
     setInfo("link-type", elem.getAttribute("type"));
     setInfo("link-rel",  elem.getAttribute("rel"));
     setInfo("link-rev",  elem.getAttribute("rev"));
+    var ping = elem.ping.replace(/ /g, '\n');
+    setInfo("link-ping", ping);
 
     var target = elem.target;
 
@@ -265,12 +267,20 @@ function checkForLink(elem, htmllocalname)
     onLink = true;
   }
 
-  else if (elem.getAttributeNS(XLinkNS,"href") != "") {
-    setInfo("link-url", getAbsoluteURL(elem.getAttributeNS(XLinkNS,"href"),elem));
+  else if (elem.getAttributeNS(XLinkNS, "href") != "") {
+    var ioService = Components.classes["@mozilla.org/network/io-service;1"]
+                              .getService(Components.interfaces.nsIIOService);
+    var url = elem.getAttributeNS(XLinkNS, "href");
+    try {
+        var baseURI = ioService.newURI(elem.baseURI, elem.ownerDocument.characterSet, null);
+        url = ioService.newURI(url, elem.ownerDocument.characterSet, baseURI).spec;
+    } catch (e) {}
+    setInfo("link-url", url);
     setInfo("link-lang", "");
     setInfo("link-type", "");
     setInfo("link-rel", "");
     setInfo("link-rev", "");
+    setInfo("link-ping", "");
 
     switch (elem.getAttributeNS(XLinkNS,"show")) {
     case "embed":
@@ -299,7 +309,7 @@ function checkForInsDel(elem, htmllocalname)
 {
   if ((htmllocalname === "ins" || htmllocalname === "del") &&
     (elem.cite || elem.dateTime)) {
-    setInfo("insdel-cite", getAbsoluteURL(elem.cite, elem));
+    setInfo("insdel-cite", elem.cite);
     setInfo("insdel-date", elem.dateTime);
     onInsDel = true;
   } 
@@ -309,7 +319,7 @@ function checkForInsDel(elem, htmllocalname)
 function checkForQuote(elem, htmllocalname)
 {
   if ((htmllocalname === "q" || htmllocalname === "blockquote") && elem.cite) {
-    setInfo("quote-cite", getAbsoluteURL(elem.cite, elem));
+    setInfo("quote-cite", elem.cite);
     onQuote = true;
   } 
 }
@@ -422,51 +432,6 @@ function getImageForMap(map)
     img = null;
 
   return img;
-}
-
-/*
- * Takes care of XMLBase and <base>
- * url is the possibly relative url.
- * node is the node where the url was given (needed for XMLBase)
- *
- * This function is called in many places as a workaround for bug 72524
- * Once bug 72522 is fixed this code should use the Node.baseURI attribute
- *
- * for node==null or url=="", empty string is returned
- */
-function getAbsoluteURL(url, node)
-{
-  if (!url || !node)
-    return "";
-
-  var urlArr = new Array(url);
-  var doc = node.ownerDocument;
-
-  if (node.nodeType == Node.ATTRIBUTE_NODE)
-    node = node.ownerElement;
-
-  while (node && node.nodeType == Node.ELEMENT_NODE) {
-    if (node.getAttributeNS(XMLNS, "base") != "")
-      urlArr.unshift(node.getAttributeNS(XMLNS, "base"));
-
-    node = node.parentNode;
-  }
-
-  // Look for a <base>.
-  var baseTags = getHTMLElements(doc,"base");
-  if (baseTags && baseTags.length) {
-    urlArr.unshift(baseTags[baseTags.length - 1].getAttribute("href"));
-  }
-
-  // resolve everything from bottom up, starting with document location
-  var ioService = Components.classes["@mozilla.org/network/io-service;1"]
-                            .getService(Components.interfaces.nsIIOService);
-  var URL = ioService.newURI(doc.location.href, null, null);
-  for (var i=0; i<urlArr.length; i++) {
-    URL.spec = URL.resolve(urlArr[i]);
-  }
-
-  return URL.spec;
 }
 
 function getHTMLElements(node, name)

@@ -8,6 +8,19 @@ function bmInit(targetDoc, targetElement) {
 
 }
 
+/* This is called and currently being used from minimo.js, 
+ * See the path bookmarks/... 
+ */
+function bmInitXUL(targetDoc, targetElement) {
+
+    var testLoad=new bmProcessor();
+    testLoad.xslSet("bookmarks/bookmark_template_xul.xml");
+    testLoad.setTargetDocument(targetDoc);
+    testLoad.setTargetElement(targetElement);
+    testLoad.run();
+    
+}
+
 function bmProcessor() {
 	this.xmlRef=document.implementation.createDocument("","",null);
 	this.xslRef=document.implementation.createDocument("http://www.w3.org/1999/XSL/Transform","stylesheet",null);
@@ -73,22 +86,29 @@ bmProcessor.prototype.setTargetElement = function (targetEle) {
 	this.targetElement=targetEle;
 }
 
+
 bmProcessor.prototype.apply = function () {
 
-    if(this.xmlRef.getElementsByTagName("li").length<1) {
-        this.targetDocument.getElementById("message-empty").style.display="block";
-    } else {
-        if(this.xmlLoadedState&&this.xslLoadedState) {	
-            var xsltProcessor = new XSLTProcessor();
-            var htmlFragment=null;
-            try {
-              xsltProcessor.importStylesheet(this.xslRef);
-              htmlFragment = xsltProcessor.transformToFragment(this.xmlRef, this.targetDocument);
-            } catch (e) {
-            }
-            this.targetElement.appendChild(htmlFragment.firstChild);
+    if( this.xmlRef.getElementsByTagName("li").length < 1) {
+      if( this.targetDocument && this.targetDocument ) {
+        if(this.targetDocument.getElementById("message-empty")) {
+            this.targetDocument.getElementById("message-empty").style.display="block";
         }
+        // ... other checks? other formatting...
+      } 
+      return; 
     }
+
+    if(this.xmlLoadedState&&this.xslLoadedState) {	
+        var xsltProcessor = new XSLTProcessor();
+        var htmlFragment=null;
+        try {
+          xsltProcessor.importStylesheet(this.xslRef);
+          htmlFragment = xsltProcessor.transformToFragment(this.xmlRef, this.targetDocument);
+        } catch (e) {
+        }
+        this.targetElement.appendChild(htmlFragment.firstChild);
+    }    
 }
 
 bmProcessor.prototype.run = function () {

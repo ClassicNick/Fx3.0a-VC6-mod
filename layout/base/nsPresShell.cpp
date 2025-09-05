@@ -1736,7 +1736,11 @@ PresShell::Init(nsIDocument* aDocument,
   //SetCaretEnabled(PR_TRUE);       // make it show in browser windows
 #endif  
   //set up selection to be displayed in document
-  SetDisplaySelection(nsISelectionController::SELECTION_DISABLED);
+  // Don't enable selection for print media
+  nsPresContext::nsPresContextType type = aPresContext->Type();
+  if (type != nsPresContext::eContext_PrintPreview &&
+      type != nsPresContext::eContext_Print)
+    SetDisplaySelection(nsISelectionController::SELECTION_DISABLED);
   
   if (gMaxRCProcessingTime == -1) {
     gMaxRCProcessingTime =
@@ -2658,19 +2662,6 @@ static void CheckForFocus(nsPIDOMWindow* aOurWindow,
   aFocusController->SetFocusedWindow(ourWin);
 }
 
-static nsIFrame*
-GetRootScrollFrame(nsIFrame* aRootFrame) {
-  // Ensure root frame is a viewport frame
-  if (aRootFrame && nsLayoutAtoms::viewportFrame == aRootFrame->GetType()) {
-    nsIFrame* theFrame = aRootFrame->GetFirstChild(nsnull);
-    if (theFrame && nsLayoutAtoms::scrollFrame == theFrame->GetType()) {
-      return theFrame;
-    }
-  }
-
-  return nsnull;
-}
-
 NS_IMETHODIMP
 PresShell::GetDidInitialReflow(PRBool *aDidInitialReflow)
 {
@@ -3409,6 +3400,19 @@ nsIPresShell::GetRootFrame() const
   return FrameManager()->GetRootFrame();
 }
 
+nsIFrame*
+nsIPresShell::GetRootScrollFrame() const
+{
+  nsIFrame* rootFrame = FrameManager()->GetRootFrame();
+  // Ensure root frame is a viewport frame
+  if (!rootFrame || nsLayoutAtoms::viewportFrame != rootFrame->GetType())
+    return nsnull;
+  nsIFrame* theFrame = rootFrame->GetFirstChild(nsnull);
+  if (!theFrame || nsLayoutAtoms::scrollFrame != theFrame->GetType())
+    return nsnull;
+  return theFrame;
+}
+
 NS_IMETHODIMP
 PresShell::GetPageSequenceFrame(nsIPageSequenceFrame** aResult) const
 {
@@ -3469,7 +3473,6 @@ PresShell::EndLoad(nsIDocument *aDocument)
 {
 
   // Restore frame state for the root scroll frame
-  nsIFrame* rootFrame = FrameManager()->GetRootFrame();
   nsCOMPtr<nsILayoutHistoryState> historyState =
     aDocument->GetLayoutHistoryState();
   // Make sure we don't reenter reflow via the sync paint that happens while
@@ -3478,8 +3481,8 @@ PresShell::EndLoad(nsIDocument *aDocument)
   // it'll get all confused.
   ++mChangeNestCount;
 
-  if (rootFrame && historyState) {
-    nsIFrame* scrollFrame = GetRootScrollFrame(rootFrame);
+  if (historyState) {
+    nsIFrame* scrollFrame = GetRootScrollFrame();
     if (scrollFrame) {
       nsIScrollableFrame* scrollableFrame;
       CallQueryInterface(scrollFrame, &scrollableFrame);
@@ -4066,7 +4069,7 @@ PresShell::GoToAnchor(const nsAString& aAnchorName, PRBool aScroll)
     
     // Scroll to the top/left if the anchor can not be
     // found and it is labelled top (quirks mode only). @see bug 80784
-    if ((NS_LossyConvertUCS2toASCII(aAnchorName).LowerCaseEqualsLiteral("top")) &&
+    if ((NS_LossyConvertUTF16toASCII(aAnchorName).LowerCaseEqualsLiteral("top")) &&
         (mPresContext->CompatibilityMode() == eCompatibility_NavQuirks)) {
       rv = NS_OK;
       // Check |aScroll| after setting |rv| so we set |rv| to the same
@@ -4361,11 +4364,11 @@ NS_IMETHODIMP PresShell::GetLinkLocation(nsIDOMNode* aNode, nsAString& aLocation
               NS_ENSURE_SUCCESS(rv, rv);
 
               nsCOMPtr<nsIURI> baseURI;
-              rv = ios->NewURI(NS_ConvertUCS2toUTF8(base),nsnull,nsnull,getter_AddRefs(baseURI));
+              rv = ios->NewURI(NS_ConvertUTF16toUTF8(base),nsnull,nsnull,getter_AddRefs(baseURI));
               NS_ENSURE_SUCCESS(rv, rv);
 
               nsCAutoString spec;
-              rv = baseURI->Resolve(NS_ConvertUCS2toUTF8(anchorText),spec);
+              rv = baseURI->Resolve(NS_ConvertUTF16toUTF8(anchorText),spec);
               NS_ENSURE_SUCCESS(rv, rv);
 
               CopyUTF8toUTF16(spec, anchorText);
@@ -4545,7 +4548,7 @@ PresShell::CaptureHistoryState(nsILayoutHistoryState** aState, PRBool aLeavingPa
   // As the scroll position is 0 and this will cause us to loose
   // our previously saved place!
   if (aLeavingPage) {
-    nsIFrame* scrollFrame = GetRootScrollFrame(rootFrame);
+    nsIFrame* scrollFrame = GetRootScrollFrame();
     if (scrollFrame) {
       FrameManager()->CaptureFrameStateFor(scrollFrame, historyState,
                                            nsIStatefulFrame::eDocumentScrollState);
@@ -4784,9 +4787,11 @@ PresShell::IsThemeSupportEnabled()
 NS_IMETHODIMP
 PresShell::PostReflowCallback(nsIReflowCallback* aCallback)
 {
-  nsCallbackEventRequest* request = nsnull;
   void* result = AllocateFrame(sizeof(nsCallbackEventRequest));
-  request = (nsCallbackEventRequest*)result;
+  if (NS_UNLIKELY(!result)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+  nsCallbackEventRequest* request = (nsCallbackEventRequest*)result;
 
   request->callback = aCallback;
   NS_ADDREF(aCallback);
@@ -4847,9 +4852,12 @@ PresShell::PostDOMEvent(nsIContent* aContent, nsEvent* aEvent)
 {
  // ok we have a list of events to handle. Queue them up and handle them
  // after we finish reflow.
-  nsDOMEventRequest* request = nsnull;
+
   void* result = AllocateFrame(sizeof(nsDOMEventRequest));
-  request = (nsDOMEventRequest*)result;
+  if (NS_UNLIKELY(!result)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+  nsDOMEventRequest* request = (nsDOMEventRequest*)result;
 
   request->content = aContent;
   NS_ADDREF(aContent);
@@ -4881,10 +4889,12 @@ PresShell::PostAttributeChange(nsIContent* aContent,
 {
  // ok we have a list of events to handle. Queue them up and handle them
  // after we finish reflow.
-  nsAttributeChangeRequest* request = nsnull;
 
   void* result = AllocateFrame(sizeof(nsAttributeChangeRequest));
-  request = new (result) nsAttributeChangeRequest();
+  if (NS_UNLIKELY(!result)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+  nsAttributeChangeRequest* request = new (result) nsAttributeChangeRequest();
 
   request->content = aContent;
   NS_ADDREF(aContent);
@@ -5467,7 +5477,7 @@ PresShell::RenderOffscreen(nsRect aRect, PRBool aUntrusted,
     scrollingView->GetScrollPosition(x, y);
     localcx->Translate(x, y);
     r.MoveBy(-x, -y);
-    builder.SetIgnoreScrollFrame(GetRootScrollFrame(rootFrame));
+    builder.SetIgnoreScrollFrame(GetRootScrollFrame());
   }
 
   rv = rootFrame->BuildDisplayListForStackingContext(&builder, r, &list);
@@ -5499,28 +5509,45 @@ PresShell::Paint(nsIView*             aView,
   NS_ASSERTION(!(nsnull == aView), "null view");
 
   frame = NS_STATIC_CAST(nsIFrame*, aView->GetClientData());
-     
-  if (nsnull != frame)
-  {
-    if (mCaret)
-      mCaret->EraseCaret();
+  nscolor backgroundColor;
+  mViewManager->GetDefaultBackgroundColor(&backgroundColor);
+  nsIView* rootView;
+  mViewManager->GetRootView(rootView);
+  if (!rootView->GetParent() && rootView->HasWidget()) {
+    PRBool widgetIsTranslucent;
+    rootView->GetWidget()->GetWindowTranslucency(widgetIsTranslucent);
+    if (widgetIsTranslucent) {
+      backgroundColor = NS_RGBA(0,0,0,0);
+    }
+  }
+  
+  if (!frame) {
+    if (NS_GET_A(backgroundColor) > 0) {
+      aRenderingContext->SetColor(backgroundColor);
+      aRenderingContext->FillRect(aDirtyRegion.GetBounds());
+    }
+    return NS_OK;
+  }
+  
+  if (mCaret)
+    mCaret->EraseCaret();
 
-    nsLayoutUtils::PaintFrame(aRenderingContext, frame, aDirtyRegion);
+  nsLayoutUtils::PaintFrame(aRenderingContext, frame, aDirtyRegion,
+                            backgroundColor);
 
 #ifdef NS_DEBUG
-    // Draw a border around the frame
-    if (nsIFrameDebug::GetShowFrameBorders()) {
-      nsRect r = frame->GetRect();
-      aRenderingContext->SetColor(NS_RGB(0,0,255));
-      aRenderingContext->DrawRect(0, 0, r.width, r.height);
-    }
-    // Draw a border around the current event target
-    if ((nsIFrameDebug::GetShowEventTargetFrameBorder()) && (aView == mCurrentTargetView)) {
-      aRenderingContext->SetColor(NS_RGB(128,0,128));
-      aRenderingContext->DrawRect(mCurrentTargetRect.x, mCurrentTargetRect.y, mCurrentTargetRect.width, mCurrentTargetRect.height);
-    }
-#endif
+  // Draw a border around the frame
+  if (nsIFrameDebug::GetShowFrameBorders()) {
+    nsRect r = frame->GetRect();
+    aRenderingContext->SetColor(NS_RGB(0,0,255));
+    aRenderingContext->DrawRect(0, 0, r.width, r.height);
   }
+  // Draw a border around the current event target
+  if ((nsIFrameDebug::GetShowEventTargetFrameBorder()) && (aView == mCurrentTargetView)) {
+    aRenderingContext->SetColor(NS_RGB(128,0,128));
+    aRenderingContext->DrawRect(mCurrentTargetRect.x, mCurrentTargetRect.y, mCurrentTargetRect.width, mCurrentTargetRect.height);
+  }
+#endif
 
   return rv;
 }
@@ -6374,6 +6401,7 @@ PresShell::PostReflowEvent()
   if (eventQueue != mReflowEventQueue && !mIsDestroying &&
       !mIsReflowing && mReflowCommands.Count() > 0) {
     ReflowEvent* ev = new ReflowEvent(NS_STATIC_CAST(nsIPresShell*, this));
+    // OOM note: both PostEvent and PL_DestroyEvent accept a null arg.
     if (NS_FAILED(eventQueue->PostEvent(ev))) {
       NS_ERROR("failed to post reflow event");
       PL_DestroyEvent(ev);
@@ -6601,7 +6629,7 @@ PresShell::ReflowCommandAdded(nsHTMLReflowCommand* aRC)
 
         PR_LOG(gLog, PR_LOG_DEBUG,
                ("presshell=%p, ReflowCommandAdded(%p) target=%p[%s] mRCCreatedDuringLoad=%d\n",
-                this, aRC, target, NS_ConvertUCS2toUTF8(typeStr).get(), mRCCreatedDuringLoad));
+                this, aRC, target, NS_ConvertUTF16toUTF8(typeStr).get(), mRCCreatedDuringLoad));
       }
 #endif
 
@@ -6818,7 +6846,7 @@ LogVerifyMessage(nsIFrame* k1, nsIFrame* k2, const char* aMsg)
   else {
     name.Assign(NS_LITERAL_STRING("(null)"));
   }
-  fputs(NS_LossyConvertUCS2toASCII(name).get(), stdout);
+  fputs(NS_LossyConvertUTF16toASCII(name).get(), stdout);
 
   printf(" != ");
 
@@ -6833,7 +6861,7 @@ LogVerifyMessage(nsIFrame* k1, nsIFrame* k2, const char* aMsg)
   else {
     name.Assign(NS_LITERAL_STRING("(null)"));
   }
-  fputs(NS_LossyConvertUCS2toASCII(name).get(), stdout);
+  fputs(NS_LossyConvertUTF16toASCII(name).get(), stdout);
 
   printf(" %s", aMsg);
 }
@@ -6850,7 +6878,7 @@ LogVerifyMessage(nsIFrame* k1, nsIFrame* k2, const char* aMsg,
                                       (void**)&frameDebug))) {
     fprintf(stdout, "  ");
     frameDebug->GetFrameName(name);
-    fputs(NS_LossyConvertUCS2toASCII(name).get(), stdout);
+    fputs(NS_LossyConvertUTF16toASCII(name).get(), stdout);
     fprintf(stdout, " %p ", (void*)k1);
   }
   printf("{%d, %d, %d, %d}", r1.x, r1.y, r1.width, r1.height);
@@ -6861,7 +6889,7 @@ LogVerifyMessage(nsIFrame* k1, nsIFrame* k2, const char* aMsg,
                                       (void**)&frameDebug))) {
     fprintf(stdout, "  ");
     frameDebug->GetFrameName(name);
-    fputs(NS_LossyConvertUCS2toASCII(name).get(), stdout);
+    fputs(NS_LossyConvertUTF16toASCII(name).get(), stdout);
     fprintf(stdout, " %p ", (void*)k2);
   }
   printf("{%d, %d, %d, %d}\n", r2.x, r2.y, r2.width, r2.height);
@@ -7071,14 +7099,14 @@ CompareTrees(nsPresContext* aFirstPresContext, nsIFrame* aFirstFrame,
       nsAutoString tmp;
       if (nsnull != listName1) {
         listName1->ToString(tmp);
-        fputs(NS_LossyConvertUCS2toASCII(tmp).get(), stdout);
+        fputs(NS_LossyConvertUTF16toASCII(tmp).get(), stdout);
       }
       else
         fputs("(null)", stdout);
       printf(" != ");
       if (nsnull != listName2) {
         listName2->ToString(tmp);
-        fputs(NS_LossyConvertUCS2toASCII(tmp).get(), stdout);
+        fputs(NS_LossyConvertUTF16toASCII(tmp).get(), stdout);
       }
       else
         fputs("(null)", stdout);

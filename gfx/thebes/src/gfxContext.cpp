@@ -48,6 +48,9 @@
 #include "gfxASurface.h"
 #include "gfxPattern.h"
 
+// this doesn't really belong here, but it doesn't need
+// its own file
+THEBES_IMPL_REFCOUNTING(gfxUnknownSurface)
 
 THEBES_IMPL_REFCOUNTING(gfxContext)
 
@@ -64,6 +67,15 @@ gfxContext::~gfxContext()
 gfxASurface *gfxContext::CurrentSurface()
 {
     return mSurface;
+}
+
+gfxASurface *gfxContext::CurrentGroupSurface()
+{
+    cairo_surface_t *s = cairo_get_group_target(mCairo);
+    if (!s)
+        return NULL;
+
+    return new gfxUnknownSurface(s);
 }
 
 void gfxContext::SetTarget(gfxASurface *target)
@@ -499,9 +511,9 @@ void gfxContext::Paint(gfxFloat alpha)
 
 // groups
 
-void gfxContext::PushGroup()
+void gfxContext::PushGroup(SurfaceContent content)
 {
-    cairo_push_group(mCairo);
+    cairo_push_group_with_content(mCairo, (cairo_content_t) content);
 }
 
 gfxPattern *gfxContext::PopGroup()
@@ -526,7 +538,26 @@ void gfxContext::PopFilter()
 
 }
 
-void gfxContext::ShowPage()
+void gfxContext::BeginPrinting(const nsAString& aTitle, const nsAString& aPrintToFileName)
 {
-    cairo_show_page(mCairo);
+    mSurface->BeginPrinting(aTitle, aPrintToFileName);
+}
+
+void gfxContext::EndPrinting()
+{
+    mSurface->EndPrinting();
+}
+void gfxContext::AbortPrinting()
+{
+    mSurface->AbortPrinting();
+}
+void gfxContext::BeginPage()
+{
+    mSurface->BeginPage();
+}
+
+void gfxContext::EndPage()
+{
+    if (NS_FAILED(mSurface->EndPage()))
+        cairo_show_page(mCairo);
 }

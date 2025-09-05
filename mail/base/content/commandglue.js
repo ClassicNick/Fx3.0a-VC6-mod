@@ -64,6 +64,7 @@ var MSG_FOLDER_FLAG_QUEUE = 0x0800;
 var MSG_FOLDER_FLAG_INBOX = 0x1000;
 var MSG_FOLDER_FLAG_TEMPLATES = 0x400000;
 var MSG_FOLDER_FLAG_JUNK = 0x40000000;
+var MSG_FOLDER_FLAG_FAVORITE = 0x80000000;
 
 function OpenURL(url)
 {
@@ -631,7 +632,7 @@ function ConvertSortTypeToColumnID(sortKey)
 	    break;
     default:
       dump("unsupported sort key: " + sortKey + "\n");
-      columnID = null;
+      columnID = "dateCol";
       break;
   }
   return columnID;
@@ -908,8 +909,7 @@ function FolderPaneSelectionChange()
                 gPreQuickSearchView.close();
                 gPreQuickSearchView = null;  
               }
-              
-              clearQuickSearchAfterFolderChange();
+              ClearQSIfNecessary();
             }
             ClearMessagePane();
 

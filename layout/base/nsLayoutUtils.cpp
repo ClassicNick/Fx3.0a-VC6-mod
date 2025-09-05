@@ -587,6 +587,7 @@ nsLayoutUtils::IsInitialContainingBlock(nsIFrame* aFrame)
 
 static PRBool gDumpPaintList = 0;
 static PRBool gDumpEventList = 0;
+static PRBool gDumpRepaintRegionForCopy = 0;
 #endif
 
 nsIFrame*
@@ -610,9 +611,42 @@ nsLayoutUtils::GetFrameForPoint(nsIFrame* aFrame, nsPoint aPt)
   return result;
 }
 
+/**
+ * A simple display item that just renders a solid color across the entire
+ * visible area.
+ */
+MOZ_DECL_CTOR_COUNTER(nsDisplaySolidColor)
+class nsDisplaySolidColor : public nsDisplayItem {
+public:
+  nsDisplaySolidColor(nsIFrame* aFrame, nscolor aColor)
+    : mFrame(aFrame), mColor(aColor) {
+    MOZ_COUNT_CTOR(nsDisplaySolidColor);
+  }
+#ifdef NS_BUILD_REFCNT_LOGGING
+  virtual ~nsDisplaySolidColor() {
+    MOZ_COUNT_DTOR(nsDisplaySolidColor);
+  }
+#endif
+
+  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
+  virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
+     const nsRect& aDirtyRect);
+  NS_DISPLAY_DECL_NAME("SolidColor")
+private:
+  nsIFrame* mFrame;
+  nscolor   mColor;
+};
+
+void nsDisplaySolidColor::Paint(nsDisplayListBuilder* aBuilder,
+     nsIRenderingContext* aCtx, const nsRect& aDirtyRect)
+{
+  aCtx->SetColor(mColor);
+  aCtx->FillRect(aDirtyRect);
+}
+
 nsresult
 nsLayoutUtils::PaintFrame(nsIRenderingContext* aRenderingContext, nsIFrame* aFrame,
-                          const nsRegion& aDirtyRegion)
+                          const nsRegion& aDirtyRegion, nscolor aBackground)
 {
   nsDisplayListBuilder builder(aFrame, PR_FALSE);
   nsDisplayList list;
@@ -620,6 +654,16 @@ nsLayoutUtils::PaintFrame(nsIRenderingContext* aRenderingContext, nsIFrame* aFra
   nsresult rv =
     aFrame->BuildDisplayListForStackingContext(&builder, dirtyRect, &list);
   NS_ENSURE_SUCCESS(rv, rv);
+
+  if (NS_GET_A(aBackground) > 0) {
+    // Fill the visible area with a background color. In the common case,
+    // the visible area is entirely covered by the background of the root
+    // document (at least!) so this will be removed by the optimizer. In some
+    // cases we might not have a root frame, so this will prevent garbage
+    // from being drawn.
+    rv = list.AppendNewToBottom(new (&builder) nsDisplaySolidColor(aFrame, aBackground));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
 
 #ifdef DEBUG
   if (gDumpPaintList) {
@@ -643,6 +687,23 @@ nsLayoutUtils::PaintFrame(nsIRenderingContext* aRenderingContext, nsIFrame* aFra
   // Flush the list so we don't trigger the IsEmpty-on-destruction assertion
   list.DeleteAll();
   return NS_OK;
+}
+
+static void
+AccumulateItemInRegion(nsRegion* aRegion, const nsRect& aAreaRect,
+                       const nsRect& aItemRect, nsDisplayItem* aItem)
+{
+  nsRect damageRect;
+  if (damageRect.IntersectRect(aAreaRect, aItemRect)) {
+#ifdef DEBUG
+    if (gDumpRepaintRegionForCopy) {
+      fprintf(stderr, "Adding rect %d,%d,%d,%d for frame %p\n",
+              damageRect.x, damageRect.y, damageRect.width, damageRect.height,
+              (void*)aItem->GetUnderlyingFrame());
+    }
+#endif
+    aRegion->Or(*aRegion, damageRect);
+  }
 }
 
 static void
@@ -671,28 +732,21 @@ AddItemsToRegion(nsDisplayListBuilder* aBuilder, nsDisplayList* aList,
           nsIFrame* f = item->GetUnderlyingFrame();
           NS_ASSERTION(f, "Must have an underlying frame for leaf item");
           inMovingSubtree = aBuilder->IsMovingFrame(f);
-          nsRect damageRect;
-          if (damageRect.IntersectRect(aRect + aDelta, r)) {
-            aRegion->Or(*aRegion, damageRect);
-          }
+          AccumulateItemInRegion(aRegion, aRect + aDelta, r, item);
         }
       
         if (!inMovingSubtree) {
           // if it's uniform and it includes both the old and new areas, then
           // we don't need to paint it
-          if (!(r.Contains(aRect) && r.Contains(aRect + aDelta) &&
-                item->IsVaryingRelativeToFrame(aBuilder, aBuilder->GetRootMovingFrame()))) {
+          PRBool skip = r.Contains(aRect) && r.Contains(aRect + aDelta) &&
+              item->IsUniform(aBuilder);
+          if (!skip) {
             // area where a non-moving element is visible must be repainted
-            nsRect damageRect;
-            if (damageRect.IntersectRect(aRect + aDelta, r)) {
-              aRegion->Or(*aRegion, damageRect);
-            }
+            AccumulateItemInRegion(aRegion, aRect + aDelta, r, item);
             // we may have bitblitted an area that was painted by a non-moving
             // element. This bitblitted data is invalid and was copied to
             // "r + aDelta".
-            if (damageRect.IntersectRect(aRect + aDelta, r + aDelta)) {
-              aRegion->Or(*aRegion, damageRect);
-            }
+            AccumulateItemInRegion(aRegion, aRect + aDelta, r + aDelta, item);
           }
         }
       }
@@ -722,11 +776,27 @@ nsLayoutUtils::ComputeRepaintRegionForCopy(nsIFrame* aRootFrame,
     aRootFrame->BuildDisplayListForStackingContext(&builder, rect, &list);
   NS_ENSURE_SUCCESS(rv, rv);
 
+#ifdef DEBUG
+  if (gDumpRepaintRegionForCopy) {
+    fprintf(stderr,
+            "Repaint region for copy --- before optimization (area %d,%d,%d,%d, frame %p):\n",
+            rect.x, rect.y, rect.width, rect.height, (void*)aMovingFrame);
+    nsIFrameDebug::PrintDisplayList(&builder, list);
+  }
+#endif
+
   // Optimize for visibility, but frames under aMovingFrame will not be
   // considered opaque, so they don't cover non-moving frames.
   nsRegion visibleRegion(aCopyRect);
   visibleRegion.Or(visibleRegion, aCopyRect + aDelta);
   list.OptimizeVisibility(&builder, &visibleRegion);
+
+#ifdef DEBUG
+  if (gDumpRepaintRegionForCopy) {
+    fprintf(stderr, "Repaint region for copy --- after optimization:\n");
+    nsIFrameDebug::PrintDisplayList(&builder, list);
+  }
+#endif
 
   aRepaintRegion->SetEmpty();
   // Any visible non-moving display items get added to the repaint region

@@ -40,7 +40,7 @@ function updateStyleSheetForCalendar(aCalendar)
     var color = getCalendarManager().getCalendarPref(aCalendar, 'color');
     // This color looks nice with the gripbars, etc.
     if (!color)
-        color = "#4e84c2";
+        color = "#A8C2E1";
     
     rule.style.backgroundColor = color;
     rule.style.color = getContrastingTextColor(color);
@@ -49,14 +49,52 @@ function updateStyleSheetForCalendar(aCalendar)
 function addCalendarToTree(aCalendar)
 {
     var boxobj = document.getElementById("calendarTree").treeBoxObject;
-    boxobj.rowCountChanged(getCalendars().indexOf(aCalendar), 1);
+
+    // XXXdmose in theory, we should be able to do something along the lines
+    //
+    // var calendarRow = getCalendars().indexOf(aCalendar);
+    // boxobj.rowCountChanged(calendarRow, 1);
+    //
+    // Unfortunately, the indexOf in that statement will currently fail
+    // since it's not possible to compare "interface pointers" for identity
+    // because of XPConnect wrapping vagaries.  Bug 325650 covers fixing
+    // this the right way.  But for now...
+
+    // trigger tree redraw by signalizing that a line was added at the top of
+    // the list
+    // a perfect solution would just invalidate the affected lines
+    boxobj.rowCountChanged(0, 1);
+    
+    // as this might lead to situations where nothing has to be changed visually
+    // the whole view should be invalidated (note that we're pretending to
+    // change line 0 only)
+    boxobj.invalidate();
+    
     updateStyleSheetForCalendar(aCalendar);
 }
 
 function removeCalendarFromTree(aCalendar)
 {
     var boxobj = document.getElementById("calendarTree").treeBoxObject;
-    boxobj.rowCountChanged(getCalendars().indexOf(aCalendar), -1);
+
+    // XXXdmose in theory, we should be able to do something along the lines
+    //
+    // boxobj.rowCountChanged(getCalendars().indexOf(aCalendar), -1);
+    //
+    // Unfortunately, the indexOf in that statement will currently fail
+    // since it's not possible to compare "interface pointers" for identity
+    // because of XPConnect wrapping vagaries.  Bug 325650 covers fixing this
+    // the right way.  But for now...
+
+    // trigger tree redraw by signalizing that a line was removed from the
+    // top of the list
+    // a perfect solution would just invalidate the affected lines
+    boxobj.rowCountChanged(0, -1);
+
+    // as this might lead to situations where nothing has to be changed visually
+    // the whole view should be invalidated (note that we're pretending to
+    // change line 0 only)
+    boxobj.invalidate();
 }
 
 var ltnCalendarManagerObserver = {
@@ -157,7 +195,7 @@ var ltnCalendarViewController = {
             aCalendar.addItem(event, null);
         } else {
             // default pop up the dialog
-            var date = document.getElementById("calendar-view-box").selectedPanel.selectedDay;
+            var date = document.getElementById("calendar-view-box").selectedPanel.selectedDay.clone();
             date.isDate = false;
             createEventWithDialog(aCalendar, date, date);
         }
@@ -182,7 +220,7 @@ var ltnCalendarViewController = {
         if (aOccurrence.parentItem != aOccurrence) {
             var event = aOccurrence.parentItem.clone();
             event.recurrenceInfo.removeOccurrenceAt(aOccurrence.recurrenceId);
-            event.calendar.modifyItem(event, aOccurrence, null);
+            event.calendar.modifyItem(event, aOccurrence.parentItem, null);
         } else {
             aOccurrence.calendar.deleteItem(aOccurrence, null);
         }
@@ -213,9 +251,16 @@ function getCalendarManager()
     }
 
     if (activeCalendarManager.getCalendars({}).length == 0) {
-        var homeCalendar = activeCalendarManager.createCalendar("storage", makeURL("moz-profile-calendar://"));
+        var homeCalendar = activeCalendarManager.createCalendar("storage", 
+                           makeURL("moz-profile-calendar://"));
         activeCalendarManager.registerCalendar(homeCalendar);
-        homeCalendar.name = "Home";
+
+        var sbs = Components.classes["@mozilla.org/intl/stringbundle;1"]
+                            .getService(
+                             Components.interfaces.nsIStringBundleService);
+        var props = sbs.createBundle(
+                    "chrome://calendar/locale/calendar.properties");
+        homeCalendar.name = props.GetStringFromName("homeCalendarName");
 
         var composite = getCompositeCalendar();
         composite.addCalendar(homeCalendar);

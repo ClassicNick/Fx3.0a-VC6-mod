@@ -53,7 +53,7 @@
 #include "nsIMsgAccountManager.h"
 #include "nsXPIDLString.h"
 #include "nsEscape.h"
-#include "nsMsgI18N.h"
+#include "nsNativeCharsetUtils.h"
 #include "nsIFileStream.h"
 #include "nsIChannel.h"
 #include "nsITransport.h"
@@ -2039,8 +2039,8 @@ nsresult nsMsgDBFolder::PromptForCachePassword(nsIMsgIncomingServer *server, nsI
   bundle->GetStringFromName(NS_LITERAL_STRING("passwordTitle").get(), getter_Copies(passwordTitle));
   bundle->GetStringFromName(NS_LITERAL_STRING("passwordPrompt").get(), getter_Copies(passwordTemplate));
 
-  NS_ConvertASCIItoUCS2 userNameStr(userName);
-  NS_ConvertASCIItoUCS2 hostNameStr(hostName);
+  NS_ConvertASCIItoUTF16 userNameStr(userName);
+  NS_ConvertASCIItoUTF16 hostNameStr(hostName);
 
   const PRUnichar *stringParams[2] = { userNameStr.get(), hostNameStr.get() };
 
@@ -2082,7 +2082,7 @@ nsresult nsMsgDBFolder::PromptForCachePassword(nsIMsgIncomingServer *server, nsI
           break;
         // compare the user-entered password with the saved password with
         // the munged uri.
-        passwordCorrect = password.Equals(NS_ConvertUCS2toUTF8(passwordFound).get());
+        passwordCorrect = password.Equals(NS_ConvertUTF16toUTF8(passwordFound).get());
         if (!passwordCorrect)
           server->SetPassword("");
         else
@@ -3333,7 +3333,7 @@ NS_IMETHODIMP nsMsgDBFolder::Rename(const PRUnichar *aNewName, nsIMsgWindow *msg
   nsAutoString safeName(aNewName);
   NS_MsgHashIfNecessary(safeName);
   nsCAutoString newDiskName;
-  if (NS_FAILED(nsMsgI18NCopyUTF16ToNative(safeName, newDiskName)))
+  if (NS_FAILED(NS_CopyUnicodeToNative(safeName, newDiskName)))
     return NS_ERROR_FAILURE;
   
   nsXPIDLCString oldLeafName;
@@ -4835,7 +4835,7 @@ nsMsgDBFolder::GetStringFromBundle(const char *msgName, PRUnichar **aResult)
   nsCOMPtr <nsIStringBundle> bundle;
   rv = GetBaseStringBundle(getter_AddRefs(bundle));
   if (NS_SUCCEEDED(rv) && bundle)
-    rv=bundle->GetStringFromName(NS_ConvertASCIItoUCS2(msgName).get(), aResult);
+    rv=bundle->GetStringFromName(NS_ConvertASCIItoUTF16(msgName).get(), aResult);
   return rv;
 
 }
@@ -4872,7 +4872,7 @@ nsMsgDBFolder::GetStringWithFolderNameFromBundle(const char *msgName, PRUnichar 
       folderName,
       kLocalizedBrandShortName
     };
-    rv = bundle->FormatStringFromName(NS_ConvertASCIItoUCS2(msgName).get(),
+    rv = bundle->FormatStringFromName(NS_ConvertASCIItoUTF16(msgName).get(),
                                       formatStrings, 2, aResult);
   }
   return rv;
@@ -5213,7 +5213,7 @@ nsresult nsMsgDBFolder::GetMsgPreviewTextFromStream(nsIMsgDBHdr *msgHdr, nsIInpu
     nsAutoString msgBodyStr;
     // need to do an appropriate conversion here.
     msgBodyStr.AssignWithConversion(msgBody);
-    rv = parser->Parse(msgBodyStr, 0, NS_LITERAL_CSTRING("text/html"), PR_FALSE, PR_TRUE);
+    rv = parser->Parse(msgBodyStr, 0, NS_LITERAL_CSTRING("text/html"), PR_TRUE);
     CopyUTF16toUTF8(bodyText, msgBody);
   }
   msgHdr->SetStringProperty("preview", msgBody.get());

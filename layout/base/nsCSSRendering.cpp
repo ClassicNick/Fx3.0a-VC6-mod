@@ -2805,6 +2805,28 @@ nsCSSRendering::PaintBackground(nsPresContext* aPresContext,
                         aBorder, aPadding, aUsePrintSettings, aBGClipRect);
 }
 
+inline nscoord IntDivFloor(nscoord aDividend, nscoord aDivisor)
+{
+  NS_PRECONDITION(aDivisor > 0,
+                  "this function only works for positive divisors");
+  // ANSI C, ISO 9899:1999 section 6.5.5 defines integer division as
+  // truncation of the result towards zero.  Earlier C standards, as
+  // well as the C++ standards (1998 and 2003) do not, but we depend
+  // on it elsewhere.
+  return (aDividend < 0 ? (aDividend - aDivisor + 1) : aDividend) / aDivisor;
+}
+
+inline nscoord IntDivCeil(nscoord aDividend, nscoord aDivisor)
+{
+  NS_PRECONDITION(aDivisor > 0,
+                  "this function only works for positive divisors");
+  // ANSI C, ISO 9899:1999 section 6.5.5 defines integer division as
+  // truncation of the result towards zero.  Earlier C standards, as
+  // well as the C++ standards (1998 and 2003) do not, but we depend
+  // on it elsewhere.
+  return (aDividend > 0 ? (aDividend + aDivisor - 1) : aDividend) / aDivisor;
+}
+
 /**
  * Return the largest 'v' such that v = aTileOffset + N*aTileSize, for some
  * integer N, and v <= aDirtyStart.
@@ -2813,8 +2835,8 @@ static nscoord
 FindTileStart(nscoord aDirtyStart, nscoord aTileOffset, nscoord aTileSize)
 {
   // Find largest integer N such that aTileOffset + N*aTileSize <= aDirtyStart
-  PRInt32 n = NSToIntFloor((aDirtyStart*1.0f - aTileOffset)/aTileSize);
-  return aTileOffset + n*aTileSize;
+  return aTileOffset +
+         IntDivFloor(aDirtyStart - aTileOffset, aTileSize) * aTileSize;
 }
 
 /**
@@ -2825,8 +2847,8 @@ static nscoord
 FindTileEnd(nscoord aDirtyEnd, nscoord aTileOffset, nscoord aTileSize)
 {
   // Find smallest integer N such that aTileOffset + N*aTileSize >= aDirtyEnd
-  PRInt32 n = NSToIntCeil((aDirtyEnd*1.0f - aTileOffset)/aTileSize);
-  return aTileOffset + n*aTileSize;
+  return aTileOffset +
+         IntDivCeil(aDirtyEnd - aTileOffset, aTileSize) * aTileSize;
 }
 
 void
@@ -2880,6 +2902,7 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
     if (aColor.mBackgroundClip != NS_STYLE_BG_CLIP_BORDER) {
       NS_ASSERTION(aColor.mBackgroundClip == NS_STYLE_BG_CLIP_PADDING,
                    "unknown background-clip value");
+      // XXXldb What about skipSides?
       bgClipArea.Deflate(aBorder.GetBorder());
     }
   }
@@ -2923,7 +2946,7 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
   image->GetHeight(&imageSize.height);
 
   float p2t;
-  p2t = aPresContext->PixelsToTwips();
+  p2t = aPresContext->ScaledPixelsToTwips();
   imageSize.width = NSIntPixelsToTwips(imageSize.width, p2t);
   imageSize.height = NSIntPixelsToTwips(imageSize.height, p2t);
 
@@ -2932,19 +2955,22 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
   nsRect bgOriginArea;
 
   nsIAtom* frameType = aForFrame->GetType();
-  if (frameType == nsLayoutAtoms::inlineFrame) {
+  if (frameType == nsLayoutAtoms::inlineFrame ||
+      frameType == nsLayoutAtoms::positionedInlineFrame) {
     switch (aColor.mBackgroundInlinePolicy) {
     case NS_STYLE_BG_INLINE_POLICY_EACH_BOX:
       bgOriginArea = aBorderArea;
       break;
     case NS_STYLE_BG_INLINE_POLICY_BOUNDING_BOX:
-      bgOriginArea = gInlineBGData.GetBoundingRect(aForFrame);
+      bgOriginArea = gInlineBGData.GetBoundingRect(aForFrame) +
+                     aBorderArea.TopLeft();
       break;
     default:
       NS_ERROR("Unknown background-inline-policy value!  "
                "Please, teach me what to do.");
     case NS_STYLE_BG_INLINE_POLICY_CONTINUOUS:
-      bgOriginArea = gInlineBGData.GetContinuousRect(aForFrame);
+      bgOriginArea = gInlineBGData.GetContinuousRect(aForFrame) +
+                     aBorderArea.TopLeft();
       break;
     }
   }
@@ -2955,11 +2981,13 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
   // Background images are tiled over the 'background-clip' area
   // but the origin of the tiling is based on the 'background-origin' area
   if (aColor.mBackgroundOrigin != NS_STYLE_BG_ORIGIN_BORDER) {
+    // XXXldb What about SkipSides?
     bgOriginArea.Deflate(aBorder.GetBorder());
     if (aColor.mBackgroundOrigin != NS_STYLE_BG_ORIGIN_PADDING) {
       nsMargin padding;
       // XXX CalcPaddingFor is deprecated, but we need it for percentage padding
       aPadding.CalcPaddingFor(aForFrame, padding);
+      // XXXldb What about SkipSides?
       bgOriginArea.Deflate(padding);
       NS_ASSERTION(aColor.mBackgroundOrigin == NS_STYLE_BG_ORIGIN_CONTENT,
                    "unknown background-origin value");

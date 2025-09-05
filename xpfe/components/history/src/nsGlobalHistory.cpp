@@ -614,10 +614,25 @@ nsGlobalHistory::AddURI(nsIURI *aURI, PRBool aRedirect, PRBool aTopLevel, nsIURI
   rv = gRDFService->GetDateLiteral(now, getter_AddRefs(date));
   if (NS_FAILED(rv)) return rv;
 
+  PRBool isJavascript;
+  rv = aURI->SchemeIs("javascript", &isJavascript);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   nsCOMPtr<nsIMdbRow> row;
   rv = FindRow(kToken_URLColumn, URISpec.get(), getter_AddRefs(row));
 
   if (NS_SUCCEEDED(rv)) {
+
+    // If this is not a JS url, not a redirected URI and not in a frame, 
+    // unhide it since URIs are added hidden if they are redirected, in a 
+    // frame or typed.
+    PRBool wasTyped = HasCell(mEnv, row, kToken_TypedColumn);
+    if (wasTyped) {
+      mTypedHiddenURIs.Remove(URISpec);
+    }
+    if ((!isJavascript && !aRedirect && aTopLevel) || wasTyped) {
+      row->CutColumn(mEnv, kToken_HiddenColumn);
+    }
 
     // update the database, and get the old info back
     PRTime oldDate;
@@ -655,16 +670,12 @@ nsGlobalHistory::AddURI(nsIURI *aURI, PRBool aRedirect, PRBool aTopLevel, nsIURI
     NS_ASSERTION(NS_SUCCEEDED(rv), "AddNewPageToDatabase failed; see bug 88961");
     if (NS_FAILED(rv)) return rv;
     
-    PRBool isJavascript;
-    rv = aURI->SchemeIs("javascript", &isJavascript);
-    NS_ENSURE_SUCCESS(rv, rv);
-
     if (isJavascript || aRedirect || !aTopLevel) {
       // if this is a JS url, or a redirected URI or in a frame, hide it in
       // global history so that it doesn't show up in the autocomplete
-      // dropdown. AddExistingPageToDatabase has logic to override this
-      // behavior for URIs which were typed. See bug 197127 and bug 161531
-      // for details.
+      // dropdown. We'll unhide non-JS urls later if we visit the URI not as 
+      // part of a redirect and not in a frame. See bug 197127, bug 161531 and
+      // bug 322106 for details.
       rv = SetRowValue(row, kToken_HiddenColumn, 1);
       NS_ENSURE_SUCCESS(rv, rv);
     }
@@ -714,17 +725,6 @@ nsGlobalHistory::AddExistingPageToDatabase(nsIMdbRow *row,
   nsresult rv;
   nsCAutoString oldReferrer;
   
-  // if the page was typed, unhide it now because it's
-  // known to be valid
-  if (HasCell(mEnv, row, kToken_TypedColumn)) {
-    nsCAutoString URISpec;
-    rv = GetRowValue(row, kToken_URLColumn, URISpec);
-    NS_ENSURE_SUCCESS(rv, rv);
-    
-    mTypedHiddenURIs.Remove(URISpec);
-    row->CutColumn(mEnv, kToken_HiddenColumn);
-  }
-
   // Update last visit date.
   // First get the old date so we can update observers...
   rv = GetRowValue(row, kToken_LastVisitDateColumn, aOldDate);
@@ -853,7 +853,7 @@ nsGlobalHistory::SetRowValue(nsIMdbRow *aRow, mdb_column aCol,
   // eventually turn this on when we're confident in mork's abilitiy
   // to handle yarn forms properly
 #if 0
-  NS_ConvertUCS2toUTF8 utf8Value(aValue);
+  NS_ConvertUTF16toUTF8 utf8Value(aValue);
   printf("Storing utf8 value %s\n", utf8Value.get());
   mdbYarn yarn = { (void *)utf8Value.get(), utf8Value.Length(), utf8Value.Length(), 0, 1, nsnull };
 #else
@@ -1708,7 +1708,7 @@ nsGlobalHistory::GetTarget(nsIRDFResource* aSource,
     if (aProperty == kNC_URL && !IsFindResource(aSource)) {
       
       nsCOMPtr<nsIRDFLiteral> uriLiteral;
-      rv = gRDFService->GetLiteral(NS_ConvertUTF8toUCS2(uri).get(), getter_AddRefs(uriLiteral));
+      rv = gRDFService->GetLiteral(NS_ConvertUTF8toUTF16(uri).get(), getter_AddRefs(uriLiteral));
       if (NS_FAILED(rv))    return(rv);
       *aTarget = uriLiteral;
       NS_ADDREF(*aTarget);
@@ -1722,7 +1722,7 @@ nsGlobalHistory::GetTarget(nsIRDFResource* aSource,
       // for sorting, we sort by uri, so just return the URI as a literal
       if (aProperty == kNC_NameSort) {
         nsCOMPtr<nsIRDFLiteral> uriLiteral;
-        rv = gRDFService->GetLiteral(NS_ConvertUTF8toUCS2(uri).get(),
+        rv = gRDFService->GetLiteral(NS_ConvertUTF8toUTF16(uri).get(),
                                      getter_AddRefs(uriLiteral));
         if (NS_FAILED(rv))    return(rv);
         
@@ -3976,7 +3976,7 @@ nsGlobalHistory::RowMatches(nsIMdbRow *aRow,
       rowVal.BeginReading(start);
       rowVal.EndReading(end);
   
-      NS_ConvertUCS2toUTF8 utf8Value(term->text);
+      NS_ConvertUTF16toUTF8 utf8Value(term->text);
       
       if (term->method.Equals("is")) {
         if (!utf8Value.Equals(rowVal, nsCaseInsensitiveCStringComparator()))
@@ -4111,7 +4111,7 @@ nsGlobalHistory::AutoCompleteEnumerator::IsResult(nsIMdbRow* aRow)
   nsCAutoString url;
   mHistory->GetRowValue(aRow, mURLColumn, url);
 
-  NS_ConvertUTF8toUCS2 utf8Url(url);
+  NS_ConvertUTF8toUTF16 utf8Url(url);
 
   PRBool result = mHistory->AutoCompleteCompare(utf8Url, mSelectValue, mExclude); 
   
@@ -4129,7 +4129,7 @@ nsGlobalHistory::AutoCompleteEnumerator::ConvertToISupports(nsIMdbRow* aRow, nsI
   nsCOMPtr<nsIAutoCompleteItem> newItem(do_CreateInstance(NS_AUTOCOMPLETEITEM_CONTRACTID));
   NS_ENSURE_TRUE(newItem, NS_ERROR_FAILURE);
 
-  newItem->SetValue(NS_ConvertUTF8toUCS2(url.get()));
+  newItem->SetValue(NS_ConvertUTF8toUTF16(url.get()));
   newItem->SetParam(aRow);
   newItem->SetComment(comments.get());
 

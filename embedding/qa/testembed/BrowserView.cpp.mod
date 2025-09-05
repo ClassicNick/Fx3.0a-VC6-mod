@@ -708,7 +708,7 @@ void CBrowserView::OnFileSaveAs()
 void CBrowserView::OpenURL(const char* pUrl)
 {
     if(mWebNav)
-        mWebNav->LoadURI(NS_ConvertASCIItoUCS2(pUrl).get(), nsIWebNavigation::LOAD_FLAGS_NONE);
+        mWebNav->LoadURI(NS_ConvertASCIItoUTF16(pUrl).get(), nsIWebNavigation::LOAD_FLAGS_NONE);
 }
 
 void CBrowserView::OpenURL(const PRUnichar* pUrl)
@@ -1065,7 +1065,7 @@ void CBrowserView::OnTestsChangeUrl()
 		AfxMessageBox("Begin Change URL test.");
 		WriteToOutputFile("Begin Change URL test.\r\n");
 		strcpy(theUrl, myDialog.m_urlfield);
-		mWebNav->LoadURI(NS_ConvertASCIItoUCS2(theUrl).get(), 
+		mWebNav->LoadURI(NS_ConvertASCIItoUTF16(theUrl).get(), 
 						nsIWebNavigation::LOAD_FLAGS_NONE);
 		WriteToOutputFile("\r\nLoadURI() method is called.");
 		WriteToOutputFile("theUrl = ");
@@ -1506,10 +1506,8 @@ void CBrowserView::OnInterfacesNsishistory()
 
    nsCOMPtr<nsISHistory> theSessionHistory(do_CreateInstance(NS_SHISTORY_CONTRACTID));
    nsCOMPtr<nsIHistoryEntry> theHistoryEntry(do_CreateInstance(NS_HISTORYENTRY_CONTRACTID));
-   nsCOMPtr<nsISHistoryListener> theSHListener(do_CreateInstance(NS_SHISTORYLISTENER_CONTRACTID));
    // do_QueryInterface
    // NS_HISTORYENTRY_CONTRACTID
-   // NS_SHISTORYLISTENER_CONTRACTID
 
   
    if (!theSessionHistory)

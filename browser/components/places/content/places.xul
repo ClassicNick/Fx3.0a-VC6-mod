@@ -9,7 +9,7 @@
 
 <window id="places" title="&places.title;" 
         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
-        onload="PlacesPage.init();" onunload="PlacesPage.uninit();">
+        onload="PlacesPage.init();">
   
   <script type="application/x-javascript"
           src="chrome://browser/content/places/controller.js"/>
@@ -27,7 +27,7 @@
 #include commands.inc
 
   <keyset id="placesKeyset">
-    <key id="placesKey_find" command="placesCmd_find" key="f" modifiers="accel"/>
+    <key id="placesKey_find" command="placesCmd_find" key="&cmd.find.key;" modifiers="accel"/>
     <key id="placesKey_select:all" command="placesCmd_select:all" key="&cmd.select_all.key;" modifiers="accel"/>
     <key id="placesKey_edit:cut" command="placesCmd_edit:cut" key="&cmd.edit_cut.key;" modifiers="accel"/>
     <key id="placesKey_edit:copy" command="placesCmd_edit:copy" key="&cmd.edit_copy.key;" modifiers="accel"/>
@@ -66,7 +66,7 @@
       <vbox id="placesListContainer" flex="1">
         <tree id="placesList" class="placesTree" flex="1" type="places" 
               hidecolumnpicker="true" context="placesContext"
-              onselect="PlacesPage.placeSelected(event);"
+              onselect="PlacesPage.onPlaceSelected(event);"
               seltype="single">
           <treecols>
             <treecol id="title" flex="1" primary="true" hideheader="true"/>
@@ -297,13 +297,11 @@
             <button id="saveSearch_history" command="placesCmd_saveSearch" hidden="true"/>
           </hbox>
           <hbox class="commands" id="commands_feed" flex="1">
-            <button id="subscribe" command="placesCmd_new:folder"/>
-            <separator/>
             <button id="groupOption0" class="commandGroupButton first" 
-                    view="placeContent" command="placesCmd_groupby:site"/>
+                    view="placeContent" command="placesCmd_groupby:feed"/>
             <spacer class="groupSpacer"/>
             <button id="groupOption1" class="commandGroupButton last" 
-                    view="placeContent" command="placesCmd_groupby:page"/>
+                    view="placeContent" command="placesCmd_groupby:post"/>
             <spacer flex="1"/>
             <button id="saveSearch_feed" command="placesCmd_saveSearch" hidden="true"/>
           </hbox>

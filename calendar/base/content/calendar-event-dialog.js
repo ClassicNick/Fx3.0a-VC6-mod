@@ -151,11 +151,14 @@ function loadDialog(item)
     }
 
     /* item default calendar */
-    if (item.calendar) {
+    // If this is a new item, it might not have a calendar, but a default
+    // option could well have been passed in.
+    var calendarToUse = item.calendar || window.arguments[0].calendar
+    if (calendarToUse) {
         var calendarList = document.getElementById("item-calendar");
         var calendars = getCalendarManager().getCalendars({});
         for (i in calendars) {
-            if (item.calendar.uri.equals(calendars[i].uri))
+            if (calendarToUse.uri.equals(calendars[i].uri))
                 calendarList.selectedIndex = i;
         }
     } else {
@@ -243,9 +246,13 @@ function saveDialog(item)
     setItemProperty(item, "title",       getElementValue("item-title"));
     setItemProperty(item, "LOCATION",    getElementValue("item-location"));
 
+    var kDefaultTimezone = calendarDefaultTimezone();
+
     if (isEvent(item)) {
         var startDate = jsDateToDateTime(getElementValue("event-starttime"));
         var endDate = jsDateToDateTime(getElementValue("event-endtime"));
+        startDate = startDate.getInTimezone(kDefaultTimezone);
+        endDate = endDate.getInTimezone(kDefaultTimezone);
 
         var isAllDay = getElementValue("event-all-day", "checked");
         if (isAllDay) {
@@ -256,6 +263,7 @@ function saveDialog(item)
             endDate.day += 1;
             endDate.normalize();
         }
+
         setItemProperty(item, "startDate",   startDate);
         setItemProperty(item, "endDate",     endDate);
     }
@@ -263,10 +271,16 @@ function saveDialog(item)
     if (isToDo(item)) {
         var entryDate = getElementValue("todo-has-entrydate", "checked") ? 
             jsDateToDateTime(getElementValue("todo-entrydate")) : null;
+        if (entryDate) {
+            entryDate = entryDate.getInTimezone(kDefaultTimezone);
+        }
         setItemProperty(item, "entryDate",   entryDate);
 
         var dueDate = getElementValue("todo-has-duedate", "checked") ? 
             jsDateToDateTime(getElementValue("todo-duedate")) : null;
+        if (dueDate) {
+            dueDate = dueDate.getInTimezone(kDefaultTimezone);
+        }
         setItemProperty(item, "dueDate",     dueDate);
     }
 
@@ -310,7 +324,7 @@ function saveDialog(item)
     setItemProperty(item, "CLASS", getElementValue("privacy-menulist"));
 
     if (item.status == "COMPLETED" && isToDo(item)) {
-        item.completedDate = getElementValue("compeleted-date-picker");
+        item.completedDate = jsDateToDateTime(getElementValue("completed-date-picker"));
     }
 
     setItemProperty(item, "PERCENT-COMPLETE", getElementValue("percent-complete-menulist"));
@@ -427,6 +441,10 @@ function updateAccept()
     if (isEvent(window.calendarItem)) {
         startDate = jsDateToDateTime(getElementValue("event-starttime"));
         endDate = jsDateToDateTime(getElementValue("event-endtime"));
+        if (getElementValue("event-all-day", "checked")) {
+            startDate.isDate = true;
+            endDate.isDate = true;
+        }
     } else {
         startDate = getElementValue("todo-has-entrydate", "checked") ? 
             jsDateToDateTime(getElementValue("todo-entrydate")) : null;
@@ -604,12 +622,14 @@ function setItemProperty(item, propertyName, value)
     case "startDate":
         if (value.isDate && !item.startDate.isDate ||
             !value.isDate && item.startDate.isDate ||
+            value.timezone != item.startDate.timezone ||
             value.compare(item.startDate) != 0)
             item.startDate = value;
         break;
     case "endDate":
         if (value.isDate && !item.endDate.isDate ||
             !value.isDate && item.endDate.isDate ||
+            value.timezone != item.endDate.timezone ||
             value.compare(item.endDate) != 0)
             item.endDate = value;
         break;
@@ -619,6 +639,7 @@ function setItemProperty(item, propertyName, value)
             break;
         if ((value && !item.entryDate) ||
             (!value && item.entryDate) ||
+            (value.timezone != item.entryDate.timezone) ||
             (value.compare(item.entryDate) != 0))
             item.entryDate = value;
         break;
@@ -627,6 +648,7 @@ function setItemProperty(item, propertyName, value)
             break;
         if ((value && !item.dueDate) ||
             (!value && item.dueDate) ||
+            (value.timezone != item.dueDate.timezone) ||
             (value.compare(item.dueDate) != 0))
             item.dueDate = value;
         break;

@@ -71,8 +71,7 @@ public:
      */
     virtual gfxASurface *CreateOffscreenSurface(PRUint32 width,
                                                 PRUint32 height,
-                                                gfxASurface::gfxImageFormat imageFormat,
-                                                PRBool fastPixelAccess = PR_FALSE) = 0;
+                                                gfxASurface::gfxImageFormat imageFormat) = 0;
 
     /*
      * Font bits
@@ -89,7 +88,7 @@ public:
 
 protected:
     gfxPlatform() { }
-    ~gfxPlatform() { }
+    virtual ~gfxPlatform() { }
 };
 
 #endif /* GFX_PLATFORM_H */

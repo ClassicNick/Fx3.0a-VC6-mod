@@ -199,6 +199,9 @@ static const contentCreatorCallback sContentCreatorCallbacks[] = {
 };
 
 class SinkContext;
+class HTMLContentSink;
+
+static void MaybeSetForm(nsGenericHTMLElement*, nsHTMLTag, HTMLContentSink*);
 
 class HTMLContentSink : public nsContentSink,
                         public nsIHTMLContentSink,
@@ -211,6 +214,7 @@ class HTMLContentSink : public nsContentSink,
 public:
   friend class SinkContext;
   friend class DummyParserRequest;
+  friend void MaybeSetForm(nsGenericHTMLElement*, nsHTMLTag, HTMLContentSink*);
 
   HTMLContentSink();
   virtual ~HTMLContentSink();
@@ -236,6 +240,7 @@ public:
   // nsIHTMLContentSink
   NS_IMETHOD OpenContainer(const nsIParserNode& aNode);
   NS_IMETHOD CloseContainer(const nsHTMLTag aTag);
+  NS_IMETHOD CloseMalformedContainer(const nsHTMLTag aTag);
   NS_IMETHOD AddLeaf(const nsIParserNode& aNode);
   NS_IMETHOD AddComment(const nsIParserNode& aNode);
   NS_IMETHOD AddProcessingInstruction(const nsIParserNode& aNode);
@@ -273,9 +278,7 @@ protected:
                          PRBool aNotify = PR_FALSE,
                          PRBool aCheckIfPresent = PR_FALSE);
   already_AddRefed<nsGenericHTMLElement>
-  CreateContentObject(const nsIParserNode& aNode, nsHTMLTag aNodeType,
-                      nsGenericHTMLElement* aForm,
-                      nsIDocShell* aDocShell);
+  CreateContentObject(const nsIParserNode& aNode, nsHTMLTag aNodeType);
 
   inline PRInt32 GetNotificationInterval()
   {
@@ -342,8 +345,8 @@ protected:
   PRInt32 mNumOpenIFRAMES;
   nsCOMPtr<nsIRequest> mDummyParserRequest;
 
-  nsString mBaseHREF;
-  nsString mBaseTarget;
+  nsCOMPtr<nsIURI> mBaseHref;
+  nsCOMPtr<nsIAtom> mBaseTarget;
 
   // depth of containment within <noembed>, <noframes> etc
   PRInt32 mInsideNoXXXTag;
@@ -407,7 +410,8 @@ protected:
   // Routines for tags that require special handling when we reach their end
   // tag.
   nsresult ProcessSCRIPTEndTag(nsGenericHTMLElement* content,
-                               PRBool aHaveNotified);
+                               PRBool aHaveNotified,
+                               PRBool aMalformed);
   nsresult ProcessSTYLEEndTag(nsGenericHTMLElement* content);
 
   nsresult OpenHeadContext();
@@ -701,7 +705,7 @@ public:
   nsresult Begin(nsHTMLTag aNodeType, nsGenericHTMLElement* aRoot,
                  PRUint32 aNumFlushed, PRInt32 aInsertionPoint);
   nsresult OpenContainer(const nsIParserNode& aNode);
-  nsresult CloseContainer(const nsHTMLTag aTag);
+  nsresult CloseContainer(const nsHTMLTag aTag, PRBool aMalformed);
   nsresult AddLeaf(const nsIParserNode& aNode);
   nsresult AddLeaf(nsGenericHTMLElement* aContent);
   nsresult AddComment(const nsIParserNode& aNode);
@@ -839,8 +843,8 @@ HTMLContentSink::AddAttributes(const nsIParserNode& aNode,
       nsContentUtils::TrimCharsInSet(kWhitespace, aNode.GetValueAt(i));
 
     if (nodeType == eHTMLTag_a && keyAtom == nsHTMLAtoms::name) {
-      NS_ConvertUCS2toUTF8 cname(v);
-      NS_ConvertUTF8toUCS2 uv(nsUnescape(cname.BeginWriting()));
+      NS_ConvertUTF16toUTF8 cname(v);
+      NS_ConvertUTF8toUTF16 uv(nsUnescape(cname.BeginWriting()));
 
       // Add attribute to content
       aContent->SetAttr(kNameSpaceID_None, keyAtom, uv, aNotify);
@@ -854,29 +858,49 @@ HTMLContentSink::AddAttributes(const nsIParserNode& aNode,
 }
 
 static void
-SetForm(nsGenericHTMLElement* aContent, nsGenericHTMLElement* aForm)
+MaybeSetForm(nsGenericHTMLElement* aContent, nsHTMLTag aNodeType,
+             HTMLContentSink* aSink)
 {
+  nsGenericHTMLElement* form = aSink->mCurrentForm;
+
+  if (!form || aSink->mInsideNoXXXTag) {
+    return;
+  }
+
+  switch (aNodeType) {
+    case eHTMLTag_button:
+    case eHTMLTag_fieldset:
+    case eHTMLTag_label:
+    case eHTMLTag_legend:
+    case eHTMLTag_object:
+    case eHTMLTag_input:
+    case eHTMLTag_select:
+    case eHTMLTag_textarea:
+      break;
+    default:
+      return;
+  }
+  
   nsCOMPtr<nsIFormControl> formControl(do_QueryInterface(aContent));
-  NS_ASSERTION(formControl, "nsGenericHTMLElement didn't implement nsIFormControl");
-  nsCOMPtr<nsIDOMHTMLFormElement> formElement(do_QueryInterface(aForm));
-  NS_ASSERTION(!aForm || formElement, "nsGenericHTMLElement didn't implement nsIDOMHTMLFormElement");
+  NS_ASSERTION(formControl,
+               "nsGenericHTMLElement didn't implement nsIFormControl");
+  nsCOMPtr<nsIDOMHTMLFormElement> formElement(do_QueryInterface(form));
+  NS_ASSERTION(!form || formElement,
+               "nsGenericHTMLElement didn't implement nsIDOMHTMLFormElement");
 
   formControl->SetForm(formElement);
 }
 
 static already_AddRefed<nsGenericHTMLElement>
 MakeContentObject(nsHTMLTag aNodeType, nsINodeInfo *aNodeInfo,
-                  nsGenericHTMLElement* aForm,
-                  PRBool aInsideNoXXXTag, PRBool aFromParser);
+                  PRBool aFromParser);
 
 /**
  * Factory subroutine to create all of the html content objects.
  */
 already_AddRefed<nsGenericHTMLElement>
 HTMLContentSink::CreateContentObject(const nsIParserNode& aNode,
-                                     nsHTMLTag aNodeType,
-                                     nsGenericHTMLElement* aForm,
-                                     nsIDocShell* aDocShell)
+                                     nsHTMLTag aNodeType)
 {
   // Find/create atom for the tag name
 
@@ -904,8 +928,8 @@ HTMLContentSink::CreateContentObject(const nsIParserNode& aNode,
   NS_ENSURE_TRUE(nodeInfo, nsnull);
 
   // Make the content object
-  nsGenericHTMLElement* result = MakeContentObject(aNodeType, nodeInfo, aForm,
-                                             !!mInsideNoXXXTag, PR_TRUE).get();
+  nsGenericHTMLElement* result = MakeContentObject(aNodeType, nodeInfo,
+                                                   PR_TRUE).get();
   if (!result) {
     return nsnull;
   }
@@ -930,7 +954,7 @@ NS_NewHTMLElement(nsIContent** aResult, nsINodeInfo *aNodeInfo)
     // Find tag in tag table
     id = nsHTMLTag(parserService->HTMLCaseSensitiveAtomTagToId(name));
 
-    result = MakeContentObject(id, aNodeInfo, nsnull, PR_FALSE, PR_FALSE);
+    result = MakeContentObject(id, aNodeInfo, PR_FALSE);
   }
   else {
     // Find tag in tag table
@@ -956,7 +980,7 @@ NS_NewHTMLElement(nsIContent** aResult, nsINodeInfo *aNodeInfo)
       }
     }
 
-    result = MakeContentObject(id, nodeInfo, nsnull, PR_FALSE, PR_FALSE);
+    result = MakeContentObject(id, nodeInfo, PR_FALSE);
   }
 
   return result ? CallQueryInterface(result.get(), aResult)
@@ -965,11 +989,8 @@ NS_NewHTMLElement(nsIContent** aResult, nsINodeInfo *aNodeInfo)
 
 already_AddRefed<nsGenericHTMLElement>
 MakeContentObject(nsHTMLTag aNodeType, nsINodeInfo *aNodeInfo,
-                  nsGenericHTMLElement* aForm,
-                  PRBool aInsideNoXXXTag, PRBool aFromParser)
+                  PRBool aFromParser)
 {
-  NS_PRECONDITION(aNodeType != eHTMLTag_form || !aForm, "Creating form in form");
-
   contentCreatorCallback cb = sContentCreatorCallbacks[aNodeType];
 
   NS_ASSERTION(cb != NS_NewHTMLNOTUSEDElement,
@@ -981,23 +1002,6 @@ MakeContentObject(nsHTMLTag aNodeType, nsINodeInfo *aNodeInfo,
   }
 
   NS_ADDREF(result);
-
-  if (aForm && !aInsideNoXXXTag) {
-    switch (aNodeType) {
-    case eHTMLTag_button:
-    case eHTMLTag_fieldset:
-    case eHTMLTag_label:
-    case eHTMLTag_legend:
-    case eHTMLTag_object:
-    case eHTMLTag_input:
-    case eHTMLTag_select:
-    case eHTMLTag_textarea:
-      SetForm(result, aForm);
-      break;
-    default:
-      break;
-    }
-  }
 
   return result;
 }
@@ -1153,11 +1157,8 @@ SinkContext::OpenContainer(const nsIParserNode& aNode)
 
   // Create new container content object
   nsHTMLTag nodeType = nsHTMLTag(aNode.GetNodeType());
-  nsIDocShell *docshell = nsnull;
-  if (mSink->mFrameset) docshell = (nsIDocShell *) mSink->mDocShell;
   nsGenericHTMLElement* content =
-    mSink->CreateContentObject(aNode, nodeType, mSink->mCurrentForm,
-                               docshell).get();
+    mSink->CreateContentObject(aNode, nodeType).get();
   if (!content) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
@@ -1220,6 +1221,7 @@ SinkContext::OpenContainer(const nsIParserNode& aNode)
   }
   
   rv = mSink->AddAttributes(aNode, content);
+  MaybeSetForm(content, nodeType, mSink);
 
   if (mStackPos <= 0) {
     NS_ERROR("container w/o parent");
@@ -1301,7 +1303,7 @@ SinkContext::HaveNotifiedForCurrentContent() const
 }
 
 nsresult
-SinkContext::CloseContainer(const nsHTMLTag aTag)
+SinkContext::CloseContainer(const nsHTMLTag aTag, PRBool aMalformed)
 {
   nsresult result = NS_OK;
 
@@ -1381,7 +1383,7 @@ SinkContext::CloseContainer(const nsHTMLTag aTag)
       // of invalid form nesting. When the end FORM tag comes through,
       // we'll ignore it.
       if (aTag != nodeType) {
-        result = CloseContainer(aTag);
+        result = CloseContainer(aTag, PR_FALSE);
       }
     }
 
@@ -1400,7 +1402,8 @@ SinkContext::CloseContainer(const nsHTMLTag aTag)
 
   case eHTMLTag_script:
     result = mSink->ProcessSCRIPTEndTag(content,
-                                        HaveNotifiedForCurrentContent());
+                                        HaveNotifiedForCurrentContent(),
+                                        aMalformed);
     break;
 
   case eHTMLTag_style:
@@ -1447,8 +1450,7 @@ SinkContext::AddLeaf(const nsIParserNode& aNode)
       // Create new leaf content object
       nsHTMLTag nodeType = nsHTMLTag(aNode.GetNodeType());
       nsRefPtr<nsGenericHTMLElement> content =
-        mSink->CreateContentObject(aNode, nodeType,
-                                   mSink->mCurrentForm, mSink->mDocShell);
+        mSink->CreateContentObject(aNode, nodeType);
       NS_ENSURE_TRUE(content, NS_ERROR_OUT_OF_MEMORY);
 
       // Make sure to add base tag info, if needed, before setting any other
@@ -1478,6 +1480,8 @@ SinkContext::AddLeaf(const nsIParserNode& aNode)
       rv = mSink->AddAttributes(aNode, content);
 
       NS_ENSURE_SUCCESS(rv, rv);
+
+      MaybeSetForm(content, nodeType, mSink);
 
       // Add new leaf to its parent
       AddLeaf(content);
@@ -1988,7 +1992,7 @@ IsScriptEnabled(nsIDocument *aDoc, nsIDocShell *aContainer)
 {
   NS_ENSURE_TRUE(aDoc && aContainer, PR_TRUE);
 
-  nsIPrincipal *principal = aDoc->GetPrincipal();
+  nsIPrincipal *principal = aDoc->GetNodePrincipal();
   NS_ENSURE_TRUE(principal, PR_TRUE);
 
   nsCOMPtr<nsIScriptGlobalObject> globalObject = aDoc->GetScriptGlobalObject();
@@ -2691,7 +2695,7 @@ HTMLContentSink::CloseBody()
              ("HTMLContentSink::CloseBody: layout final body content"));
 
   mCurrentContext->FlushTags(PR_TRUE);
-  mCurrentContext->CloseContainer(eHTMLTag_body);
+  mCurrentContext->CloseContainer(eHTMLTag_body, PR_FALSE);
 
   MOZ_TIMER_DEBUGLOG(("Stop: nsHTMLContentSink::CloseBody()\n"));
   MOZ_TIMER_STOP(mWatch);
@@ -2758,7 +2762,7 @@ HTMLContentSink::CloseForm()
   if (mCurrentForm) {
     // if this is a well-formed form, close it too
     if (mCurrentContext->IsCurrentContainer(eHTMLTag_form)) {
-      result = mCurrentContext->CloseContainer(eHTMLTag_form);
+      result = mCurrentContext->CloseContainer(eHTMLTag_form, PR_FALSE);
       mFlags &= ~NS_SINK_FLAG_FORM_ON_STACK;
     }
 
@@ -2853,7 +2857,7 @@ HTMLContentSink::CloseFrameset()
     sc->FlushTags(PR_TRUE);
   }
 
-  rv = sc->CloseContainer(eHTMLTag_frameset);    
+  rv = sc->CloseContainer(eHTMLTag_frameset, PR_FALSE);    
 
   MOZ_TIMER_DEBUGLOG(("Stop: nsHTMLContentSink::CloseFrameset()\n"));
   MOZ_TIMER_STOP(mWatch);
@@ -2965,7 +2969,7 @@ HTMLContentSink::CloseContainer(const eHTMLTags aTag)
       rv = CloseForm();
       break;
     default:
-      rv = mCurrentContext->CloseContainer(aTag);
+      rv = mCurrentContext->CloseContainer(aTag, PR_FALSE);
       break;
   }
 
@@ -2973,6 +2977,12 @@ HTMLContentSink::CloseContainer(const eHTMLTags aTag)
   MOZ_TIMER_STOP(mWatch);
 
   return rv;
+}
+
+NS_IMETHODIMP
+HTMLContentSink::CloseMalformedContainer(const eHTMLTags aTag)
+{
+  return mCurrentContext->CloseContainer(aTag, PR_TRUE);
 }
 
 NS_IMETHODIMP
@@ -3504,14 +3514,22 @@ HTMLContentSink::TryToScrollToRef()
 void
 HTMLContentSink::AddBaseTagInfo(nsIContent* aContent)
 {
-  if (!mBaseHREF.IsEmpty()) {
-    aContent->SetAttr(kNameSpaceID_None, nsHTMLAtoms::_baseHref, mBaseHREF,
-                      PR_FALSE);
+  nsresult rv;
+  if (mBaseHref) {
+    rv = aContent->SetProperty(nsHTMLAtoms::htmlBaseHref, mBaseHref,
+                               nsPropertyTable::SupportsDtorFunc);
+    if (NS_SUCCEEDED(rv)) {
+      // circumvent nsDerivedSafe
+      NS_ADDREF(NS_STATIC_CAST(nsIURI*, mBaseHref));
+    }
   }
-
-  if (!mBaseTarget.IsEmpty()) {
-    aContent->SetAttr(kNameSpaceID_None, nsHTMLAtoms::_baseTarget,
-                      mBaseTarget, PR_FALSE);
+  if (mBaseTarget) {
+    rv = aContent->SetProperty(nsHTMLAtoms::htmlBaseTarget, mBaseTarget,
+                               nsPropertyTable::SupportsDtorFunc);
+    if (NS_SUCCEEDED(rv)) {
+      // circumvent nsDerivedSafe
+      NS_ADDREF(NS_STATIC_CAST(nsIAtom*, mBaseTarget));
+    }
   }
 }
 
@@ -3573,7 +3591,9 @@ HTMLContentSink::ProcessBASEElement(nsGenericHTMLElement* aElement)
     //-- Make sure this page is allowed to load this URI
     nsresult rv;
     nsCOMPtr<nsIURI> baseHrefURI;
-    rv = NS_NewURI(getter_AddRefs(baseHrefURI), attrValue, nsnull);
+    rv = nsContentUtils::NewURIWithDocumentCharset(getter_AddRefs(baseHrefURI),
+                                                   attrValue, mDocument,
+                                                   nsnull);
     if (NS_FAILED(rv))
       return;
 
@@ -3592,10 +3612,10 @@ HTMLContentSink::ProcessBASEElement(nsGenericHTMLElement* aElement)
         nsContentUtils::GetSecurityManager();
 
       rv = securityManager->
-        CheckLoadURIWithPrincipal(mDocument->GetPrincipal(), baseHrefURI,
+        CheckLoadURIWithPrincipal(mDocument->GetNodePrincipal(), baseHrefURI,
                                   nsIScriptSecurityManager::STANDARD);
       if (NS_SUCCEEDED(rv)) {
-        mBaseHREF = attrValue;
+        mBaseHref = baseHrefURI;
       }
     }
   }
@@ -3607,7 +3627,7 @@ HTMLContentSink::ProcessBASEElement(nsGenericHTMLElement* aElement)
       mDocument->SetBaseTarget(attrValue);
     } else {
       // NAV compatibility quirk
-      mBaseTarget = attrValue;
+      mBaseTarget = do_GetAtom(attrValue);
     }
   }
 }
@@ -3849,13 +3869,19 @@ HTMLContentSink::PostEvaluateScript(nsIScriptElement *aElement)
 
 nsresult
 HTMLContentSink::ProcessSCRIPTEndTag(nsGenericHTMLElement *content,
-                                     PRBool aHaveNotified)
+                                     PRBool aHaveNotified,
+                                     PRBool aMalformed)
 {
   nsCOMPtr<nsIScriptElement> sele = do_QueryInterface(content);
   NS_ASSERTION(sele, "Not really closing a script tag?");
 
   nsRefPtr<nsGenericHTMLElement> parent =
     mCurrentContext->mStack[mCurrentContext->mStackPos - 1].mContent;
+
+  if (aMalformed) {
+    // Make sure to serialize this script correctly, for nice round tripping.
+    sele->SetIsMalformed();
+  }
 
   nsCOMPtr<nsIScriptLoader> loader;
   if (mFrameset) {
@@ -3892,15 +3918,17 @@ HTMLContentSink::ProcessSCRIPTEndTag(nsGenericHTMLElement *content,
   // and call our ScriptAvailable method.
   content->DoneAddingChildren(aHaveNotified);
   
-  // To prevent script evaluation in a frameset document, we suspended
-  // the script loader. Now that the script content has been handled,
-  // let's resume the script loader.
+  // To prevent script evaluation in a frameset document we suspended the
+  // script loader. Now that the script content has been handled, let's resume
+  // the script loader.
   if (loader) {
     loader->SetEnabled(PR_TRUE);
   }
 
   // If the act of insertion evaluated the script, we're fine.
   // Else, block the parser till the script has loaded.
+  // Note: If the script is malformed, we'll get a ScriptAvailable call to
+  // take care of this test.
   if (mNeedToBlockParser || (mParser && !mParser->IsParserEnabled())) {
     return NS_ERROR_HTMLPARSER_BLOCK;
   }

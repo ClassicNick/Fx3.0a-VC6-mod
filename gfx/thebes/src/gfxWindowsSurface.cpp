@@ -36,32 +36,66 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "gfxWindowsSurface.h"
+#include "nsString.h"
 
 THEBES_IMPL_REFCOUNTING(gfxWindowsSurface)
 
+gfxWindowsSurface::gfxWindowsSurface(HWND wnd) :
+    mOwnsDC(PR_TRUE), mWnd(wnd), mOrigBitmap(nsnull)
+{
+    mDC = ::GetDC(mWnd);
+    Init(cairo_win32_surface_create(mDC));
+}
+
 gfxWindowsSurface::gfxWindowsSurface(HDC dc, PRBool deleteDC) :
-    mOwnsDC(deleteDC), mDC(dc), mOrigBitmap(nsnull)
+    mOwnsDC(deleteDC), mDC(dc),mWnd(nsnull), mOrigBitmap(nsnull)
 {
     Init(cairo_win32_surface_create(mDC));
 }
 
 gfxWindowsSurface::gfxWindowsSurface(HDC dc, unsigned long width, unsigned long height) :
-    mOwnsDC(PR_TRUE), mWidth(width), mHeight(height)
+    mOwnsDC(PR_TRUE), mWnd(nsnull)
 {
-    mDC = CreateCompatibleDC(dc);
+    mDC = ::CreateCompatibleDC(dc);
+
     // set the clip region on it so that cairo knows the surface
     // dimensions
-    HRGN clipRegion = CreateRectRgn(0, 0, width, height);
-    if (SelectClipRgn(mDC, clipRegion) == ERROR) {
+    HRGN clipRegion = ::CreateRectRgn(0, 0, width, height);
+    if (::SelectClipRgn(mDC, clipRegion) == ERROR) {
         NS_ERROR("gfxWindowsSurface: SelectClipRgn failed\n");
     }
-    DeleteObject(clipRegion);
+    ::DeleteObject(clipRegion);
 
-    // Creating with width or height of 0 will create a
-    // 1x1 monotone bitmap, which isn't what we want
-    HBITMAP tbits = CreateCompatibleBitmap(dc, PR_MAX(2, width), PR_MAX(2, height));
+    HBITMAP bmp = nsnull;
+    if (dc) {
+        // Create a DDB if we can -- this is faster.
 
-    mOrigBitmap = (HBITMAP)SelectObject(mDC, tbits);
+        // Creating with width or height of 0 will create a
+        // 1x1 monotone bitmap, which isn't what we want
+         bmp = ::CreateCompatibleBitmap(dc, PR_MAX(2, width), PR_MAX(2, height));
+    } else {
+        // Otherwise, create a DIB -- this is slower.
+        BITMAPINFO bmpInfo;
+        unsigned char *bits = NULL;
+
+        /* initialize the bitmapinfoheader */
+        memset(&bmpInfo.bmiHeader, 0, sizeof(BITMAPINFOHEADER));
+        bmpInfo.bmiHeader.biSize = sizeof (BITMAPINFOHEADER);
+        bmpInfo.bmiHeader.biWidth = width;
+        bmpInfo.bmiHeader.biHeight = -(long)height;
+        bmpInfo.bmiHeader.biPlanes = 1;
+        bmpInfo.bmiHeader.biBitCount = 24;
+        bmpInfo.bmiHeader.biCompression = BI_RGB;
+
+        /* create a DIBSection */
+        bmp = CreateDIBSection(dc, &bmpInfo, DIB_RGB_COLORS, (void**)&bits, NULL, 0);
+
+        /* Flush GDI to make sure the DIBSection is actually created */
+        GdiFlush();
+    }
+
+    /* Select the bitmap in to the DC */
+    mOrigBitmap = (HBITMAP)::SelectObject(mDC, bmp);
 
     Init(cairo_win32_surface_create(mDC));
 }
@@ -71,11 +105,89 @@ gfxWindowsSurface::~gfxWindowsSurface()
     Destroy();
 
     if (mDC && mOrigBitmap) {
-        HBITMAP tbits = (HBITMAP)SelectObject(mDC, mOrigBitmap);
+        HBITMAP tbits = (HBITMAP)::SelectObject(mDC, mOrigBitmap);
         if (tbits)
             DeleteObject(tbits);
     }
 
-    if (mOwnsDC)
-        DeleteDC(mDC);
+    if (mOwnsDC) {
+        if (mWnd)
+            ::ReleaseDC(mWnd, mDC);
+        else
+            ::DeleteDC(mDC);
+    }
+}
+
+
+static char*
+GetACPString(const nsAString& aStr)
+{
+    int acplen = aStr.Length() * 2 + 1;
+    char * acp = new char[acplen];
+    if(acp) {
+        int outlen = ::WideCharToMultiByte(CP_ACP, 0, 
+                                           PromiseFlatString(aStr).get(),
+                                           aStr.Length(),
+                                           acp, acplen, NULL, NULL);
+        if (outlen > 0)
+            acp[outlen] = '\0';  // null terminate
+    }
+    return acp;
+}
+
+nsresult gfxWindowsSurface::BeginPrinting(const nsAString& aTitle,
+                                          const nsAString& aPrintToFileName)
+{
+#define DOC_TITLE_LENGTH 30
+    DOCINFO docinfo;
+
+    nsString titleStr;
+    titleStr = aTitle;
+    if (titleStr.Length() > DOC_TITLE_LENGTH) {
+        titleStr.SetLength(DOC_TITLE_LENGTH-3);
+        titleStr.AppendLiteral("...");
+    }
+    char *title = GetACPString(titleStr);
+
+    char *docName = nsnull;
+    if (!aPrintToFileName.IsEmpty()) {
+        docName = ToNewCString(aPrintToFileName);
+    }
+
+    docinfo.cbSize = sizeof(docinfo);
+    docinfo.lpszDocName = title ? title : "Mozilla Document";
+    docinfo.lpszOutput = docName;
+    docinfo.lpszDatatype = NULL;
+    docinfo.fwType = 0;
+
+    ::StartDoc(mDC, &docinfo);
+        
+    delete [] title;
+    if (docName != nsnull) nsMemory::Free(docName);
+
+    return NS_OK;
+}
+
+nsresult gfxWindowsSurface::EndPrinting()
+{
+    ::EndDoc(mDC);
+    return NS_OK;
+}
+
+nsresult gfxWindowsSurface::AbortPrinting()
+{
+    ::AbortDoc(mDC);
+    return NS_OK;
+}
+
+nsresult gfxWindowsSurface::BeginPage()
+{
+    ::StartPage(mDC);
+    return NS_OK;
+}
+
+nsresult gfxWindowsSurface::EndPage()
+{
+    ::EndPage(mDC);
+    return NS_OK;
 }

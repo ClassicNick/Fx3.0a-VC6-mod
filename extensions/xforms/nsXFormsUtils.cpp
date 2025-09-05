@@ -1112,7 +1112,7 @@ nsXFormsUtils::CheckSameOrigin(nsIDocument *aBaseDocument, nsIURI *aTestURI)
   nsresult rv;
 
   // get the base document's principal
-  nsIPrincipal *basePrincipal = aBaseDocument->GetPrincipal();
+  nsIPrincipal *basePrincipal = aBaseDocument->GetNodePrincipal();
 
   if (basePrincipal) {
     // check for the UniversalBrowserRead capability.
@@ -1123,19 +1123,18 @@ nsXFormsUtils::CheckSameOrigin(nsIDocument *aBaseDocument, nsIURI *aTestURI)
       return PR_TRUE;
 
     // check the security manager and do a same original check on the principal
-  nsCOMPtr<nsIScriptSecurityManager> secMan =
+    nsCOMPtr<nsIScriptSecurityManager> secMan =
       do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID);
-  if (secMan) {
+    if (secMan) {
       // get a principal for the uri we are testing
       nsCOMPtr<nsIPrincipal> testPrincipal;
       rv = secMan->GetCodebasePrincipal(aTestURI, getter_AddRefs(testPrincipal));
 
       if (NS_SUCCEEDED(rv)) {
-        rv = secMan->CheckSameOriginPrincipal(aBaseDocument->GetPrincipal(),
-                                              testPrincipal);
-    if (NS_SUCCEEDED(rv))
-      return PR_TRUE;
-  }
+        rv = secMan->CheckSameOriginPrincipal(basePrincipal, testPrincipal);
+        if (NS_SUCCEEDED(rv))
+          return PR_TRUE;
+      }
     }
   }
 
@@ -1144,11 +1143,17 @@ nsXFormsUtils::CheckSameOrigin(nsIDocument *aBaseDocument, nsIURI *aTestURI)
 
   nsCOMPtr<nsIPermissionManager> permMgr =
       do_GetService(NS_PERMISSIONMANAGER_CONTRACTID);
-  PRUint32 perm;
-  rv = permMgr->TestPermission(aBaseDocument->GetDocumentURI(), "xforms-load",
-                               &perm);
-  if (NS_SUCCEEDED(rv) && perm == nsIPermissionManager::ALLOW_ACTION)
-    return PR_TRUE; 
+  NS_ENSURE_TRUE(permMgr, PR_FALSE);
+
+  nsCOMPtr<nsIURI> principalURI;
+  rv = basePrincipal->GetURI(getter_AddRefs(principalURI));
+
+  if (NS_SUCCEEDED(rv)) {
+    PRUint32 perm;
+    rv = permMgr->TestPermission(principalURI, "xforms-load", &perm);
+    if (NS_SUCCEEDED(rv) && perm == nsIPermissionManager::ALLOW_ACTION)
+      return PR_TRUE;
+  }
 
   return PR_FALSE;
 }
@@ -1378,7 +1383,7 @@ nsXFormsUtils::ReportError(const nsString& aMessageName, const PRUnichar **aPara
   if (msg.IsEmpty()) {
 #ifdef DEBUG
     printf("nsXFormsUtils::ReportError() Failed to get message string for message id '%s'!\n",
-           NS_ConvertUCS2toUTF8(aMessageName).get());
+           NS_ConvertUTF16toUTF8(aMessageName).get());
 #endif
     return;
   }
@@ -1443,7 +1448,7 @@ nsXFormsUtils::ReportError(const nsString& aMessageName, const PRUnichar **aPara
 
   // Log the message to JavaScript Console
 #ifdef DEBUG
-  printf("ERR: %s\n", NS_ConvertUCS2toUTF8(msg).get());
+  printf("ERR: %s\n", NS_ConvertUTF16toUTF8(msg).get());
 #endif
   nsresult rv = errorObject->Init(msg.get(), srcFile.get(), srcLine.get(),
                                   0, 0, aErrorFlag, "XForms");

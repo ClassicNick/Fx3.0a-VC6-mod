@@ -54,7 +54,6 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 #include <gdk/gdkx.h>
-#include "nsFontMetricsUtils.h"
 #include "nsFont.h"
 
 #include <pango/pango.h>
@@ -70,6 +69,7 @@
 #ifdef MOZ_ENABLE_GTK2
 #include "nsSystemFontsGTK2.h"
 #include "gfxPDFSurface.h"
+#include "gfxPSSurface.h"
 static nsSystemFontsGTK2 *gSystemFonts = nsnull;
 #elif XP_WIN
 #include <cairo-win32.h>
@@ -98,8 +98,6 @@ static NS_DEFINE_CID(kPrefCID, NS_PREF_CID);
 
 NS_IMPL_ISUPPORTS_INHERITED0(nsThebesDeviceContext, DeviceContextImpl)
 
-PRInt32 nsThebesDeviceContext::mDpi;
-
 nsThebesDeviceContext::nsThebesDeviceContext()
 {
 #ifdef PR_LOGGING
@@ -114,6 +112,7 @@ nsThebesDeviceContext::nsThebesDeviceContext()
     mCPixelScale = 1.0f;
     mZoom = 1.0f;
     mDepth = 0;
+    mDpi = -1;
 
     mWidget = nsnull;
     mPrinter = PR_FALSE;
@@ -145,25 +144,29 @@ nsThebesDeviceContext::SetDPI(PRInt32 aPrefDPI)
     mDpi = 96;
 
 #if defined(MOZ_ENABLE_GTK2)
-    if (mPrinter) {
-        mDpi = 600;
-    } else {
-        float screenWidthIn = float(::gdk_screen_width_mm()) / 25.4f;
-        OSVal = NSToCoordRound(float(::gdk_screen_width()) / screenWidthIn);
+    float screenWidthIn = float(::gdk_screen_width_mm()) / 25.4f;
+    OSVal = NSToCoordRound(float(::gdk_screen_width()) / screenWidthIn);
 
-        if (aPrefDPI > 0) {
-            // If there's a valid pref value for the logical resolution,
-            // use it.
-            mDpi = aPrefDPI;
-        } else if ((aPrefDPI == 0) || (OSVal > 96)) {
-            // Either if the pref is 0 (force use of OS value) or the OS
-            // value is bigger than 96, use the OS value.
-            mDpi = OSVal;
-        } else {
-            // if we couldn't get the pref or it's negative, and the OS
-            // value is under 96ppi, then use 96.
-            mDpi = 96;
-        }
+    if (aPrefDPI > 0) {
+        // If there's a valid pref value for the logical resolution,
+        // use it.
+        mDpi = aPrefDPI;
+    } else if ((aPrefDPI == 0) || (OSVal > 96)) {
+        // Either if the pref is 0 (force use of OS value) or the OS
+        // value is bigger than 96, use the OS value.
+        mDpi = OSVal;
+    } else {
+        // if we couldn't get the pref or it's negative, and the OS
+        // value is under 96ppi, then use 96.
+        mDpi = 96;
+    }
+
+    if (mPrinter) {
+        // cairo printing doesn't really have the
+        // notion of DPI so we have to use 72...
+        // XXX is this an issue? we force everything else to be 96+
+        mDpi = 72;
+        do_round = PR_FALSE;
     }
 
 #elif defined(XP_WIN)
@@ -197,34 +200,28 @@ nsThebesDeviceContext::Init(nsNativeWidget aWidget)
 {
     mWidget = aWidget;
 
-    static int initialized = 0;
     PRInt32 prefVal = -1;
-    if (!initialized) {
-        initialized = 1;
 
-        // Set prefVal the value of the preference
-        // "browser.display.screen_resolution"
-        // or -1 if we can't get it.
-        // If it's negative, we pretend it's not set.
-        // If it's 0, it means force use of the operating system's logical
-        // resolution.
-        // If it's positive, we use it as the logical resolution
-        nsresult res;
+    // Set prefVal the value of the preference
+    // "browser.display.screen_resolution"
+    // or -1 if we can't get it.
+    // If it's negative, we pretend it's not set.
+    // If it's 0, it means force use of the operating system's logical
+    // resolution.
+    // If it's positive, we use it as the logical resolution
+    nsresult res;
 
-        nsCOMPtr<nsIPref> prefs(do_GetService(kPrefCID, &res));
-        if (NS_SUCCEEDED(res) && prefs) {
-            res = prefs->GetIntPref("browser.display.screen_resolution", &prefVal);
-            if (NS_FAILED(res)) {
-                prefVal = -1;
-            }
-            prefs->RegisterCallback("browser.display.screen_resolution", prefChanged,
-                                    (void *)this);
+    nsCOMPtr<nsIPref> prefs(do_GetService(kPrefCID, &res));
+    if (NS_SUCCEEDED(res) && prefs) {
+        res = prefs->GetIntPref("browser.display.screen_resolution", &prefVal);
+        if (NS_FAILED(res)) {
+            prefVal = -1;
         }
-
-        SetDPI(prefVal);
-    } else {
-        SetDPI(mDpi);
+        prefs->RegisterCallback("browser.display.screen_resolution", prefChanged,
+                                (void *)this);
     }
+
+    SetDPI(prefVal);
 
 #ifdef MOZ_ENABLE_GTK2
     if (getenv ("MOZ_X_SYNC")) {
@@ -235,8 +232,13 @@ nsThebesDeviceContext::Init(nsNativeWidget aWidget)
 
     // XXX
     if (mPrinter) {
-        mWidth = mDpi * 8.5;
-        mHeight = mDpi * 11;
+        // XXX this should use a gfxAPrintingSurface or somesuch cast.
+        // currently PDF and PS are identical here
+        gfxSize size = ((gfxPSSurface*)(mPrintingSurface.get()))->GetSize();
+        mWidth = NSFloatPointsToTwips(size.width);
+        mHeight = NSFloatPointsToTwips(size.height);
+        printf("%f %f\n", size.width, size.height);
+        printf("%d %d\n", (PRInt32)mWidth, (PRInt32)mHeight);
     }
     // XXX
     mDepth = 24;
@@ -260,6 +262,7 @@ NS_IMETHODIMP
 nsThebesDeviceContext::CreateRenderingContext(nsIView *aView,
                                               nsIRenderingContext *&aContext)
 {
+    // This is currently only called by the caret code
     NS_ENSURE_ARG_POINTER(aView);
     NS_PRECONDITION(aView->HasWidget(), "View has no widget!");
 
@@ -302,8 +305,6 @@ nsThebesDeviceContext::CreateRenderingContext(nsIWidget *aWidget,
         nsRefPtr<gfxASurface> surface(aWidget->GetThebesSurface());
         if (surface)
             rv = pContext->Init(this, surface);
-        else
-            rv = pContext->Init(this, aWidget);
         if (NS_SUCCEEDED(rv)) {
             aContext = pContext;
             NS_ADDREF(aContext);
@@ -322,11 +323,9 @@ nsThebesDeviceContext::CreateRenderingContext(nsIRenderingContext *&aContext)
     nsCOMPtr<nsIRenderingContext> pContext;
     rv = CreateRenderingContextInstance(*getter_AddRefs(pContext));
     if (NS_SUCCEEDED(rv)) {
-        gfxASurface *surface = mPrintingSurface;
-        if (surface) {
-            NS_ADDREF(surface);
-            rv = pContext->Init(this, surface);
-        } else
+        if (mPrintingSurface)
+            rv = pContext->Init(this, mPrintingSurface);
+        else
             rv = NS_ERROR_FAILURE;
 
         if (NS_SUCCEEDED(rv)) {
@@ -485,8 +484,13 @@ nsThebesDeviceContext::GetDeviceSurfaceDimensions(PRInt32 &aWidth, PRInt32 &aHei
 {
     if (mPrinter) {
         // we have a printer device
+#ifdef MOZ_ENABLE_GTK2
+        aWidth = mWidth;
+        aHeight = mHeight;
+#else
         aWidth = NSToIntRound(mWidth * mDevUnitsToAppUnits);
         aHeight = NSToIntRound(mHeight * mDevUnitsToAppUnits);
+#endif
     } else {
         nsRect area;
         ComputeFullAreaUsingScreen(&area);
@@ -504,8 +508,13 @@ nsThebesDeviceContext::GetRect(nsRect &aRect)
         // we have a printer device
         aRect.x = 0;
         aRect.y = 0;
+#ifdef MOZ_ENABLE_GTK2
+        aRect.width = NSToIntRound(mWidth);
+        aRect.height = NSToIntRound(mHeight);
+#else
         aRect.width = NSToIntRound(mWidth * mDevUnitsToAppUnits);
         aRect.height = NSToIntRound(mHeight * mDevUnitsToAppUnits);
+#endif
     } else
         ComputeFullAreaUsingScreen ( &aRect );
 
@@ -519,8 +528,13 @@ nsThebesDeviceContext::GetClientRect(nsRect &aRect)
         // we have a printer device
         aRect.x = 0;
         aRect.y = 0;
+#ifdef MOZ_ENABLE_GTK2
+        aRect.width = NSToIntRound(mWidth);
+        aRect.height = NSToIntRound(mHeight);
+#else
         aRect.width = NSToIntRound(mWidth * mDevUnitsToAppUnits);
         aRect.height = NSToIntRound(mHeight * mDevUnitsToAppUnits);
+#endif
     }
     else
         ComputeClientRectUsingScreen(&aRect);
@@ -543,7 +557,6 @@ NS_IMETHODIMP
 nsThebesDeviceContext::GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
                                            nsIDeviceContext *&aContext)
 {
-#if 0
     nsThebesDeviceContext *newDevCon = new nsThebesDeviceContext();
 
     if (newDevCon) {
@@ -554,21 +567,11 @@ nsThebesDeviceContext::GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
         return NS_ERROR_OUT_OF_MEMORY;
     }
     
-    //    newDevCon->mSpec = aDevice;
     NS_ADDREF(aDevice);
 
     newDevCon->mPrinter = PR_TRUE;
 
-#ifdef XP_WIN
-    HDC dc = nsnull;
-    aDevice->CreateSurfaceForPrinter((void**)&dc);
-    
-    // set deleteDC to true so that the surface will DeleteDC(dc) when it goes away
-    newDevCon->mPrintingSurface = new gfxWindowsSurface(dc, PR_TRUE);
-#else
-    // XXX
-    newDevCon->mPrintingSurface = new gfxPDFSurface("/tmp/foo.pdf", 8.5*72, 11*72);
-#endif
+    aDevice->GetSurfaceForPrinter(getter_AddRefs(newDevCon->mPrintingSurface));
 
     newDevCon->Init(nsnull);
 
@@ -584,10 +587,6 @@ nsThebesDeviceContext::GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
     newDevCon->SetDevUnitsToAppUnits(1.0f / newDevCon->mAppUnitsToDevUnits);
 
     return NS_OK;
-#endif
-
-    /* we don't do printing */
-    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 
@@ -598,23 +597,6 @@ nsThebesDeviceContext::PrepareDocument(PRUnichar * aTitle,
     return NS_OK;
 }
 
-#ifdef XP_WIN
-static char*
-GetACPString(const nsAString& aStr)
-{
-    int acplen = aStr.Length() * 2 + 1;
-    char * acp = new char[acplen];
-    if(acp) {
-        int outlen = ::WideCharToMultiByte(CP_ACP, 0, 
-                                           PromiseFlatString(aStr).get(),
-                                           aStr.Length(),
-                                           acp, acplen, NULL, NULL);
-        if (outlen > 0)
-            acp[outlen] = '\0';  // null terminate
-    }
-    return acp;
-}
-#endif
 
 NS_IMETHODIMP
 nsThebesDeviceContext::BeginDocument(PRUnichar*  aTitle, 
@@ -622,39 +604,10 @@ nsThebesDeviceContext::BeginDocument(PRUnichar*  aTitle,
                                      PRInt32     aStartPage, 
                                      PRInt32     aEndPage)
 {
-#ifdef XP_WIN
-#define DOC_TITLE_LENGTH 30
-    nsresult rv = NS_ERROR_GFX_PRINTER_STARTDOC;
-    HDC dc = GetHDC();
-    if (dc) {
-        DOCINFO docinfo;
-
-        nsString titleStr;
-        titleStr = aTitle;
-        if (titleStr.Length() > DOC_TITLE_LENGTH) {
-            titleStr.SetLength(DOC_TITLE_LENGTH-3);
-            titleStr.AppendLiteral("...");
-        }
-        char *title = GetACPString(titleStr);
-
-        char* docName = nsnull;
-        nsAutoString str(aPrintToFileName);
-        if (!str.IsEmpty()) {
-            docName = ToNewCString(str);
-        }
-
-        docinfo.cbSize = sizeof(docinfo);
-        docinfo.lpszDocName = title ? title : "Mozilla Document";
-        docinfo.lpszOutput = docName;
-        docinfo.lpszDatatype = NULL;
-        docinfo.fwType = 0;
-
-        ::StartDoc((HDC)dc, &docinfo);
-        
-        if (title != nsnull) delete [] title;
-        if (docName != nsnull) nsMemory::Free(docName);
-    }
-#endif
+    static const PRUnichar kEmpty[] = { '\0' };
+    nsRefPtr<gfxContext> thebes = new gfxContext(mPrintingSurface);
+    thebes->BeginPrinting(nsDependentString(aTitle ? aTitle : kEmpty),
+                          nsDependentString(aPrintToFileName ? aPrintToFileName : kEmpty));
     return NS_OK;
 }
 
@@ -662,11 +615,8 @@ nsThebesDeviceContext::BeginDocument(PRUnichar*  aTitle,
 NS_IMETHODIMP
 nsThebesDeviceContext::EndDocument(void)
 {
-#ifdef XP_WIN
-    HDC dc = GetHDC();
-    if (dc)
-        ::EndDoc(dc);
-#endif
+    nsRefPtr<gfxContext> thebes = new gfxContext(mPrintingSurface);
+    thebes->EndPrinting();
     return NS_OK;
 }
 
@@ -674,12 +624,8 @@ nsThebesDeviceContext::EndDocument(void)
 NS_IMETHODIMP
 nsThebesDeviceContext::AbortDocument(void)
 {
-#ifdef XP_WIN
-    HDC dc = GetHDC();
-    if (dc)
-        ::AbortDoc(dc);
-#endif
-
+    nsRefPtr<gfxContext> thebes = new gfxContext(mPrintingSurface);
+    thebes->AbortPrinting();
     return NS_OK;
 }
 
@@ -687,38 +633,16 @@ nsThebesDeviceContext::AbortDocument(void)
 NS_IMETHODIMP
 nsThebesDeviceContext::BeginPage(void)
 {
-#ifdef XP_WIN
-    HDC dc = GetHDC();
-    if (dc)
-        ::StartPage(dc);
-#endif
-
+    nsRefPtr<gfxContext> thebes = new gfxContext(mPrintingSurface);
+    thebes->BeginPage();
     return NS_OK;
 }
-
 
 NS_IMETHODIMP
 nsThebesDeviceContext::EndPage(void)
 {
-#ifdef XP_WIN
-    /*
-    if (mDC) {
-        nsRefPtr<gfxWindowsSurface> surface = new gfxWindowsSurface((HDC)mDC);
-        nsRefPtr<gfxContext> context = new gfxContext(surface);
-
-        context->ShowPage();
-    }
-    */
-    HDC dc = GetHDC();
-    if (dc)
-        ::EndPage(dc);
-#else
-    if (mPrintingSurface) {
-        nsRefPtr<gfxContext> context = new gfxContext(mPrintingSurface);
-        context->ShowPage();
-    }
-#endif
-    
+    nsRefPtr<gfxContext> thebes = new gfxContext(mPrintingSurface);
+    thebes->EndPage();
     return NS_OK;
 }
 

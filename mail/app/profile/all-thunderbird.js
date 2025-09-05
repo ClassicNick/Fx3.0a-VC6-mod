@@ -161,6 +161,13 @@ pref("xpinstall.whitelist.add.103", "addons.mozilla.org");
 pref("mail.phishing.detection.enabled", true); // enable / disable phishing detection for link clicks
 pref("mail.spellcheck.inline", true);
 
+// Folder Pane View
+// 0 == All Folders
+// 1 == Unread Folders
+// 2 == Favorite Folders
+// 3 == Most Recently Used Folders
+pref("mail.ui.folderpane.view", 0);
+
 #ifdef XP_WIN
 pref("browser.preferences.instantApply", false);
 #else
@@ -337,15 +344,19 @@ pref("browser.chrome.toolbar_style",        2);
 
 pref("browser.xul.error_pages.enabled", true);
 
-// Dialog modality issues
-pref("browser.show_about_as_stupid_modal_window", false);
-
-pref("browser.download.progressDnldDialog.keepAlive", true); // keep the dnload progress dialog up after dnload is complete
-pref("browser.download.progressDnldDialog.enable_launch_reveal_buttons", true);
+// Attachment download manager settings
+pref("mail.attachment.store.version", 0);
 pref("browser.download.useDownloadDir", false);
 pref("browser.download.folderList", 0);
-pref("browser.download.autoDownload", false);
-pref("browser.download.lastLocation", false);
+pref("browser.download.manager.showAlertOnComplete", false);
+pref("browser.download.manager.showAlertInterval", 2000);
+pref("browser.download.manager.retention", 1);
+pref("browser.download.manager.showWhenStarting", true);
+pref("browser.download.manager.useWindow", true);
+pref("browser.download.manager.closeWhenDone", true);
+pref("browser.download.manager.openDelay", 100);
+pref("browser.download.manager.focusWhenStarting", false);
+pref("browser.download.manager.flashCount", 0);
 
 // various default search settings
 pref("browser.search.defaulturl", "chrome://navigator-region/locale/region.properties");

@@ -89,6 +89,7 @@
 #include "nsIDOMMutationEvent.h"
 #include "nsIDOMEventReceiver.h"
 #include "nsMutationEvent.h"
+#include "nsIEventListenerManager.h"
 
 #include "nsRuleData.h"
 
@@ -272,13 +273,20 @@ protected:
    * Visit a the group of radio buttons this radio belongs to
    * @param aVisitor the visitor to visit with
    */
-  nsresult VisitGroup(nsIRadioVisitor* aVisitor);
+  nsresult VisitGroup(nsIRadioVisitor* aVisitor, PRBool aFlushContent);
 
   /**
    * Do all the work that |SetChecked| does (radio button handling, etc.), but
    * take an |aNotify| parameter.
    */
   nsresult DoSetChecked(PRBool aValue, PRBool aNotify = PR_TRUE);
+
+  /**
+   * Do all the work that |SetCheckedChanged| does (radio button handling,
+   * etc.), but take an |aNotify| parameter that lets it avoid flushing content
+   * when it can.
+   */
+  nsresult DoSetCheckedChanged(PRBool aCheckedChanged, PRBool aNotify);
 
   /**
    * Actually set checked and notify the frame of the change.
@@ -508,7 +516,7 @@ nsHTMLInputElement::AfterSetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
           mType != NS_FORM_INPUT_PASSWORD &&
           mType != NS_FORM_INPUT_FILE) {
         SetAttr(kNameSpaceID_None, nsHTMLAtoms::value,
-                NS_ConvertUTF8toUCS2(mValue), PR_FALSE);
+                NS_ConvertUTF8toUTF16(mValue), PR_FALSE);
         if (mValue) {
           nsMemory::Free(mValue);
           mValue = nsnull;
@@ -749,12 +757,19 @@ nsHTMLInputElement::GetChecked(PRBool* aChecked)
 NS_IMETHODIMP
 nsHTMLInputElement::SetCheckedChanged(PRBool aCheckedChanged)
 {
+  return DoSetCheckedChanged(aCheckedChanged, PR_TRUE);
+}
+
+nsresult
+nsHTMLInputElement::DoSetCheckedChanged(PRBool aCheckedChanged,
+                                        PRBool aNotify)
+{
   if (mType == NS_FORM_INPUT_RADIO) {
     if (GET_BOOLBIT(mBitField, BF_CHECKED_CHANGED) != aCheckedChanged) {
       nsCOMPtr<nsIRadioVisitor> visitor;
       NS_GetRadioSetCheckedChangedVisitor(aCheckedChanged,
                                           getter_AddRefs(visitor));
-      VisitGroup(visitor);
+      VisitGroup(visitor, aNotify);
     }
   } else {
     SetCheckedChangedInternal(aCheckedChanged);
@@ -793,7 +808,7 @@ nsHTMLInputElement::DoSetChecked(PRBool aChecked, PRBool aNotify)
   // value or not, we say the value was changed so that defaultValue don't
   // affect it no more.
   //
-  SetCheckedChanged(PR_TRUE);
+  DoSetCheckedChanged(PR_TRUE, aNotify);
 
   //
   // Don't do anything if we're not changing whether it's checked (it would
@@ -1742,14 +1757,22 @@ nsHTMLInputElement::ParseAttribute(PRInt32 aNamespaceID,
         return PR_FALSE;
       }
 
-      mType = aResult.GetEnumValue();
-      if (mType == NS_FORM_INPUT_FILE) {
+      // Make sure to do the check for newType being NS_FORM_INPUT_FILE and the
+      // corresponding SetValueInternal() call _before_ we set mType.  That way
+      // the logic in SetValueInternal() will work right (that logic makes
+      // assumptions about our frame based on mType, but we won't have had time
+      // to recreate frames yet -- that happens later in the SetAttr()
+      // process).
+      PRInt8 newType = aResult.GetEnumValue();
+      if (newType == NS_FORM_INPUT_FILE) {
         // If the type is being changed to file, set the element value
         // to the empty string. This is for security.
         // Call SetValueInternal so that this doesn't accidentally get caught
         // in the security checks in SetValue.
         SetValueInternal(EmptyString(), nsnull);
       }
+
+      mType = newType;
 
       return PR_TRUE;
     }
@@ -2226,7 +2249,7 @@ nsHTMLInputElement::SubmitNamesValues(nsIFormSubmission* aFormSubmission,
                          nsCaseInsensitiveStringComparator())) {
       // Converts the URL string into the corresponding nsIFile if possible.
       // A local file will be created if the URL string begins with file://.
-      rv = NS_GetFileFromURLSpec(NS_ConvertUCS2toUTF8(value),
+      rv = NS_GetFileFromURLSpec(NS_ConvertUTF16toUTF8(value),
                                  getter_AddRefs(file));
     }
 
@@ -2420,7 +2443,7 @@ nsHTMLInputElement::DoneCreatingElement()
     PRBool resetVal;
     GetDefaultChecked(&resetVal);
     DoSetChecked(resetVal, PR_FALSE);
-    SetCheckedChanged(PR_FALSE);
+    DoSetCheckedChanged(PR_FALSE, PR_FALSE);
   }
 
   SET_BOOLBIT(mBitField, BF_SHOULD_INIT_CHECKED, PR_FALSE);
@@ -2501,8 +2524,7 @@ NS_IMETHODIMP
 nsHTMLInputElement::AddedToRadioGroup(PRBool aNotify)
 {
   // Make sure not to notify if we're still being created by the parser
-  if (aNotify)
-    aNotify = GET_BOOLBIT(mBitField, BF_PARSER_CREATING) != 0;
+  aNotify = aNotify && !GET_BOOLBIT(mBitField, BF_PARSER_CREATING);
 
   //
   //  If the input element is not in a form and
@@ -2539,7 +2561,7 @@ nsHTMLInputElement::AddedToRadioGroup(PRBool aNotify)
                                            getter_AddRefs(visitor));
   NS_ENSURE_SUCCESS(rv, rv);
   
-  VisitGroup(visitor);
+  VisitGroup(visitor, aNotify);
   SetCheckedChangedInternal(checkedChanged);
   
   //
@@ -2668,14 +2690,14 @@ nsHTMLInputElement::IsFocusable(PRInt32 *aTabIndex)
 }
 
 nsresult
-nsHTMLInputElement::VisitGroup(nsIRadioVisitor* aVisitor)
+nsHTMLInputElement::VisitGroup(nsIRadioVisitor* aVisitor, PRBool aFlushContent)
 {
   nsresult rv = NS_OK;
   nsCOMPtr<nsIRadioGroupContainer> container = GetRadioGroupContainer();
   if (container) {
     nsAutoString name;
     if (GetNameIfExists(name)) {
-      rv = container->WalkRadioGroup(name, aVisitor);
+      rv = container->WalkRadioGroup(name, aVisitor, aFlushContent);
     } else {
       PRBool stop;
       aVisitor->Visit(this, &stop);

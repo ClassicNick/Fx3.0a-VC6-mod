@@ -36,9 +36,34 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-const nsCI               = Components.interfaces;
-const nsIWebNavigation = nsCI.nsIWebNavigation;
-const nsIWebProgressListener = nsCI.nsIWebProgressListener;
+const imgICache                = Components.interfaces.imgICache;
+const nsIBrowserDOMWindow      = Components.interfaces.nsIBrowserDOMWindow;
+const nsIBrowserHistory        = Components.interfaces.nsIBrowserHistory;
+const nsIClipboard             = Components.interfaces.nsIClipboard;
+const nsIDOMChromeWindow       = Components.interfaces.nsIDOMChromeWindow;
+const nsIDOMDocument           = Components.interfaces.nsIDOMDocument;
+const nsIDOMWindow             = Components.interfaces.nsIDOMWindow;
+const nsIDocShellHistory       = Components.interfaces.nsIDocShellHistory;
+const nsIDocShellTreeItem      = Components.interfaces.nsIDocShellTreeItem;
+const nsIDocShellTreeNode      = Components.interfaces.nsIDocShellTreeNode;
+const nsIInterfaceRequestor    = Components.interfaces.nsIInterfaceRequestor;
+const nsIPhoneSupport          = Components.interfaces.nsIPhoneSupport;
+const nsIPrefBranch            = Components.interfaces.nsIPrefBranch;
+const nsIPrefService           = Components.interfaces.nsIPrefService;
+const nsISHistory              = Components.interfaces.nsISHistory;
+const nsISupportsString        = Components.interfaces.nsISupportsString;
+const nsISupportsWeakReference = Components.interfaces.nsISupportsWeakReference;
+const nsITransferable          = Components.interfaces.nsITransferable;
+const nsIURIFixup              = Components.interfaces.nsIURIFixup;
+const nsIWebNavigation         = Components.interfaces.nsIWebNavigation;
+const nsIXULBrowserWindow      = Components.interfaces.nsIXULBrowserWindow;
+const nsIWebProgress           = Components.interfaces.nsIWebProgress;
+const nsIWebProgressListener   = Components.interfaces.nsIWebProgressListener;
+const nsIWebProgressListener2  = Components.interfaces.nsIWebProgressListener2;
+const nsIXULWindow             = Components.interfaces.nsIXULWindow;
+const nsITransfer              = Components.interfaces.nsITransfer;
+
+const NS_BINDING_ABORTED = 0x804b0002;
 
 var appCore = null;
 var gBrowser = null;
@@ -54,7 +79,7 @@ var gRSSTag="minimo";
 var gGlobalHistory = null;
 var gURIFixup = null;
 var gShowingMenuCurrent=null;
-var gFocusedElementHREFContextMenu=null;
+var gPopupNodeContextMenu=null;
 var gDeckMode=0; // 0 = site, 1 = sb, 2= rss. Used for the URLBAR selector, DeckMode impl.
 var gDeckMenuChecked=null; // to keep the state of the checked URLBAR selector mode. 
 var gURLBarBoxObject = null; // stores the urlbar boxObject so the background loader can update itself based on actual urlbar size width;
@@ -73,10 +98,10 @@ nsBrowserStatusHandler.prototype =
 {
   QueryInterface : function(aIID)
   {
-    if (aIID.equals(nsCI.nsIWebProgressListener) ||
-        aIID.equals(nsCI.nsIXULBrowserWindow) ||
-        aIID.equals(nsCI.nsISupportsWeakReference) ||
-        aIID.equals(nsCI.nsISupports))
+    if (aIID.equals(nsIWebProgressListener) ||
+        aIID.equals(nsIXULBrowserWindow) ||
+        aIID.equals(nsISupportsWeakReference) ||
+        aIID.equals(nsISupports))
     {
       return this;
     }
@@ -87,6 +112,9 @@ nsBrowserStatusHandler.prototype =
   {
     this.urlBar           = document.getElementById("urlbar");
     this.progressBGPosition = 0;  /* To be removed, fix in onProgressChange ... */ 
+
+    var securityUI = gBrowser.securityUI;
+    this.onSecurityChange(null, null, nsIWebProgressListener.STATE_IS_INSECURE);
   },
   
   destroy : function()
@@ -163,7 +191,7 @@ nsBrowserStatusHandler.prototype =
         // 
         //        try {
         //          var imageCache = Components.classes["@mozilla.org/image/cache;1"]
-        //                                   .getService(nsCI.imgICache);
+        //                                   .getService(imgICache);
         //          imageCache.clearCache(false);
         //        }
         //        catch(e) {}
@@ -177,7 +205,7 @@ nsBrowserStatusHandler.prototype =
   onProgressChange : function(aWebProgress, aRequest, aCurSelfProgress, aMaxSelfProgress, aCurTotalProgress, aMaxTotalProgress)
   {
 
-    document.getElementById("statusbar-text").label= "dbg:onProgressChange " + aCurTotalProgress + " " + aMaxTotalProgress;
+    //    document.getElementById("statusbar-text").label= "dbg:onProgressChange " + aCurTotalProgress + " " + aMaxTotalProgress;
 
 
     var percentage = parseInt((aCurTotalProgress/aMaxTotalProgress)*parseInt(gURLBarBoxObject.width));
@@ -301,39 +329,34 @@ nsBrowserStatusHandler.prototype =
     gBrowserStatusHandler.init();
     
     window.XULBrowserWindow = gBrowserStatusHandler;
-    window.QueryInterface(nsCI.nsIInterfaceRequestor)
+    window.QueryInterface(nsIInterfaceRequestor)
       .getInterface(nsIWebNavigation)
-      .QueryInterface(nsCI.nsIDocShellTreeItem).treeOwner
-      .QueryInterface(nsCI.nsIInterfaceRequestor)
-      .getInterface(nsCI.nsIXULWindow)
+      .QueryInterface(nsIDocShellTreeItem).treeOwner
+      .QueryInterface(nsIInterfaceRequestor)
+      .getInterface(nsIXULWindow)
       .XULBrowserWindow = window.XULBrowserWindow;
     
-    gBrowser.addProgressListener(gBrowserStatusHandler, nsCI.nsIWebProgress.NOTIFY_ALL);
+    gBrowser.addProgressListener(gBrowserStatusHandler, nsIWebProgress.NOTIFY_ALL);
     
+    window.QueryInterface(nsIDOMChromeWindow).browserDOMWindow =
+      new nsBrowserAccess();
+
+    gBrowser.webNavigation.sessionHistory = 
+      Components.classes["@mozilla.org/browser/shistory;1"].createInstance(nsISHistory);
     
-    window.browserDOMWindow = new nsBrowserAccess(gBrowser);
-    
-    // Current build was not able to get it. Taking it from the tab browser element. 
-    // var webNavigation=gBrowser.webNavigation;
-    
-    var refBrowser=gBrowser.getBrowserForTab(currentTab);
-    var webNavigation=refBrowser.webNavigation;
-    
-    webNavigation.sessionHistory = Components.classes["@mozilla.org/browser/shistory;1"].createInstance(nsCI.nsISHistory);
-    
-    gBrowser.docShell.QueryInterface(nsCI.nsIDocShellHistory).useGlobalHistory = true;
+    gBrowser.docShell.QueryInterface(nsIDocShellHistory).useGlobalHistory = true;
     
     gGlobalHistory = Components.classes["@mozilla.org/browser/global-history;2"]
-      .getService(nsCI.nsIBrowserHistory);
+      .getService(nsIBrowserHistory);
     
     gURIFixup = Components.classes["@mozilla.org/docshell/urifixup;1"]
-      .getService(nsCI.nsIURIFixup);
+      .getService(nsIURIFixup);
     
     var bookmarkstore=null; 
     
     try {
       gPref = Components.classes["@mozilla.org/preferences-service;1"]
-        .getService(nsCI.nsIPrefBranch);
+        .getService(nsIPrefBranch);
       
       var page = gPref.getCharPref("browser.startup.homepage");
       var bookmarkstore = gPref.getCharPref("browser.bookmark.store");
@@ -348,7 +371,13 @@ nsBrowserStatusHandler.prototype =
   } catch (e) {
     alert("Error trying to startup browser.  Please report this as a bug:\n" + e);
   }
-  
+
+  var reg = Components.manager.QueryInterface(Components.interfaces.nsIComponentRegistrar);
+  reg.registerFactory(Components.ID("{fe4d6bd5-e4cd-45f9-95bd-1e1796d2c7f7}"),
+                       "Minimo Transfer Item",
+                       "@mozilla.org/transfer;1",
+                       new TransferItemFactory());
+
   loadURI(homepage);
   loadBookmarks(bookmarkstore);
   
@@ -367,6 +396,13 @@ nsBrowserStatusHandler.prototype =
    * on progress load
    */
   gURLBarBoxObject=(document.getBoxObjectFor(document.getElementById("urlbar").inputField));
+  
+  /* 
+   * Homebar init...
+   */
+   
+  bmInitXUL(document,document.getElementById("homebarcontainer"));
+  document.getElementById("browserleftbar").style.display="block";
   
 }
 
@@ -492,14 +528,14 @@ function BrowserUpdateBackForwardState() {
 
 
 function findChildShell(aDocument, aDocShell, aSoughtURI) {
-  aDocShell.QueryInterface(nsCI.nsIWebNavigation);
-  aDocShell.QueryInterface(nsCI.nsIInterfaceRequestor);
-  var doc = aDocShell.getInterface(nsCI.nsIDOMDocument);
+  aDocShell.QueryInterface(nsIWebNavigation);
+  aDocShell.QueryInterface(nsIInterfaceRequestor);
+  var doc = aDocShell.getInterface(nsIDOMDocument);
   if ((aDocument && doc == aDocument) || 
       (aSoughtURI && aSoughtURI.spec == aDocShell.currentURI.spec))
     return aDocShell;
   
-  var node = aDocShell.QueryInterface(nsCI.nsIDocShellTreeNode);
+  var node = aDocShell.QueryInterface(nsIDocShellTreeNode);
   for (var i = 0; i < node.childCount; ++i) {
     var docShell = node.getChildAt(i);
     docShell = findChildShell(aDocument, docShell, aSoughtURI);
@@ -541,7 +577,7 @@ function MiniNavShutdown()
   if(gPrefAdded) {
 	try {
       var psvc = Components.classes["@mozilla.org/preferences-service;1"]
-        .getService(nsCI.nsIPrefService);
+        .getService(nsIPrefService);
       
       psvc.savePrefFile(null);
       
@@ -609,14 +645,27 @@ function BrowserOpenTab()
 function BrowserOpenLinkAsTab() 
 {
   
-  if(gFocusedElementHREFContextMenu) {
+  if(gPopupNodeContextMenu) {
     try { 
-      gBrowser.selectedTab = gBrowser.addTab(gFocusedElementHREFContextMenu);
+      gBrowser.selectedTab = gBrowser.addTab(gPopupNodeContextMenu);
       browserInit(gBrowser.selectedTab);
     } catch (e) {
       alert(e);
     }
   }
+}
+
+/*
+ * Used by the Homebar - Open URL as Tab. 
+ * WARNING: We need to validate this URL through an existing security mechanism. 
+ */
+
+function BrowserOpenURLasTab(tabUrl) {
+  try {  
+    gBrowser.selectedTab = gBrowser.addTab(tabUrl);   
+    browserInit(gBrowser.selectedTab);
+  } catch (e) {
+  }  
 }
 
 /**
@@ -717,7 +766,7 @@ function BrowserResetZoomMinus() {
 
 function MenuMainPopupShowing () {
   try {
-    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsCI.nsIPrefBranch);
+    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsIPrefBranch);
     if (pref.getBoolPref("snav.enabled"))
     {
       document.getElementById("snav_toggle").label = "Enable arrow key scrolling";
@@ -753,34 +802,43 @@ function MenuNavPopupShowing () {
 
 }
 
-
 function BrowserContentAreaPopupShowing () {
 
   var selectedRange=gBrowser.selectedBrowser.contentDocument.getSelection();
-  
+
   /* Enable Copy */
   
-  if(selectedRange.toString()) {
-    
-    document.getElementById("item-copy").disabled=false;
+  if( selectedRange && selectedRange.toString() ) {
+    document.getElementById("item-copy").hidden=false;
   } else {
-    document.getElementById("item-copy").disabled=true;
+    document.getElementById("item-copy").hidden=true;
   }
   
   /* Enable Paste - Can paste only if the focused element has a value attribute. :) 
      THis may affect XHTML nodes. Users may be able to paste things within XML nodes. 
   */
-  if (document.commandDispatcher.focusedElement) {
-    if(document.commandDispatcher.focusedElement.nodeName=="INPUT"||document.commandDispatcher.focusedElement.nodeName=="TEXTAREA") {
+
+  var targetPopupNode = document.popupNode; 
+
+  if( targetPopupNode instanceof HTMLInputElement || targetPopupNode instanceof HTMLTextAreaElement ) {
       if(DoClipCheckPaste()) {
-        document.getElementById("item-paste").disabled=false;	
-      } else {
-        document.getElementById("item-paste").disabled=true;	
+        document.getElementById("item-paste").hidden=false;
+        gPopupNodeContextMenu = targetPopupNode; 
       }
-    }
+  } else {
+    document.getElementById("item-paste").hidden=true;
+  } 
+
+  /*
+   * Open Link as New Tab  
+   */ 
+  if( targetPopupNode.href ) { 
+    gPopupNodeContextMenu = targetPopupNode.href;
+    document.getElementById("link_as_new_tab").hidden=false;
+  } else {
+    document.getElementById("link_as_new_tab").hidden=true;
   }
 }
-
 
 /* Bookmarks */ 
 
@@ -936,14 +994,14 @@ function DoPanelPreferences() {
    Testing the SMS and Call Services 
 */
 function DoTestSendCall(toCall) {
-  var phoneInterface= Components.classes["@mozilla.org/phone/support;1"].createInstance(nsCI.nsIPhoneSupport);
+  var phoneInterface= Components.classes["@mozilla.org/phone/support;1"].createInstance(nsIPhoneSupport);
   phoneInterface.makeCall(toCall,"");
 }
 
 function DoSSRToggle()
 {
   try {
-    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsCI.nsIPrefBranch);
+    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsIPrefBranch);
     pref.setBoolPref("ssr.enabled", !pref.getBoolPref("ssr.enabled"));
     
     gBrowser.webNavigation.reload(nsIWebNavigation.LOAD_FLAGS_CHARSET_CHANGE);
@@ -955,7 +1013,7 @@ function DoSSRToggle()
 function DoSNavToggle()
 {
   try {
-    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsCI.nsIPrefBranch);
+    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsIPrefBranch);
     pref.setBoolPref("snav.enabled", !pref.getBoolPref("snav.enabled"));
     
     content.focus();    
@@ -967,7 +1025,7 @@ function DoSNavToggle()
 function DoToggleSoftwareKeyboard()
 {
   try {
-    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsCI.nsIPrefBranch);
+    var pref = Components.classes["@mozilla.org/preferences-service;1"].getService(nsIPrefBranch);
     pref.setBoolPref("skey.enabled", !pref.getBoolPref("skey.enabled"));
   }
   catch(ex) { alert(ex); }
@@ -994,14 +1052,15 @@ function DoFullScreen()
 function DoClipCopy()
 {
   var copytext=gBrowser.selectedBrowser.contentDocument.getSelection().toString();
-  var str = Components.classes["@mozilla.org/supports-string;1"].createInstance(nsCI.nsISupportsString);
+  var str = Components.classes["@mozilla.org/supports-string;1"].createInstance(nsISupportsString);
   if (!str) return false;
   str.data = copytext;
-  var trans = Components.classes["@mozilla.org/widget/transferable;1"].createInstance(nsCI.nsITransferable);
+  var trans = Components.classes["@mozilla.org/widget/transferable;1"].createInstance(nsITransferable);
   if (!trans) return false;
   trans.addDataFlavor("text/unicode");
   trans.setTransferData("text/unicode",str,copytext.length * 2);
-  var clipid = nsCI.nsIClipboard;
+  var clipid = nsIClipboard;
+
   var clip = Components.classes["@mozilla.org/widget/clipboard;1"].getService(clipid);
   if (!clip) return false;
   clip.setData(trans,null,clipid.kGlobalClipboard);
@@ -1012,9 +1071,9 @@ function DoClipCopy()
 */
 function DoClipCheckPaste()
 {
-  var clip = Components.classes["@mozilla.org/widget/clipboard;1"].getService(nsCI.nsIClipboard);
+  var clip = Components.classes["@mozilla.org/widget/clipboard;1"].getService(nsIClipboard);
   if (!clip) return false;
-  var trans = Components.classes["@mozilla.org/widget/transferable;1"].createInstance(nsCI.nsITransferable);
+  var trans = Components.classes["@mozilla.org/widget/transferable;1"].createInstance(nsITransferable);
   if (!trans) return false;
   trans.addDataFlavor("text/unicode");
   clip.getData(trans,clip.kGlobalClipboard);
@@ -1022,7 +1081,7 @@ function DoClipCheckPaste()
   var strLength = new Object();
   var pastetext = null;
   trans.getTransferData("text/unicode",str,strLength);
-  if (str) str = str.value.QueryInterface(nsCI.nsISupportsString);
+  if (str) str = str.value.QueryInterface(nsISupportsString);
   if (str) pastetext = str.data.substring(0,strLength.value / 2);
   if(pastetext) {
     return pastetext;
@@ -1032,12 +1091,14 @@ function DoClipCheckPaste()
 function DoClipPaste()
 {
   
-  /* 008 note - value is there in the clipboard, however somehow paste action does not happen. 
-     If you evaluate the canpaste you get false. */ 
-  
+  gPopupNodeContextMenu.focus();   // Hack. When the context menu goes open, then we store the Pastable element in gPopupNodeContextMenu
+                                   // If the user clicks the element in the Context menu, the focused element changes, then is not pastable
+                                   // anymore. 
+
   var disp = document.commandDispatcher;
   var cont = disp.getControllerForCommand("cmd_paste");
   cont.doCommand("cmd_paste");
+
 }
 
 function URLBarEntered()
@@ -1077,15 +1138,18 @@ function URLBarEntered()
       BrowserSetDeck(0,document.getElementById("command_ViewDeckDefault"));
       return;
     }
+
     /* Other normal cases */ 
     
-    var fixedUpURI = gURIFixup.createFixupURI(url, 2 /*fixup url*/ );
-    gGlobalHistory.markPageAsTyped(fixedUpURI);
+    if (gURLBar.value.indexOf(" ") == -1)
+    {
+      var fixedUpURI = gURIFixup.createFixupURI(url, 2 /*fixup url*/ );
+      gGlobalHistory.markPageAsTyped(fixedUpURI);
+      gURLBar.value = fixedUpURI.spec;
+    }
     
-    gURLBar.value = fixedUpURI.spec;
-    
-    loadURI(fixedUpURI.spec);
-    
+    loadURI(gURLBar.value);
+
     content.focus();
   }
   catch(ex) {alert(ex);}
@@ -1236,34 +1300,28 @@ function BrowserSetDeck(dMode,menuElement) {
 
 
 // ripped from browser.js, this should be shared in toolkit.
-function nsBrowserAccess( browser )
+function nsBrowserAccess()
 {
-  this.init(browser);
 }
 
 nsBrowserAccess.prototype =
 {
-  init: function(browser)
-  {
-    this.browser = browser;
-  },
-  
   QueryInterface : function(aIID)
   {
-    if (aIID.equals(nsCI.nsIBrowserDOMWindow) ||
-        aIID.equals(nsCI.nsISupports))
+    if (aIID.equals(nsIBrowserDOMWindow) ||
+        aIID.equals(nsISupports))
       return this;
     throw Components.results.NS_NOINTERFACE;
   },
   
   openURI : function(aURI, aOpener, aWhere, aContext)
   {
-    var newWindow = null;
-    var referrer = null;
-    
-    var newTab = this.browser.addTab("about:blank");
-    
-    throw Components.results.NS_NOINTERFACE;
+    var url = aURI ? aURI.spec : "about:blank";
+    var newTab     = gBrowser.addTab(url);
+    var newWindow  = gBrowser.getBrowserForTab(newTab).docShell
+                             .QueryInterface(nsIInterfaceRequestor)
+                             .getInterface(nsIDOMWindow);
+    return newWindow;
   },
   
   isTabContentWindow : function(aWindow)
@@ -1275,4 +1333,130 @@ nsBrowserAccess.prototype =
     return false;
   }
 }
+
+/*
+ * Download Service - Work-in-progress not-for-long
+ */
+
+function BrowserViewDownload(cMode) {
+  document.getElementById("toolbar-download").collapsed=!cMode;
+}
+
+function DownloadSet( aCurTotalProgress, aMaxTotalProgress ) {
+  gInputBoxObject=(document.getBoxObjectFor(document.getElementById("toolbar-download-tag").inputField));
+  var percentage = parseInt((aCurTotalProgress/aMaxTotalProgress)*parseInt(gInputBoxObject.width));
+  if(percentage<0) percentage=2;
+  document.getElementById("toolbar-download-tag").inputField.style.backgroundPosition=percentage+"px 100%";
+}
+
+function DownloadCancel(refId) {
+
+  try {  document.getElementById("toolbar-download-tag").cachedCancelable.cancel(NS_BINDING_ABORTED) } catch (e) { alert(e) };
+  document.getElementById("download-button-stop").disabled=false;
+  BrowserViewDownload(false);
+
+}
+
+function DownloadReveal() {
+ 
+  document.getElementById("toolbar-download-tag").value=document.getElementById("toolbar-download-tag").getAttribute("reveal");
+  document.getElementById("download-button-stop").label="";
+  document.getElementById("toolbar-download-tag").inputField.style.backgroundColor="lightgreen";
+  document.getElementById("toolbar-download-tag").inputField.style.backgroundPosition=gInputBoxObject.width+20+"px 100%";
+
+}
+
+function TransferItemFactory() {
+}
+
+TransferItemFactory.prototype = {
+   createInstance: function(delegate, iid) {
+    return new TransferItem().QueryInterface(iid);
+  },
+  lockFactory: function(lock) {
+  }
+};
+
+function TransferItem() {
+}
+
+TransferItem.prototype = {
   
+  QueryInterface: function (iid) {
+    if (iid.equals(nsITransfer) ||
+        iid.equals(nsIWebProgressListener) ||
+        iid.equals(nsIWebProgressListener2) ||
+        iid.equals(nsISupports))
+      return this;
+    
+    Components.returnCode = Components.results.NS_ERROR_NO_INTERFACE;
+    return null;
+  },
+  
+  init: function (aSource, aTarget, aDisplayName, aMIMEInfo, startTime, aTempFile, aCancelable) {
+    
+   // document.getElementById("statusbar").hidden=false;
+    BrowserViewDownload(true);
+    document.getElementById("toolbar-download-tag").cachedCancelable=aCancelable;
+    document.getElementById("download-button-stop").disabled=false;
+    document.getElementById("toolbar-download-tag").value=aSource.spec; 
+    document.getElementById("toolbar-download-tag").setAttribute("reveal",aTarget.spec);
+    document.getElementById("toolbar-download-tag").setAttribute("sourcelocation",aSource.spec);
+    document.getElementById("toolbar-download-tag").inputField.style.backgroundColor="lightgreen";
+
+
+  },
+  
+  onStateChange: function( aWebProgress, aRequest, aStateFlags, aStatus ) {
+
+       if ( aStateFlags & nsIWebProgressListener.STATE_STOP ) {
+
+          document.getElementById("download-button-stop").label=document.getElementById("minimo_properties").getString("downloadButtonReveal");
+          document.getElementById("download-button-stop").setAttribute("oncommand","DownloadReveal()");
+          document.getElementById("toolbar-download-tag").inputField.style.backgroundColor="lightgreen";
+
+       }
+    
+  },
+  
+  onProgressChange: function( aWebProgress,
+                              aRequest,
+                              aCurSelfProgress,
+                              aMaxSelfProgress,
+                              aCurTotalProgress,
+                              aMaxTotalProgress ) {
+    
+    return onProgressChange64(aWebProgress, aRequest, aCurSelfProgress, 
+                              aMaxSelfProgress, aCurTotalProgress, aMaxTotalProgress);
+  },
+  
+  onProgressChange64: function( aWebProgress,
+                                aRequest,
+                                aCurSelfProgress,
+                                aMaxSelfProgress,
+                                aCurTotalProgress,
+                                aMaxTotalProgress ) {
+    
+    //document.getElementById("statusbar-text").label= "dbg:onProgressChange " + aCurTotalProgress + " " + aMaxTotalProgress;
+
+    DownloadSet( aCurTotalProgress, aMaxTotalProgress );
+
+  },
+  
+  onStatusChange: function( aWebProgress, aRequest, aStatus, aMessage ) {
+  },
+  
+  onLocationChange: function( aWebProgress, aRequest, aLocation ) {
+  },
+  
+  onSecurityChange: function( aWebProgress, aRequest, state ) {
+  },
+}
+  
+
+function BrowserHomeBar()  {
+
+    if(document.getElementById("homebarcontainer").style.display=="none") document.getElementById("homebarcontainer").style.display="block"; 
+    else document.getElementById("homebarcontainer").style.display="none";
+
+}

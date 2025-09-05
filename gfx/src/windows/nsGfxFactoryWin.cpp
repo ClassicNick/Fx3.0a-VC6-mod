@@ -45,13 +45,9 @@
 #include "nsDeviceContextWin.h"
 #include "nsRegionWin.h"
 #include "nsBlender.h"
-#include "nsDeviceContextSpecWin.h"
-#include "nsDeviceContextSpecFactoryW.h"
 #include "nsScriptableRegion.h"
-#include "nsPrintOptionsWin.h"
 #include "nsFontList.h"
 #include "nsIGenericFactory.h"
-#include "nsPrintSession.h"
 #include "gfxImageFrame.h"
 
 
@@ -62,18 +58,10 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsImageWin)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsRegionWin)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsBlender)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDrawingSurfaceWin)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceContextSpecWin)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceContextSpecFactoryWin)
 //NS_GENERIC_FACTORY_CONSTRUCTOR(nsScriptableRegion)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsFontEnumeratorWin)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsFontList)
 NS_GENERIC_FACTORY_CONSTRUCTOR(gfxImageFrame)
-
-#ifndef WINCE
-NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintOptionsWin, Init)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsPrinterEnumeratorWin)
-NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintSession, Init)
-#endif
 
 PRBool
 UseAFunctions()
@@ -187,16 +175,6 @@ static const nsModuleComponentInfo components[] =
     "@mozilla.org/gfx/drawing-surface;1",
     nsDrawingSurfaceWinConstructor },
 
-  { "nsDeviceContextSpecWin",
-    NS_DEVICE_CONTEXT_SPEC_CID,
-    "@mozilla.org/gfx/devicecontextspec;1",
-    nsDeviceContextSpecWinConstructor },
-
-  { "nsDeviceContextSpecFactoryWin",
-    NS_DEVICE_CONTEXT_SPEC_FACTORY_CID,
-    "@mozilla.org/gfx/devicecontextspecfactory;1",
-    nsDeviceContextSpecFactoryWinConstructor },
-
   { "nsScriptableRegion",
     NS_SCRIPTABLE_REGION_CID,
     "@mozilla.org/gfx/region;1",
@@ -216,25 +194,6 @@ static const nsModuleComponentInfo components[] =
     GFX_IMAGEFRAME_CID,
     "@mozilla.org/gfx/image/frame;2",
     gfxImageFrameConstructor, },
-
-#ifndef WINCE
-  { "nsPrintOptionsWin",
-    NS_PRINTSETTINGSSERVICE_CID,
-    "@mozilla.org/gfx/printsettings-service;1",
-    nsPrintOptionsWinConstructor },
-
-  { "Win Printer Enumerator",
-    NS_PRINTER_ENUMERATOR_CID,
-    //    "@mozilla.org/gfx/printer_enumerator/win;1",
-    "@mozilla.org/gfx/printerenumerator;1",
-    nsPrinterEnumeratorWinConstructor },
-
-  { "Print Session",
-    NS_PRINTSESSION_CID,
-    "@mozilla.org/gfx/printsession;1",
-    nsPrintSessionConstructor }
-#endif
-
 };
 
 NS_IMPL_NSGETMODULE(nsGfxModule, components)

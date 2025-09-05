@@ -81,9 +81,10 @@ function onSnoozeAlarm(event)
 
   var alarmService = Components.classes["@mozilla.org/calendar/alarm-service;1"].getService(Components.interfaces.calIAlarmService);
   
-  var duration = Components.classes["@mozilla.org/calendar/datetime;1"].createInstance(Components.interfaces.calIDateTime);
-  duration.minute = 5;
-  duration.normalize()
+  var duration = Components.classes["@mozilla.org/calendar/duration;1"]
+                 .createInstance(Components.interfaces.calIDuration);
+  //XXX figure out a nice UI way to offer other length options
+  duration.minutes = 5;
 
   alarmService.snoozeEvent(alarmWidget.item, duration);
 
@@ -94,7 +95,13 @@ function onDismissAlarm(event)
 {
   // everything is just visual at this point. we don't need to do anything special.
   var alarmWidget = event.target;
-  alarmWidget.parentNode.removeChild(alarmWidget);
+  var parent = alarmWidget.parentNode;
+  parent.removeChild(alarmWidget);
+
+  if (!parent.hasChildNodes()) {
+    // If this was the last alarm, close the window.
+    window.close();
+  }
 
 }
 

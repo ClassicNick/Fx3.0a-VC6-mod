@@ -1,90 +1,113 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Netscape Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/NPL/
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
  *
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
  *
  * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is Netscape
- * Communications Corporation.  Portions created by Netscape are
- * Copyright (C) 1998 Netscape Communications Corporation. All
- * Rights Reserved.
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
+ * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): 
- */
+ * Contributor(s):
+ *   Pierre Phaneuf <pp@ludusdesign.com>
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 #include "nsDeviceContextMac.h"
 #include "nsRenderingContextMac.h"
-#include "nsDeviceContextSpecMac.h"
+#include "nsDeviceContextSpecX.h"
+#include "nsIPrintingContext.h"
 #include "nsString.h"
 #include "nsHashtable.h"
+#include "nsFont.h"
+#include <Gestalt.h>
+#include <Appearance.h>
 #include <TextEncodingConverter.h>
 #include <TextCommon.h>
 #include <StringCompare.h>
 #include <Fonts.h>
 #include <Resources.h>
 #include <MacWindows.h>
-#include "il_util.h"
 #include <FixMath.h>
 #include "nsIPref.h"
 #include "nsIServiceManager.h"
 #include "nsQuickSort.h"
 #include "nsUnicodeMappingUtil.h"
+#include "nsCarbonHelpers.h"
+#include "nsRegionMac.h"
+#include "nsIScreenManager.h"
+#include "nsIServiceManager.h"
+#include "nsReadableUtils.h"
+#include "nsUnicharUtils.h"
 
 
 PRUint32 nsDeviceContextMac::mPixelsPerInch = 96;
-PRBool nsDeviceContextMac::mDisplayVerySmallFonts = true;
+PRUint32 nsDeviceContextMac::sNumberOfScreens = 0;
 
 
-static NS_DEFINE_IID(kDeviceContextIID, NS_IDEVICE_CONTEXT_IID);
-
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 nsDeviceContextMac :: nsDeviceContextMac()
+  : DeviceContextImpl(),
+    mOldPort(nsnull)
 {
-
-  NS_INIT_REFCNT();
-  mSpec = nsnull;
-  
 }
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 nsDeviceContextMac :: ~nsDeviceContextMac()
 {
 }
 
-//------------------------------------------------------------------------
-
-NS_IMPL_QUERY_INTERFACE(nsDeviceContextMac, kDeviceContextIID);
-NS_IMPL_ADDREF(nsDeviceContextMac);
-NS_IMPL_RELEASE(nsDeviceContextMac);
-
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac :: Init(nsNativeWidget aNativeWidget)
 {
-GDHandle			thegd;
-PixMapHandle	thepix;
-double				pix_inch;
+  // cache the screen manager service for later
+  nsresult ignore;
+  mScreenManager = do_GetService("@mozilla.org/gfx/screenmanager;1", &ignore);
+  NS_ASSERTION ( mScreenManager, "No screen manager, we're in trouble" );
+  if ( !mScreenManager )
+    return NS_ERROR_FAILURE;
 
-	// this is a windowptr, or grafptr, native to macintosh only
-	mSurface = aNativeWidget;
+  // figure out how many monitors there are.
+  if ( !sNumberOfScreens )
+    mScreenManager->GetNumberOfScreens(&sNumberOfScreens);
 
-	// get depth and resolution
-  thegd = ::GetMainDevice();
-	thepix = (**thegd).gdPMap;					// dereferenced handle: don't move memory below!
-	mDepth = (**thepix).pixelSize;
-  pix_inch = GetScreenResolution();		//Fix2X((**thepix).hRes);
-	mTwipsToPixels = pix_inch/(float)NSIntPointsToTwips(72);
-	mPixelsToTwips = 1.0f/mTwipsToPixels;
+	// get resolution. Ensure that mPixelsToTwips is integral or we 
+	// run into serious rounding problems.
+  double pix_inch = GetScreenResolution();		//Fix2X((**thepix).hRes);
+  mPixelsToTwips = nscoord(NSIntPointsToTwips(72)/(float)pix_inch);
+  mTwipsToPixels = 1.0f/mPixelsToTwips;
 	
   return DeviceContextImpl::Init(aNativeWidget);
 }
@@ -96,21 +119,24 @@ double				pix_inch;
  */
 NS_IMETHODIMP nsDeviceContextMac :: CreateRenderingContext(nsIRenderingContext *&aContext)
 {
-nsRenderingContextMac *pContext;
-nsresult              rv;
-GrafPtr								thePort;
+#ifdef NS_PRINT_PREVIEW
+  // Defer to Alt when there is one
+  if (mAltDC && ((mUseAltDC & kUseAltDCFor_CREATERC_PAINT) || (mUseAltDC & kUseAltDCFor_CREATERC_REFLOW))) {
+    return mAltDC->CreateRenderingContext(aContext);
+  }
+#endif
+
+  nsRenderingContextMac *pContext;
+  nsresult              rv;
 
 	pContext = new nsRenderingContextMac();
-  if (nsnull != pContext){
+  if (nsnull != pContext) {
     NS_ADDREF(pContext);
 
-   	::GetPort(&thePort);
+    CGrafPtr  thePort;
+   	::GetPort((GrafPtr*)&thePort);
 
-    if (nsnull != thePort){
-      rv = pContext->Init(this,thePort);
-    }
-    else
-      rv = NS_ERROR_OUT_OF_MEMORY;
+    rv = pContext->Init(this, thePort);
   }
   else
     rv = NS_ERROR_OUT_OF_MEMORY;
@@ -122,8 +148,10 @@ GrafPtr								thePort;
   return rv;
 }
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac :: SupportsNativeWidgets(PRBool &aSupportsWidgets)
 {
   //XXX it is very critical that this not lie!! MMP
@@ -145,176 +173,230 @@ NS_IMETHODIMP nsDeviceContextMac :: SupportsNativeWidgets(PRBool &aSupportsWidge
   // Raptor currently doesn't work this way and needs to be fixed.
   // (please remove this comment when this situation is rectified)
   
+  if( nsnull != mSpec){
+  	aSupportsWidgets = PR_FALSE;
+  } else {
+  	aSupportsWidgets = PR_TRUE;
+  }
+  
   //if (nsnull == mSurface)
-    aSupportsWidgets = PR_TRUE;
+    
   //else
    //aSupportsWidgets = PR_FALSE;
 
   return NS_OK;
 }
 
-//------------------------------------------------------------------------
 
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac :: GetScrollBarDimensions(float &aWidth, float &aHeight) const
 {
   // XXX Should we push this to widget library
-  aWidth = 16 * mDevUnitsToAppUnits;
-  aHeight = 16 * mDevUnitsToAppUnits;
+  float scale;
+  GetCanonicalPixelScale(scale);
+  aWidth = 16 * mDevUnitsToAppUnits * scale;
+  aHeight = 16 * mDevUnitsToAppUnits * scale;
   return NS_OK;
 }
 
-NS_IMETHODIMP nsDeviceContextMac :: GetSystemAttribute(nsSystemAttrID anID, SystemAttrStruct * aInfo) const
+
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
+NS_IMETHODIMP nsDeviceContextMac :: GetSystemFont(nsSystemFontID aID, nsFont *aFont) const
 {
   nsresult status = NS_OK;
 
-  switch (anID) {
+  switch (aID) {
     //---------
-    // Colors
+    // CSS System Fonts
+    //
+    //   Important: don't chage the code below, or make sure to preserve
+    //   some compatibility with MacIE5 - developers will appreciate.
+    //   Run the testcase in bug 3371 in quirks mode and strict mode.
     //---------
-    case eSystemAttr_Color_WindowBackground:
-        *aInfo->mColor = NS_RGB(0xdd,0xdd,0xdd);
-        break;
-    case eSystemAttr_Color_WindowForeground:
-        *aInfo->mColor = NS_RGB(0x00,0x00,0x00);        
-        break;
-    case eSystemAttr_Color_WidgetBackground:
-        *aInfo->mColor = NS_RGB(0xdd,0xdd,0xdd);
-        break;
-    case eSystemAttr_Color_WidgetForeground:
-        *aInfo->mColor = NS_RGB(0x00,0x00,0x00);        
-        break;
-    case eSystemAttr_Color_WidgetSelectBackground:
-        *aInfo->mColor = NS_RGB(0x80,0x80,0x80);
-        break;
-    case eSystemAttr_Color_WidgetSelectForeground:
-        *aInfo->mColor = NS_RGB(0x00,0x00,0x80);
-        break;
-    case eSystemAttr_Color_Widget3DHighlight:
-        *aInfo->mColor = NS_RGB(0xa0,0xa0,0xa0);
-        break;
-    case eSystemAttr_Color_Widget3DShadow:
-        *aInfo->mColor = NS_RGB(0x40,0x40,0x40);
-        break;
-    case eSystemAttr_Color_TextBackground:
-        *aInfo->mColor = NS_RGB(0xff,0xff,0xff);
-        break;
-    case eSystemAttr_Color_TextForeground: 
-        *aInfo->mColor = NS_RGB(0x00,0x00,0x00);
-        break;
-    case eSystemAttr_Color_TextSelectBackground:
-        *aInfo->mColor = NS_RGB(0x00,0x00,0x80);
-        break;
-    case eSystemAttr_Color_TextSelectForeground:
-        *aInfo->mColor = NS_RGB(0xff,0xff,0xff);
-        break;
+        // css2
+    case eSystemFont_Caption:
+    case eSystemFont_Icon: 
+    case eSystemFont_Menu: 
+    case eSystemFont_MessageBox: 
+    case eSystemFont_SmallCaption: 
+    case eSystemFont_StatusBar: 
+        // css3
+    case eSystemFont_Window:
+    case eSystemFont_Document:
+    case eSystemFont_Workspace:
+    case eSystemFont_Desktop:
+    case eSystemFont_Info:
+    case eSystemFont_Dialog:
+    case eSystemFont_Button:
+    case eSystemFont_PullDownMenu:
+    case eSystemFont_List:
+    case eSystemFont_Field:
+        // moz
+    case eSystemFont_Tooltips:
+    case eSystemFont_Widget:
+      float  dev2app;
+      dev2app = DevUnitsToAppUnits();
 
-    //---------
-    // Size
-    //---------
-    case eSystemAttr_Size_ScrollbarHeight : 
-        aInfo->mSize = 16;	//21;
-        break;
-    case eSystemAttr_Size_ScrollbarWidth : 
-        aInfo->mSize = 16;	//21;
-        break;
-    case eSystemAttr_Size_WindowTitleHeight:
-        aInfo->mSize = 0;
-        break;
-    case eSystemAttr_Size_WindowBorderWidth:
-        aInfo->mSize = 4;
-        break;
-    case eSystemAttr_Size_WindowBorderHeight:
-        aInfo->mSize = 4;
-        break;
-    case eSystemAttr_Size_Widget3DBorder:
-        aInfo->mSize = 4;
-        break;
+      aFont->style       = NS_FONT_STYLE_NORMAL;
+      aFont->weight      = NS_FONT_WEIGHT_NORMAL;
+      aFont->decorations = NS_FONT_DECORATION_NONE;
 
-    //---------
-    // Fonts
-    //---------
-    case eSystemAttr_Font_Caption : 
-    case eSystemAttr_Font_Icon : 
-    case eSystemAttr_Font_Menu : 
-    case eSystemAttr_Font_MessageBox : 
-    case eSystemAttr_Font_SmallCaption : 
-    case eSystemAttr_Font_StatusBar : 
-    case eSystemAttr_Font_Tooltips : 
-      status = NS_ERROR_FAILURE;
+      if (aID == eSystemFont_Window ||
+          aID == eSystemFont_Document ||
+          aID == eSystemFont_PullDownMenu) {
+            aFont->name.AssignLiteral("sans-serif");
+            aFont->size = NSToCoordRound(aFont->size * 0.875f); // quick hack
+      }
+      else
+      {
+        ThemeFontID fontID = kThemeViewsFont;
+        switch (aID)
+        {
+              // css2
+          case eSystemFont_Caption:       fontID = kThemeSystemFont;         break;
+          case eSystemFont_Icon:          fontID = kThemeViewsFont;          break;
+          case eSystemFont_Menu:          fontID = kThemeSystemFont;         break;
+          case eSystemFont_MessageBox:    fontID = kThemeSmallSystemFont;    break;
+          case eSystemFont_SmallCaption:  fontID = kThemeSmallEmphasizedSystemFont;  break;
+          case eSystemFont_StatusBar:     fontID = kThemeSmallSystemFont;    break;
+              // css3
+          //case eSystemFont_Window:      = 'sans-serif'
+          //case eSystemFont_Document:    = 'sans-serif'
+          case eSystemFont_Workspace:     fontID = kThemeViewsFont;          break;
+          case eSystemFont_Desktop:       fontID = kThemeViewsFont;          break;
+          case eSystemFont_Info:          fontID = kThemeViewsFont;          break;
+          case eSystemFont_Dialog:        fontID = kThemeSystemFont;         break;
+        case eSystemFont_Button:      fontID = kThemePushButtonFont; break;
+          //case eSystemFont_PullDownMenu:= 'sans-serif'  ("fontID = kThemeSystemFont" in MacIE5)
+        case eSystemFont_List:        fontID = kThemeSystemFont; break;
+        case eSystemFont_Field:         fontID = kThemeApplicationFont; break;
+              // moz
+          case eSystemFont_Tooltips:      fontID = kThemeSmallSystemFont;    break;
+          case eSystemFont_Widget:        fontID = kThemeSmallSystemFont;    break;
+          default: break;
+        }
+
+        Str255 fontName;
+        SInt16 fontSize;
+        Style fontStyle;
+
+        ScriptCode sysScript = ::GetScriptManagerVariable (smSysScript);
+        
+        // the Korean , TradChinese and SimpChinese localization return very ugly
+        // font face for theme font, the size of ASCII part in those font very small and
+        // they look very very poor on QuickDraw without anti-alias. We need to use the roman
+        // theme font instead so the user can read those UI
+        
+        if ((smKorean == sysScript) ||
+            (smTradChinese == sysScript) ||
+            (smSimpChinese == sysScript))
+          sysScript = smRoman;
+          
+        ::GetThemeFont(fontID, sysScript, fontName, &fontSize, &fontStyle);
+        fontName[fontName[0]+1] = 0;
+        
+        OSStatus err;
+        // the theme font could contains font name in different encoding. 
+        // we need ot covert them to unicode according to the font's text encoding.
+        aFont->name.Truncate(0);
+        TECObjectRef converter = 0;
+        TextEncoding fontEncoding = 0;
+        TextEncoding unicodeEncoding = ::CreateTextEncoding(kTextEncodingUnicodeDefault, 
+                                                              kTextEncodingDefaultVariant,
+                                                              kTextEncodingDefaultFormat);
+                                                              
+        FMFontFamily fontFamily;
+        fontFamily = ::FMGetFontFamilyFromName(fontName);
+        err = ::FMGetFontFamilyTextEncoding(fontFamily, &fontEncoding);
+
+        if (err == noErr)
+        {
+           err = ::TECCreateConverter(&converter, fontEncoding, unicodeEncoding);
+           if (err == noErr)
+           {
+               PRUnichar unicodeFontName[sizeof(fontName)];
+               ByteCount actualInputLength, actualOutputLength;
+               err = ::TECConvertText(converter, &fontName[1], fontName[0], 
+                                      &actualInputLength, 
+                                      (TextPtr)unicodeFontName, sizeof(unicodeFontName),
+                                      &actualOutputLength);  
+               unicodeFontName[actualOutputLength / sizeof(PRUnichar)] = PRUnichar('\0');
+               aFont->name.Assign(unicodeFontName);
+               ::TECDisposeConverter(converter);
+           }             
+        }
+        NS_ASSERTION(!aFont->name.IsEmpty(), "empty font name");
+        if (aFont->name.IsEmpty()) 
+        {
+           aFont->name.AssignWithConversion( (char*)&fontName[1], fontName[0] );
+        }
+        aFont->size = NSToCoordRound(float(fontSize) * dev2app);
+
+        if (fontStyle & bold)
+          aFont->weight = NS_FONT_WEIGHT_BOLD;
+        if (fontStyle & italic)
+          aFont->style = NS_FONT_STYLE_ITALIC;
+        if (fontStyle & underline)
+          aFont->decorations = NS_FONT_DECORATION_UNDERLINE;
+      }
       break;
 
-  } // switch 
-
-  return NS_OK;
-}
-
-//------------------------------------------------------------------------
-
-NS_IMETHODIMP nsDeviceContextMac :: GetDrawingSurface(nsIRenderingContext &aContext, nsDrawingSurface &aSurface)
-{
-  aContext.CreateDrawingSurface(nsnull, 0, aSurface);
-  return nsnull == aSurface ? NS_ERROR_OUT_OF_MEMORY : NS_OK;
-}
-
-//------------------------------------------------------------------------
-
-NS_IMETHODIMP nsDeviceContextMac::GetDepth(PRUint32& aDepth)
-{
-  aDepth = mDepth;
-  return NS_OK;
-}
-
-//------------------------------------------------------------------------
-
-NS_IMETHODIMP nsDeviceContextMac :: ConvertPixel(nscolor aColor, PRUint32 & aPixel)
-{
-  aPixel = aColor;
-  return NS_OK;
-}
-
-//------------------------------------------------------------------------
-
-NS_IMETHODIMP nsDeviceContextMac::CreateILColorSpace(IL_ColorSpace*& aColorSpace)
-{
-  nsresult result = NS_OK;
-
-
-  return result;
-}
-
-//------------------------------------------------------------------------
-
-
-NS_IMETHODIMP nsDeviceContextMac::GetILColorSpace(IL_ColorSpace*& aColorSpace)
-{
-
-  if (nsnull == mColorSpace) {
-    IL_RGBBits colorRGBBits;
-  
-    // Default is to create a 32-bit color space
-    colorRGBBits.red_shift = 16;  
-    colorRGBBits.red_bits = 8;
-    colorRGBBits.green_shift = 8;
-    colorRGBBits.green_bits = 8; 
-    colorRGBBits.blue_shift = 0; 
-    colorRGBBits.blue_bits = 8;  
-  
-    mColorSpace = IL_CreateTrueColorSpace(&colorRGBBits, 32);
-    if (nsnull == mColorSpace) {
-      aColorSpace = nsnull;
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
   }
 
-  NS_POSTCONDITION(nsnull != mColorSpace, "null color space");
-  aColorSpace = mColorSpace;
-  IL_AddRefToColorSpace(aColorSpace);
+  aFont->systemFont = PR_TRUE;
+
+  return status;
+}
+
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
+NS_IMETHODIMP nsDeviceContextMac::GetDepth(PRUint32& aDepth)
+{
+  /*
+  nsCOMPtr<nsIScreen> screen;
+  FindScreenForSurface ( getter_AddRefs(screen) );
+  if ( screen ) {
+    PRInt32 depth;
+    screen->GetPixelDepth ( &depth );
+    aDepth = NS_STATIC_CAST ( PRUint32, depth );
+  }
+  else 
+    aDepth = 1;
+  */
+  
+  // The above seems correct, however, because of the way Mozilla 
+  // rendering is set upQuickDraw will get confused when
+  // blitting to a secondary screen with a different bit depth.
+  // By always returning the bit depth of the primary screen, QD
+  // can do the proper color mappings.
+   
+  if ( !mPrimaryScreen && mScreenManager )
+    mScreenManager->GetPrimaryScreen ( getter_AddRefs(mPrimaryScreen) );  
+    
+  if(!mPrimaryScreen) {
+    aDepth = 1;
+    return NS_OK;
+  }
+   
+  PRInt32 depth;
+  mPrimaryScreen->GetPixelDepth ( &depth );
+  aDepth = NS_STATIC_CAST ( PRUint32, depth );
+    
   return NS_OK;
 }
 
-
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac :: CheckFontExistence(const nsString& aFontName)
 {
   	short fontNum;
@@ -324,132 +406,294 @@ NS_IMETHODIMP nsDeviceContextMac :: CheckFontExistence(const nsString& aFontName
 		return NS_ERROR_FAILURE;
 }
 
-//------------------------------------------------------------------------
 
-NS_IMETHODIMP nsDeviceContextMac::GetDeviceSurfaceDimensions(PRInt32 &aWidth, PRInt32 &aHeight)
+//
+// FindScreenForSurface
+//
+// Determines which screen intersects the largest area of the given surface.
+//
+void
+nsDeviceContextMac :: FindScreenForSurface ( nsIScreen** outScreen )
 {
-	// FIXME:  could just union all of the GDevice rectangles together.
-	RgnHandle grayRgn = ::GetGrayRgn();
-	Rect bounds = (**grayRgn).rgnBBox;
-	//aWidth = bounds.right - bounds.left;
-	//aHeight = bounds.bottom - bounds.top;
-	
-	
-	if(mSpec) {
-		aWidth = (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits;
-		aHeight = (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits;
-	}else {
-		aHeight = NSToIntRound((bounds.bottom - bounds.top)*mDevUnitsToAppUnits);
-		aWidth = NSToIntRound((bounds.right - bounds.left) * mDevUnitsToAppUnits);
+  // optimize for the case where we only have one monitor.
+  if ( !mPrimaryScreen && mScreenManager )
+    mScreenManager->GetPrimaryScreen ( getter_AddRefs(mPrimaryScreen) );  
+  if ( sNumberOfScreens == 1 ) {
+    NS_IF_ADDREF(*outScreen = mPrimaryScreen.get());
+    return;
+  }
+  
+  nsIWidget* widget = reinterpret_cast<nsIWidget*>(mWidget);      // PRAY!
+  NS_ASSERTION ( widget, "No Widget --> No Window" );
+  if ( !widget ) {
+    NS_IF_ADDREF(*outScreen = mPrimaryScreen.get());              // bail out with the main screen just to be safe.
+    return;
+  }
+
+#if !MOZ_WIDGET_COCOA
+  // we have a widget stashed inside, get a native WindowRef out of it
+ 	WindowRef window = reinterpret_cast<WindowRef>(widget->GetNativeData(NS_NATIVE_DISPLAY));
+
+  StPortSetter  setter(window);
+
+  Rect bounds;
+  ::GetWindowPortBounds ( window, &bounds );
+
+  if ( mScreenManager ) {
+    if ( !(bounds.top || bounds.left || bounds.bottom || bounds.right) ) {
+      NS_WARNING ( "trying to find screen for sizeless window" );
+      NS_IF_ADDREF(*outScreen = mPrimaryScreen.get());
+    }
+    else {
+      // convert window bounds to global coordinates
+      Point topLeft = { bounds.top, bounds.left };
+      Point bottomRight = { bounds.bottom, bounds.right };
+      ::LocalToGlobal ( &topLeft );
+      ::LocalToGlobal ( &bottomRight );
+      Rect globalWindowBounds = { topLeft.v, topLeft.h, bottomRight.v, bottomRight.h } ;
+      
+      mScreenManager->ScreenForRect ( globalWindowBounds.left, globalWindowBounds.top, 
+                                       globalWindowBounds.bottom - globalWindowBounds.top, 
+                                       globalWindowBounds.right - globalWindowBounds.left, outScreen );
+    }
+  }
+  else
+    *outScreen = nsnull;
+#else
+  // in cocoa, we don't have a windowPtr! bail out with the main screen
+  NS_IF_ADDREF(*outScreen = mPrimaryScreen.get());
+#endif
+  
+} // FindScreenForSurface
+
+
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
+NS_IMETHODIMP nsDeviceContextMac::GetDeviceSurfaceDimensions(PRInt32 & outWidth, PRInt32 & outHeight)
+{
+#ifdef NS_PRINT_PREVIEW
+  // Defer to Alt when there is one
+  if (mAltDC && (mUseAltDC & kUseAltDCFor_SURFACE_DIM)) {
+    return mAltDC->GetDeviceSurfaceDimensions(outWidth, outHeight);
+  }
+#endif
+
+	if( mSpec ) {
+	  // we have a printer device
+		outWidth = NS_STATIC_CAST(PRInt32, (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits);
+		outHeight = NS_STATIC_CAST(PRInt32, (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits);
 	}
-	
+	else {
+    // we have a screen device. find the screen that the window is on and
+    // return its dimensions.
+    nsCOMPtr<nsIScreen> screen;
+    FindScreenForSurface ( getter_AddRefs(screen) );
+    if ( screen ) {     
+      PRInt32 width, height, ignored;
+      screen->GetRect ( &ignored, &ignored, &width, &height );
+      
+      outWidth =  NSToIntRound(width * mDevUnitsToAppUnits);
+      outHeight =  NSToIntRound(height * mDevUnitsToAppUnits);
+ 	  }
+	  else {
+	    NS_WARNING ( "No screen for this surface. How odd" );
+	    outHeight = 0;
+	    outWidth = 0;
+	  }
+	}
+  	
 	return NS_OK;	
 }
 
 
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ */
+NS_IMETHODIMP
+nsDeviceContextMac::GetRect(nsRect &aRect)
+{
+	if( mSpec ) {
+	  // we have a printer device
+	  aRect.x = 0;
+	  aRect.y = 0;
+		aRect.width = NS_STATIC_CAST(nscoord, (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits);
+		aRect.height = NS_STATIC_CAST(nscoord, (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits);
+	}
+	else {
+    // we have a screen device. find the screen that the window is on and
+    // return its top/left coordinates.
+    nsCOMPtr<nsIScreen> screen;
+    FindScreenForSurface ( getter_AddRefs(screen) );
+    if ( screen ) {
+      PRInt32 x, y, width, height;
+      screen->GetRect ( &x, &y, &width, &height );
+      
+      aRect.y =  NSToIntRound(y * mDevUnitsToAppUnits);
+      aRect.x =  NSToIntRound(x * mDevUnitsToAppUnits);
+      aRect.width =  NSToIntRound(width * mDevUnitsToAppUnits);
+      aRect.height =  NSToIntRound(height * mDevUnitsToAppUnits);
+ 	  }
+	  else {
+	    NS_WARNING ( "No screen for this surface. How odd" );
+	    aRect.x = aRect.y = aRect.width = aRect.height = 0;
+	  }
+	}
+
+  return NS_OK;
+  
+} // GetDeviceTopLeft
+
+
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ */
 NS_IMETHODIMP nsDeviceContextMac::GetClientRect(nsRect &aRect)
 {
-	// FIXME: equally as broken as GetDeviceSurfaceDimensions,
-	// this doesn't do what you want with multiple screens.
-	RgnHandle grayRgn = ::GetGrayRgn();
-	Rect bounds = (**grayRgn).rgnBBox;
-
-	aRect.x = NSToIntRound(bounds.left * mDevUnitsToAppUnits);
-	aRect.y = NSToIntRound(bounds.top * mDevUnitsToAppUnits);
-	aRect.width = NSToIntRound((bounds.right - bounds.left) * mDevUnitsToAppUnits);
-	aRect.height = NSToIntRound((bounds.bottom - bounds.top) * mDevUnitsToAppUnits);
-	
+	if( mSpec ) {
+	  // we have a printer device
+	  aRect.x = aRect.y = 0;
+		aRect.width = NS_STATIC_CAST(nscoord, (mPageRect.right-mPageRect.left)*mDevUnitsToAppUnits);
+		aRect.height = NS_STATIC_CAST(nscoord, (mPageRect.bottom-mPageRect.top)*mDevUnitsToAppUnits);
+	}
+	else {
+    // we have a screen device. find the screen that the window is on and
+    // return its dimensions.
+    nsCOMPtr<nsIScreen> screen;
+    FindScreenForSurface ( getter_AddRefs(screen) );
+    if ( screen ) {      
+      PRInt32 x, y, width, height;
+      screen->GetAvailRect ( &x, &y, &width, &height );
+      
+      aRect.y =  NSToIntRound(y * mDevUnitsToAppUnits);
+      aRect.x =  NSToIntRound(x * mDevUnitsToAppUnits);
+      aRect.width =  NSToIntRound(width * mDevUnitsToAppUnits);
+      aRect.height =  NSToIntRound(height * mDevUnitsToAppUnits);
+	  }
+	  else {
+	    NS_WARNING ( "No screen for this surface. How odd" );
+	    aRect.x = aRect.y = aRect.width = aRect.height = 0;
+	  }
+	}
+  	
 	return NS_OK;	
 }
 
+
 #pragma mark -
+
+
 //------------------------------------------------------------------------
 
 NS_IMETHODIMP nsDeviceContextMac::GetDeviceContextFor(nsIDeviceContextSpec *aDevice,nsIDeviceContext *&aContext)
 {
-GrafPtr							curPort;	
-THPrint							thePrintRecord;			// handle to print record
-double							pix_Inch;
-nsDeviceContextMac	*macDC;
+    GrafPtr curPort;	
+    double pix_Inch;
+    nsDeviceContextMac *macDC;
 
 	aContext = new nsDeviceContextMac();
+  if(nsnull == aContext){
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+  NS_ADDREF(aContext);
+
 	macDC = (nsDeviceContextMac*)aContext;
 	macDC->mSpec = aDevice;
-	NS_ADDREF(aDevice);
 	
 	::GetPort(&curPort);
-	
-	thePrintRecord = ((nsDeviceContextSpecMac*)aDevice)->mPrtRec;
-	pix_Inch = (**thePrintRecord).prInfo.iHRes;
-	
+
+    nsCOMPtr<nsIPrintingContext> printingContext = do_QueryInterface(aDevice);
+    if (printingContext) {
+        if (NS_FAILED(printingContext->GetPrinterResolution(&pix_Inch)))
+            pix_Inch = 72.0;
+        double top, left, bottom, right;
+        printingContext->GetPageRect(&top, &left, &bottom, &right);
+        Rect& pageRect = macDC->mPageRect;
+        pageRect.top = (PRInt16)top, pageRect.left = (PRInt16)left;
+        pageRect.bottom = (PRInt16)bottom, pageRect.right = (PRInt16)right;
+    }
+
+
 	((nsDeviceContextMac*)aContext)->Init(curPort);
 
-	macDC->mPageRect = (**thePrintRecord).prInfo.rPage;	
 	macDC->mTwipsToPixels = pix_Inch/(float)NSIntPointsToTwips(72);
 	macDC->mPixelsToTwips = 1.0f/macDC->mTwipsToPixels;
-  macDC->mAppUnitsToDevUnits = macDC->mTwipsToPixels;
-  macDC->mDevUnitsToAppUnits = 1.0f / macDC->mAppUnitsToDevUnits;
+    macDC->mAppUnitsToDevUnits = macDC->mTwipsToPixels;
+    macDC->mDevUnitsToAppUnits = 1.0f / macDC->mAppUnitsToDevUnits;
+  
+    macDC->mCPixelScale = macDC->mTwipsToPixels / mTwipsToPixels;
+
 	//((nsDeviceContextMac*)aContext)->Init(this);
-  return NS_OK;
+    return NS_OK;
 }
 
 
-//------------------------------------------------------------------------
-
-NS_IMETHODIMP nsDeviceContextMac::BeginDocument(void)
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
+NS_IMETHODIMP nsDeviceContextMac::BeginDocument(PRUnichar * aTitle, 
+                                                PRUnichar*  aPrintToFileName,
+                                                PRInt32     aStartPage, 
+                                                PRInt32     aEndPage)
 {
-#if !TARGET_CARBON
-GrafPtr	thePort;
- 
- 	if(((nsDeviceContextSpecMac*)(this->mSpec))->mPrintManagerOpen) {
- 		::GetPort(&mOldPort);
- 		thePort = (GrafPtr)::PrOpenDoc(((nsDeviceContextSpecMac*)(this->mSpec))->mPrtRec,nsnull,nsnull);
-  	((nsDeviceContextSpecMac*)(this->mSpec))->mPrinterPort = (TPrPort*)thePort;
-  	SetDrawingSurface(((nsDeviceContextSpecMac*)(this->mSpec))->mPrtRec);
-  	SetPort(thePort);
-  }
-#endif
-  return NS_OK;
+    nsresult rv = NS_ERROR_FAILURE;
+    nsCOMPtr<nsIPrintingContext> printingContext = do_QueryInterface(mSpec);
+    if (printingContext)
+        rv = printingContext->BeginDocument(aTitle, aPrintToFileName, aStartPage, aEndPage);
+    return rv;
 }
 
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac::EndDocument(void)
 {
- 	if(((nsDeviceContextSpecMac*)(this->mSpec))->mPrintManagerOpen){
- 		::SetPort(mOldPort);
-#if !TARGET_CARBON
-		::PrCloseDoc(((nsDeviceContextSpecMac*)(this->mSpec))->mPrinterPort);
-#endif
-	}
-  return NS_OK;
+    nsresult rv = NS_ERROR_FAILURE;
+    nsCOMPtr<nsIPrintingContext> printingContext = do_QueryInterface(mSpec);
+    if (printingContext)
+        rv = printingContext->EndDocument();
+    return rv;
+}
+
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
+NS_IMETHODIMP nsDeviceContextMac::AbortDocument(void)
+{
+    return EndDocument();
 }
 
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac::BeginPage(void)
 {
-#if !TARGET_CARBON
- 	if(((nsDeviceContextSpecMac*)(this->mSpec))->mPrintManagerOpen) 
-		::PrOpenPage(((nsDeviceContextSpecMac*)(this->mSpec))->mPrinterPort,nsnull);
-#endif
-  return NS_OK;
+    nsresult rv = NS_ERROR_FAILURE;
+    nsCOMPtr<nsIPrintingContext> printingContext = do_QueryInterface(mSpec);
+    if (printingContext)
+        rv = printingContext->BeginPage();
+    return rv;
 }
 
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 NS_IMETHODIMP nsDeviceContextMac::EndPage(void)
 {
-#if !TARGET_CARBON
- 	if(((nsDeviceContextSpecMac*)(this->mSpec))->mPrintManagerOpen) {
- 		::SetPort((GrafPtr)(((nsDeviceContextSpecMac*)(this->mSpec))->mPrinterPort));
-		::PrClosePage(((nsDeviceContextSpecMac*)(this->mSpec))->mPrinterPort);
-	}
-#endif
-  return NS_OK;
+    nsresult rv = NS_ERROR_FAILURE;
+    nsCOMPtr<nsIPrintingContext> printingContext = do_QueryInterface(mSpec);
+    if (printingContext)
+        rv = printingContext->EndPage();
+    return rv;
 }
 
 
@@ -464,7 +708,7 @@ class FontNameKey : public nsHashKey
 public:
   FontNameKey(const nsString& aString);
 
-  virtual PRUint32 HashValue(void) const;
+  virtual PRUint32 HashCode(void) const;
   virtual PRBool Equals(const nsHashKey *aKey) const;
   virtual nsHashKey *Clone(void) const;
 
@@ -473,19 +717,20 @@ public:
 
 FontNameKey::FontNameKey(const nsString& aString)
 {
-	mString = aString;
+	mString.Assign(aString);
 }
 
-PRUint32 FontNameKey::HashValue(void) const
+PRUint32 FontNameKey::HashCode(void) const
 {
   nsString str;
-  mString.ToLowerCase(str);
-	return nsCRT::HashValue(str.GetUnicode());
+  ToLowerCase(mString, str);
+  return nsCRT::HashCode(str.get());
 }
 
 PRBool FontNameKey::Equals(const nsHashKey *aKey) const
 {
-  return mString.EqualsIgnoreCase(((FontNameKey*)aKey)->mString);
+  return mString.Equals(((FontNameKey*)aKey)->mString,
+                        nsCaseInsensitiveStringComparator());
 }
 
 nsHashKey* FontNameKey::Clone(void) const
@@ -495,8 +740,10 @@ nsHashKey* FontNameKey::Clone(void) const
 
 #pragma mark -
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 void nsDeviceContextMac :: InitFontInfoList()
 {
 
@@ -507,90 +754,69 @@ void nsDeviceContextMac :: InitFontInfoList()
 		if (!gFontInfoList)
 			return;
 
-		short numFONDs = ::CountResources('FOND');
-#if !TARGET_CARBON
+        // use the new Font Manager enumeration API.
+        ATSFontFamilyIterator iter;
+        err = ::ATSFontFamilyIteratorCreate(kATSFontContextLocal,
+			NULL, NULL, // filter and its refcon
+			kATSOptionFlagsDefaultScope,
+			&iter);
+        if (err != noErr)
+            return;
+        
 		TextEncoding unicodeEncoding = ::CreateTextEncoding(kTextEncodingUnicodeDefault, 
 															kTextEncodingDefaultVariant,
-													 		kTextEncodingDefaultFormat);
-#endif
-		TECObjectRef converter = nil;
-		ScriptCode lastscript = smUninterp;
-		for (short i = 1; i <= numFONDs ; i++)
-		{
-			Handle fond = ::GetIndResource('FOND', i);
-			if (fond)
-			{
-				short	fondID;
-				OSType	resType;
-				Str255	fontName;
-				::GetResInfo(fond, &fondID, &resType, fontName); 
+													 		kUnicodeUTF8Format);
+        // enumerate all fonts.
+        TECObjectRef converter = NULL;
+        TextEncoding oldFontEncoding = 0;
+        ATSFontFamilyRef fontFamily;
+        while (::ATSFontFamilyIteratorNext(iter, &fontFamily) == noErr) {
+		    // we'd like to use ATSFontFamilyGetName here, but it's ignorant of the
+        // font encodings, resulting in garbage names for non-western fonts.
+            Str255 fontName;
+            err = ::ATSFontFamilyGetQuickDrawName(fontFamily, fontName);
+            if (err != noErr || fontName[0] == 0 || fontName[1] == '.' || fontName[1] == '%')
+                continue;
+            TextEncoding fontEncoding;
+            fontEncoding = ::ATSFontFamilyGetEncoding(fontFamily);
+            if (oldFontEncoding != fontEncoding) {
+                oldFontEncoding = fontEncoding;
+                if (converter)
+                    err = ::TECDisposeConverter(converter);
+                err = ::TECCreateConverter(&converter, fontEncoding, unicodeEncoding);
+                if (err != noErr)
+                    continue;
+            }
+            // convert font name to UNICODE.
+			char unicodeFontName[sizeof(fontName)];
+			ByteCount actualInputLength, actualOutputLength;
+			err = ::TECConvertText(converter, &fontName[1], fontName[0], &actualInputLength, 
+										(TextPtr)unicodeFontName , sizeof(unicodeFontName), &actualOutputLength);	
+			unicodeFontName[actualOutputLength] = '\0';
 
-#if !TARGET_CARBON
-				ScriptCode script = ::FontToScript(fondID);
-				if (script != lastscript)
-				{
-					lastscript = script;
-
-					TextEncoding sourceEncoding;
-					err = ::UpgradeScriptInfoToTextEncoding(script, kTextLanguageDontCare, 
-								kTextRegionDontCare, NULL, &sourceEncoding);
-							
-					if (converter)
-						err = ::TECDisposeConverter(converter);
-
-					err = ::TECCreateConverter(&converter, sourceEncoding, unicodeEncoding);
-					if (err != noErr)
-						converter = nil;
-				}
-
-				if (converter)
-				{
-					PRUnichar unicodeFontName[sizeof(fontName)];
-					ByteCount actualInputLength, actualOutputLength;
-					err = ::TECConvertText(converter, &fontName[1], fontName[0], &actualInputLength, 
-												(TextPtr)unicodeFontName , sizeof(unicodeFontName), &actualOutputLength);	
-					unicodeFontName[actualOutputLength / sizeof(PRUnichar)] = '\0';
-
-	        		FontNameKey key(unicodeFontName);
-					gFontInfoList->Put(&key, (void*)fondID);
-				}
-#else
-				// pinkerton - CreateTextEncoding() makes a carbon app exit. this is a smarmy hack
-				char buffer[500];
-				::BlockMoveData ( &fontName[1], buffer, *fontName );
-				buffer[*fontName] = NULL;
-printf("font buffer is %s\n", buffer);
-	        	FontNameKey key(buffer);
-				gFontInfoList->Put(&key, (void*)fondID);				
-#endif
-				::ReleaseResource(fond);
-			}
-		}
-		if (converter)
-			err = ::TECDisposeConverter(converter);				
+			nsString temp = NS_ConvertUTF8toUTF16(nsDependentCString(unicodeFontName));
+    		FontNameKey key(temp);
+			gFontInfoList->Put(&key, (void*)::FMGetFontFamilyFromATSFontFamilyRef(fontFamily));
+        }
+        if (converter)
+            err = ::TECDisposeConverter(converter);
+        err = ::ATSFontFamilyIteratorRelease(&iter);
 	}
 }
 
 
 
-//------------------------------------------------------------------------
-
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 bool nsDeviceContextMac :: GetMacFontNumber(const nsString& aFontName, short &aFontNum)
 {
 	//¥TODO?: Maybe we shouldn't call that function so often. If nsFont could store the
 	//				fontNum, nsFontMetricsMac::SetFont() wouldn't need to call this at all.
 	InitFontInfoList();
-#if TARGET_CARBON
-	char* fontNameC = aFontName.ToNewCString();
-	Str255 fontNamePascal;
-	fontNamePascal[0] = strlen(fontNameC);
-	::BlockMoveData ( fontNameC, &fontNamePascal[1], fontNamePascal[0] );
-	::GetFNum ( fontNamePascal, &aFontNum );
-	delete[] fontNameC;
-#else
     FontNameKey key(aFontName);
-	aFontNum = (short)gFontInfoList->Get(&key);
-#endif
+	aFontNum = (short) NS_PTR_TO_INT32(gFontInfoList->Get(&key));
 	return (aFontNum != 0);
 }
 
@@ -605,15 +831,15 @@ nsresult nsDeviceContextMac::CreateFontAliasTable()
     mFontAliasTable = new nsHashtable();
     if (nsnull != mFontAliasTable)
     {
-			nsAutoString  fontTimes("Times");
-			nsAutoString  fontTimesNewRoman("Times New Roman");
-			nsAutoString  fontTimesRoman("Times Roman");
-			nsAutoString  fontArial("Arial");
-			nsAutoString  fontHelvetica("Helvetica");
-			nsAutoString  fontCourier("Courier");
-			nsAutoString  fontCourierNew("Courier New");
-			nsAutoString  fontUnicode("Unicode");
-			nsAutoString  fontBitstreamCyberbit("Bitstream Cyberbit");
+			nsAutoString  fontTimes;              fontTimes.AssignLiteral("Times");
+			nsAutoString  fontTimesNewRoman;      fontTimesNewRoman.AssignLiteral("Times New Roman");
+			nsAutoString  fontTimesRoman;         fontTimesRoman.AssignLiteral("Times Roman");
+			nsAutoString  fontArial;              fontArial.AssignLiteral("Arial");
+			nsAutoString  fontHelvetica;          fontHelvetica.AssignLiteral("Helvetica");
+			nsAutoString  fontCourier;            fontCourier.AssignLiteral("Courier");
+			nsAutoString  fontCourierNew;         fontCourierNew.AssignLiteral("Courier New");
+			nsAutoString  fontUnicode;            fontUnicode.AssignLiteral("Unicode");
+			nsAutoString  fontBitstreamCyberbit;  fontBitstreamCyberbit.AssignLiteral("Bitstream Cyberbit");
 			nsAutoString  fontNullStr;
 
       AliasFont(fontTimes, fontTimesNewRoman, fontTimesRoman, PR_FALSE);
@@ -636,9 +862,13 @@ nsresult nsDeviceContextMac::CreateFontAliasTable()
 
 //------------------------------------------------------------------------
 //
-static NS_DEFINE_IID(kIPrefIID, NS_IPREF_IID);
+
 static NS_DEFINE_CID(kPrefCID, NS_PREF_CID);
 
+/** ---------------------------------------------------
+ *  See documentation in nsIDeviceContext.h
+ *	@update 12/9/98 dwc
+ */
 PRUint32 nsDeviceContextMac::GetScreenResolution()
 {
 	static PRBool initialized = PR_FALSE;
@@ -646,44 +876,27 @@ PRUint32 nsDeviceContextMac::GetScreenResolution()
 		return mPixelsPerInch;
 	initialized = PR_TRUE;
 
-  nsIPref* prefs;
-  nsresult rv = nsServiceManager::GetService(kPrefCID, kIPrefIID, (nsISupports**)&prefs);
-  if (NS_SUCCEEDED(rv) && prefs) {
+    nsresult rv;
+    nsCOMPtr<nsIPref> prefs(do_GetService(kPrefCID, &rv));
+    if (NS_SUCCEEDED(rv) && prefs) {
 		PRInt32 intVal;
-		if (NS_SUCCEEDED(prefs->GetIntPref("browser.screen_resolution", &intVal))) {
+		if (NS_SUCCEEDED(prefs->GetIntPref("browser.display.screen_resolution", &intVal)) && intVal > 0) {
 			mPixelsPerInch = intVal;
 		}
 #if 0
+// the code here will ignore the default setting of 96dpi and
+// instead force approximately 84dpi. There's no real reason for this
+// and we shipped Camino0.7 with 96dpi and got no complaints. As
+// a result, I'm removing it, but leaving the code for posterity.
 		else {
 			short hppi, vppi;
 			::ScreenRes(&hppi, &vppi);
 			mPixelsPerInch = hppi * 1.17f;
 		}
 #endif
-		nsServiceManager::ReleaseService(kPrefCID, prefs);
 	}
 
 	return mPixelsPerInch;
-}
-
-PRBool nsDeviceContextMac::DisplayVerySmallFonts()
-{
-	static PRBool initialized = PR_FALSE;
-	if (initialized)
-		return mDisplayVerySmallFonts;
-	initialized = PR_TRUE;
-
-  nsIPref* prefs;
-  nsresult rv = nsServiceManager::GetService(kPrefCID, kIPrefIID, (nsISupports**)&prefs);
-  if (NS_SUCCEEDED(rv) && prefs) {
-		PRBool boolVal;
-		if (NS_SUCCEEDED(prefs->GetBoolPref("browser.display_very_small_fonts", &boolVal))) {
-			mDisplayVerySmallFonts = boolVal;
-		}
-		nsServiceManager::ReleaseService(kPrefCID, prefs);
-	}
-
-	return mDisplayVerySmallFonts;
 }
 
 
@@ -691,11 +904,10 @@ PRBool nsDeviceContextMac::DisplayVerySmallFonts()
 //------------------------------------------------------------------------
 nsFontEnumeratorMac::nsFontEnumeratorMac()
 {
-  NS_INIT_REFCNT();
 }
 
-NS_IMPL_ISUPPORTS(nsFontEnumeratorMac,
-                  nsCOMTypeInfo<nsIFontEnumerator>::GetIID());
+NS_IMPL_ISUPPORTS1(nsFontEnumeratorMac, nsIFontEnumerator)
+
 typedef struct EnumerateFamilyInfo
 {
   PRUnichar** mArray;
@@ -732,10 +944,10 @@ EnumerateFamily(nsHashKey *aKey, void *aData, void* closure)
   int j = info->mIndex;
   
   
-  PRUnichar* str = (((FontNameKey*)aKey)->mString).ToNewUnicode();
+  PRUnichar* str = ToNewUnicode(((FontNameKey*)aKey)->mString);
   if (!str) {
     for (j = j - 1; j >= 0; j--) {
-      nsAllocator::Free(array[j]);
+      nsMemory::Free(array[j]);
     }
     info->mIndex = 0;
     return PR_FALSE;
@@ -769,7 +981,7 @@ nsFontEnumeratorMac::EnumerateAllFonts(PRUint32* aCount, PRUnichar*** aResult)
 	}
 	PRInt32 items = list->Count();
   PRUnichar** array = (PRUnichar**)
-    nsAllocator::Alloc(items * sizeof(PRUnichar*));
+    nsMemory::Alloc(items * sizeof(PRUnichar*));
   if (!array) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
@@ -777,7 +989,7 @@ nsFontEnumeratorMac::EnumerateAllFonts(PRUint32* aCount, PRUnichar*** aResult)
   list->Enumerate ( EnumerateFamily, &info);
   NS_ASSERTION( items == info.mIndex, "didn't get all the fonts");
   if (!info.mIndex) {
-    nsAllocator::Free(array);
+    nsMemory::Free(array);
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
@@ -797,14 +1009,23 @@ EnumerateFont(nsHashKey *aKey, void *aData, void* closure)
   EnumerateFontInfo* info = (EnumerateFontInfo*) closure;
   PRUnichar** array = info->mArray;
   int j = info->mCount;
-  
-  short	fondID = (short) aData;
-  ScriptCode script = ::FontToScript(fondID);
-	if(script == info->mScript) {
-	  PRUnichar* str = (((FontNameKey*)aKey)->mString).ToNewUnicode();
+  PRBool match = PR_FALSE;
+
+  // we need to match the cast of FMFontFamily in nsDeviceContextMac :: InitFontInfoList()
+  FMFontFamily fontFamily = (FMFontFamily) NS_PTR_TO_INT32(aData);
+  TextEncoding fontEncoding;
+  OSStatus status = ::FMGetFontFamilyTextEncoding(fontFamily, &fontEncoding);
+  if (noErr == status) {
+    ScriptCode script;
+    status = ::RevertTextEncodingToScriptInfo(fontEncoding, &script, nsnull, nsnull);
+    match = ((noErr == status) && (script == info->mScript));
+  }
+
+  if (match) {
+	  PRUnichar* str = ToNewUnicode(((FontNameKey*)aKey)->mString);
 	  if (!str) {
 	    for (j = j - 1; j >= 0; j--) {
-	      nsAllocator::Free(array[j]);
+	      nsMemory::Free(array[j]);
 	    }
 	    info->mIndex = 0;
 	    return PR_FALSE;
@@ -847,7 +1068,7 @@ nsFontEnumeratorMac::EnumerateFonts(const char* aLangGroup,
 	}
 	PRInt32 items = list->Count();
   PRUnichar** array = (PRUnichar**)
-    nsAllocator::Alloc(items * sizeof(PRUnichar*));
+    nsMemory::Alloc(items * sizeof(PRUnichar*));
   if (!array) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
@@ -856,11 +1077,11 @@ nsFontEnumeratorMac::EnumerateFonts(const char* aLangGroup,
 		return NS_ERROR_FAILURE;
 	}
   
-  nsAutoString GenName(aGeneric);
+  nsAutoString GenName; GenName.AssignWithConversion(aGeneric);
   EnumerateFontInfo info = { array, 0 , 0, gUtil->MapLangGroupToScriptCode(aLangGroup) ,gUtil->MapGenericFontNameType(GenName) };
   list->Enumerate ( EnumerateFont, &info);
   if (!info.mIndex) {
-    nsAllocator::Free(array);
+    nsMemory::Free(array);
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
@@ -872,4 +1093,40 @@ nsFontEnumeratorMac::EnumerateFonts(const char* aLangGroup,
 
   return NS_OK;
 }
+NS_IMETHODIMP
+nsFontEnumeratorMac::HaveFontFor(const char* aLangGroup,PRBool* aResult)
+{
+  NS_ENSURE_ARG_POINTER(aLangGroup);
+  NS_ENSURE_ARG_POINTER(aResult);
+  *aResult = PR_FALSE;
+  PRUint32 count;
+  PRUnichar **ptr;
+  nsresult res = EnumerateFonts(aLangGroup, "", &count, &ptr);
+  NS_ENSURE_SUCCESS(res, res);
+  *aResult = (count > 0);
+  PRUint32 i;
+  for(i = 0 ; i < count; i++)
+  	nsMemory::Free(ptr[i]);
+  nsMemory::Free(ptr);
+  return NS_OK;
+}
 
+NS_IMETHODIMP
+nsFontEnumeratorMac::GetDefaultFont(const char *aLangGroup, 
+  const char *aGeneric, PRUnichar **aResult)
+{
+  // aLangGroup=null or ""  means any (i.e., don't care)
+  // aGeneric=null or ""  means any (i.e, don't care)
+
+  NS_ENSURE_ARG_POINTER(aResult);
+  *aResult = nsnull;
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsFontEnumeratorMac::UpdateFontList(PRBool *updateFontList)
+{
+  *updateFontList = PR_FALSE; // always return false for now
+  return NS_OK;
+}

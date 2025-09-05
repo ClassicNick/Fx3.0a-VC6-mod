@@ -121,7 +121,11 @@ SOFTOKN_LIBNAME	= softokn$(NSSVERS)
 endif
 SSL_LIBNAME	= ssl$(NSSVERS)
 
+ifeq ($(OS_ARCH), WINNT)
+DYNAMICNSS = $(addsuffix .$(LIB_SUFFIX),$(SSL_LIBNAME) $(NSS_LIBNAME))
+else
 DYNAMICNSS = $(addprefix -l,$(SSL_LIBNAME) $(NSS_LIBNAME) $(SOFTOKN_LIBNAME))
+endif
 NSSLINK = $(NSS_LIBS) $(DYNAMICNSS)
 
 HYBRID_LIBNAME	= freebl_hybrid_$(NSSVERS)
@@ -144,6 +148,11 @@ endif
 SVRCOREVERS	=
 SVRCOREVERS_SUFFIX =
 SVRCORE_LIBNAME	= svrcore$(SVRCOREVERS)
+ifeq ($(OS_ARCH), WINNT)
+SVRCORE_LINK = $(SVRCORE_LIBS) $(SVRCORE_LIBNAME).$(LIB_SUFFIX)
+else
+SVRCORE_LINK = $(SVRCORE_LIBS) -l$(SVRCORE_LIBNAME)
+endif
 
 #
 # NSPR library
@@ -153,19 +162,25 @@ PLCBASE=plc$(NSPR_LIBVERSION)
 PLDSBASE=plds$(NSPR_LIBVERSION)
 NSPRBASE=nspr$(NSPR_LIBVERSION)
 
-ifeq ($(OS_TARGET), WIN95)
-PLC_BASENAME=$(PLCBASE)
-PLDS_BASENAME=$(PLDSBASE)
-NSPR_BASENAME=$(NSPRBASE)
-else
+ifeq ($(OS_ARCH), WINNT)
 PLC_BASENAME=lib$(PLCBASE)
 PLDS_BASENAME=lib$(PLDSBASE)
 NSPR_BASENAME=lib$(NSPRBASE)
+DYNAMICNSPR = $(PLC_BASENAME).$(LIB_SUFFIX) $(PLDS_BASENAME).$(LIB_SUFFIX) $(NSPR_BASENAME).$(LIB_SUFFIX)
+else
+PLC_BASENAME=$(PLCBASE)
+PLDS_BASENAME=$(PLDSBASE)
+NSPR_BASENAME=$(NSPRBASE)
+DYNAMICNSPR = -l$(PLCBASE) -l$(PLDSBASE) -l$(NSPRBASE)
 endif
 
-DYNAMICNSPR = -l$(PLCBASE) -l$(PLDSBASE) -l$(NSPRBASE)
 # use the NSPRLINK macro in other makefiles to define the linker command line
+# the mozilla client build likes to set the makefile macro directly
+ifdef LIBS_ALREADY_SET
+NSPRLINK = $(NSPR_LIBS)
+else
 NSPRLINK = $(NSPR_LIBS) $(DYNAMICNSPR)
+endif
 
 # why the redundant definitions?  apparently, all of these basename/libname macros are so that
 # the ldapsdk can create a package containing all of the nspr shared libs/dlls - I don't think
@@ -416,6 +431,14 @@ RPATHFLAG_PREFIX=-Wl,-rpath,
 LDRPATHFLAG_PREFIX=-rpath
 endif # Linux
 
+ifeq ($(OS_ARCH), Darwin)
+# Darwin doesn't use RPATH.
+RPATHFLAG_PREFIX=
+RPATHFLAG=
+
+# Use the C++ compiler to link
+USE_CCC_TO_LINK=1
+endif # Darwin
 
 # Use the C++ compiler to link... or not.
 ifdef USE_CCC_TO_LINK
@@ -456,8 +479,19 @@ LINK_EXE        = $(CYGWIN_WRAPPER) link $(DEBUG_LINK_OPT) -OUT:"$@" -MAP $(ALDF
     $(LCFLAGS) -NOLOGO $(DEBUG_FLAGS) -INCREMENTAL:NO \
     -NODEFAULTLIB:MSVCRTD -SUBSYSTEM:$(SUBSYSTEM) $(DEPLIBS) \
     $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+
+# AR is set when doing an autoconf build
+ifdef AR
+LINK_LIB        = $(CYGWIN_WRAPPER) $(AR) $(OBJS)
+else
 LINK_LIB        = $(CYGWIN_WRAPPER) lib -OUT:"$@"  $(OBJS)
-LINK_DLL        = $(CYGWIN_WRAPPER) link $(DEBUG_LINK_OPT) -nologo -MAP -DLL $(DEBUG_FLAGS) \
+endif
+
+ifndef LD
+LD=link
+endif
+
+LINK_DLL        = $(CYGWIN_WRAPPER) $(LD) $(DEBUG_LINK_OPT) -nologo -MAP -DLL $(DEBUG_FLAGS) \
         $(ML_DEBUG) -SUBSYSTEM:$(SUBSYSTEM) $(LLFLAGS) $(DLL_LDFLAGS) \
         $(EXTRA_LIBS) -out:"$@" $(OBJS)
 endif # NS_USE_GCC

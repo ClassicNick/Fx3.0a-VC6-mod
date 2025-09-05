@@ -157,6 +157,7 @@
 #include "nsISelectionDisplay.h"
 
 #include "nsIGlobalHistory2.h"
+#include "nsIGlobalHistory3.h"
 
 #ifdef DEBUG_DOCSHELL_FOCUS
 #include "nsIEventStateManager.h"
@@ -925,14 +926,22 @@ nsDocShell::FirePageHideNotification(PRBool aIsUnload)
 // This takes into account subdomain checking if document.domain is set for
 // Nav 4.x compatability.
 //
-// The following was derived from nsCodeBasePrincipal::Equals but in addition
-// to the host PL_strcmp, it accepts a subdomain (nsHTMLDocument::SetDomain)
-// if the document.domain was set.
+// The following was derived from nsScriptSecurityManager::SecurityCompareURIs
+// but in addition to the host PL_strcmp, it accepts a subdomain
+// (nsHTMLDocument::SetDomain) if the document.domain was set.
+//
+// XXXbz this method also subtracts the checks for jar: URIs, default ports,
+// etc.  This should SO not be living here.  If we need a better security
+// manager method, we should add one.
 //
 static PRBool
 SameOrSubdomainOfTarget(nsIURI* aOriginURI, nsIURI* aTargetURI,
                         PRBool aDocumentDomainSet)
 {
+  if (aOriginURI == aTargetURI) {
+    return PR_TRUE;
+  }
+  
   nsCAutoString targetScheme;
   nsresult rv = aTargetURI->GetScheme(targetScheme);
   NS_ENSURE_SUCCESS(rv, PR_TRUE);
@@ -941,15 +950,15 @@ SameOrSubdomainOfTarget(nsIURI* aOriginURI, nsIURI* aTargetURI,
   rv = aOriginURI->GetScheme(originScheme);
   NS_ENSURE_SUCCESS(rv, PR_TRUE);
 
-  if (strcmp(targetScheme.get(), originScheme.get()))
+  if (targetScheme != originScheme)
     return PR_FALSE; // Different schemes - check fails
 
-  if (! strcmp(targetScheme.get(), "file"))
+  if (targetScheme.EqualsLiteral("file"))
     return PR_TRUE; // All file: urls are considered to have the same origin.
 
-  if (! strcmp(targetScheme.get(), "imap") ||
-      ! strcmp(targetScheme.get(), "mailbox") ||
-      ! strcmp(targetScheme.get(), "news"))
+  if (targetScheme.EqualsLiteral("imap") ||
+      targetScheme.EqualsLiteral("mailbox") ||
+      targetScheme.EqualsLiteral("news"))
   {
 
     // Each message is a distinct trust domain; use the whole spec for comparison
@@ -961,30 +970,33 @@ SameOrSubdomainOfTarget(nsIURI* aOriginURI, nsIURI* aTargetURI,
     rv = aOriginURI->GetAsciiSpec(originSpec);
     NS_ENSURE_SUCCESS(rv, PR_TRUE);
 
-    return (! strcmp(targetSpec.get(), originSpec.get())); // True if full spec is same, false otherwise
+    return (targetSpec == originSpec); // True if full spec is same, false otherwise
   }
 
-  // Compare ports.
+  // Compare ports.  Note that failure to get this means we should return
+  // false; such failure happens all the time for non-nsIURL nsIURI impls.
   int targetPort, originPort;
   rv = aTargetURI->GetPort(&targetPort);
-  NS_ENSURE_SUCCESS(rv, PR_TRUE);
+  NS_ENSURE_SUCCESS(rv, PR_FALSE);
 
   rv = aOriginURI->GetPort(&originPort);
-  NS_ENSURE_SUCCESS(rv, PR_TRUE);
+  NS_ENSURE_SUCCESS(rv, PR_FALSE);
 
   if (targetPort != originPort)
     return PR_FALSE; // Different port - check fails
 
-  // Need to check the hosts
+  // Need to check the hosts.  Note that failure to get this means we should
+  // return false; such failure happens all the time for non-nsIURL nsIURI
+  // impls.
   nsCAutoString targetHost;
   rv = aTargetURI->GetHost(targetHost);
-  NS_ENSURE_SUCCESS(rv, PR_TRUE);
+  NS_ENSURE_SUCCESS(rv, PR_FALSE);
 
   nsCAutoString originHost;
   rv = aOriginURI->GetHost(originHost);
-  NS_ENSURE_SUCCESS(rv, PR_TRUE);
+  NS_ENSURE_SUCCESS(rv, PR_FALSE);
 
-  if (!strcmp(targetHost.get(), originHost.get()))
+  if (targetHost.Equals(originHost, nsCaseInsensitiveCStringComparator()))
     return PR_TRUE; // Hosts are the same - check passed
   
   // If document.domain was set, do the relaxed check
@@ -1009,6 +1021,7 @@ SameOrSubdomainOfTarget(nsIURI* aOriginURI, nsIURI* aTargetURI,
 // This routine answers: 'Is origin's document from same domain as
 // target's document?'
 // Be optimistic that domain is same - error cases all answer 'yes'.
+// XXXbz why?  That seems wrong to me
 //
 // We have to compare the URI of the actual document loaded in the
 // origin, ignoring any document.domain that was set, with the
@@ -1071,7 +1084,7 @@ nsDocShell::ValidateOrigin(nsIDocShellTreeItem* aOriginTreeItem,
     nsCOMPtr<nsIDocument> targetDocument(do_QueryInterface(targetDOMDocument));
     NS_ENSURE_TRUE(targetDocument, PR_TRUE);
 
-    nsIPrincipal *targetPrincipal = targetDocument->GetPrincipal();
+    nsIPrincipal *targetPrincipal = targetDocument->GetNodePrincipal();
     NS_ENSURE_TRUE(targetPrincipal, PR_TRUE);
 
     nsCOMPtr<nsIURI> targetPrincipalURI;
@@ -1092,162 +1105,9 @@ nsDocShell::ValidateOrigin(nsIDocShellTreeItem* aOriginTreeItem,
     // Is origin same principal or a subdomain of target's
     // document.domain Compare actual URI of origin document, not origin
     // principal's URI. (Per Nav 4.x)
+    // XXXbz what do modern browsers do?
     return SameOrSubdomainOfTarget(originDocumentURI, targetPrincipalURI,
                                    documentDomainSet);
-}
-
-nsresult nsDocShell::FindTarget(const PRUnichar *aWindowTarget,
-                                PRBool *aIsNewWindow,
-                                nsIDocShell **aResult)
-{
-    nsresult rv = NS_OK;
-
-    *aResult      = nsnull;
-    *aIsNewWindow = PR_FALSE;
-
-    // Try to locate the target window...
-    nsCOMPtr<nsIDocShellTreeItem> treeItem;
-    FindItemWithName(aWindowTarget, nsnull, this, getter_AddRefs(treeItem));
-
-    PRInt32 linkPref = nsIBrowserDOMWindow::OPEN_DEFAULTWINDOW;
-    // XXXbz this should live inside FindItemWithName, I think...
-    if (!treeItem) {
-        mPrefs->GetIntPref("browser.link.open_newwindow", &linkPref);
-        if (linkPref == nsIBrowserDOMWindow::OPEN_CURRENTWINDOW) {
-            // force new window to go to _top
-            FindItemWithName(NS_LITERAL_STRING("_top").get(),
-                             nsnull, this, getter_AddRefs(treeItem));
-            NS_ASSERTION(treeItem,
-                         "We better get a treeitem when asking for '_top' "
-                         "with |this| as the original requestor");
-        }
-    }
-
-    if (!treeItem)
-    {
-        /// XXXbz this should really happen in FindItemWithName too, I think...
-        nsCOMPtr<nsIDOMWindow> newWindow;
-        nsCOMPtr<nsIDOMWindowInternal> parentWindow;
-
-        // This DocShell is the parent window
-        parentWindow = do_GetInterface(GetAsSupports(this));
-        if (!parentWindow) {
-            NS_ASSERTION(0, "Can't get nsIDOMWindowInternal from nsDocShell!");
-            return NS_ERROR_FAILURE;
-        }
-
-        if (linkPref == nsIBrowserDOMWindow::OPEN_NEWTAB) {
-
-            // is it a popup?
-
-            PRBool allowTab = PR_TRUE;
-            nsCOMPtr<nsPIDOMWindow> pWindow = do_QueryInterface(mScriptGlobal);
-            if (pWindow) {
-              // skip the window search-by-name of GetOpenAllow
-              // by using _self. we don't care about that at this point.
-              OpenAllowValue allow = pWindow->GetOpenAllow(
-                                      NS_LITERAL_STRING("_self"));
-              if (allow == allowNot || allow == allowSelf)
-                  allowTab = PR_FALSE;
-            }
-
-            // try to get our tab-opening interface
-
-            if (allowTab) {
-                nsCOMPtr<nsIBrowserDOMWindow> bwin;
-
-                nsCOMPtr<nsIDocShellTreeItem> rootItem;
-                GetRootTreeItem(getter_AddRefs(rootItem));
-                nsCOMPtr<nsIDOMWindow> rootWin(do_GetInterface(rootItem));
-                nsCOMPtr<nsIDOMChromeWindow> chromeWin(
-                                                do_QueryInterface(rootWin));
-                if (chromeWin)
-                  chromeWin->GetBrowserDOMWindow(getter_AddRefs(bwin));
-
-                // open a new tab
-                if (bwin) {
-                    rv = bwin->OpenURI(0, 0, nsIBrowserDOMWindow::OPEN_NEWTAB,
-                                       nsIBrowserDOMWindow::OPEN_NEW,
-                                       getter_AddRefs(newWindow));
-
-                    nsCOMPtr<nsPIDOMWindow> newPIWindow =
-                        do_GetInterface(newWindow);
-                    if (newPIWindow)
-                        newPIWindow->SetOpenerWindow(parentWindow);
-                }
-            }
-            // else fall through to the normal Open method, from which
-            // the appropriate measures will be taken when the popup fails
-        }
-
-        if (!newWindow) {
-            nsAutoString name(aWindowTarget);
-            // XXXbz this should be handled somewhere else....  and in fact, it
-            // may be safe to just pass those through here.  Check.
-            if (name.LowerCaseEqualsLiteral("_blank") ||
-                name.LowerCaseEqualsLiteral("_new")) {
-                name.Truncate();
-            }
-            rv = parentWindow->Open(EmptyString(),          // URL to load
-                                    name,                   // Window name
-                                    EmptyString(),          // Window features
-                                    getter_AddRefs(newWindow));
-        }
-        if (NS_FAILED(rv)) return rv;
-
-        {
-            // Get the DocShell from the new window...
-            nsCOMPtr<nsPIDOMWindow> piwindow(do_QueryInterface(newWindow));
-
-            // *aResult will be AddRef()'ed below...
-            *aResult = piwindow->GetDocShell();
-        }
-
-        // If all went well, indicate that a new window has been created.
-        if (*aResult) {
-            NS_ADDREF(*aResult);
-
-            *aIsNewWindow = PR_TRUE;
-
-            // if we just open a new window for this link, charset from current docshell 
-            // should be kept, as what we did in js openNewWindowWith(url)
-            nsCOMPtr<nsIMarkupDocumentViewer> muCV, target_muCV;
-            nsCOMPtr<nsIContentViewer> cv, target_cv;
-            this->GetContentViewer(getter_AddRefs(cv));
-            (*aResult)->GetContentViewer(getter_AddRefs(target_cv));
-            if (cv && target_cv) {
-              muCV = do_QueryInterface(cv);            
-              target_muCV = do_QueryInterface(target_cv);            
-              if (muCV && target_muCV) {
-                nsCAutoString defaultCharset;
-                nsCAutoString prevDocCharset;
-                rv = muCV->GetDefaultCharacterSet(defaultCharset);
-                if(NS_SUCCEEDED(rv)) {
-                  target_muCV->SetDefaultCharacterSet(defaultCharset);
-                }
-                rv = muCV->GetPrevDocCharacterSet(prevDocCharset);
-                if(NS_SUCCEEDED(rv)) {
-                  target_muCV->SetPrevDocCharacterSet(prevDocCharset);
-                }
-              }
-            } 
-        }
-
-        return rv;
-    }
-    else
-    {
-        if (treeItem)
-        {
-            NS_ASSERTION(!*aResult, "aResult should be null if treeItem is set!");
-            treeItem->QueryInterface(NS_GET_IID(nsIDocShell), (void **)aResult);
-        }
-        else
-        {
-            NS_IF_ADDREF(*aResult);
-        }
-    }
-    return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -2483,7 +2343,7 @@ nsDocShell::AddChild(nsIDocShellTreeItem * aChild)
             return NS_OK;
     }
 
-    // printf("### 1 >>> Adding child. Parent CS = %s. ItemType = %d.\n", NS_LossyConvertUCS2toASCII(parentCS).get(), mItemType);
+    // printf("### 1 >>> Adding child. Parent CS = %s. ItemType = %d.\n", NS_LossyConvertUTF16toASCII(parentCS).get(), mItemType);
 
     return NS_OK;
 }
@@ -2896,7 +2756,7 @@ nsDocShell::LoadURI(const PRUnichar * aURI,
         rv = NS_NewURI(getter_AddRefs(uri), uriString);
     } else {
         // Call the fixup object
-        rv = sURIFixup->CreateFixupURI(NS_ConvertUCS2toUTF8(aURI),
+        rv = sURIFixup->CreateFixupURI(NS_ConvertUTF16toUTF8(aURI),
                                        nsIURIFixup::FIXUP_FLAG_ALLOW_KEYWORD_LOOKUP,
                                        getter_AddRefs(uri));
     }
@@ -2949,7 +2809,7 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI *aURI,
         // extract the scheme
         nsCAutoString scheme;
         aURI->GetScheme(scheme);
-        CopyASCIItoUCS2(scheme, formatStrs[0]);
+        CopyASCIItoUTF16(scheme, formatStrs[0]);
         formatStrCount = 1;
         error.AssignLiteral("protocolNotFound");
     }
@@ -3252,7 +3112,7 @@ nsDocShell::Reload(PRUint32 aReloadFlags)
                           nsnull,         // No owner
                           INTERNAL_LOAD_FLAGS_INHERIT_OWNER, // Inherit owner from document
                           nsnull,         // No window target
-                          NS_LossyConvertUCS2toASCII(contentTypeHint).get(),
+                          NS_LossyConvertUTF16toASCII(contentTypeHint).get(),
                           nsnull,         // No post data
                           nsnull,         // No headers data
                           type,           // Load type
@@ -4753,30 +4613,9 @@ nsDocShell::OnStateChange(nsIWebProgress * aProgress, nsIRequest * aRequest,
             EndPageLoad(aProgress, channel, aStatus);
         }
     }
-    else if ((~aStateFlags & (STATE_IS_DOCUMENT | STATE_REDIRECTING)) == 0) {
-        // XXX Is it enough if I check just for the above 2 flags for redirection 
-        nsCOMPtr<nsIWebProgress> webProgress =
-            do_QueryInterface(GetAsSupports(this));
-
-        // Is the document stop notification for this document?
-        if (aProgress == webProgress.get()) {
-            nsCOMPtr<nsIChannel> channel(do_QueryInterface(aRequest));
-            if (channel) {
-                // Get the uri from the channel
-                nsCOMPtr<nsIURI> uri;
-                nsCOMPtr<nsIURI> referrer;
-                channel->GetURI(getter_AddRefs(uri));
-                // Get the referrer uri from the channel
-                nsCOMPtr<nsIHttpChannel> httpchannel(do_QueryInterface(aRequest));
-                if (httpchannel)
-                    httpchannel->GetReferrer(getter_AddRefs(referrer));
-                // Add the original url to global History so that
-                // visited url color changes happen.
-                if (uri)
-                    AddToGlobalHistory(uri, PR_TRUE, referrer);
-            }                   // channel
-        }                       // aProgress
-    }
+    // note that redirect state changes will go through here as well, but it
+    // is better to handle those in OnRedirectStateChange where more
+    // information is available.
     return NS_OK;
 }
 
@@ -4786,6 +4625,34 @@ nsDocShell::OnLocationChange(nsIWebProgress * aProgress,
 {
     NS_NOTREACHED("notification excluded in AddProgressListener(...)");
     return NS_OK;
+}
+
+void
+nsDocShell::OnRedirectStateChange(nsIChannel* aOldChannel,
+                                  nsIChannel* aNewChannel,
+                                  PRUint32 aRedirectFlags,
+                                  PRUint32 aStateFlags)
+{
+    NS_ASSERTION(aStateFlags & STATE_REDIRECTING,
+                 "Calling OnRedirectStateChange when there is no redirect");
+    if (!(aStateFlags & STATE_IS_DOCUMENT))
+        return; // not a toplevel document
+
+    nsCOMPtr<nsIGlobalHistory3> history3(do_QueryInterface(mGlobalHistory));
+    if (history3) {
+        // notify global history of this redirect
+        history3->AddToplevelRedirect(aOldChannel, aNewChannel,
+                                      aRedirectFlags);
+    } else {
+        // when there is no GlobalHistory3, we fall back to GlobalHistory2.
+        // Just notify that the redirecting page was a redirect so it will
+        // be link colored but not visible.
+        nsCOMPtr<nsIURI> oldURI;
+        aOldChannel->GetURI(getter_AddRefs(oldURI));
+        if (! oldURI)
+            return; // nothing to tell anybody about
+        AddToGlobalHistory(oldURI, PR_TRUE, aOldChannel);
+    }
 }
 
 NS_IMETHODIMP
@@ -6328,68 +6195,38 @@ nsDocShell::InternalLoad(nsIURI * aURI,
     // load to it...
     //
     if (aWindowTarget && *aWindowTarget) {
-        PRBool bIsNewWindow;
-        nsCOMPtr<nsIDocShell> targetDocShell;
-        nsAutoString name(aWindowTarget);
-
-        //
-        // This is a hack to prevent top-level windows from ever being
-        // created.  It really doesn't belong here, but until there is a
-        // way for embeddors to get involved in window targeting, this is
-        // as good a place as any...
-        // XXXbz no, it's not.... fixme!!!!
-        //
-        PRInt32 linkPref = nsIBrowserDOMWindow::OPEN_DEFAULTWINDOW;
-        mPrefs->GetIntPref("browser.link.open_newwindow", &linkPref);
-        if (linkPref == nsIBrowserDOMWindow::OPEN_CURRENTWINDOW) {
-            PRBool bIsChromeOrResource = PR_FALSE;
-            if (mCurrentURI)
-                mCurrentURI->SchemeIs("chrome", &bIsChromeOrResource);
-            if (!bIsChromeOrResource) {
-                aURI->SchemeIs("chrome", &bIsChromeOrResource);
-                if (!bIsChromeOrResource) {
-                    aURI->SchemeIs("resource", &bIsChromeOrResource);
-                }
-            }
-            if (!bIsChromeOrResource) {
-                if (name.LowerCaseEqualsLiteral("_blank") ||
-                    name.LowerCaseEqualsLiteral("_new")) {
-                    name.AssignLiteral("_top");
-                }
-                // _main is an IE target which should be case-insensitive but isn't
-                // see bug 217886 for details
-                else if (!name.LowerCaseEqualsLiteral("_parent") &&
-                         !name.LowerCaseEqualsLiteral("_self") &&
-                         !name.LowerCaseEqualsLiteral("_content") &&
-                         !name.EqualsLiteral("_main")) {
-                    nsCOMPtr<nsIDocShellTreeItem> targetTreeItem;
-                    FindItemWithName(name.get(),
-                                     nsnull,
-                                     this,
-                                     getter_AddRefs(targetTreeItem));
-                    if (targetTreeItem)
-                        targetDocShell = do_QueryInterface(targetTreeItem);
-                    else
-                        name.AssignLiteral("_top");
-                }
-            }
-        }
-
-        //
         // Locate the target DocShell.
         // This may involve creating a new toplevel window - if necessary.
         //
-        if (!targetDocShell) {
-            rv = FindTarget(name.get(), &bIsNewWindow,
-                            getter_AddRefs(targetDocShell));
-        }
+        nsCOMPtr<nsIDocShellTreeItem> targetItem;
+        FindItemWithName(aWindowTarget, nsnull, this,
+                         getter_AddRefs(targetItem));
 
-        NS_ASSERTION(targetDocShell, "No Target docshell could be found!");
+        nsCOMPtr<nsIDocShell> targetDocShell = do_QueryInterface(targetItem);
+        
+        PRBool isNewWindow = PR_FALSE;
+        if (!targetDocShell) {
+            nsCOMPtr<nsIDOMWindowInternal> win =
+                do_GetInterface(GetAsSupports(this));
+            NS_ENSURE_TRUE(win, NS_ERROR_NOT_AVAILABLE);
+
+            isNewWindow = PR_TRUE;
+            nsDependentString name(aWindowTarget);
+            nsCOMPtr<nsIDOMWindow> newWin;
+            rv = win->Open(EmptyString(), // URL to load
+                           name,          // window name
+                           EmptyString(), // Features
+                           getter_AddRefs(newWin));
+
+            nsCOMPtr<nsIWebNavigation> webNav = do_GetInterface(newWin);
+            targetDocShell = do_QueryInterface(webNav);
+        }
+        
         //
         // Transfer the load to the target DocShell...  Pass nsnull as the
         // window target name from to prevent recursive retargeting!
         //
-        if (targetDocShell) {
+        if (NS_SUCCEEDED(rv) && targetDocShell) {
             rv = targetDocShell->InternalLoad(aURI,
                                               aReferrer,
                                               owner,
@@ -6404,7 +6241,8 @@ nsDocShell::InternalLoad(nsIURI * aURI,
                                               aDocShell,
                                               aRequest);
             if (rv == NS_ERROR_NO_CONTENT) {
-                if (bIsNewWindow) {
+                // XXXbz except we never reach this code!
+                if (isNewWindow) {
                     //
                     // At this point, a new window has been created, but the
                     // URI did not have any data associated with it...
@@ -6412,18 +6250,10 @@ nsDocShell::InternalLoad(nsIURI * aURI,
                     // So, the best we can do, is to tear down the new window
                     // that was just created!
                     //
-                    nsCOMPtr<nsIDocShellTreeItem> treeItem;
-                    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-
-                    treeItem = do_QueryInterface(targetDocShell);
-                    treeItem->GetTreeOwner(getter_AddRefs(treeOwner));
-                    if (treeOwner) {
-                        nsCOMPtr<nsIBaseWindow> treeOwnerAsWin;
-
-                        treeOwnerAsWin = do_QueryInterface(treeOwner);
-                        if (treeOwnerAsWin) {
-                            treeOwnerAsWin->Destroy();
-                        }
+                    nsCOMPtr<nsIDOMWindowInternal> domWin =
+                        do_GetInterface(targetDocShell);
+                    if (domWin) {
+                        domWin->Close();
                     }
                 }
                 //
@@ -6434,12 +6264,16 @@ nsDocShell::InternalLoad(nsIURI * aURI,
                 //
                 rv = NS_OK;
             }
-            else if (bIsNewWindow) {
+            else if (isNewWindow) {
                 // XXX: Once new windows are created hidden, the new
                 //      window will need to be made visible...  For now,
                 //      do nothing.
             }
         }
+
+        // Else we ran out of memory, or were a popup and got blocked,
+        // or something.
+        
         return rv;
     }
 
@@ -6725,7 +6559,7 @@ nsDocShell::GetCurrentDocumentOwner(nsISupports ** aOwner)
 
     //-- Get the document's principal
     if (document) {
-        *aOwner = document->GetPrincipal();
+        *aOwner = document->GetNodePrincipal();
     }
 
     NS_IF_ADDREF(*aOwner);
@@ -7019,13 +6853,12 @@ nsresult nsDocShell::DoChannelLoad(nsIChannel * aChannel,
         loadFlags |= nsIRequest::LOAD_FROM_CACHE;
         break;
     
-
     case LOAD_RELOAD_NORMAL:
+    case LOAD_REFRESH:
         loadFlags |= nsIRequest::VALIDATE_ALWAYS;
         break;
 
     case LOAD_RELOAD_BYPASS_PROXY_AND_CACHE:
-    case LOAD_REFRESH:
         loadFlags |= nsIRequest::LOAD_BYPASS_CACHE;
         break;
 
@@ -7206,9 +7039,9 @@ nsDocShell::ScrollIfAnchor(nsIURI * aURI, PRBool * aWasAnchor,
         // In that case, we should just fall through to using the
         // page's charset.
         rv = NS_ERROR_FAILURE;
-        NS_ConvertUTF8toUCS2 uStr(str);
+        NS_ConvertUTF8toUTF16 uStr(str);
         if (!uStr.IsEmpty()) {
-            rv = shell->GoToAnchor(NS_ConvertUTF8toUCS2(str), scroll);
+            rv = shell->GoToAnchor(NS_ConvertUTF8toUTF16(str), scroll);
         }
         nsMemory::Free(str);
 
@@ -7415,11 +7248,7 @@ nsDocShell::OnNewURI(nsIURI * aURI, nsIChannel * aChannel,
         // Update Global history
         if (aAddToGlobalHistory) {
             // Get the referrer uri from the channel
-            nsCOMPtr<nsIURI> referrer;
-            nsCOMPtr<nsIHttpChannel> httpchannel(do_QueryInterface(aChannel));
-            if (httpchannel)
-                httpchannel->GetReferrer(getter_AddRefs(referrer));
-            AddToGlobalHistory(aURI, PR_FALSE, referrer);
+            AddToGlobalHistory(aURI, PR_FALSE, aChannel);
         }
     }
 
@@ -8165,7 +7994,8 @@ NS_IMETHODIMP nsDocShell::MakeEditable(PRBool inWaitForUriLoad)
 }
 
 nsresult
-nsDocShell::AddToGlobalHistory(nsIURI * aURI, PRBool aRedirect, nsIURI * aReferrer)
+nsDocShell::AddToGlobalHistory(nsIURI * aURI, PRBool aRedirect,
+                               nsIChannel * aChannel)
 {
     if (mItemType != typeContent || !mGlobalHistory)
         return NS_OK;
@@ -8174,8 +8004,19 @@ nsDocShell::AddToGlobalHistory(nsIURI * aURI, PRBool aRedirect, nsIURI * aReferr
     nsresult rv = mGlobalHistory->IsVisited(aURI, &visited);
     if (NS_FAILED(rv))
         return rv;
-    
-    rv = mGlobalHistory->AddURI(aURI, aRedirect, !IsFrame(), aReferrer);
+
+    // Get referrer from the channel. We have to check for a property on a
+    // property bag because the referrer may be empty for security reasons (for
+    // example, when loading a http page with a https referrer).
+    nsCOMPtr<nsIURI> referrer;
+    nsCOMPtr<nsIPropertyBag2> props(do_QueryInterface(aChannel));
+    if (props) {
+        props->GetPropertyAsInterface(NS_LITERAL_STRING("docshell.internalReferrer"),
+                                      NS_GET_IID(nsIURI),
+                                      getter_AddRefs(referrer));
+    }
+
+    rv = mGlobalHistory->AddURI(aURI, aRedirect, !IsFrame(), referrer);
     if (NS_FAILED(rv))
         return rv;
 
@@ -8305,6 +8146,15 @@ nsDocShell::EnsureScriptEnvironment()
 
     // Note that mScriptGlobal has taken a reference to the script
     // context, so we don't have to.
+
+    // Notify observers that we've created a new outer window.
+    // The matching notification for domwindowdestroyed is in
+    // nsGlobalWindow::~nsGlobalWindow().
+    nsCOMPtr<nsIObserverService> obsSvc =
+        do_GetService("@mozilla.org/observer-service;1");
+    if (obsSvc) {
+        obsSvc->NotifyObservers(win, "domwindowcreated", nsnull);
+    }
 
     return NS_OK;
 }

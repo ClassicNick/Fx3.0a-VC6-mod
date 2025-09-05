@@ -282,6 +282,10 @@ endif
 endif
 endif
 
+ifdef MOZ_STORAGE
+tier_50_dirs += storage
+endif
+
 ifdef MOZ_XUL_APP
 ifndef BUILD_STATIC_LIBS
 tier_50_dirs += toolkit/library
@@ -294,10 +298,6 @@ endif
 
 ifdef NS_TRACE_MALLOC
 tier_50_dirs += tools/trace-malloc
-endif
-
-ifdef MOZ_STORAGE
-tier_50_dirs += storage
 endif
 
 ifdef MOZ_LDAP_XPCOM
@@ -400,13 +400,6 @@ ifneq (,$(MOZ_XPFE_COMPONENTS)$(MOZ_XUL))
 ifndef MINIMO
 tier_99_dirs	+= xpfe/bootstrap
 endif
-endif
-endif
-
-# viewer
-ifneq (,$(ENABLE_TESTS))
-ifndef MOZ_ENABLE_LIBXUL
-tier_99_dirs += webshell/tests
 endif
 endif
 
@@ -620,9 +613,12 @@ ifdef MOZ_PROFILE
 endif # MOZ_PROFILE
 endif # MOZILLA_OFFICIAL
 
+## XXXvlad -- the test and cp should be removed once bug 249782 is
+## completely fixed
 signnss:
 ifdef MOZILLA_OFFICIAL
 	echo signing NSS libs
+	test -f $(DEPTH)/nss/shlibsign.exe.manifest && cp $(DEPTH)/nss/shlibsign.exe.manifest $(DIST)/bin
 	cd $(DIST)/bin; ./shlibsign.exe -v -i softokn3.dll
 	cd $(DIST)/bin; ./shlibsign.exe -v -i freebl3.dll
 endif # MOZILLA_OFFICIAL

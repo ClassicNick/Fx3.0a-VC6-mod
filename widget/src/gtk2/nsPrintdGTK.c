@@ -1,28 +1,44 @@
 /* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/*
- * The contents of this file are subject to the Netscape Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/NPL/
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
  *
  * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is Netscape
- * Communications Corporation.  Portions created by Netscape are
- * Copyright (C) 1998 Netscape Communications Corporation. All
- * Rights Reserved.
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
+ * the Initial Developer. All Rights Reserved.
  *
- * Modified: syd@netscape.com 10/18/99 wired in margins 
- * Contributor(s): 
- */
+ * Contributor(s):
+ *   Modified: syd@netscape.com 10/18/99 wired in margins
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 /* Original Code: Syd Logan (syd@netscape.com) 3/12/99 */
 
+#include <string.h>
 #include <gtk/gtk.h>
 
 #include "nspr.h"
@@ -160,7 +176,7 @@ GetPrPath (GtkWidget *widget, UnixPrOps *prOps)
 {
     GtkWidget *fs;
 
-    fs = gtk_file_selection_new("Netscape: File Browser");
+    fs = gtk_file_selection_new("File Browser");
 
     gtk_file_selection_set_filename( GTK_FILE_SELECTION(fs), 
 	prOps->prData->path );
@@ -204,7 +220,7 @@ DoPrintGTK (GtkWidget *widget, UnixPrOps *prOps)
         gtk_window_set_transient_for (GTK_WINDOW (dialog), 
 		GTK_WINDOW (prOps->widgets.toplevel));
 #endif
-      	gtk_window_set_title( GTK_WINDOW(dialog), "Netscape: Print" );
+      	gtk_window_set_title( GTK_WINDOW(dialog), "Print" );
 
 	vbox = gtk_vbox_new (PR_FALSE, 0);
         gtk_container_add (GTK_CONTAINER (dialog), vbox);
@@ -369,7 +385,7 @@ DoPrintGTK (GtkWidget *widget, UnixPrOps *prOps)
         	GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
 	label = gtk_label_new( "Top: " );
       	gtk_box_pack_start (GTK_BOX (hbox), label, PR_TRUE, PR_FALSE, 0);
-        adj = (GtkAdjustment *) gtk_adjustment_new (0.5, 0.0, 999.0,
+        adj = (GtkAdjustment *) gtk_adjustment_new ( prOps->prData->top, 0.0, 999.0,
         	0.25, 1.0, 0.0);
         prOps->widgets.topSpinner = spinner1 = 
 		gtk_spin_button_new (adj, 1.0, 2);
@@ -379,7 +395,7 @@ DoPrintGTK (GtkWidget *widget, UnixPrOps *prOps)
 
 	label = gtk_label_new( "Bottom: " );
       	gtk_box_pack_start (GTK_BOX (hbox), label, PR_TRUE, PR_FALSE, 0);
-        adj = (GtkAdjustment *) gtk_adjustment_new (0.0, 0.0, 999.0,
+        adj = (GtkAdjustment *) gtk_adjustment_new ( prOps->prData->bottom, 0.0, 999.0,
         	0.25, 1.0, 0.0);
         prOps->widgets.bottomSpinner = spinner1 = 
 		gtk_spin_button_new (adj, 1.0, 2);
@@ -393,7 +409,7 @@ DoPrintGTK (GtkWidget *widget, UnixPrOps *prOps)
 
 	label = gtk_label_new( "Left: " );
       	gtk_box_pack_start (GTK_BOX (hbox), label, PR_TRUE, PR_FALSE, 0);
-        adj = (GtkAdjustment *) gtk_adjustment_new (0.5, 0.0, 999.0,
+        adj = (GtkAdjustment *) gtk_adjustment_new ( prOps->prData->left, 0.0, 999.0,
         	0.25, 1.0, 0.0);
         prOps->widgets.leftSpinner = spinner1 = 
 		gtk_spin_button_new (adj, 1.0, 2);
@@ -403,7 +419,7 @@ DoPrintGTK (GtkWidget *widget, UnixPrOps *prOps)
 
 	label = gtk_label_new( "Right: " );
       	gtk_box_pack_start (GTK_BOX (hbox), label, PR_TRUE, PR_FALSE, 0);
-        adj = (GtkAdjustment *) gtk_adjustment_new (0.0, 0.0, 999.0,
+        adj = (GtkAdjustment *) gtk_adjustment_new ( prOps->prData->right, 0.0, 999.0,
         	0.25, 1.0, 0.0);
         prOps->widgets.rightSpinner = spinner1 = 
 		gtk_spin_button_new (adj, 1.0, 2);

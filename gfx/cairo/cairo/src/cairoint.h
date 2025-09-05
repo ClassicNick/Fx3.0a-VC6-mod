@@ -1857,6 +1857,18 @@ _cairo_image_surface_create_with_masks (unsigned char	       *data,
 					int			height,
 					int			stride);
 
+cairo_private cairo_surface_t *
+_cairo_image_surface_create_with_content (cairo_content_t	content,
+					  int			width,
+					  int			height);
+
+cairo_private cairo_surface_t *
+_cairo_image_surface_create_for_data_with_content (unsigned char	*data,
+						   cairo_content_t	 content,
+						   int			 width,
+						   int			 height,
+						   int			 stride);
+
 cairo_private void
 _cairo_image_surface_assume_ownership_of_data (cairo_image_surface_t *surface);
 
@@ -2193,6 +2205,7 @@ slim_hidden_proto(cairo_save)
 slim_hidden_proto(cairo_stroke_preserve)
 slim_hidden_proto(cairo_surface_destroy)
 slim_hidden_proto(cairo_push_group)
+slim_hidden_proto(cairo_push_group_with_content)
 slim_hidden_proto(cairo_pop_group)
 slim_hidden_proto(cairo_pop_group_to_source)
 slim_hidden_proto(moz_cairo_set_target)

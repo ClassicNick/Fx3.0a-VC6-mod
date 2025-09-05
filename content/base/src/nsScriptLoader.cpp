@@ -67,25 +67,31 @@ static NS_DEFINE_CID(kCharsetConverterManagerCID, NS_ICHARSETCONVERTERMANAGER_CI
 //
 //////////////////////////////////////////////////////////////
 
+// If aMaybeCertPrincipal is a cert principal and aNewPrincipal is not the same
+// as aMaybeCertPrincipal, downgrade aMaybeCertPrincipal to a codebase
+// principal.  Return the downgraded principal, or aMaybeCertPrincipal if no
+// downgrade was needed.
 static already_AddRefed<nsIPrincipal>
-IntersectPrincipalCerts(nsIPrincipal *aOld, nsIPrincipal *aNew)
+MaybeDowngradeToCodebase(nsIPrincipal *aMaybeCertPrincipal,
+                         nsIPrincipal *aNewPrincipal)
 {
-  NS_PRECONDITION(aOld, "Null old principal!");
-  NS_PRECONDITION(aNew, "Null new principal!");
+  NS_PRECONDITION(aMaybeCertPrincipal, "Null old principal!");
+  NS_PRECONDITION(aNewPrincipal, "Null new principal!");
 
-  nsIPrincipal *principal = aOld;
+  nsIPrincipal *principal = aMaybeCertPrincipal;
 
   PRBool hasCert;
-  aOld->GetHasCertificate(&hasCert);
+  aMaybeCertPrincipal->GetHasCertificate(&hasCert);
   if (hasCert) {
     PRBool equal;
-    aOld->Equals(aNew, &equal);
+    aMaybeCertPrincipal->Equals(aNewPrincipal, &equal);
     if (!equal) {
       nsCOMPtr<nsIURI> uri, domain;
-      aOld->GetURI(getter_AddRefs(uri));
-      aOld->GetDomain(getter_AddRefs(domain));
+      aMaybeCertPrincipal->GetURI(getter_AddRefs(uri));
+      aMaybeCertPrincipal->GetDomain(getter_AddRefs(domain));
 
-      nsContentUtils::GetSecurityManager()->GetCodebasePrincipal(uri, &principal);
+      nsContentUtils::GetSecurityManager()->GetCodebasePrincipal(uri,
+                                                                 &principal);
       if (principal && domain) {
         principal->SetDomain(domain);
       }
@@ -361,7 +367,7 @@ nsScriptLoader::DoProcessScriptElement(nsIScriptElement *aElement,
   // suppresses script evaluation within it and that we should be
   // evaluating scripts for this document in the first place.
   if (!mEnabled || !mDocument->IsScriptEnabled() ||
-      InNonScriptingContainer(aElement)) {
+      aElement->IsMalformed() || InNonScriptingContainer(aElement)) {
     return NS_ERROR_NOT_AVAILABLE;
   }
 
@@ -500,7 +506,7 @@ nsScriptLoader::DoProcessScriptElement(nsIScriptElement *aElement,
   nsCOMPtr<nsIURI> scriptURI = aElement->GetScriptURI();
   if (scriptURI) {
     // Check that the containing page is allowed to load this URI.
-    nsIPrincipal *docPrincipal = mDocument->GetPrincipal();
+    nsIPrincipal *docPrincipal = mDocument->GetNodePrincipal();
     NS_ENSURE_TRUE(docPrincipal, NS_ERROR_UNEXPECTED);
     rv = nsContentUtils::GetSecurityManager()->
       CheckLoadURIWithPrincipal(docPrincipal, scriptURI,
@@ -516,7 +522,7 @@ nsScriptLoader::DoProcessScriptElement(nsIScriptElement *aElement,
                                      scriptURI,
                                      docURI,
                                      aElement,
-                                     NS_LossyConvertUCS2toASCII(type),
+                                     NS_LossyConvertUTF16toASCII(type),
                                      nsnull,    //extra
                                      &shouldLoad,
                                      nsContentUtils::GetContentPolicy());
@@ -715,7 +721,7 @@ nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest,
     return NS_ERROR_FAILURE;
   }
 
-  nsIPrincipal *principal = mDocument->GetPrincipal();
+  nsIPrincipal *principal = mDocument->GetNodePrincipal();
   // We can survive without a principal, but we really should
   // have one.
   NS_ASSERTION(principal, "principal required for document");
@@ -979,17 +985,19 @@ nsScriptLoader::OnStreamComplete(nsIStreamLoader* aLoader,
       return NS_OK;
     }
 
-    //-- Merge the principal of the script file with that of the document
+    // -- Merge the principal of the script file with that of the document; if
+    // the script has a non-cert principal, the document's principal should be
+    // downgraded.
     if (channel) {
       nsCOMPtr<nsISupports> owner;
       channel->GetOwner(getter_AddRefs(owner));
       nsCOMPtr<nsIPrincipal> principal = do_QueryInterface(owner);
 
       if (principal) {
-        nsIPrincipal *docPrincipal = mDocument->GetPrincipal();
+        nsIPrincipal *docPrincipal = mDocument->GetNodePrincipal();
         if (docPrincipal) {
           nsCOMPtr<nsIPrincipal> newPrincipal =
-              IntersectPrincipalCerts(docPrincipal, principal);
+              MaybeDowngradeToCodebase(docPrincipal, principal);
 
           mDocument->SetPrincipal(newPrincipal);
         } else {

@@ -242,6 +242,18 @@ const gSessionHistoryObserver = {
     backCommand.setAttribute("disabled", "true");
     var fwdCommand = document.getElementById("Browser:Forward");
     fwdCommand.setAttribute("disabled", "true");
+
+    //Clear undo history of all URL Bars
+    var windowManager = Components.classes['@mozilla.org/appshell/window-mediator;1'].getService();
+    var windowManagerInterface = windowManager.QueryInterface(Components.interfaces.nsIWindowMediator);
+    var windows = windowManagerInterface.getEnumerator("navigator:browser");
+    while (windows.hasMoreElements()) {
+      var urlBar = windows.getNext().gURLBar;
+      if (urlBar) {
+        urlBar.editor.enableUndo(false);
+        urlBar.editor.enableUndo(true);
+      }
+    }
   }
 };
 
@@ -384,7 +396,10 @@ const gPopupBlockerObserver = {
         menuitem.setAttribute("requestingWindowURI", pageReport[i].requestingWindowURI.spec);
         menuitem.setAttribute("popupWindowURI", popupURIspec);
         menuitem.setAttribute("popupWindowFeatures", pageReport[i].popupWindowFeatures);
+#ifndef MOZILLA_1_8_BRANCH
+# bug 314700
         menuitem.setAttribute("popupWindowName", pageReport[i].popupWindowName);
+#endif
         menuitem.setAttribute("oncommand", "gPopupBlockerObserver.showBlockedPopup(event);");
         aEvent.target.appendChild(menuitem);
       }
@@ -413,14 +428,22 @@ const gPopupBlockerObserver = {
 
     var popupWindowURI = aEvent.target.getAttribute("popupWindowURI");
     var features = aEvent.target.getAttribute("popupWindowFeatures");
+#ifndef MOZILLA_1_8_BRANCH
+# bug 314700
     var name = aEvent.target.getAttribute("popupWindowName");
+#endif
 
     var shell = findChildShell(null, gBrowser.selectedBrowser.docShell,
                                requestingWindowURI);
     if (shell) {
       var ifr = shell.QueryInterface(Components.interfaces.nsIInterfaceRequestor);
       var dwi = ifr.getInterface(Components.interfaces.nsIDOMWindowInternal);
+#ifdef MOZILLA_1_8_BRANCH
+# bug 314700
+      dwi.open(popupWindowURI, "", features);
+#else
       dwi.open(popupWindowURI, name, features);
+#endif
     }
   },
 
@@ -1887,7 +1910,7 @@ function normalizePostData(aStringData)
 function getPostDataStream(aStringData, aKeyword, aEncKeyword, aType)
 {
   var dataStream = Components.classes["@mozilla.org/io/string-input-stream;1"]
-                            .createInstance(Components.interfaces.nsIStringInputStream2);
+                            .createInstance(Components.interfaces.nsIStringInputStream);
   aStringData = aStringData.replace(/%s/g, aEncKeyword).replace(/%S/g, aKeyword);
   dataStream.data = aStringData;
 
@@ -5083,20 +5106,21 @@ function asyncOpenWebPanel(event)
      return true;
    } else {
      // Try simple XLink
-     var href, realHref;
+     var href, realHref, baseURI;
      linkNode = target;
      while (linkNode) {
        if (linkNode.nodeType == Node.ELEMENT_NODE) {
          wrapper = linkNode;
 
          realHref = wrapper.getAttributeNS("http://www.w3.org/1999/xlink", "href");
-         if (realHref)
+         if (realHref) {
            href = realHref;
+           baseURI = wrapper.baseURI
+         }
        }
        linkNode = linkNode.parentNode;
      }
      if (href) {
-       var baseURI = linkNode.baseURI;
        href = makeURLAbsolute(baseURI, href);
        handleLinkClick(event, href, null);
        return true;

@@ -48,7 +48,7 @@ import java.security.InvalidParameterException;
  * CryptoManager class.
  *
  * @author nicolson
- * @version $Revision: 1.7 $ $Date: 2004/04/25 15:02:22 $ 
+ * @version $Revision: 1.9 $ $Date: 2006/02/14 23:52:54 $ 
  * @see org.mozilla.jss.CryptoManager
  */
 public final class PK11Token implements CryptoToken {

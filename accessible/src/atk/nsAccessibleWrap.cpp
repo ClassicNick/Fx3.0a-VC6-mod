@@ -534,12 +534,12 @@ nsAccessibleWrap::TranslateStates(PRUint32 aState, PRUint32 aExtState, void *aAt
     if (aState & nsIAccessible::STATE_INVALID)
         atk_state_set_add_state (state_set, ATK_STATE_INVALID);
 
-#ifdef MAI_HAS_ATK_STATE_DEFAULT
+#ifdef ATK_STATE_DEFAULT
     if (aState & nsIAccessible::STATE_DEFAULT)
         atk_state_set_add_state (state_set, ATK_STATE_DEFAULT);
 #endif
 
-#ifdef MAI_HAS_ATK_STATE_REQUIRED
+#ifdef ATK_STATE_REQUIRED
     if (aState & nsIAccessible::STATE_REQUIRED)
         atk_state_set_add_state (state_set, ATK_STATE_REQUIRED);
 #endif
@@ -735,10 +735,10 @@ getNameCB(AtkObject *aAtkObj)
     NS_ENSURE_SUCCESS(rv, nsnull);
 
     if (uniName.Length() > 0) {
-        NS_ConvertUTF8toUCS2 objName(aAtkObj->name);
+        NS_ConvertUTF8toUTF16 objName(aAtkObj->name);
         if (!uniName.Equals(objName)) {
             atk_object_set_name(aAtkObj,
-                                NS_ConvertUCS2toUTF8(uniName).get());
+                                NS_ConvertUTF16toUTF8(uniName).get());
         }
     }
     return aAtkObj->name;
@@ -762,7 +762,7 @@ getDescriptionCB(AtkObject *aAtkObj)
         len = uniDesc.Length();
         if (len > 0) {
             atk_object_set_description(aAtkObj,
-                                       NS_ConvertUCS2toUTF8(uniDesc).get());
+                                       NS_ConvertUTF16toUTF8(uniDesc).get());
         }
     }
     return aAtkObj->description;
@@ -798,6 +798,16 @@ getRoleCB(AtkObject *aAtkObj)
             }
             accRole = linkRole;
         }
+#ifndef ATK_ROLE_AUTOCOMPLETE
+        else if (accRole == nsIAccessible::ROLE_AUTOCOMPLETE) {
+			accRole == ATK_ROLE_COMBO_BOX;
+		}
+#endif
+#ifndef ATK_ROLE_CAPTION
+        else if (accRole == nsIAccessible::ROLE_CAPTION) {
+			accRole == ATK_ROLE_LABEL;
+		}
+#endif
         aAtkObj->role = NS_STATIC_CAST(AtkRole, accRole);
     }
     return aAtkObj->role;

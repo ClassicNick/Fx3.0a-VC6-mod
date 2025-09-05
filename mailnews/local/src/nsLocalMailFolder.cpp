@@ -87,7 +87,7 @@
 #include "nsIFileSpec.h"
 #include "nsIMessenger.h"
 #include "nsMsgBaseCID.h"
-#include "nsMsgI18N.h"
+#include "nsNativeCharsetUtils.h"
 #include "nsIDocShell.h"
 #include "nsIPrompt.h"
 #include "nsIInterfaceRequestor.h"
@@ -798,7 +798,7 @@ nsMsgLocalMailFolder::CreateSubfolder(const PRUnichar *folderName, nsIMsgWindow 
   nsAutoString safeFolderName(folderName);
   NS_MsgHashIfNecessary(safeFolderName);
   nsCAutoString nativeFolderName;
-  rv = nsMsgI18NCopyUTF16ToNative(safeFolderName, nativeFolderName);
+  rv = NS_CopyUnicodeToNative(safeFolderName, nativeFolderName);
   if (NS_FAILED(rv) || nativeFolderName.IsEmpty()) {
     ThrowAlertMsg("folderCreationFailed", msgWindow);
     // I'm returning this value so the dialog stays up
@@ -1162,7 +1162,7 @@ NS_IMETHODIMP nsMsgLocalMailFolder::Rename(const PRUnichar *aNewName, nsIMsgWind
   nsAutoString safeName(aNewName);
   NS_MsgHashIfNecessary(safeName);
   nsCAutoString newDiskName;
-  if (NS_FAILED(nsMsgI18NCopyUTF16ToNative(safeName, newDiskName)))
+  if (NS_FAILED(NS_CopyUnicodeToNative(safeName, newDiskName)))
     return NS_ERROR_FAILURE;
   
   nsXPIDLCString oldLeafName;
@@ -1299,7 +1299,7 @@ NS_IMETHODIMP nsMsgLocalMailFolder::SetPrettyName(const PRUnichar *aName)
   NS_ENSURE_SUCCESS(rv, rv);
   nsXPIDLCString folderName;
   rv = GetStringProperty("folderName", getter_Copies(folderName));
-  NS_ConvertUCS2toUTF8 utf8FolderName(mName);
+  NS_ConvertUTF16toUTF8 utf8FolderName(mName);
   if (!NS_SUCCEEDED(rv) || !folderName.Equals(utf8FolderName.get()))
     return SetStringProperty("folderName", utf8FolderName.get());
   else
@@ -1381,7 +1381,7 @@ NS_IMETHODIMP nsMsgLocalMailFolder::WriteToFolderCacheElem(nsIMsgFolderCacheElem
 {
   NS_ENSURE_ARG_POINTER(element);
   nsMsgDBFolder::WriteToFolderCacheElem(element);
-  return element->SetStringProperty("folderName", NS_ConvertUCS2toUTF8(mName).get());
+  return element->SetStringProperty("folderName", NS_ConvertUTF16toUTF8(mName).get());
 }
 
 NS_IMETHODIMP nsMsgLocalMailFolder::UpdateSummaryTotals(PRBool force)

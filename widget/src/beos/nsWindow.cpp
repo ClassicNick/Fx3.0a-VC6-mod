@@ -2038,7 +2038,6 @@ bool nsWindow::CallMethod(MethodInfo *info)
 				((nsWindowBeOS *)mView->Window())->fJustGotBounds = true;
 				mView->UnlockLooper();
 			}
-			SetBounds(r);
 			OnResize(r);
 		}
 		break;
@@ -3319,13 +3318,13 @@ void nsViewBeOS::MakeFocus(bool focused)
 		MethodInfo *info = nsnull;
 		if (!focused)
 		{
-			if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::KILL_FOCUS),1,args))
+			if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::KILL_FOCUS, 1, args)))
 				t->CallMethodAsync(info);
 		}
 #ifdef DEBUG_FOCUS
 		else
 		{
-			if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::GOT_FOCUS),1,args))
+			if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::GOT_FOCUS, 1, args)))
 				t->CallMethodAsync(info);
 		}
 #endif		

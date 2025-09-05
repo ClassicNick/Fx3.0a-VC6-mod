@@ -563,12 +563,6 @@ EmbedPrivate::PushStartup(void)
     if (NS_FAILED(rv))
       return;
 
-    // we no longer need a reference to the DirectoryServiceProvider
-    if (sAppFileLocProvider) {
-      NS_RELEASE(sAppFileLocProvider);
-      sAppFileLocProvider = nsnull;
-    }
-
     if (sProfileDir)
       XRE_NotifyProfile();
 
@@ -601,6 +595,12 @@ EmbedPrivate::PopStartup(void)
 
     // destroy the offscreen window
     DestroyOffscreenWindow();
+
+    // we no longer need a reference to the DirectoryServiceProvider
+    if (sAppFileLocProvider) {
+      NS_RELEASE(sAppFileLocProvider);
+      sAppFileLocProvider = nsnull;
+    }
 
     if (sAppShell) {
       // Shutdown the appshell service.
@@ -662,13 +662,18 @@ EmbedPrivate::SetProfilePath(const char *aDir, const char *aName)
 
   nsresult rv =
     NS_NewNativeLocalFile(nsDependentCString(aDir), PR_TRUE, &sProfileDir);
-  if (NS_SUCCEEDED(rv)) {
+
+  if (NS_SUCCEEDED(rv) && aName)
+    rv = sProfileDir->AppendNative(nsDependentCString(aName));
+
+  if (NS_SUCCEEDED(rv))
     rv = XRE_LockProfileDirectory(sProfileDir, &sProfileLock);
-    if (NS_SUCCEEDED(rv)) {
-      if (sWidgetCount)
-        XRE_NotifyProfile();
-      return;
-    }
+
+  if (NS_SUCCEEDED(rv)) {
+    if (sWidgetCount)
+      XRE_NotifyProfile();
+
+    return;
   }
 
   NS_WARNING("Failed to lock profile.");

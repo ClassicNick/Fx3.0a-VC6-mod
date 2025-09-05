@@ -37,15 +37,6 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-// Work around lack of conditional build logic in codewarrior's
-// build system.  The MOZ_LDAP_XPCOM preprocessor symbol is only 
-// defined on Mac because noone else needs this weirdness; thus 
-// the XP_MAC check first.  This conditional encloses the entire
-// file, so that in the case where the ldap option is turned off
-// in the mac build, a dummy (empty) object will be generated.
-//
-#if !defined(XP_MAC) || defined(MOZ_LDAP_XPCOM)
-
 #include "nsAbLDAPAutoCompFormatter.h"
 #include "nsIAutoCompleteResults.h"
 #include "nsIServiceManager.h"
@@ -134,7 +125,7 @@ nsAbLDAPAutoCompFormatter::Format(nsILDAPMessage *aMsg,
 
     // this is that part that actually gets autocompleted to
     //
-    rv = item->SetValue(NS_ConvertUTF8toUCS2(value));
+    rv = item->SetValue(NS_ConvertUTF8toUTF16(value));
     if (NS_FAILED(rv)) {
         NS_ERROR("nsAbLDAPAutoCompFormatter::Format(): "
                  "item->SetValue failed");
@@ -146,7 +137,7 @@ nsAbLDAPAutoCompFormatter::Format(nsILDAPMessage *aMsg,
     nsCAutoString comment;
     rv = ProcessFormat(mCommentFormat, aMsg, &comment, 0);
     if (NS_SUCCEEDED(rv)) {
-        rv = item->SetComment(NS_ConvertUTF8toUCS2(comment).get());
+        rv = item->SetComment(NS_ConvertUTF8toUTF16(comment).get());
         if (NS_FAILED(rv)) {
             NS_WARNING("nsAbLDAPAutoCompFormatter::Format():"
                        " item->SetComment() failed");
@@ -742,5 +733,3 @@ nsAbLDAPAutoCompFormatter::SetCommentFormat(const nsAString &
 
     return NS_OK;
 }
-
-#endif

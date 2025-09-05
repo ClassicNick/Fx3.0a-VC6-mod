@@ -1,4 +1,5 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=2 sw=2 et tw=78: */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -89,6 +90,8 @@ public:
   virtual void GetScriptCharset(nsAString& charset); 
   virtual void SetScriptLineNumber(PRUint32 aLineNumber);
   virtual PRUint32 GetScriptLineNumber();
+  virtual void SetIsMalformed();
+  virtual PRBool IsMalformed();
 
   // nsISVGValueObserver specializations:
   NS_IMETHOD DidModifySVGObservable (nsISVGValue* observable,
@@ -250,7 +253,7 @@ nsSVGScriptElement::ScriptAvailable(nsresult aResult,
     nsCAutoString spec;
     aURI->GetSpec(spec);
 
-    NS_ConvertUTF8toUCS2 fileName(spec);
+    NS_ConvertUTF8toUTF16 fileName(spec);
     event.fileName = fileName.get();
 
     HandleDOMEvent(presContext, &event, nsnull, NS_EVENT_FLAG_INIT,
@@ -339,6 +342,17 @@ nsSVGScriptElement::GetScriptLineNumber()
   return mLineNumber;
 }
 
+// Note: The following two methods don't apply to us.
+void
+nsSVGScriptElement::SetIsMalformed()
+{
+}
+
+PRBool
+nsSVGScriptElement::IsMalformed()
+{
+  return PR_FALSE;
+}
 
 //----------------------------------------------------------------------
 // nsISVGValueObserver methods

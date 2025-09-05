@@ -44,14 +44,19 @@ nsTemplateMatch::nsTemplateMatch(const nsTemplateMatch& aMatch) {}
 void nsTemplateMatch::operator=(const nsTemplateMatch& aMatch) {}
 #endif
 
-PRBool
-nsTemplateMatch::GetAssignmentFor(nsConflictSet& aConflictSet, PRInt32 aVariable, Value* aValue)
+nsresult
+nsTemplateMatch::RuleMatched(nsTemplateQuerySet* aQuerySet,
+                             nsTemplateRule* aRule,
+                             nsIXULTemplateResult* aResult)
 {
-    if (mAssignments.GetAssignmentFor(aVariable, aValue)) {
-        return PR_TRUE;
-    }
-    else {
-        return mRule->ComputeAssignmentFor(aConflictSet, this, aVariable, aValue);
-    }
-}
+    mRule = aRule;
 
+    nsCOMPtr<nsIDOMNode> rulenode;
+    aRule->GetRuleNode(getter_AddRefs(rulenode));
+    if (rulenode) {
+        nsCOMPtr<nsIDOMNode> querynode = do_QueryInterface(aQuerySet->mQueryNode);
+        return aResult->RuleMatched(querynode, rulenode);
+    }
+
+    return NS_OK;
+}

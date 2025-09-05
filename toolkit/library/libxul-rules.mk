@@ -51,7 +51,12 @@ else
 EXTRA_DSO_LDOPTS += $(MOZ_ZLIB_LIBS)
 endif
 
-LOCAL_INCLUDES += -I$(topsrcdir)/config
+# need widget/src/windows for resource.h (included from widget.rc)
+LOCAL_INCLUDES += \
+	-I$(topsrcdir)/config \
+	-I$(topsrcdir)/widget/src/windows \
+	-I$(topsrcdir)/widget/src/build \
+	$(NULL)
 
 OS_LIBS += $(LIBICONV)
 

@@ -162,6 +162,20 @@ interface nsINavBookmarkObserver : nsISupports
    *  @param property   The property that was changed.
    */
   void onFolderChanged(in PRInt64 folder, in ACString property);
+
+  /**
+   * Notify this observer that a separator has been added.
+   *  @param parent     The id of the separator's parent.
+   *  @param index      The separator's index inside its parent.
+   */
+  void onSeparatorAdded(in PRInt64 parent, in PRInt32 index);
+
+  /**
+   * Notify this observer that a separator has been removed.
+   *  @param parent     The id of the separator's parent.
+   *  @param index      The separator's old index in its parent.
+   */
+  void onSeparatorRemoved(in PRInt64 parent, in PRInt32 index);
 };
 
 /**
@@ -264,6 +278,21 @@ interface nsINavBookmarksService : nsISupports
   PRInt64 getChildFolder(in PRInt64 folder, in AString subFolder);
 
   /**
+   * Inserts a bookmark separator into the given folder at the given index.
+   * The separator can be removed using removeChildAt().
+   *  @param folder    Parent folder of the separator
+   *  @param index     The separator's index under folder, or -1 to append
+   */
+  void insertSeparator(in PRInt64 folder, in PRInt32 index);
+
+  /**
+   * Removes any type of child (item, folder, or separator) at the given index.
+   *  @param folder    The folder to remove a child from
+   *  @param index     The index of the child to remove
+   */
+  void removeChildAt(in PRInt64 folder, in PRInt32 index);
+
+  /**
    * Set the history/bookmark title for a URI.  The new title will be used
    * anywhere the URI is shown in bookmarks or history.
    *  @param uri   The URI whose name should be set
@@ -352,6 +381,14 @@ interface nsINavBookmarksService : nsISupports
    * Causes observers to be notified of a beginUpdateBatch when a lot of things
    * are about to change. Calls can be nested, observers will only be
    * notified when all batches begin/end.
+   *
+   * It is EXTREMELY IMPORTANT that you call EndUpdateBatch for each call to
+   * beginUpdateBatch. If you don't do this, certain parts of the UI will not
+   * get updated and any changes to bookmarks will not get written to disk.
+   * From C++ code inside the places component, use nsBookmarksUpdateBatcher
+   * defined in nsNavBookmarks.h to scope batches. For JS or from other
+   * components, just please be very careful to close the batch, especially
+   * when encountering an error and returning early.
    */
   void beginUpdateBatch();
 

@@ -161,12 +161,6 @@ moz_run_program()
 		fi
 	fi
 	##
-	## Reset GTK_MODULES, strip atk-bridge if exists
-	## Mozilla will load libatk-bridge.so later if necessary
-	##
-	GTK_MODULES=`echo $GTK_MODULES | sed -e 's/atk-bridge//g'`
-	export GTK_MODULES
-	##
 	## Run the program
 	##
 	"$prog" ${1+"$@"}
@@ -229,7 +223,13 @@ moz_debug_program()
     then
         tmpfile=`mktemp /tmp/mozargs.XXXXXX` || { echo "Cannot create temporary file" >&2; exit 1; }
         trap " [ -f \"$tmpfile\" ] && /bin/rm -f -- \"$tmpfile\"" 0 1 2 3 13 15
-        echo "set args ${1+"$@"}" > $tmpfile
+        # echo -n isn't portable, so pipe through perl -pe chomp instead
+        echo "set args" | perl -pe 'chomp' > $tmpfile
+        for PARAM in "$@"
+        do
+            echo " '$PARAM'" | perl -pe 'chomp' >> $tmpfile
+        done
+        echo >> $tmpfile
 # If you are not using ddd, gdb and know of a way to convey the arguments 
 # over to the prog then add that here- Gagan Saksena 03/15/00
         case `basename $debugger` in

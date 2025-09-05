@@ -81,7 +81,7 @@ static PRInt32 GetXftDPI(void);
 
 #include <X11/Xatom.h>
 
-#include "nsDeviceContextSpecG.h"
+#include "nsIDeviceContextSpec.h"
 
 static PRInt32 GetOSDPI(void);
 
@@ -538,7 +538,10 @@ NS_IMETHODIMP nsDeviceContextGTK::GetDeviceContextFor(nsIDeviceContextSpec *aDev
                                                        nsIDeviceContext *&aContext)
 {
   nsresult                 rv;
+
+#if 0
   PrintMethod              method;
+
   nsDeviceContextSpecGTK  *spec = NS_STATIC_CAST(nsDeviceContextSpecGTK *, aDevice);
   
   rv = spec->GetPrintMethod(method);
@@ -568,8 +571,11 @@ NS_IMETHODIMP nsDeviceContextGTK::GetDeviceContextFor(nsIDeviceContextSpec *aDev
   }
   else
 #endif /* USE_XPRINT */
+#endif
 #ifdef USE_POSTSCRIPT
-  if (method == pmPostScript) { // PostScript
+//  if (method == pmPostScript) // PostScript
+  {
+
     // default/PS
     static NS_DEFINE_CID(kCDeviceContextPS, NS_DEVICECONTEXTPS_CID);
   
@@ -592,8 +598,8 @@ NS_IMETHODIMP nsDeviceContextGTK::GetDeviceContextFor(nsIDeviceContextSpec *aDev
                               (void **)&aContext);
     return rv;
   }
+
 #endif /* USE_POSTSCRIPT */
-  
   NS_WARNING("no print module created.");
   return NS_ERROR_UNEXPECTED;
 }

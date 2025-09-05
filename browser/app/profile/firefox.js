@@ -418,9 +418,6 @@ pref("browser.preferences.animateFadeIn", true);
 #else
 pref("browser.preferences.animateFadeIn", false);
 #endif
-#ifndef XP_OS2
-pref("browser.display.screen_resolution", 96);
-#endif
 
 pref("browser.download.show_plugins_in_list", true);
 pref("browser.download.hide_plugins_without_extensions", true);
@@ -437,7 +434,10 @@ pref("browser.backspace_action", 0);
 
 // this will automatically enable inline spellchecking (if it is available) for
 // multi-line text entry controls <textarea>s in HTML
-pref("layout.textarea.spellcheckDefault", true);
+// 0 = spellcheck nothing, 1 = check multi-line controls, 2 = check multi/single line controls
+pref("layout.spellcheckDefault", 1);
 
 pref("view_source.editor.path", "");
 pref("view_source.editor.external", false);
+
+pref("browser.send_pings", true);

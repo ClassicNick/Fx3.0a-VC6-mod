@@ -64,8 +64,6 @@ public:
                     nsHTMLReflowMetrics&     aDesiredSize,
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus);
-  virtual const nsIID& GetCID();
-  virtual const nsIID& GetIID();
 
   NS_IMETHOD HandleEvent(nsPresContext* aPresContext, 
                          nsGUIEvent* aEvent,
@@ -107,6 +105,8 @@ public:
   
 protected:
   nsresult GetDefaultLabel(nsXPIDLString& aLabel);
+
+  nsresult GetLabel(nsXPIDLString& aLabel);
 
   PRBool IsFileBrowseButton(PRInt32 type); // Browse button of file input
 

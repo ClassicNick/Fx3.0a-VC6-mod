@@ -172,7 +172,7 @@ MyPrefChangedCallback(const char*aPrefName, void* instance_data)
     PL_strncpy(g_detector_contractid, NS_CHARSET_DETECTOR_CONTRACTID_BASE,
                DETECTOR_CONTRACTID_MAX);
     PL_strncat(g_detector_contractid,
-               NS_ConvertUCS2toUTF8(detector_name).get(),
+               NS_ConvertUTF16toUTF8(detector_name).get(),
                DETECTOR_CONTRACTID_MAX);
     gPlugDetector = PR_TRUE;
   } else {
@@ -948,7 +948,7 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
 
     mParser->SetContentSink(sink);
     // parser the content of the URI
-    mParser->Parse(uri, nsnull, PR_FALSE, (void *)this);
+    mParser->Parse(uri, nsnull, (void *)this);
   }
 
   return rv;
@@ -1511,7 +1511,7 @@ nsHTMLDocument::GetDomainURI(nsIURI **aURI)
 {
   *aURI = nsnull;
 
-  nsIPrincipal *principal = GetPrincipal();
+  nsIPrincipal *principal = GetNodePrincipal();
   if (!principal)
     return;
 
@@ -1594,11 +1594,15 @@ nsHTMLDocument::SetDomain(const nsAString& aDomain)
   if (NS_FAILED(NS_NewURI(getter_AddRefs(newURI), newURIString)))
     return NS_ERROR_FAILURE;
 
-  nsresult rv = mPrincipal->SetDomain(newURI);
+  nsresult rv = NS_ERROR_NOT_AVAILABLE;
+  nsIPrincipal* principal = GetNodePrincipal();
+  if (principal) {
+    rv = principal->SetDomain(newURI);
 
-  // Bug 13871: Frameset spoofing - note that document.domain was set
-  if (NS_SUCCEEDED(rv)) {
-    mDomainWasSet = PR_TRUE;
+    // Bug 13871: Frameset spoofing - note that document.domain was set
+    if (NS_SUCCEEDED(rv)) {
+      mDomainWasSet = PR_TRUE;
+    }
   }
 
   return rv;
@@ -1820,7 +1824,10 @@ nsHTMLDocument::GetCookie(nsAString& aCookie)
     // Get a URI from the document principal. We use the original
     // codebase in case the codebase was changed by SetDomain
     nsCOMPtr<nsIURI> codebaseURI;
-    mPrincipal->GetURI(getter_AddRefs(codebaseURI));
+    nsIPrincipal* principal = GetNodePrincipal();
+    if (principal) {
+      principal->GetURI(getter_AddRefs(codebaseURI));
+    }
 
     if (!codebaseURI) {
       // Document's principal is not a codebase (may be system), so
@@ -1850,7 +1857,10 @@ nsHTMLDocument::SetCookie(const nsAString& aCookie)
     }
 
     nsCOMPtr<nsIURI> codebaseURI;
-    mPrincipal->GetURI(getter_AddRefs(codebaseURI));
+    nsIPrincipal* principal = GetNodePrincipal();
+    if (principal) {
+      principal->GetURI(getter_AddRefs(codebaseURI));
+    }
 
     if (!codebaseURI) {
       // Document's principal is not a codebase (may be system), so
@@ -1947,6 +1957,11 @@ nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
     return rv;
   }
 
+  // Set the caller principal, if any, on the channel so that we'll
+  // make sure to use it when we reset.
+  rv = channel->SetOwner(callerPrincipal);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   // Before we reset the doc notify the globalwindow of the change,
   // but only if we still have a window (i.e. our window object the
   // current inner window in our outer window).
@@ -2010,9 +2025,9 @@ nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
 
     // Put the root element back into the document, we don't notify
     // the document about this insertion since the sink will do that
-    // for us, the sink will call InitialReflow() and that'll create
-    // frames for the root element and the scrollbars work as expected
-    // (since the document in the root element was never set to null)
+    // for us and that'll create frames for the root element and the
+    // scrollbars work as expected (since the document in the root
+    // element was never set to null)
 
     mChildren.AppendChild(root);
     mRootContent = root;
@@ -2038,17 +2053,6 @@ nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
   // Store the security info of the caller now that we're done
   // resetting the document.
   mSecurityInfo = securityInfo;
-
-  // Restore the principal to that of the caller.
-  mPrincipal = callerPrincipal;
-
-  // Recover if we had a problem obtaining the caller principal. In
-  // such a case we set the documents URI to be about:blank (uri is
-  // set to that above already) and the appropriate principal will be
-  // created as needed.
-  if (!mPrincipal) {
-    mDocumentURI = uri;
-  }
 
   mParser = do_CreateInstance(kCParserCID, &rv);
 
@@ -2148,11 +2152,10 @@ nsHTMLDocument::Close()
     if (mContentType.EqualsLiteral("text/html")) {
       rv = mParser->Parse(NS_LITERAL_STRING("</HTML>"),
                           mParser->GetRootContextKey(),
-                          mContentType, PR_FALSE,
-                          PR_TRUE);
+                          mContentType, PR_TRUE);
     } else {
       rv = mParser->Parse(EmptyString(), mParser->GetRootContextKey(),
-                          mContentType, PR_FALSE, PR_TRUE);
+                          mContentType, PR_TRUE);
     }
     --mWriteLevel;
 
@@ -2252,11 +2255,11 @@ nsHTMLDocument::WriteCommon(const nsAString& aText,
   // why pay that price when we don't need to?
   if (aNewlineTerminate) {
     rv = mParser->Parse(aText + new_line,
-                        key, mContentType, PR_FALSE,
+                        key, mContentType,
                         (mWriteState == eNotWriting || (mWriteLevel > 1)));
   } else {
     rv = mParser->Parse(aText,
-                        key, mContentType, PR_FALSE,
+                        key, mContentType,
                         (mWriteState == eNotWriting || (mWriteLevel > 1)));
   }
 
@@ -2311,7 +2314,7 @@ nsHTMLDocument::ScriptWriteCommon(PRBool aNewlineTerminate)
 
       if (subjectURI) {
         mDocumentURI = subjectURI;
-        mPrincipal = subject;
+        SetPrincipal(subject);
       }
     }
   }
@@ -3332,7 +3335,7 @@ nsHTMLDocument::ResolveName(const nsAString& aName,
 #ifdef DEBUG_jst
     {
       printf ("nsHTMLDocument name cache miss for name '%s'\n",
-              NS_ConvertUCS2toUTF8(aName).get());
+              NS_ConvertUTF16toUTF8(aName).get());
     }
 #endif
 
@@ -3840,7 +3843,7 @@ nsHTMLDocument::ConvertToMidasInternalCommand(const nsAString & inCommandID,
         outParam.Truncate();
       }
       else {
-        NS_ConvertUCS2toUTF8 convertedParam(inParam);
+        NS_ConvertUTF16toUTF8 convertedParam(inParam);
 
         // check to see if we need to convert the parameter
         PRUint32 j;

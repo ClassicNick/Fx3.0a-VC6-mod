@@ -409,7 +409,7 @@ static nsresult OpenWindow(const nsCString& aChromeURL,
 
 #ifdef DEBUG_CMD_LINE
   printf("OpenWindow(%s, %s, %d, %d)\n", aChromeURL.get(),
-                                         NS_ConvertUCS2toUTF8(aAppArgs).get(),
+                                         NS_ConvertUTF16toUTF8(aAppArgs).get(),
                                          aWidth, aHeight);
 #endif /* DEBUG_CMD_LINE */
 
@@ -1564,6 +1564,18 @@ int main(int argc, char* argv[])
 
 #if defined(XP_UNIX) || defined(XP_BEOS)
   InstallUnixSignalHandlers(argv[0]);
+#endif
+
+#ifdef MOZ_ACCESSIBILITY_ATK
+  // Reset GTK_MODULES, strip atk-bridge if exists
+  // Mozilla will load libatk-bridge.so later if necessary
+  const char* gtkModules = getenv("GTK_MODULES");
+  if (gtkModules) {
+    nsCString gtkModulesStr(gtkModules);
+    gtkModulesStr.ReplaceSubstring("atk-bridge", "");
+    char* newGtkModules = strdup(gtkModulesStr.get());
+    setenv("GTK_MODULES", newGtkModules, 1);
+  }
 #endif
 
 #if defined(XP_OS2)

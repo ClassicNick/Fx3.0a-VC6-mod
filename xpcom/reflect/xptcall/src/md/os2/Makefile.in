@@ -44,6 +44,7 @@ include $(DEPTH)/config/autoconf.mk
 
 MODULE		= xpcom
 LIBRARY_NAME	= xptcmd
+MOZILLA_INTERNAL_API = 1
 
 ifdef GNU_CXX
 CPPSRCS		= \
@@ -70,3 +71,6 @@ include $(topsrcdir)/config/rules.mk
 DEFINES		+= -DEXPORT_XPTC_API
 
 INCLUDES	+= -I$(srcdir)/../..
+
+libs:: $(LIBRARY)
+	$(INSTALL) $(LIBRARY) ../..

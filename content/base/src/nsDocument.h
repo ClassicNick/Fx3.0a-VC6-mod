@@ -320,11 +320,6 @@ public:
   virtual void StopDocumentLoad();
 
   /**
-   * Return the principal responsible for this document.
-   */
-  virtual nsIPrincipal* GetPrincipal();
-
-  /**
    * Set the principal responsible for this document.
    */
   virtual void SetPrincipal(nsIPrincipal *aPrincipal);
@@ -538,7 +533,8 @@ public:
 
   // nsIRadioGroupContainer
   NS_IMETHOD WalkRadioGroup(const nsAString& aName,
-                            nsIRadioVisitor* aVisitor);
+                            nsIRadioVisitor* aVisitor,
+                            PRBool aFlushContent);
   NS_IMETHOD SetCurrentRadioButton(const nsAString& aName,
                                    nsIDOMHTMLInputElement* aRadio);
   NS_IMETHOD GetCurrentRadioButton(const nsAString& aName,
@@ -624,8 +620,7 @@ public:
   NS_DECL_NSIDOMNSEVENTTARGET
 
   // nsIScriptObjectPrincipal
-  // virtual nsIPrincipal* GetPrincipal();
-  // Already declared in nsIDocument
+  virtual nsIPrincipal* GetPrincipal();
 
   virtual nsresult Init();
   
@@ -714,7 +709,6 @@ protected:
 
   nsCString mReferrer;
   nsString mLastModified;
-  nsCOMPtr<nsIPrincipal> mPrincipal;
 
   nsVoidArray mCharSetObservers;
 

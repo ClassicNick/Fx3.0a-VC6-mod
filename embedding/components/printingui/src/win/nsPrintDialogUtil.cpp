@@ -76,7 +76,7 @@ WIN_LIBS=                                       \
 #include "nsIPrintSettingsWin.h"
 #include "nsUnitConversion.h"
 #include "nsIPrintOptions.h"
-#include "nsGfxCIID.h"
+#include "nsWidgetsCID.h"
 static NS_DEFINE_IID(kPrinterEnumeratorCID, NS_PRINTER_ENUMERATOR_CID);
 
 #include "nsRect.h"
@@ -1003,7 +1003,7 @@ ShowNativePrintDialog(HWND              aHWnd,
     if (prntdlg.Flags & PD_PRINTTOFILE) {
       char* fileName = &(((char *)devnames)[devnames->wOutputOffset]);
       NS_ASSERTION(strcmp(fileName, "FILE:") == 0, "FileName must be `FILE:`");
-      aPrintSettings->SetToFileName(NS_ConvertASCIItoUCS2(fileName).get());
+      aPrintSettings->SetToFileName(NS_ConvertASCIItoUTF16(fileName).get());
       aPrintSettings->SetPrintToFile(PR_TRUE);
     } else {
       // clear "print to file" info
@@ -1343,7 +1343,7 @@ ShowNativePrintDialogEx(HWND              aHWnd,
     if (prntdlg.Flags & PD_PRINTTOFILE) {
       char* fileName = &(((char *)devnames)[devnames->wOutputOffset]);
       NS_ASSERTION(strcmp(fileName, "FILE:") == 0, "FileName must be `FILE:`");
-      aPrintSettings->SetToFileName(NS_ConvertASCIItoUCS2(fileName).get());
+      aPrintSettings->SetToFileName(NS_ConvertASCIItoUTF16(fileName).get());
       aPrintSettings->SetPrintToFile(PR_TRUE);
     } else {
       // clear "print to file" info

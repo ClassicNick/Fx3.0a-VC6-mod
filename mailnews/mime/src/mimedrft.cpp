@@ -71,6 +71,7 @@
 #include "nsMsgCompCID.h"
 #include "nsIMsgComposeService.h"
 #include "nsMsgI18N.h"
+#include "nsNativeCharsetUtils.h"
 #include "nsSpecialSystemDirectory.h"
 #include "nsIMsgMessageService.h"
 #include "nsMsgUtils.h"
@@ -132,7 +133,8 @@ nsMsgCreateTempFileSpec(const char *tFileName)
   }
   else {
     nsAutoString tempNameUni; 
-    if (NS_FAILED(nsMsgI18NCopyNativeToUTF16(tFileName, tempNameUni))) {
+    if (NS_FAILED(NS_CopyNativeToUnicode(nsDependentCString(tFileName),
+                                         tempNameUni))) {
       tempName = SAFE_TMP_FILENAME;
       goto fallback;
     }
@@ -161,7 +163,7 @@ nsMsgCreateTempFileSpec(const char *tFileName)
         }
       }
     } 
-    rv = nsMsgI18NCopyUTF16ToNative(tempNameUni, tempName);
+    rv = NS_CopyUnicodeToNative(tempNameUni, tempName);
     NS_ASSERTION(NS_SUCCEEDED(rv), "UTF-16 to native filename failed"); 
   }
 
@@ -1543,7 +1545,7 @@ mime_parse_stream_complete (nsMIMESession *stream)
           mdd->mailcharset);
       }
       // setting the charset while we are creating the composition fields
-      //fields->SetCharacterSet(NS_ConvertASCIItoUCS2(mdd->mailcharset));
+      //fields->SetCharacterSet(NS_ConvertASCIItoUTF16(mdd->mailcharset));
 
       // convert from UTF-8 to UTF-16
       if (body)

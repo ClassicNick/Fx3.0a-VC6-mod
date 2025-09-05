@@ -65,6 +65,8 @@
 #include "nsEnumeratorUtils.h"
 #include "nsIFileURL.h"
 #include "nsEmbedCID.h"
+#include "nsInt64.h"
+#include "nsAutoPtr.h"
 
 /* Outstanding issues/todo:
  * 1. Implement pause/resume.
@@ -85,7 +87,8 @@ static PRBool gStoppingDownloads = PR_FALSE;
 #define PREF_BDM_FOCUSWHENSTARTING "browser.download.manager.focusWhenStarting"
 #define PREF_BDM_CLOSEWHENDONE "browser.download.manager.closeWhenDone"
 #define PREF_BDM_FLASHCOUNT "browser.download.manager.flashCount"
-#define INTERVAL 500
+
+static const nsInt64 gInterval((PRUint32)(400 * PR_USEC_PER_MSEC));
 
 static nsIRDFResource* gNC_DownloadsRoot = nsnull;
 static nsIRDFResource* gNC_File = nsnull;
@@ -405,7 +408,7 @@ nsDownloadManager::SaveState()
       downloads->GetNext(getter_AddRefs(supports));
       res = do_QueryInterface(supports);
       res->GetValueConst(&uri);
-      AssertProgressInfoFor(NS_ConvertASCIItoUCS2(uri).get());
+      AssertProgressInfoFor(NS_ConvertASCIItoUTF16(uri).get());
       downloads->HasMoreElements(&hasMoreElements);
     }
   }
@@ -707,7 +710,10 @@ nsDownloadManager::CancelDownload(const PRUnichar* aPath)
   if (!mCurrDownloads.Exists(&key))
     return RemoveDownload(aPath); // XXXBlake for now, to provide a workaround for stuck downloads
   
-  nsDownload* internalDownload = NS_STATIC_CAST(nsDownload*, mCurrDownloads.Get(&key));
+  // Take a strong reference to the download object as we may remove it from
+  // mCurrDownloads in DownloadEnded.
+  nsRefPtr<nsDownload> internalDownload =
+      NS_STATIC_CAST(nsDownload*, mCurrDownloads.Get(&key));
   if (!internalDownload)
     return NS_ERROR_FAILURE;
 
@@ -1806,10 +1812,11 @@ NS_IMPL_ISUPPORTS4(nsDownload, nsIDownload, nsITransfer, nsIWebProgressListener,
 
 nsDownload::nsDownload():mDownloadState(nsIDownloadManager::DOWNLOAD_NOTSTARTED),
                          mPercentComplete(0),
-                         mCurrBytes(0),
-                         mMaxBytes(0),
-                         mStartTime(0),
-                         mLastUpdate(-500)
+                         mCurrBytes(LL_ZERO),
+                         mMaxBytes(LL_ZERO),
+                         mStartTime(LL_ZERO),
+                         mLastUpdate(PR_Now() - (PRUint32)gInterval),
+                         mSpeed(0)
 {
 }
 
@@ -1947,6 +1954,7 @@ nsresult
 nsDownload::SetStartTime(PRInt64 aStartTime)
 {
   mStartTime = aStartTime;
+  mLastUpdate = aStartTime;
   return NS_OK;
 }
 
@@ -1972,10 +1980,9 @@ nsDownload::OnProgressChange64(nsIWebProgress *aWebProgress,
     mRequest = aRequest; // used for pause/resume
 
   // filter notifications since they come in so frequently
-  PRTime delta;
   PRTime now = PR_Now();
-  LL_SUB(delta, now, mLastUpdate);
-  if (LL_CMP(delta, <, INTERVAL) &&  aMaxTotalProgress != -1 && aCurTotalProgress < aMaxTotalProgress)
+  nsInt64 delta = now - mLastUpdate;
+  if (delta < gInterval)
     return NS_OK;
 
   mLastUpdate = now;
@@ -1987,6 +1994,21 @@ nsDownload::OnProgressChange64(nsIWebProgress *aWebProgress,
 
     mDownloadState = nsIDownloadManager::DOWNLOAD_DOWNLOADING;
     mDownloadManager->DownloadStarted(path.get());
+  }
+
+  // Calculate the speed using the elapsed delta time and bytes downloaded
+  // during that time for more accuracy.
+  double elapsedSecs = double(delta) / PR_USEC_PER_SEC;
+  if (elapsedSecs > 0) {
+    nsUint64 curTotalProgress = (PRUint64)aCurTotalProgress;
+    nsUint64 diffBytes = curTotalProgress - nsUint64(mCurrBytes);
+    double speed = double(diffBytes) / elapsedSecs;
+    if (LL_IS_ZERO(mCurrBytes))
+      mSpeed = speed;
+    else {
+      // Calculate 'smoothed average' of 10 readings.
+      mSpeed = mSpeed * 0.9 + speed * 0.1;
+    }
   }
 
   if (aMaxTotalProgress > 0)
@@ -2077,8 +2099,9 @@ nsDownload::OnStateChange(nsIWebProgress* aWebProgress,
                           nsIRequest* aRequest, PRUint32 aStateFlags,
                           nsresult aStatus)
 {
-  if (aStateFlags & STATE_START)    
-    mStartTime = PR_Now();  
+  // Record the start time only if it hasn't been set.
+  if (LL_IS_ZERO(mStartTime) && (aStateFlags & STATE_START))
+    SetStartTime(PR_Now());
 
   // When we break the ref cycle with mCancelable, we don't want to lose
   // access to out member vars!
@@ -2096,7 +2119,7 @@ nsDownload::OnStateChange(nsIWebProgress* aWebProgress,
       else
         mDownloadState = nsIXPInstallManagerUI::INSTALL_FINISHED;
 
-      //  Set file size at the end of a tranfer (for unknown transfer amounts)
+      // Set file size at the end of a tranfer (for unknown transfer amounts)
       if (mMaxBytes == -1)
         mMaxBytes = mCurrBytes;
 
@@ -2284,6 +2307,13 @@ nsDownload::GetTargetFile(nsILocalFile** aTargetFile)
   if (NS_SUCCEEDED(rv))
     rv = CallQueryInterface(file, aTargetFile);
   return rv;
+}
+
+NS_IMETHODIMP
+nsDownload::GetSpeed(double* aSpeed)
+{
+  *aSpeed = mSpeed;
+  return NS_OK;
 }
 
 void

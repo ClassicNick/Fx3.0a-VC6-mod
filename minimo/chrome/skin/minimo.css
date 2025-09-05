@@ -35,9 +35,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-/* This CSS rule has to be here because code is accessing styleSheets[1].rules[0]! */ 
-
 /* 	background-position:0px 100%; */
+
+#urlbar * {
+      background-color:white;
+}
 
 #urlbar input {
 	background-repeat:no-repeat;
@@ -47,7 +49,17 @@
  	border:1px solid black;
 }
 
-/* This CSS rule has to be here because JS code shall access it via */
+/* This should be placed in with Toolbars section */ 
+
+#toolbar-download-tag input {
+	background-repeat:no-repeat;
+	background-image:url(chrome://minimo/skin/transfer.gif);
+	padding:0px;
+	margin:0px;
+ 	border:1px solid black;
+}
+
+/* This CSS rule has to be here because JS code shall access it via DOM StyleSheet */
 
 toolbar *, #appcontent *, * {
   font-size: 10px;
@@ -59,9 +71,26 @@ toolbar *, #appcontent *, * {
 	padding:1px;
 }
 
+/* Tab browser stuff */
+
 .tabs-closebutton-box{
-    list-style-image: url("chrome://minimo/skin/close-11px.png");
+    list-style-image: url("chrome://minimo/skin/close-12px.png");
 }
+
+#content tabpanels {
+    border-left:1px solid white;
+}
+
+#content .tabbrowser-strip {
+    margin-top:1px ! important;
+    margin-left:2px ! important;
+}
+
+#content .tabs-closebutton-box {
+   margin-right:3px ! important;
+}
+
+/* Lock... */
 
 #lock-icon.security-na {
 }
@@ -78,10 +107,10 @@ toolbar *, #appcontent *, * {
 
 
 .button-close {
-  background: #cccccc url("chrome://minimo/skin/close.png") no-repeat 50% 50%;
+  list-style-image: url("chrome://minimo/skin/close-12px.png");
   margin-right:4px ! important;
   margin-top:0px ! important;
-  border:1px outset #bbbbbb;
+
 }
 
 .button-border {
@@ -113,20 +142,7 @@ caption {
   font-size: small ! important;
   font-family: sans-serif ! important;
 }
-
 */
-
-#contentAreaContextMenu {
-
-}
-
-#item-copy {
-	display:none;
-}
-
-#item-paste {
-	display:none;
-}
 
 .menu-button
   {
@@ -248,16 +264,37 @@ caption {
 /* 
  * popup for urlmore 
  */
+
 #urlbarModeSelector {
    padding:.3em ! important;
 }
-
-
 
 #menu_MainPopup {
    padding:.3em ! important;
 }
  
+#menu_NavPopup {
+   padding:.3em ! important;
+}
+ 
+#MenuTabsContainer {
+   padding:.3em ! important;
+}
+
+#browserleftbar {
+    padding:2px ! important;
+    display:none;
+}
+
+#browserrightbar {
+    padding:2px ! important;
+    display:none;
+}
 
 
+
+/*
+ *  This should not exist...
+ */ 
 window { width: 240px ; height: 320px; }
+

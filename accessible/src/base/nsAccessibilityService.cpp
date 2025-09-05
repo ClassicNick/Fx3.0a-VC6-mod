@@ -61,12 +61,13 @@
 #include "nsIDOMXULElement.h"
 #include "nsIDocShell.h"
 #include "nsIFrame.h"
+#include "nsIInterfaceRequestorUtils.h"
 #include "nsILink.h"
 #include "nsINameSpaceManager.h"
 #include "nsIObserverService.h"
 #include "nsIPluginInstance.h"
-#include "nsPresContext.h"
 #include "nsIPresShell.h"
+#include "nsISupportsUtils.h"
 #include "nsITextContent.h"
 #include "nsIWebNavigation.h"
 #include "nsObjectFrame.h"
@@ -74,6 +75,8 @@
 #include "nsRootAccessibleWrap.h"
 #include "nsTextFragment.h"
 #include "nsPIAccessNode.h"
+#include "nsPresContext.h"
+#include "nsServiceManagerUtils.h"
 #include "nsUnicharUtils.h"
 #include "nsIWebProgress.h"
 
@@ -491,6 +494,9 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsISupports *aFrame,
   }
   else if (tag == nsAccessibilityAtoms::optgroup) {
     *aAccessible = new nsHTMLSelectOptGroupAccessible(aNode, aWeakShell);
+  }
+  else if (tag == nsAccessibilityAtoms::caption) {
+    *aAccessible = new nsEnumRoleAccessible(aNode, aWeakShell, nsIAccessible::ROLE_CAPTION);
   }
 #ifndef MOZ_ACCESSIBILITY_ATK
   else if (tag == nsAccessibilityAtoms::ul || tag == nsAccessibilityAtoms::ol) {

@@ -43,10 +43,6 @@ require_once($config['base_path'].'/includes/contrib/smarty/libs/Smarty.class.ph
 require_once($config['base_path'].'/includes/security.inc.php');
 require_once($config['base_path'].'/includes/query.inc.php');
 
-// start the session
-session_name('reportSessID');
-session_start();
-header("Cache-control: private"); //IE 6 Fix
 printheaders();
 
 if(!isset($_GET['method'])){
@@ -74,6 +70,7 @@ $result = $query->doQuery($query_input['selected'],
                           $query_input['orderby'],
                           $query_input['show'],
                           $query_input['page'],
+                          $query_input['product_family'],
                           $query_input['count']
           );
 
@@ -130,5 +127,4 @@ if(ceil($result['totalResults']/$query_input['show']) < 20){
     $content->assign('amt',            20);
 }
 displayPage($content, 'query', 'query.tpl');
-
 ?>

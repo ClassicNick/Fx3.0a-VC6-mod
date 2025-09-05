@@ -18,7 +18,6 @@
 <!ENTITY searchButton.label           "Search">
 <!ENTITY searchButton.tooltip         "Type a word in the field to the left, then click Search">
 
-
 <!ENTITY toggleSNavOn.label           "Navigate via arrow keys">
 <!ENTITY toggleSNavOff.label          "Scroll via arrow keys">
 
@@ -28,8 +27,6 @@
 
 <!ENTITY textSizePlus.label           "Text Size +">
 <!ENTITY textSizeMinus.label          "Text Size -">
-
-
 
 <!-- Context menu -->
 
@@ -41,7 +38,9 @@
 <!ENTITY reloadCmd.label              "Reload">
 <!ENTITY linknewtab.label             "Open link in New Tab">
 <!ENTITY bookmarks.label              "Bookmarks...">
-<!ENTITY bookmarkthispage.label      "Bookmark This Page">
+<!ENTITY bookmarkthispage.label       "Bookmark This Page">
+<!ENTITY contextCopy.label            "Copy" >
+<!ENTITY contextPaste.label           "Paste" >
 
 <!-- menu urlabr view options --> 
 
@@ -70,3 +69,7 @@
 <!ENTITY findText.label              "Find string: " >
 <!ENTITY findToolbar.label           "Find..." >
 <!ENTITY nextText.label              "Next" >
+
+<!-- toolbar download -->
+<!ENTITY downloadText.label          "Download Viewer " >
+<!ENTITY downloadCancelText.label    "Cancel" >

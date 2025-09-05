@@ -1,4 +1,5 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+/* -*- Mode: C; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
  * 
  * The "License" shall be the Mozilla Public License Version 1.1, except
  * Sections 6.2 and 11, but with the addition of the below defined Section 14.
@@ -26,12 +27,26 @@
  * 
  * The Original Code is the Mozilla Text to HTML converter code.
  * 
- * The Initial Developer of the Original Code is Ben Bucksch
- * <http://www.bucksch.org>. Portions created by Ben Bucksch are Copyright
+ * The Initial Developer of the Original Code is
+ * Ben Bucksch <http://www.bucksch.org>.
+ * Portions created by Ben Bucksch are Copyright
  * (C) 1999, 2000 Ben Bucksch. All Rights Reserved.
  * 
  * Contributor(s):
- */
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 #include "mozTXTToHTMLConv.h"
 #include "nsIServiceManager.h"
@@ -422,7 +437,7 @@ mozTXTToHTMLConv::CheckURLAndCreateHTML(
     return PR_FALSE;
 
   // See if the url should be linkified.
-  NS_ConvertUCS2toUTF8 utf8URL(txtURL);
+  NS_ConvertUTF16toUTF8 utf8URL(txtURL);
   if (!ShouldLinkify(utf8URL))
     return PR_FALSE;
 
@@ -723,7 +738,7 @@ mozTXTToHTMLConv::SmilyHit(const PRUnichar * aInString, PRInt32 aLength, PRBool 
             )
             && IsSpace(aInString[delim + 1])
         )
-        && ItMatchesDelimited(aInString, aLength, NS_ConvertASCIItoUCS2(tagTXT).get(), tagLen, 
+        && ItMatchesDelimited(aInString, aLength, NS_ConvertASCIItoUTF16(tagTXT).get(), tagLen, 
                               col0 ? LT_IGNORE : LT_DELIMITER, LT_IGNORE)
 	        // Note: tests at different pos for LT_IGNORE and LT_DELIMITER
     )

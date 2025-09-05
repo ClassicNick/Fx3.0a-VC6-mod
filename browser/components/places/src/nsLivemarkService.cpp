@@ -41,6 +41,7 @@
 #include "nsNavBookmarks.h"
 #include "nsNavHistoryResult.h"
 #include "nsIAnnotationService.h"
+#include "nsFaviconService.h"
 #include "nsNetUtil.h"
 #include "rdf.h"
 #include "nsIRDFService.h"
@@ -48,6 +49,7 @@
 
 #define LIVEMARK_TIMEOUT          15000       // fire every 15 seconds
 #define PLACES_STRING_BUNDLE_URI  "chrome://browser/locale/places/places.properties"
+#define LIVEMARK_ICON_URI         "chrome://browser/skin/places/livemark_item.png"
 
 // Constants for parsing RDF Livemarks
 // These are used in nsBookmarksFeedHandler.cpp, but because there is
@@ -120,6 +122,10 @@ nsLivemarkService::Init()
   rv = bundleService->CreateBundle(
       PLACES_STRING_BUNDLE_URI,
       getter_AddRefs(mBundle));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Initialize the folder icon uri.
+  rv = NS_NewURI(getter_AddRefs(mIconURI), NS_LITERAL_STRING(LIVEMARK_ICON_URI));
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Initialize the localized strings for the names of the dummy
@@ -256,6 +262,11 @@ nsLivemarkService::CreateLivemark(PRInt64 aFolder,
                                           NS_ConvertUTF8toUTF16(feedURISpec),
                                           0,
                                           nsIAnnotationService::EXPIRE_NEVER);
+
+  // Set the icon for the livemark
+  nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
+  NS_ENSURE_TRUE(faviconService, NS_ERROR_OUT_OF_MEMORY);
+  faviconService->SetFaviconUrlForPage(livemarkURI, mIconURI);
 
   if (aSiteURI) {
     // Add an annotation to map the folder URI to the livemark site URI
@@ -472,15 +483,15 @@ nsLivemarkService::DeleteLivemarkChildren(PRInt64 aLivemarkFolderId)
   NS_ENSURE_SUCCESS(rv, rv);
 
   PRUint32 cc;
+  root->SetContainerOpen(PR_TRUE);
   rv = root->GetChildCount(&cc);
+  NS_ENSURE_SUCCESS(rv, rv);
   for (PRUint32 i = 0; i < cc; i++) {
     nsCOMPtr<nsINavHistoryResultNode> node;
     rv = root->GetChild(i, getter_AddRefs(node));
     if (NS_FAILED(rv)) continue;
-    nsCOMPtr<nsINavHistoryURIResultNode> uriNode = do_QueryInterface(node, &rv);
-    if (NS_FAILED(rv)) continue;
     nsCAutoString spec;
-    rv = uriNode->GetUri(spec);
+    rv = node->GetUri(spec);
     if (NS_FAILED(rv)) continue;
     nsCOMPtr<nsIURI> uri;
     rv = NS_NewURI(getter_AddRefs(uri), spec, nsnull);

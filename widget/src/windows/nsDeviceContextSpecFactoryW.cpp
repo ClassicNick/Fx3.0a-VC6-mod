@@ -1,48 +1,58 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Netscape Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/NPL/
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
  *
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
  *
  * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is Netscape
- * Communications Corporation.  Portions created by Netscape are
- * Copyright (C) 1998 Netscape Communications Corporation. All
- * Rights Reserved.
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
+ * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): 
- */
+ * Contributor(s):
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 #include "nsDeviceContextSpecFactoryW.h"
 #include "nsDeviceContextSpecWin.h"
-#include <windows.h>
-#include <commdlg.h>
-#include "nsGfxCIID.h"
-#include "plstr.h"
+#include "nsComponentManagerUtils.h"
+#include "nsWidgetsCID.h"
 
 nsDeviceContextSpecFactoryWin :: nsDeviceContextSpecFactoryWin()
 {
-  NS_INIT_REFCNT();
 }
 
 nsDeviceContextSpecFactoryWin :: ~nsDeviceContextSpecFactoryWin()
 {
 }
 
-static NS_DEFINE_IID(kDeviceContextSpecFactoryIID, NS_IDEVICE_CONTEXT_SPEC_FACTORY_IID);
 static NS_DEFINE_IID(kIDeviceContextSpecIID, NS_IDEVICE_CONTEXT_SPEC_IID);
 static NS_DEFINE_IID(kDeviceContextSpecCID, NS_DEVICE_CONTEXT_SPEC_CID);
 
-NS_IMPL_QUERY_INTERFACE(nsDeviceContextSpecFactoryWin, kDeviceContextSpecFactoryIID)
-NS_IMPL_ADDREF(nsDeviceContextSpecFactoryWin)
-NS_IMPL_RELEASE(nsDeviceContextSpecFactoryWin)
+NS_IMPL_ISUPPORTS1(nsDeviceContextSpecFactoryWin, nsIDeviceContextSpecFactory)
+
 
 NS_IMETHODIMP nsDeviceContextSpecFactoryWin :: Init(void)
 {
@@ -51,67 +61,26 @@ NS_IMETHODIMP nsDeviceContextSpecFactoryWin :: Init(void)
 
 //XXX this method needs to do what the API says...
 
-NS_IMETHODIMP nsDeviceContextSpecFactoryWin :: CreateDeviceContextSpec(nsIDeviceContextSpec *aOldSpec,
+NS_IMETHODIMP nsDeviceContextSpecFactoryWin :: CreateDeviceContextSpec(nsIWidget *aWidget,
+                                                                       nsIPrintSettings* aPrintSettings,
                                                                        nsIDeviceContextSpec *&aNewSpec,
-                                                                       PRBool aQuiet)
+                                                                       PRBool aIsPrintPreview)
 {
-  PRINTDLG  prntdlg;
-  nsresult  rv = NS_ERROR_FAILURE;
+  NS_ENSURE_ARG_POINTER(aWidget);
 
-  prntdlg.lStructSize = sizeof(prntdlg);
-  prntdlg.hwndOwner = NULL;               //XXX need to find a window here. MMP
-  prntdlg.hDevMode = NULL;
-  prntdlg.hDevNames = NULL;
-  prntdlg.hDC = NULL;
-  prntdlg.Flags = PD_ALLPAGES | PD_RETURNIC;
-  prntdlg.nFromPage = 0;
-  prntdlg.nToPage = 0;
-  prntdlg.nMinPage = 0;
-  prntdlg.nMaxPage = 0;
-  prntdlg.nCopies = 1;
-  prntdlg.hInstance = NULL;
-  prntdlg.lCustData = 0;
-  prntdlg.lpfnPrintHook = NULL;
-  prntdlg.lpfnSetupHook = NULL;
-  prntdlg.lpPrintTemplateName = NULL;
-  prntdlg.lpSetupTemplateName = NULL;
-  prntdlg.hPrintTemplate = NULL;
-  prntdlg.hSetupTemplate = NULL;
+  nsresult rv = NS_ERROR_FAILURE;
+  nsIDeviceContextSpec* devspec = nsnull;
 
-  BOOL res = ::PrintDlg(&prntdlg);
+  CallCreateInstance(kDeviceContextSpecCID, &devspec);
 
-  if (TRUE == res)
-  {
-    DEVNAMES *devnames = (DEVNAMES *)::GlobalLock(prntdlg.hDevNames);
-
-    char device[200], driver[200];
-
-    //print something...
-
-    PL_strcpy(device, &(((char *)devnames)[devnames->wDeviceOffset]));
-    PL_strcpy(driver, &(((char *)devnames)[devnames->wDriverOffset]));
-
-#ifdef NS_DEBUG
-printf("printer: driver %s, device %s\n", driver, device);
-#endif
-
-    nsIDeviceContextSpec  *devspec = nsnull;
-
-    nsComponentManager::CreateInstance(kDeviceContextSpecCID, nsnull, kIDeviceContextSpecIID, (void **)&devspec);
-
-    if (nsnull != devspec)
-    {
-      //XXX need to QI rather than cast... MMP
-      if (NS_OK == ((nsDeviceContextSpecWin *)devspec)->Init(driver, device, prntdlg.hDevMode))
-      {
-        aNewSpec = devspec;
-        rv = NS_OK;
-      }
+  if (nsnull != devspec){
+    nsDeviceContextSpecWin* specWin = NS_STATIC_CAST(nsDeviceContextSpecWin*, devspec);
+    rv = specWin->Init(aWidget, aPrintSettings, aIsPrintPreview);
+    if (NS_SUCCEEDED(rv)) {
+      aNewSpec = devspec;
+    } else {
+      NS_RELEASE(devspec);
     }
-
-    //don't free the DEVMODE because the device context spec now owns it...
-    ::GlobalUnlock(prntdlg.hDevNames);
-    ::GlobalFree(prntdlg.hDevNames);
   }
 
   return rv;

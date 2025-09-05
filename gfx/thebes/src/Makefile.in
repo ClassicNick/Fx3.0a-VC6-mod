@@ -39,8 +39,9 @@ EXTRA_DSO_LDOPTS += \
 
 
 ifeq ($(MOZ_GFX_TOOLKIT),windows)
-CPPSRCS	+= 	gfxWindowsSurface.cpp \
-		gfxWindowsFonts.cpp \
+CPPSRCS	+= 	gfxWindowsFonts.cpp \
+		gfxWindowsPlatform.cpp \
+		gfxWindowsSurface.cpp \
 		$(NULL)
 
 _OS_LIBS	= usp10
@@ -51,7 +52,7 @@ endif
 ifeq ($(MOZ_GFX_TOOLKIT),gtk2)
 CPPSRCS	+= 	gfxXlibSurface.cpp gfxPlatformGtk.cpp
 CPPSRCS +=	gfxPangoFonts.cpp 
-CPPSRCS +=	gfxPDFSurface.cpp
+CPPSRCS +=	gfxPDFSurface.cpp gfxPSSurface.cpp
 EXTRA_DSO_LDOPTS += $(MOZ_PANGO_LIBS) $(ZLIB_LIBS)
 endif
 

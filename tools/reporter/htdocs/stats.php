@@ -42,14 +42,10 @@ require_once($config['base_path'].'/includes/db.inc.php');
 require_once($config['base_path'].'/includes/contrib/smarty/libs/Smarty.class.php');
 require_once($config['base_path'].'/includes/security.inc.php');
 
-// Start Session
-session_name('reportSessID');
-session_start();
-header("Cache-control: private"); //IE 6 Fix
-
+printheaders();
 
 // Open DB
-$db = NewADOConnection($config['db_dsn']);
+$db = NewDBConnection($config['db_dsn']);
 $db->SetFetchMode(ADODB_FETCH_ASSOC);
 
 $content = initializeTemplate();
@@ -70,14 +66,32 @@ $content->assign('users_quant', $uniqueusers);
 $avgRepPerUsr = $reports/$uniqueusers;
 $content->assign('avgRepPerUsr', $avgRepPerUsr);
 
-// Top Users (by reports)
-// XXX TODO
-
 // Total Reports per product
-// XXX TODO
+$product_q =& $db->Execute("SELECT DISTINCT (report.report_product),
+                             COUNT( report.report_product ) AS total
+                             FROM report
+                             GROUP BY report.report_product
+                             ORDER BY total DESC");
+
+while(!$product_q->EOF){
+    $product[] = $product_q->fields;
+    $product_q->MoveNext();
+}
+$content->assign('product', $product);
 
 // Total Reports per platform
-// XXX TODO
+$platform_q =& $db->Execute("SELECT DISTINCT (report.report_platform),
+                             COUNT( report.report_platform ) AS total
+                             FROM report
+                             GROUP BY report.report_platform
+                             ORDER BY total DESC");
+
+while(!$platform_q->EOF){
+    $platform[] = $platform_q->fields;
+    $platform_q->MoveNext();
+}
+$content->assign('platform', $platform);
+
 
 // Total Hosts
 $uniquehosts_q =& $db->Execute("SELECT COUNT(*)
@@ -100,10 +114,6 @@ $last7days_q =& $db->Execute("SELECT COUNT(*)
                             WHERE  report_file_date > "."'".date('Y-m-d H:i:s', $last7days)."'");
 $last7days = $last7days_q->fields['COUNT(*)'];
 $content->assign('last7days', $last7days);
-
-// Reports by month
-// XXX TODO
-
 
 // disconnect database
 $db->Close();

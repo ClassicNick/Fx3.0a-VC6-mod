@@ -41,6 +41,20 @@
 
 #include <string.h>
 
+/**
+ * Private Method to register an exit routine.  This method
+ * used to allow you to setup a callback that will be called from 
+ * the NS_ShutdownXPCOM function after all services and 
+ * components have gone away. It was fatally flawed in that the component
+ * DLL could be released before the exit function was called; it is now a
+ * stub implementation that does nothing.
+ */
+XPCOM_API(nsresult)
+NS_RegisterXPCOMExitRoutine(XPCOMExitRoutine exitRoutine, PRUint32 priority);
+
+XPCOM_API(nsresult)
+NS_UnregisterXPCOMExitRoutine(XPCOMExitRoutine exitRoutine);
+
 static const XPCOMFunctions kFrozenFunctions = {
     XPCOM_GLUE_VERSION,
     sizeof(XPCOMFunctions),
@@ -52,8 +66,8 @@ static const XPCOMFunctions kFrozenFunctions = {
     &NS_GetMemoryManager_P,
     &NS_NewLocalFile_P,
     &NS_NewNativeLocalFile_P,
-    &NS_RegisterXPCOMExitRoutine_P,
-    &NS_UnregisterXPCOMExitRoutine_P,
+    &NS_RegisterXPCOMExitRoutine,
+    &NS_UnregisterXPCOMExitRoutine,
 
     // these functions were added post 1.4
     &NS_GetDebug_P,
@@ -85,8 +99,19 @@ static const XPCOMFunctions kFrozenFunctions = {
     &NS_CStringContainerInit2_P,
     &NS_StringGetMutableData_P,
     &NS_CStringGetMutableData_P,
-    &NS_InitXPCOM3_P
-};  
+    &NS_InitXPCOM3_P,
+
+    // these functions were added post 1.8
+    &NS_DebugBreak_P,
+    &NS_LogInit_P,
+    &NS_LogTerm_P,
+    &NS_LogAddRef_P,
+    &NS_LogRelease_P,
+    &NS_LogCtor_P,
+    &NS_LogDtor_P,
+    &NS_LogCOMPtrAddRef_P,
+    &NS_LogCOMPtrRelease_P
+};
 
 EXPORT_XPCOM_API(nsresult)
 NS_GetFrozenFunctions(XPCOMFunctions *functions, const char* /* libraryPath */)
@@ -221,22 +246,86 @@ NS_Free(void* ptr)
   NS_Free_P(ptr);
 }
 
+#undef NS_DebugBreak
+EXPORT_XPCOM_API(void)
+NS_DebugBreak(PRUint32 aSeverity, const char *aStr, const char *aExpr,
+              const char *aFile, PRInt32 aLine)
+{
+  NS_DebugBreak_P(aSeverity, aStr, aExpr, aFile, aLine);
+}
+
+#undef NS_LogInit
+EXPORT_XPCOM_API(void)
+NS_LogInit()
+{
+  NS_LogInit_P();
+}
+
+#undef NS_LogTerm
+EXPORT_XPCOM_API(void)
+NS_LogTerm()
+{
+  NS_LogTerm_P();
+}
+
+#undef NS_LogAddRef
+EXPORT_XPCOM_API(void)
+NS_LogAddRef(void* aPtr, nsrefcnt aNewRefCnt,
+             const char *aTypeName, PRUint32 aInstanceSize)
+{
+  NS_LogAddRef_P(aPtr, aNewRefCnt, aTypeName, aInstanceSize);
+}
+
+#undef NS_LogRelease
+EXPORT_XPCOM_API(void)
+NS_LogRelease(void* aPtr, nsrefcnt aNewRefCnt, const char *aTypeName)
+{
+  NS_LogRelease_P(aPtr, aNewRefCnt, aTypeName);
+}
+
+#undef NS_LogCtor
+EXPORT_XPCOM_API(void)
+NS_LogCtor(void *aPtr, const char *aTypeName, PRUint32 aInstanceSize)
+{
+  NS_LogCtor_P(aPtr, aTypeName, aInstanceSize);
+}
+
+#undef NS_LogDtor
+EXPORT_XPCOM_API(void)
+NS_LogDtor(void *aPtr, const char *aTypeName, PRUint32 aInstanceSize)
+{
+  NS_LogDtor_P(aPtr, aTypeName, aInstanceSize);
+}
+
+#undef NS_LogCOMPtrAddRef
+EXPORT_XPCOM_API(void)
+NS_LogCOMPtrAddRef(void *aCOMPtr, nsISupports* aObject)
+{
+  NS_LogCOMPtrAddRef_P(aCOMPtr, aObject);
+}
+
+#undef NS_LogCOMPtrRelease
+EXPORT_XPCOM_API(void)
+NS_LogCOMPtrRelease(void *aCOMPtr, nsISupports* aObject)
+{
+  NS_LogCOMPtrRelease_P(aCOMPtr, aObject);
+}
+
+
 /*
  * Stubs for nsXPCOMPrivate.h
  */
 
-#undef NS_RegisterXPCOMExitRoutine
 EXPORT_XPCOM_API(nsresult)
 NS_RegisterXPCOMExitRoutine(XPCOMExitRoutine exitRoutine, PRUint32 priority)
 {
-  return NS_RegisterXPCOMExitRoutine_P(exitRoutine, priority);
+  return NS_OK;
 }
 
-#undef NS_UnregisterXPCOMExitRoutine
 EXPORT_XPCOM_API(nsresult)
 NS_UnregisterXPCOMExitRoutine(XPCOMExitRoutine exitRoutine)
 {
-  return NS_UnregisterXPCOMExitRoutine_P(exitRoutine);
+  return NS_OK;
 }
 
 /*

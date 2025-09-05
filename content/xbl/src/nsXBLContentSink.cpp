@@ -229,8 +229,8 @@ nsXBLContentSink::ReportError(const PRUnichar* aErrorText,
   // Report the error to stderr.
   fprintf(stderr,
           "\n%s\n%s\n\n",
-          NS_LossyConvertUCS2toASCII(aErrorText).get(),
-          NS_LossyConvertUCS2toASCII(aSourceText).get());
+          NS_LossyConvertUTF16toASCII(aErrorText).get(),
+          NS_LossyConvertUTF16toASCII(aSourceText).get());
 #endif
 
   // Most of what this does won't be too useful, but whatever...
@@ -725,7 +725,7 @@ nsXBLContentSink::ConstructImplementation(const PRUnichar **aAtts)
       // our XBL document has UniversalXPConnect privileges.  No principal
       // means no privs!
       
-      nsIPrincipal* principal = mDocument->GetPrincipal();
+      nsIPrincipal* principal = mDocument->GetNodePrincipal();
       if (principal) {
         // XXX this api is so badly tied to JS it's not even funny.  We don't
         // have a concept of enabling capabilities on a per-principal basis,

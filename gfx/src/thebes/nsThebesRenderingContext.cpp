@@ -65,6 +65,7 @@
 
 #ifdef XP_WIN
 #include "gfxWindowsSurface.h"
+#include "cairo-win32.h"
 #endif
 
 static NS_DEFINE_CID(kRegionCID, NS_REGION_CID);
@@ -139,22 +140,8 @@ nsThebesRenderingContext::Init(nsIDeviceContext* aContext, nsIWidget *aWidget)
 NS_IMETHODIMP
 nsThebesRenderingContext::Init(nsIDeviceContext* aContext, nsIDrawingSurface *aSurface)
 {
-    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG, ("## %p nsTRC::Init ctx %p ds %p\n", this, aContext, aSurface));
-
-    nsThebesDrawingSurface *cds = (nsThebesDrawingSurface *) aSurface;
-
-    mDeviceContext = aContext;
-    mWidget = nsnull;
-
-    mLocalDrawingSurface = (nsThebesDrawingSurface *) cds;
-    mDrawingSurface = mLocalDrawingSurface;
-
-    mThebes = new gfxContext(mLocalDrawingSurface->GetThebesSurface());
-
-    //mThebes->SetColor(gfxRGBA(1.0, 1.0, 1.0, 1.0));
-    //mThebes->Paint();
-
-    return (CommonInit());
+    NS_ERROR("Should never be called.");
+    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
@@ -671,15 +658,28 @@ nsThebesRenderingContext::FillRect(nscoord aX, nscoord aY, nscoord aWidth, nscoo
     return NS_OK;
 }
 
+
+/**
+ * XXX awful invert rect hack
+ *             idea by mrbkap
+ */
+static unsigned int gInvertRect = 0;
 NS_IMETHODIMP
 nsThebesRenderingContext::InvertRect(const nsRect& aRect)
 {
     gfxContext::GraphicsOperator lastOp = mThebes->CurrentOperator();
 
-    mThebes->SetOperator(gfxContext::OPERATOR_XOR);
+    gfxRGBA newColor(0,0,0,1);
+    if (gInvertRect++ % 2)
+        newColor = gfxRGBA(1,1,1,1);
+    mThebes->Save();
+
+    mThebes->SetColor(newColor);
+    mThebes->SetOperator(gfxContext::OPERATOR_OVER);
     nsresult rv = FillRect(aRect);
     mThebes->SetOperator(lastOp);
 
+    mThebes->Restore();
     return rv;
 }
 
@@ -764,16 +764,19 @@ nsThebesRenderingContext::GetNativeGraphicData(GraphicDataType aType)
     {
         if (mWidget && mDrawingSurface == mLocalDrawingSurface)
             return mWidget->GetNativeData(NS_NATIVE_WIDGET);
-        else if (mDrawingSurface != mLocalDrawingSurface)
-            return mDrawingSurface->GetNativeWidget();
     }
     if (aType == NATIVE_THEBES_CONTEXT)
         return mThebes;
     if (aType == NATIVE_CAIRO_CONTEXT)
         return mThebes->GetCairo();
 #ifdef XP_WIN
-    if (aType == NATIVE_WINDOWS_DC)
-        return ((gfxWindowsSurface*)mThebes->CurrentSurface())->GetDC();
+    if (aType == NATIVE_WINDOWS_DC) {
+        nsRefPtr<gfxASurface> surf = mThebes->CurrentGroupSurface();
+        if (!surf)
+            mThebes->CurrentSurface();
+
+        return cairo_win32_surface_get_dc(surf->CairoSurface());
+    }
 #endif
 
     return nsnull;
@@ -840,6 +843,11 @@ nsThebesRenderingContext::GetBackbuffer(const nsRect &aRequestedSize,
                                         PRBool aForBlending,
                                         nsIDrawingSurface* &aBackbuffer)
 {
+    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG,
+           ("## %p nsTRC::GetBackBuffer req: %d %d %d %d max: %d %d %d %d blending? %d\n",
+            this, aRequestedSize.x, aRequestedSize.y, aRequestedSize.width, aRequestedSize.height,
+            aMaxSize.x, aMaxSize.y, aMaxSize.width, aMaxSize.height, aForBlending));
+
     return AllocateBackbuffer(aRequestedSize, aMaxSize, aBackbuffer, PR_FALSE,
                               aForBlending ? NS_CREATEDRAWINGSURFACE_FOR_PIXEL_ACCESS : 0);
 }
@@ -859,30 +867,42 @@ nsThebesRenderingContext::DestroyCachedBackbuffer(void)
 NS_IMETHODIMP
 nsThebesRenderingContext::PushFilter(const nsRect& twRect, PRBool aAreaIsOpaque, float aOpacity)
 {
-    gfxPoint p0(FROM_TWIPS(twRect.x), FROM_TWIPS(twRect.y));
-    gfxSize ps(FROM_TWIPS(twRect.XMost() - twRect.x),
-               FROM_TWIPS(twRect.YMost() - twRect.y));
+    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG,
+           ("## %p nsTRC::PushFilter [%d,%d,%d,%d] isOpaque: %d opacity: %f\n",
+            this, twRect.x, twRect.y, twRect.width, twRect.height,
+            aAreaIsOpaque, aOpacity));
 
     mOpacityArray.AppendElement(aOpacity);
 
     mThebes->Save();
-    mThebes->Clip(gfxRect(p0, ps));
-    mThebes->PushGroup();
+    mThebes->Clip(GFX_RECT_FROM_TWIPS_RECT(twRect));
+    mThebes->PushGroup(gfxContext::CONTENT_COLOR_ALPHA);
+
     return NS_OK;
 }
 
 NS_IMETHODIMP
 nsThebesRenderingContext::PopFilter()
 {
+    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG, ("## %p nsTRC::PopFilter\n"));
+
     if (mOpacityArray.Length() > 0) {
         float f = mOpacityArray[mOpacityArray.Length()-1];
         mOpacityArray.RemoveElementAt(mOpacityArray.Length()-1);
 
         mThebes->PopGroupToSource();
-        mThebes->Paint(f);
+
+        if (f < 0.0) {
+            mThebes->SetOperator(gfxContext::OPERATOR_SOURCE);
+            mThebes->Paint();
+        } else {
+            mThebes->SetOperator(gfxContext::OPERATOR_OVER);
+            mThebes->Paint(f);
+        }
+
+        mThebes->Restore();
     }
 
-    mThebes->Restore();
 
     return NS_OK;
 }
@@ -1088,6 +1108,11 @@ nsThebesRenderingContext::DrawTile(imgIContainer *aImage,
 //
 // text junk
 //
+NS_IMETHODIMP
+nsThebesRenderingContext::SetRightToLeftText(PRBool aIsRTL)
+{
+    return mFontMetrics->SetRightToLeftText(aIsRTL);
+}
 
 NS_IMETHODIMP
 nsThebesRenderingContext::SetFont(const nsFont& aFont, nsIAtom* aLangGroup)
@@ -1426,6 +1451,11 @@ nsThebesRenderingContext::CopyOffScreenBits(nsIDrawingSurface *aSrcSurf,
                                            const nsRect &aDestBounds,
                                            PRUint32 aCopyFlags)
 {
+    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG,
+           ("## %p nsTRC::CopyOffScreenBits src: %d %d dst: %d %d %d %d flags: 0x%08x\n",
+            this, aSrcX, aSrcY, aDestBounds.x, aDestBounds.y, aDestBounds.width, aDestBounds.height,
+            aCopyFlags));
+
     // there's only one caller of this code, so this implementation is
     // tailored to that one caller.
     if (aCopyFlags != NS_COPYBITS_USE_SOURCE_CLIP_REGION)

@@ -102,8 +102,7 @@ NS_NewPageFrame(nsIPresShell* aPresShell)
 }
 
 nsPageFrame::nsPageFrame() :
-  mSupressHF(PR_FALSE),
-  mClipRect(-1, -1, -1, -1)
+  mSupressHF(PR_FALSE)
 {
 }
 
@@ -233,16 +232,6 @@ NS_IMETHODIMP nsPageFrame::Reflow(nsPresContext*          aPresContext,
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowState, aDesiredSize);
   return NS_OK;
 }
-
-void nsPageFrame::SetClipRect(nsRect* aClipRect) 
-{
-  mClipRect = *aClipRect; 
-  nsIFrame*           firstFrame  = mFrames.FirstChild();
-  nsPageContentFrame* contentPage = NS_STATIC_CAST(nsPageContentFrame*, firstFrame);
-  NS_ASSERTION(contentPage, "There should always be a content page");
-  contentPage->SetClipRect(aClipRect);
-}
-
 
 nsIAtom*
 nsPageFrame::GetType() const
@@ -500,7 +489,7 @@ nsPageFrame::DrawHeaderFooter(nsPresContext*      aPresContext,
 
 #ifdef DEBUG_PRINTING
     PR_PL(("Page: %p", this));
-    PR_PL((" [%s]", NS_ConvertUCS2toUTF8(str).get()));
+    PR_PL((" [%s]", NS_ConvertUTF16toUTF8(str).get()));
     char justStr[64];
     switch (aJust) {
       case nsIPrintSettings::kJustLeft:strcpy(justStr, "Left");break;
@@ -567,13 +556,6 @@ nsPageFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     rv = set.Content()->AppendNewToTop(new (aBuilder)
         nsDisplayGeneric(this, ::PaintHeaderFooter, "HeaderFooter"));
     NS_ENSURE_SUCCESS(rv, rv);
-  }
-
-  if (mClipRect.width != -1 || mClipRect.height != -1) {
-#ifdef DEBUG_PRINTING
-    printf("*** ClipRect: %5d,%5d,%5d,%5d\n", mClipRect.x, mClipRect.y, mClipRect.width, mClipRect.height);
-#endif
-    return Clip(aBuilder, set, aLists, mClipRect);
   }
 
   set.MoveTo(aLists);

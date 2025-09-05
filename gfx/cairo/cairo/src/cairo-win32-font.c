@@ -1143,7 +1143,8 @@ _cairo_win32_scaled_font_show_glyphs (void		       *abstract_font,
 			 ((int)solid_pattern->color.blue_short) >> 8);
 
 	status = _draw_glyphs_on_surface (surface, scaled_font, new_color,
-					  0, 0,
+					  - surface->base.device_x_offset,
+					  - surface->base.device_y_offset,
 					  glyphs, num_glyphs);
 	
 	return status;
@@ -1159,7 +1160,7 @@ _cairo_win32_scaled_font_show_glyphs (void		       *abstract_font,
 	cairo_surface_pattern_t mask;
 	RECT r;
 
-	tmp_surface = (cairo_win32_surface_t *)_cairo_win32_surface_create_dib (CAIRO_FORMAT_ARGB32, width, height);
+	tmp_surface = (cairo_win32_surface_t *)cairo_win32_surface_create_dib (CAIRO_FORMAT_ARGB32, width, height);
 	if (tmp_surface->base.status)
 	    return CAIRO_STATUS_NO_MEMORY;
 

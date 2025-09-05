@@ -44,6 +44,7 @@ include $(DEPTH)/config/autoconf.mk
 
 MODULE		= xpcom
 LIBRARY_NAME	= xptcmd
+MOZILLA_INTERNAL_API = 1
 
 #
 # The default is this buildable, but non-functioning code.
@@ -431,3 +432,6 @@ xptcstubs_asm_x86_solaris_SUNW.o: $(PUBLIC)/xptcstubsdef.inc $(srcdir)/xptcstubs
 endif
 endif
 endif
+
+libs:: $(LIBRARY)
+	$(INSTALL) $(LIBRARY) ../..

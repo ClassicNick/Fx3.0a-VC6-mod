@@ -85,7 +85,8 @@ private:
  ************************ nsPromptService ***********************
  ****************************************************************/
 
-NS_IMPL_ISUPPORTS2(nsPromptService, nsIPromptService, nsPIPromptService)
+NS_IMPL_ISUPPORTS3(nsPromptService, nsIPromptService,
+                   nsPIPromptService, nsINonBlockingAlertService)
 
 nsPromptService::nsPromptService() {
 }
@@ -125,7 +126,7 @@ nsPromptService::Alert(nsIDOMWindow *parent,
   block->SetString(eDialogTitle, dialogTitle);
 
   nsString url;
-  NS_ConvertASCIItoUCS2 styleClass(kAlertIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kAlertIconClass);
   block->SetString(eIconClass, styleClass.get());
 
   rv = DoDialog(parent, block, kPromptURL);
@@ -160,7 +161,7 @@ nsPromptService::AlertCheck(nsIDOMWindow *parent,
 
   block->SetString(eDialogTitle, dialogTitle);
 
-  NS_ConvertASCIItoUCS2 styleClass(kAlertIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kAlertIconClass);
   block->SetString(eIconClass, styleClass.get());
   block->SetString(eCheckboxMsg, checkMsg);
   block->SetInt(eCheckboxState, *checkValue);
@@ -199,7 +200,7 @@ nsPromptService::Confirm(nsIDOMWindow *parent,
   
   block->SetString(eDialogTitle, dialogTitle);
 
-  NS_ConvertASCIItoUCS2 styleClass(kQuestionIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kQuestionIconClass);
   block->SetString(eIconClass, styleClass.get());
   
   rv = DoDialog(parent, block, kPromptURL);
@@ -238,7 +239,7 @@ nsPromptService::ConfirmCheck(nsIDOMWindow *parent,
 
   block->SetString(eDialogTitle, dialogTitle);
 
-  NS_ConvertASCIItoUCS2 styleClass(kQuestionIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kQuestionIconClass);
   block->SetString(eIconClass, styleClass.get());
   block->SetString(eCheckboxMsg, checkMsg);
   block->SetInt(eCheckboxState, *checkValue);
@@ -332,7 +333,7 @@ nsPromptService::ConfirmEx(nsIDOMWindow *parent,
   }
   block->SetInt(eNumberButtons, numberButtons);
   
-  block->SetString(eIconClass, NS_ConvertASCIItoUCS2(kQuestionIconClass).get());
+  block->SetString(eIconClass, NS_ConvertASCIItoUTF16(kQuestionIconClass).get());
 
   if (checkMsg && checkValue) {
     block->SetString(eCheckboxMsg, checkMsg);
@@ -390,7 +391,7 @@ nsPromptService::Prompt(nsIDOMWindow *parent,
 
   block->SetString(eDialogTitle, dialogTitle);
 
-  NS_ConvertASCIItoUCS2 styleClass(kQuestionIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kQuestionIconClass);
   block->SetString(eIconClass, styleClass.get());
   block->SetInt(eNumberEditfields, 1);
   if (*value)
@@ -454,7 +455,7 @@ nsPromptService::PromptUsernameAndPassword(nsIDOMWindow *parent,
 
   block->SetString(eDialogTitle, dialogTitle);
 
-  NS_ConvertASCIItoUCS2 styleClass(kQuestionIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kQuestionIconClass);
   block->SetString(eIconClass, styleClass.get());
   block->SetInt( eNumberEditfields, 2 );
   if (*username)
@@ -525,7 +526,7 @@ NS_IMETHODIMP nsPromptService::PromptPassword(nsIDOMWindow *parent,
   block->SetString(eDialogTitle, dialogTitle);
 
   nsString url;
-  NS_ConvertASCIItoUCS2 styleClass(kQuestionIconClass);
+  NS_ConvertASCIItoUTF16 styleClass(kQuestionIconClass);
   block->SetString(eIconClass, styleClass.get());
   block->SetInt(eNumberEditfields, 1);
   block->SetInt(eEditField1Password, 1);
@@ -605,6 +606,32 @@ nsPromptService::Select(nsIDOMWindow *parent, const PRUnichar *dialogTitle,
   return rv;
 }
 
+/* void showNonBlockingAlert (in nsIDOMWindow aParent, in wstring aDialogTitle, in wstring aText); */
+NS_IMETHODIMP
+nsPromptService::ShowNonBlockingAlert(nsIDOMWindow *aParent,
+                                      const PRUnichar *aDialogTitle,
+                                      const PRUnichar *aText)
+{
+  NS_ENSURE_ARG(aParent);
+  if (!mWatcher)
+    return NS_ERROR_FAILURE;
+
+  nsCOMPtr<nsIDialogParamBlock> paramBlock(do_CreateInstance(NS_DIALOGPARAMBLOCK_CONTRACTID));
+  if (!paramBlock)
+    return NS_ERROR_FAILURE;
+
+  paramBlock->SetInt(nsPIPromptService::eNumberButtons, 1);
+  paramBlock->SetString(nsPIPromptService::eIconClass, NS_LITERAL_STRING("alert-icon").get());
+  paramBlock->SetString(nsPIPromptService::eDialogTitle, aDialogTitle);
+  paramBlock->SetString(nsPIPromptService::eMsg, aText);
+
+  nsCOMPtr<nsIDOMWindow> dialog;
+  mWatcher->OpenWindow(aParent, "chrome://global/content/commonDialog.xul",
+                       "_blank", "dependent,centerscreen,chrome,titlebar",
+                       paramBlock, getter_AddRefs(dialog));
+  return NS_OK;
+}
+
 nsresult
 nsPromptService::DoDialog(nsIDOMWindow *aParent,
                    nsIDialogParamBlock *aParamBlock, const char *aChromeURL)
@@ -645,7 +672,7 @@ nsPromptService::GetLocaleString(const char *aKey, PRUnichar **aResult)
   rv = stringService->CreateBundle(kCommonDialogsProperties, getter_AddRefs(stringBundle));
   if (NS_FAILED(rv)) return NS_ERROR_FAILURE;
 
-  rv = stringBundle->GetStringFromName(NS_ConvertASCIItoUCS2(aKey).get(), aResult);
+  rv = stringBundle->GetStringFromName(NS_ConvertASCIItoUTF16(aKey).get(), aResult);
 
   return rv;
 }

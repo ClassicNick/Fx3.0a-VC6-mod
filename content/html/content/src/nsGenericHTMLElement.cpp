@@ -170,7 +170,7 @@ void GEUS_ElementCreated(nsINodeInfo *aNodeInfo)
 PRBool GEUS_enum_func(nsHashKey *aKey, void *aData, void *aClosure)
 {
   const PRUnichar *name_chars = ((nsStringKey *)aKey)->GetString();
-  NS_ConvertUCS2toUTF8 name(name_chars);
+  NS_ConvertUTF16toUTF8 name(name_chars);
 
   printf ("%s %d\n", name.get(), aData);
 
@@ -307,6 +307,23 @@ nsGenericHTMLElement::CopyInnerTo(nsGenericElement* aDst, PRBool aDeep) const
     rv = aDst->SetAttr(name->NamespaceID(), name->LocalName(),
                        name->GetPrefix(), valStr, PR_FALSE);
     NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  // Copy the baseuri and basetarget
+  void* prop;
+  if ((prop = GetProperty(nsHTMLAtoms::htmlBaseHref))) {
+    rv = aDst->SetProperty(nsHTMLAtoms::htmlBaseHref, prop,
+                           nsPropertyTable::SupportsDtorFunc);
+    if (NS_SUCCEEDED(rv)) {
+      NS_ADDREF(NS_STATIC_CAST(nsIURI*, prop));
+    }
+  }
+  if ((prop = GetProperty(nsHTMLAtoms::htmlBaseTarget))) {
+    rv = aDst->SetProperty(nsHTMLAtoms::htmlBaseTarget, prop,
+                           nsPropertyTable::SupportsDtorFunc);
+    if (NS_SUCCEEDED(rv)) {
+      NS_ADDREF(NS_STATIC_CAST(nsIAtom*, prop));
+    }
   }
 
   nsIDocument *newDoc = aDst->GetOwnerDoc();
@@ -1570,13 +1587,12 @@ nsGenericHTMLElement::HandleDOMEventForAnchors(nsPresContext* aPresContext,
       case NS_UI_ACTIVATE:
         if (nsEventStatus_eConsumeNoDefault != *aEventStatus) {
           nsAutoString target;
-          nsCOMPtr<nsIURI> baseURI = GetBaseURI();
           GetAttr(kNameSpaceID_None, nsHTMLAtoms::target, target);
           if (target.IsEmpty()) {
             GetBaseTarget(target);
           }
 
-          ret = TriggerLink(aPresContext, eLinkVerb_Replace, baseURI, hrefURI,
+          ret = TriggerLink(aPresContext, eLinkVerb_Replace, hrefURI,
                             target, PR_TRUE, PR_TRUE);
         }
         break;
@@ -1600,12 +1616,11 @@ nsGenericHTMLElement::HandleDOMEventForAnchors(nsPresContext* aPresContext,
       case NS_FOCUS_CONTENT:
       {
         nsAutoString target;
-        nsCOMPtr<nsIURI> baseURI = GetBaseURI();
         GetAttr(kNameSpaceID_None, nsHTMLAtoms::target, target);
         if (target.IsEmpty()) {
           GetBaseTarget(target);
         }
-        ret = TriggerLink(aPresContext, eLinkVerb_Replace, baseURI,
+        ret = TriggerLink(aPresContext, eLinkVerb_Replace,
                           hrefURI, target, PR_FALSE, PR_TRUE);
       }
       break;
@@ -1860,20 +1875,11 @@ nsGenericHTMLElement::GetBaseURI() const
 {
   nsIDocument* doc = GetOwnerDoc();
 
-  const nsAttrValue* val = mAttrsAndChildren.GetAttr(nsHTMLAtoms::_baseHref);
-  if (val) {
-    // We have a _baseHref attribute; that will determine our base URI
-    nsAutoString str;
-    val->ToString(str);
-
-    nsIURI* docBaseURL = nsnull;
-    if (doc) {
-      docBaseURL = doc->GetBaseURI();
-    }
-
-    nsIURI* uri = nsnull;
-    NS_NewURI(&uri, str, nsnull, docBaseURL);
-
+  void* prop;
+  if (HasProperties() && (prop = GetProperty(nsHTMLAtoms::htmlBaseHref))) {
+    nsIURI* uri = NS_STATIC_CAST(nsIURI*, prop);
+    NS_ADDREF(uri);
+    
     return uri;
   }
 
@@ -1896,9 +1902,10 @@ nsGenericHTMLElement::GetBaseURI() const
 void
 nsGenericHTMLElement::GetBaseTarget(nsAString& aBaseTarget) const
 {
-  const nsAttrValue* val = mAttrsAndChildren.GetAttr(nsHTMLAtoms::_baseTarget);
-  if (val) {
-    val->ToString(aBaseTarget);
+  void* prop;
+  if (HasProperties() && (prop = GetProperty(nsHTMLAtoms::htmlBaseTarget))) {
+    NS_STATIC_CAST(nsIAtom*, prop)->ToString(aBaseTarget);
+    
     return;
   }
 
@@ -1935,7 +1942,7 @@ nsGenericHTMLElement::ListAttributes(FILE* out) const
     buffer.AppendLiteral("\"");
 
     fputs(" ", out);
-    fputs(NS_LossyConvertUCS2toASCII(buffer).get(), out);
+    fputs(NS_LossyConvertUTF16toASCII(buffer).get(), out);
   }
 }
 
@@ -1949,7 +1956,7 @@ nsGenericHTMLElement::List(FILE* out, PRInt32 aIndent) const
 
   nsAutoString buf;
   mNodeInfo->GetQualifiedName(buf);
-  fputs(NS_LossyConvertUCS2toASCII(buf).get(), out);
+  fputs(NS_LossyConvertUTF16toASCII(buf).get(), out);
 
   fprintf(out, "@%p", (void*)this);
 
@@ -1980,7 +1987,7 @@ nsGenericHTMLElement::DumpContent(FILE* out, PRInt32 aIndent,
   nsAutoString buf;
   mNodeInfo->GetQualifiedName(buf);
   fputs("<",out);
-  fputs(NS_LossyConvertUCS2toASCII(buf).get(), out);
+  fputs(NS_LossyConvertUTF16toASCII(buf).get(), out);
 
   if(aDumpAll) ListAttributes(out);
 
@@ -1995,7 +2002,7 @@ nsGenericHTMLElement::DumpContent(FILE* out, PRInt32 aIndent,
   }
   for (index = aIndent; --index >= 0; ) fputs("  ", out);
   fputs("</",out);
-  fputs(NS_LossyConvertUCS2toASCII(buf).get(), out);
+  fputs(NS_LossyConvertUTF16toASCII(buf).get(), out);
   fputs(">",out);
 
   if(aIndent) fputs("\n", out);
@@ -3653,7 +3660,7 @@ nsGenericHTMLElement::SetProtocolInHrefString(const nsAString &aHref,
   aProtocol.EndReading(end);
   nsAString::const_iterator iter(start);
   FindCharInReadable(':', iter, end);
-  uri->SetScheme(NS_ConvertUCS2toUTF8(Substring(start, iter)));
+  uri->SetScheme(NS_ConvertUTF16toUTF8(Substring(start, iter)));
    
   nsCAutoString newHref;
   uri->GetSpec(newHref);
@@ -3675,7 +3682,7 @@ nsGenericHTMLElement::SetHostnameInHrefString(const nsAString &aHref,
   if (NS_FAILED(rv))
     return rv;
 
-  uri->SetHost(NS_ConvertUCS2toUTF8(aHostname));
+  uri->SetHost(NS_ConvertUTF16toUTF8(aHostname));
 
   nsCAutoString newHref;
   uri->GetSpec(newHref);
@@ -3701,7 +3708,7 @@ nsGenericHTMLElement::SetPathnameInHrefString(const nsAString &aHref,
   if (NS_FAILED(rv))
     return rv;
 
-  url->SetFilePath(NS_ConvertUCS2toUTF8(aPathname));
+  url->SetFilePath(NS_ConvertUTF16toUTF8(aPathname));
 
   nsCAutoString newHref;
   uri->GetSpec(newHref);
@@ -3760,7 +3767,7 @@ nsGenericHTMLElement::SetSearchInHrefString(const nsAString &aHref,
   if (NS_FAILED(rv))
     return rv;
 
-  url->SetQuery(NS_ConvertUCS2toUTF8(aSearch));
+  url->SetQuery(NS_ConvertUTF16toUTF8(aSearch));
 
   nsCAutoString newHref;
   uri->GetSpec(newHref);
@@ -3787,7 +3794,7 @@ nsGenericHTMLElement::SetHashInHrefString(const nsAString &aHref,
   if (NS_FAILED(rv))
     return rv;
 
-  rv = url->SetRef(NS_ConvertUCS2toUTF8(aHash));
+  rv = url->SetRef(NS_ConvertUTF16toUTF8(aHash));
 
   nsCAutoString newHref;
   uri->GetSpec(newHref);
@@ -3839,7 +3846,7 @@ nsGenericHTMLElement::GetProtocolFromHrefString(const nsAString& aHref,
   nsCAutoString protocol;
 
   nsresult rv =
-    ioService->ExtractScheme(NS_ConvertUCS2toUTF8(aHref), protocol);
+    ioService->ExtractScheme(NS_ConvertUTF16toUTF8(aHref), protocol);
 
   if (NS_SUCCEEDED(rv)) {
     CopyASCIItoUTF16(protocol, aProtocol);

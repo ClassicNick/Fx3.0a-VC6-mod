@@ -800,8 +800,6 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA_WITH_NAME(XULAttr, Attr, nsDOMGenericSH,
                                      DOM_DEFAULT_SCRIPTABLE_FLAGS)
 #endif
-  NS_DEFINE_CLASSINFO_DATA(XULControllers, nsDOMGenericSH,
-                           DEFAULT_SCRIPTABLE_FLAGS)
 #ifdef MOZ_XUL
   NS_DEFINE_CLASSINFO_DATA(BoxObject, nsDOMGenericSH,
                            DEFAULT_SCRIPTABLE_FLAGS)
@@ -2362,10 +2360,6 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMAttr)
   DOM_CLASSINFO_MAP_END
 #endif
-
-  DOM_CLASSINFO_MAP_BEGIN_NO_CLASS_IF(XULControllers, nsIControllers)
-    DOM_CLASSINFO_MAP_ENTRY(nsIControllers)
-  DOM_CLASSINFO_MAP_END
 
 #ifdef MOZ_XUL
   DOM_CLASSINFO_MAP_BEGIN(BoxObject, nsIBoxObject)
@@ -4705,7 +4699,7 @@ nsDOMConstructor::HasInstance(nsIXPConnectWrappedNative *wrapper,
     return NS_ERROR_UNEXPECTED;
   }
 
-  gNameSpaceManager->LookupName(NS_ConvertASCIItoUCS2(dom_class->name),
+  gNameSpaceManager->LookupName(NS_ConvertASCIItoUTF16(dom_class->name),
                                 &name_struct);
   if (!name_struct) {
     // Name isn't in hash, not a DOM object.
@@ -5218,7 +5212,7 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
     nsCOMPtr<nsIDOMScriptObjectFactory> sof(do_GetService(kDOMSOF_CID));
     NS_ENSURE_TRUE(sof, NS_ERROR_FAILURE);
 
-    rv = creator->RegisterDOMCI(NS_ConvertUCS2toUTF8(name).get(), sof);
+    rv = creator->RegisterDOMCI(NS_ConvertUTF16toUTF8(name).get(), sof);
     NS_ENSURE_SUCCESS(rv, rv);
 
     rv = gNameSpaceManager->LookupName(name, &name_struct);

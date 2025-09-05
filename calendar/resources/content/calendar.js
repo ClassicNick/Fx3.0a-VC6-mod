@@ -122,6 +122,11 @@ function calendarInit()
 
    initCalendarManager();
 
+   // fire up the alarm service
+   var alarmSvc = Components.classes["@mozilla.org/calendar/alarm-service;1"]
+                  .getService(Components.interfaces.calIAlarmService);
+   alarmSvc.startup();
+
    if (("arguments" in window) && (window.arguments.length) &&
        (typeof(window.arguments[0]) == "object") &&
        ("channel" in window.arguments[0]) ) {
@@ -231,12 +236,24 @@ function checkCalListTarget() {
 
 function deleteCalendar(event)
 {
-    var cal = document.popupNode.calendar
-    getDisplayComposite().removeCalendar(cal.uri);
-    var calMgr = getCalendarManager();
-    calMgr.unregisterCalendar(cal);
-    // Delete file?
-    //calMgr.deleteCalendar(cal);
+    var promptService = Components.classes["@mozilla.org/embedcomp/prompt-service;1"].getService(Components.interfaces.nsIPromptService); 
+
+    var result = {}; 
+    var calendarBundle = document.getElementById("bundle_calendar");
+    var calendar = document.popupNode.calendar;
+    var ok = promptService.confirm(
+        window,
+        calendarBundle.getString("unsubscribeCalendarTitle"),
+        calendarBundle.getFormattedString("unsubscribeCalendarMessage",[calendar.name]),
+        result);
+   
+    if (ok) {
+        getDisplayComposite().removeCalendar(calendar.uri);
+        var calMgr = getCalendarManager();
+        calMgr.unregisterCalendar(calendar);
+        // Delete file?
+        //calMgr.deleteCalendar(cal);
+    }
 }
 
 /** 
@@ -374,7 +391,14 @@ function deleteItems( SelectedItems, DoNotConfirm )
 
     startBatchTransaction();
     for (i in SelectedItems) {
-        doTransaction('delete', SelectedItems[i], SelectedItems[i].calendar, null, null);
+        var aOccurrence = SelectedItems[i];
+        if (aOccurrence.parentItem != aOccurrence) {
+            var event = aOccurrence.parentItem.clone();
+            event.recurrenceInfo.removeOccurrenceAt(aOccurrence.recurrenceId);
+            doTransaction('modify', event, event.calendar, aOccurrence.parentItem, null);
+        } else {
+            doTransaction('delete', aOccurrence, aOccurrence.calendar, null, null);
+        }
     }
     endBatchTransaction();
 }

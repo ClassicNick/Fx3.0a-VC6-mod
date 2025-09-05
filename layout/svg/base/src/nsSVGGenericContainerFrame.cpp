@@ -37,6 +37,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsSVGGenericContainerFrame.h"
+#include "nsSVGUtils.h"
 
 //----------------------------------------------------------------------
 // nsSVGGenericContainerFrame Implementation
@@ -146,7 +147,7 @@ nsSVGGenericContainerFrame::RemoveFrame(nsIAtom*        aListName,
 
   PRBool result = mFrames.DestroyFrame(GetPresContext(), aOldFrame);
 
-  nsISVGOuterSVGFrame* outerSVGFrame = GetOuterSVGFrame();
+  nsISVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   NS_ASSERTION(outerSVGFrame, "no outer svg frame");
   if (dirty_region && outerSVGFrame)
     outerSVGFrame->InvalidateRegion(dirty_region, PR_TRUE);
@@ -164,7 +165,7 @@ nsSVGGenericContainerFrame::AttributeChanged(PRInt32         aNameSpaceID,
     nsAutoString str;
     aAttribute->ToString(str);
     printf("** nsSVGGenericContainerFrame::AttributeChanged(%s)\n",
-           NS_LossyConvertUCS2toASCII(str).get());
+           NS_LossyConvertUTF16toASCII(str).get());
 #endif
 
   return NS_OK;
@@ -323,21 +324,6 @@ nsSVGGenericContainerFrame::GetBBox(nsIDOMSVGRect **_retval)
 
 //----------------------------------------------------------------------
 // nsISVGContainerFrame methods:
-
-nsISVGOuterSVGFrame *
-nsSVGGenericContainerFrame::GetOuterSVGFrame()
-{
-  NS_ASSERTION(mParent, "null parent");
-  
-  nsISVGContainerFrame *containerFrame;
-  mParent->QueryInterface(NS_GET_IID(nsISVGContainerFrame), (void**)&containerFrame);
-  if (!containerFrame) {
-    NS_ERROR("invalid container");
-    return nsnull;
-  }
-
-  return containerFrame->GetOuterSVGFrame();  
-}
 
 already_AddRefed<nsIDOMSVGMatrix>
 nsSVGGenericContainerFrame::GetCanvasTM()

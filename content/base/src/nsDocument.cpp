@@ -551,6 +551,7 @@ nsDOMImplementation::CreateDocumentType(const nsAString& aQualifiedName,
   nsCOMPtr<nsIAtom> name = do_GetAtom(aQualifiedName);
   NS_ENSURE_TRUE(name, NS_ERROR_OUT_OF_MEMORY);
 
+  // XXXbz shouldn't this use the original document principal instead?
   nsCOMPtr<nsIPrincipal> principal;
   rv = nsContentUtils::GetSecurityManager()->
     GetCodebasePrincipal(mBaseURI, getter_AddRefs(principal));
@@ -928,9 +929,12 @@ nsDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
 
   if (aChannel) {
     nsCOMPtr<nsISupports> owner;
-    aChannel->GetOwner(getter_AddRefs(owner));
-
-    mPrincipal = do_QueryInterface(owner);
+    if (NS_SUCCEEDED(aChannel->GetOwner(getter_AddRefs(owner)))) {
+      nsCOMPtr<nsIPrincipal> principal = do_QueryInterface(owner);
+      if (principal) {
+        SetPrincipal(principal);
+      }
+    }
   }
 
   mChannel = aChannel;
@@ -951,7 +955,7 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup)
 
   mDocumentTitle.SetIsVoid(PR_TRUE);
 
-  mPrincipal = nsnull;
+  SetPrincipal(nsnull);
   mSecurityInfo = nsnull;
 
   mDocumentLoadGroup = nsnull;
@@ -1004,6 +1008,19 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup)
   mReferrer.Truncate();
 
   mXMLDeclarationBits = 0;
+
+  // Now get our new principal
+  nsIScriptSecurityManager *securityManager =
+    nsContentUtils::GetSecurityManager();
+  if (securityManager) {
+    nsCOMPtr<nsIPrincipal> principal;
+    nsresult rv =
+      securityManager->GetCodebasePrincipal(mDocumentURI,
+                                            getter_AddRefs(principal));
+    if (NS_SUCCEEDED(rv)) {
+      SetPrincipal(principal);
+    }
+  }
 }
 
 nsresult
@@ -1210,31 +1227,13 @@ nsDocument::GetLastModified(nsAString& aLastModified)
 nsIPrincipal*
 nsDocument::GetPrincipal()
 {
-  if (!mPrincipal) {
-    nsIScriptSecurityManager *securityManager =
-      nsContentUtils::GetSecurityManager();
-
-    if (!securityManager) {
-      return nsnull;
-    }
-
-    NS_WARN_IF_FALSE(mDocumentURI, "no URI!");
-    nsresult rv =
-      securityManager->GetCodebasePrincipal(mDocumentURI,
-                                            getter_AddRefs(mPrincipal));
-
-    if (NS_FAILED(rv)) {
-      return nsnull;
-    }
-  }
-
-  return mPrincipal;
+  return GetNodePrincipal();
 }
 
 void
 nsDocument::SetPrincipal(nsIPrincipal *aNewPrincipal)
 {
-  mPrincipal = aNewPrincipal;
+  mNodeInfoManager->SetDocumentPrincipal(aNewPrincipal);
 }
 
 NS_IMETHODIMP
@@ -1249,7 +1248,7 @@ void
 nsDocument::SetContentType(const nsAString& aContentType)
 {
   NS_ASSERTION(mContentType.IsEmpty() ||
-               mContentType.Equals(NS_ConvertUCS2toUTF8(aContentType)),
+               mContentType.Equals(NS_ConvertUTF16toUTF8(aContentType)),
                "Do you really want to change the content-type?");
 
   CopyUTF16toUTF8(aContentType, mContentType);
@@ -1268,7 +1267,7 @@ nsDocument::SetBaseURI(nsIURI* aURI)
   nsresult rv = NS_OK;
 
   if (aURI) {
-    nsIPrincipal* principal = GetPrincipal();
+    nsIPrincipal* principal = GetNodePrincipal();
     NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
     
     nsIScriptSecurityManager* securityManager =
@@ -2916,7 +2915,7 @@ nsDocument::GetPreferredStylesheetSet(nsAString& aStyleTitle)
 NS_IMETHODIMP
 nsDocument::GetCharacterSet(nsAString& aCharacterSet)
 {
-  CopyASCIItoUCS2(GetDocumentCharacterSet(), aCharacterSet);
+  CopyASCIItoUTF16(GetDocumentCharacterSet(), aCharacterSet);
   return NS_OK;
 }
 
@@ -3289,7 +3288,8 @@ nsDocument::SetTitle(const nsAString& aTitle)
 NS_IMETHODIMP
 nsDocument::GetBoxObjectFor(nsIDOMElement* aElement, nsIBoxObject** aResult)
 {
-  NS_ENSURE_ARG(aElement);
+  nsCOMPtr<nsIContent> content(do_QueryInterface(aElement));
+  NS_ENSURE_TRUE(content, NS_ERROR_UNEXPECTED);
   
   nsresult rv;
 
@@ -3318,7 +3318,6 @@ nsDocument::GetBoxObjectFor(nsIDOMElement* aElement, nsIBoxObject** aResult)
   nsCOMPtr<nsIAtom> tag;
   nsCOMPtr<nsIXBLService> xblService =
            do_GetService("@mozilla.org/xbl;1", &rv);
-  nsCOMPtr<nsIContent> content(do_QueryInterface(aElement));
   xblService->ResolveTag(content, &namespaceID, getter_AddRefs(tag));
 
   nsCAutoString contractID("@mozilla.org/layout/xul-boxobject");
@@ -3429,7 +3428,7 @@ nsDocument::SetDir(const nsAString& aDirection)
   PRUint32 options = GetBidiOptions();
 
   for (const DirTable* elt = dirAttributes; elt->mName; elt++) {
-    if (aDirection == NS_ConvertASCIItoUCS2(elt->mName)) {
+    if (aDirection == NS_ConvertASCIItoUTF16(elt->mName)) {
       if (GET_BIDI_OPTION_DIRECTION(options) != elt->mValue) {
         SET_BIDI_OPTION_DIRECTION(options, elt->mValue);
         nsIPresShell *shell = GetShellAt(0);
@@ -3881,16 +3880,6 @@ nsDocument::GetUserData(const nsAString &aKey,
   return GetUserData(this, key, aResult);
 }
 
-static void
-ReleaseDOMUserData(void *aObject,
-                   nsIAtom *aPropertyName,
-                   void *aPropertyValue,
-                   void *aData)
-{
-  nsISupports *propertyValue = NS_STATIC_CAST(nsISupports*, aPropertyValue);
-  NS_RELEASE(propertyValue);
-}
-
 nsresult
 nsDocument::SetUserData(const nsINode *aObject,
                         nsIAtom *aKey,
@@ -3910,7 +3899,7 @@ nsDocument::SetUserData(const nsINode *aObject,
   void *data;
   if (aData) {
     rv = mPropertyTable.SetProperty(aObject, DOM_USER_DATA, aKey, aData,
-                                    ReleaseDOMUserData, &data);
+                                    nsPropertyTable::SupportsDtorFunc, &data);
     NS_ENSURE_SUCCESS(rv, rv);
 
     NS_ADDREF(aData);
@@ -3925,7 +3914,8 @@ nsDocument::SetUserData(const nsINode *aObject,
 
   if (aData && aHandler) {
     rv = mPropertyTable.SetProperty(aObject, DOM_USER_DATA_HANDLER, aKey,
-                                    aHandler, ReleaseDOMUserData);
+                                    aHandler,
+                                    nsPropertyTable::SupportsDtorFunc);
     if (NS_SUCCEEDED(rv)) {
       NS_ADDREF(aHandler);
     }
@@ -4652,7 +4642,7 @@ nsDocument::IsScriptEnabled()
   nsCOMPtr<nsIScriptSecurityManager> sm(do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID));
   NS_ENSURE_TRUE(sm, PR_TRUE);
 
-  nsIPrincipal* principal = GetPrincipal();
+  nsIPrincipal* principal = GetNodePrincipal();
   NS_ENSURE_TRUE(principal, PR_TRUE);
 
   nsIScriptGlobalObject* globalObject = GetScriptGlobalObject();
@@ -4834,7 +4824,8 @@ nsDocument::RemoveFromRadioGroup(const nsAString& aName,
 
 NS_IMETHODIMP
 nsDocument::WalkRadioGroup(const nsAString& aName,
-                           nsIRadioVisitor* aVisitor)
+                           nsIRadioVisitor* aVisitor,
+                           PRBool aFlushContent)
 {
   nsRadioGroupStruct* radioGroup = nsnull;
   GetRadioGroup(aName, &radioGroup);
@@ -4901,7 +4892,7 @@ nsDocument::RetrieveRelevantHeaders(nsIChannel *aChannel)
         httpChannel->GetResponseHeader(nsDependentCString(*name), headerVal);
       if (NS_SUCCEEDED(rv) && !headerVal.IsEmpty()) {
         nsCOMPtr<nsIAtom> key = do_GetAtom(*name);
-        SetHeaderData(key, NS_ConvertASCIItoUCS2(headerVal));
+        SetHeaderData(key, NS_ConvertASCIItoUTF16(headerVal));
       }
       ++name;
     }
@@ -4927,7 +4918,7 @@ nsDocument::RetrieveRelevantHeaders(nsIChannel *aChannel)
         rv = partChannel->GetContentDisposition(contentDisp);
         if (NS_SUCCEEDED(rv) && !contentDisp.IsEmpty()) {
           SetHeaderData(nsHTMLAtoms::headerContentDisposition,
-                        NS_ConvertASCIItoUCS2(contentDisp));
+                        NS_ConvertASCIItoUTF16(contentDisp));
         }
       }
     }

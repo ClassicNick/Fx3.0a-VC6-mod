@@ -421,38 +421,17 @@ static nsIDebug* gDebug = nsnull;
 EXPORT_XPCOM_API(nsresult)
 NS_GetDebug(nsIDebug** result)
 {
-    nsresult rv = NS_OK;
-    if (!gDebug)
-    {
-        rv = nsDebugImpl::Create(nsnull, 
-                                 NS_GET_IID(nsIDebug), 
-                                 (void**)&gDebug);
-    }
-    NS_IF_ADDREF(*result = gDebug);
-    return rv;
+    return nsDebugImpl::Create(nsnull, 
+                               NS_GET_IID(nsIDebug), 
+                               (void**) result);
 }
-
-#ifdef NS_BUILD_REFCNT_LOGGING
-// gTraceRefcnt will be freed during shutdown.
-static nsITraceRefcnt* gTraceRefcnt = nsnull;
-#endif
 
 EXPORT_XPCOM_API(nsresult)
 NS_GetTraceRefcnt(nsITraceRefcnt** result)
 {
-#ifdef NS_BUILD_REFCNT_LOGGING
-    nsresult rv = NS_OK;
-    if (!gTraceRefcnt)
-    {
-        rv = nsTraceRefcntImpl::Create(nsnull, 
-                                       NS_GET_IID(nsITraceRefcnt), 
-                                       (void**)&gTraceRefcnt);
-    }
-    NS_IF_ADDREF(*result = gTraceRefcnt);
-    return rv;
-#else
-    return NS_ERROR_NOT_INITIALIZED;
-#endif
+    return nsTraceRefcntImpl::Create(nsnull, 
+                                     NS_GET_IID(nsITraceRefcnt), 
+                                     (void**) result);
 }
 
 EXPORT_XPCOM_API(nsresult)
@@ -489,9 +468,7 @@ NS_InitXPCOM3(nsIServiceManager* *result,
      // We are not shutting down
     gXPCOMShuttingDown = PR_FALSE;
 
-#ifdef NS_BUILD_REFCNT_LOGGING
-    nsTraceRefcntImpl::Startup();
-#endif
+    NS_LogInit();
 
     // Establish the main thread here.
     rv = nsIThread::SetMainThread();
@@ -650,51 +627,6 @@ NS_InitXPCOM3(nsIServiceManager* *result,
 }
 
 
-static nsVoidArray* gExitRoutines;
-
-static void CallExitRoutines()
-{
-    if (!gExitRoutines)
-        return;
-
-    PRInt32 count = gExitRoutines->Count();
-    for (PRInt32 i = 0; i < count; i++) {
-        XPCOMExitRoutine func = (XPCOMExitRoutine) gExitRoutines->ElementAt(i);
-        func();
-    }
-    gExitRoutines->Clear();
-    delete gExitRoutines;
-    gExitRoutines = nsnull;
-}
-
-EXPORT_XPCOM_API(nsresult)
-NS_RegisterXPCOMExitRoutine(XPCOMExitRoutine exitRoutine, PRUint32 priority)
-{
-    // priority are not used right now.  It will need to be implemented as more
-    // classes are moved into the glue library --dougt
-    if (!gExitRoutines) {
-        gExitRoutines = new nsVoidArray();
-        if (!gExitRoutines) {
-            NS_WARNING("Failed to allocate gExitRoutines");
-            return NS_ERROR_FAILURE;
-        }
-    }
-
-    PRBool okay = gExitRoutines->AppendElement((void*)exitRoutine);
-    return okay ? NS_OK : NS_ERROR_FAILURE;
-}
-
-EXPORT_XPCOM_API(nsresult)
-NS_UnregisterXPCOMExitRoutine(XPCOMExitRoutine exitRoutine)
-{
-    if (!gExitRoutines)
-        return NS_ERROR_FAILURE;
-
-    PRBool okay = gExitRoutines->RemoveElement((void*)exitRoutine);
-    return okay ? NS_OK : NS_ERROR_FAILURE;
-}
-
-
 //
 // NS_ShutdownXPCOM()
 //
@@ -829,8 +761,6 @@ NS_ShutdownXPCOM(nsIServiceManager* servMgr)
     // shutting down the component manager
     nsTimerImpl::Shutdown();
 
-    CallExitRoutines();
-
     // Shutdown xpcom. This will release all loaders and cause others holding
     // a refcount to the component manager to release it.
     if (nsComponentManagerImpl::gComponentManager) {
@@ -868,11 +798,7 @@ NS_ShutdownXPCOM(nsIServiceManager* servMgr)
 
     NS_IF_RELEASE(gDebug);
 
-#ifdef NS_BUILD_REFCNT_LOGGING
-    nsTraceRefcntImpl::DumpStatistics();
-    nsTraceRefcntImpl::ResetStatistics();
-    nsTraceRefcntImpl::Shutdown();
-#endif
+    NS_LogTerm();
 
 #ifdef GC_LEAK_DETECTOR
     // Shutdown the Leak detector.

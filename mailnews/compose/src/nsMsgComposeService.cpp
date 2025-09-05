@@ -77,6 +77,7 @@
 #include "nsMsgBaseCID.h"
 #include "nsIMsgAccountManager.h"
 #include "nsIMimeMiscStatus.h"
+#include "nsXPFEComponentsCID.h"
 
 #include "nsIInterfaceRequestorUtils.h"
 
@@ -95,6 +96,7 @@
 
 #ifdef MOZ_XUL_APP
 #include "nsICommandLine.h"
+#include "nsIAppStartup.h"
 #endif
 
 #ifdef XP_WIN32
@@ -234,7 +236,7 @@ void nsMsgComposeService::DeleteCachedWindows()
   PRInt32 i;
   for (i = 0; i < mMaxRecycledWindows; i ++)
   {
-    CloseWindow(mCachedWindows[i].window);
+    CloseHiddenCachedWindow(mCachedWindows[i].window);
     mCachedWindows[i].Clear();
   }
 }
@@ -305,7 +307,7 @@ nsresult nsMsgComposeService::OpenWindow(const char *chrome, nsIMsgComposeParams
   return rv;
 }
 
-void nsMsgComposeService::CloseWindow(nsIDOMWindowInternal *domWindow)
+void nsMsgComposeService::CloseHiddenCachedWindow(nsIDOMWindowInternal *domWindow)
 {
   if (domWindow)
   {
@@ -324,8 +326,20 @@ void nsMsgComposeService::CloseWindow(nsIDOMWindowInternal *domWindow)
         {
           nsCOMPtr<nsIBaseWindow> baseWindow;
           baseWindow = do_QueryInterface(treeOwner);
-          if (baseWindow)
+          if (baseWindow) {
+#ifdef MOZ_XUL_APP
+            // HACK ALERT: when we hid this window we fired the "xul-window-destroyed"
+            // notification for it. Now that it's being really-destroyed it will fire that
+            // notification *again* for itself. The appstartup code maintains an internal
+            // reference count of windows that block app shutdown: we want to increment that
+            // count without cancelling app shutdown (so don't use "xul-window-registered").
+            nsCOMPtr<nsIAppStartup> appStartup(do_GetService(NS_APPSTARTUP_CONTRACTID));
+            if (appStartup)
+              appStartup->EnterLastWindowClosingSurvivalArea();
+#endif
+
             baseWindow->Destroy();
+          }
         }
       }
     }
@@ -578,7 +592,7 @@ NS_IMETHODIMP nsMsgComposeService::GetParamsForMailto(nsIURI * aURI, nsIMsgCompo
             sanSink->Initialize(&sanitizedBody, 0, NS_ConvertASCIItoUTF16(allowedTags));
 
             parser->SetContentSink(sink);
-            rv = parser->Parse(rawBody, 0, NS_LITERAL_CSTRING("text/html"), PR_FALSE, PR_TRUE);
+            rv = parser->Parse(rawBody, 0, NS_LITERAL_CSTRING("text/html"), PR_TRUE);
             if (NS_FAILED(rv))
             {
               // Something went horribly wrong with parsing for html format
@@ -833,7 +847,7 @@ nsMsgComposeService::CacheWindow(nsIDOMWindowInternal *aWindow, PRBool aComposeH
   */
   if (sameTypeId == -1 && oppositeTypeId != -1)
   {
-    CloseWindow(mCachedWindows[oppositeTypeId].window);
+    CloseHiddenCachedWindow(mCachedWindows[oppositeTypeId].window);
     mCachedWindows[oppositeTypeId].Clear();
     
     rv = ShowCachedComposeWindow(aWindow, PR_FALSE);
@@ -1385,9 +1399,14 @@ nsMsgComposeService::Handle(nsICommandLine* aCmdLine)
   rv = aCmdLine->GetLength(&count);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (count >= found) {
+  if (count > found + 1) {
     aCmdLine->GetArgument(found + 1, uristr);
-    if (StringBeginsWith(uristr, NS_LITERAL_STRING("mailto:"))) {
+    if (StringBeginsWith(uristr, NS_LITERAL_STRING("mailto:"))  ||
+	StringBeginsWith(uristr, NS_LITERAL_STRING("to="))  ||
+	StringBeginsWith(uristr, NS_LITERAL_STRING("cc="))  ||
+	StringBeginsWith(uristr, NS_LITERAL_STRING("subject="))  ||
+	StringBeginsWith(uristr, NS_LITERAL_STRING("body="))  ||
+	StringBeginsWith(uristr, NS_LITERAL_STRING("attachment="))) {
       end++;
       // mailto: URIs are frequently passed with spaces in them. They should be
       // escaped with %20, but we hack around broken clients. See bug 231032.

@@ -101,7 +101,6 @@
 #include "nsILoadGroup.h"
 #include "nsContentPolicyUtils.h"
 #include "nsDOMString.h"
-#include "nsGenericElement.h"
 #include "nsNodeInfoManager.h"
 #include "nsCRT.h"
 #include "nsIDOMEvent.h"
@@ -128,6 +127,7 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 #include "nsEscape.h"
 #include "nsICharsetConverterManager.h"
 #include "nsXULAtoms.h"
+#include "nsIEventListenerManager.h"
 
 // for ReportToConsole
 #include "nsIStringBundle.h"
@@ -166,6 +166,98 @@ PRInt32 nsContentUtils::sScriptRootCount = 0;
 
 PRBool nsContentUtils::sInitialized = PR_FALSE;
 
+static PLDHashTable sRangeListsHash;
+static PLDHashTable sEventListenerManagersHash;
+
+class RangeListMapEntry : public PLDHashEntryHdr
+{
+public:
+  RangeListMapEntry(const void *aKey)
+    : mKey(aKey), mRangeList(nsnull)
+  {
+  }
+
+  ~RangeListMapEntry()
+  {
+    delete mRangeList;
+  }
+
+private:
+  const void *mKey; // must be first to look like PLDHashEntryStub
+
+public:
+  // We want mRangeList to be an nsAutoVoidArray but we can't make an
+  // nsAutoVoidArray a direct member of RangeListMapEntry since it
+  // will be moved around in memory, and nsAutoVoidArray can't deal
+  // with that.
+  nsVoidArray *mRangeList;
+};
+
+class EventListenerManagerMapEntry : public PLDHashEntryHdr
+{
+public:
+  EventListenerManagerMapEntry(const void *aKey)
+    : mKey(aKey)
+  {
+  }
+
+  ~EventListenerManagerMapEntry()
+  {
+    if (mListenerManager) {
+      mListenerManager->Disconnect();
+    }
+  }
+
+private:
+  const void *mKey; // must be first, to look like PLDHashEntryStub
+
+public:
+  nsCOMPtr<nsIEventListenerManager> mListenerManager;
+};
+
+PR_STATIC_CALLBACK(PRBool)
+RangeListHashInitEntry(PLDHashTable *table, PLDHashEntryHdr *entry,
+                       const void *key)
+{
+  // Initialize the entry with placement new
+  new (entry) RangeListMapEntry(key);
+  return PR_TRUE;
+}
+
+PR_STATIC_CALLBACK(void)
+RangeListHashClearEntry(PLDHashTable *table, PLDHashEntryHdr *entry)
+{
+  RangeListMapEntry *r = NS_STATIC_CAST(RangeListMapEntry *, entry);
+
+  // Let the RangeListMapEntry clean itself up...
+  r->~RangeListMapEntry();
+}
+
+PR_STATIC_CALLBACK(PRBool)
+EventListenerManagerHashInitEntry(PLDHashTable *table, PLDHashEntryHdr *entry,
+                                  const void *key)
+{
+  // Initialize the entry with placement new
+  new (entry) EventListenerManagerMapEntry(key);
+  return PR_TRUE;
+}
+
+PR_STATIC_CALLBACK(void)
+EventListenerManagerHashClearEntry(PLDHashTable *table, PLDHashEntryHdr *entry)
+{
+  EventListenerManagerMapEntry *lm =
+    NS_STATIC_CAST(EventListenerManagerMapEntry *, entry);
+
+  // Let the EventListenerManagerMapEntry clean itself up...
+  lm->~EventListenerManagerMapEntry();
+}
+
+PR_STATIC_CALLBACK(void)
+NopClearEntry(PLDHashTable *table, PLDHashEntryHdr *entry)
+{
+  // Do nothing
+}
+
 // static
 nsresult
 nsContentUtils::Init()
@@ -187,9 +279,6 @@ nsContentUtils::Init()
   CallGetService(NS_PREF_CONTRACTID, &sPref);
 
   rv = NS_GetNameSpaceManager(&sNameSpaceManager);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  rv = nsGenericElement::InitHashes();
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = CallGetService(nsIXPConnect::GetCID(), &sXPConnect);
@@ -224,6 +313,53 @@ nsContentUtils::Init()
   sPtrsToPtrsToRelease = new nsVoidArray();
   if (!sPtrsToPtrsToRelease) {
     return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  if (!sRangeListsHash.ops) {
+    static PLDHashTableOps hash_table_ops =
+    {
+      PL_DHashAllocTable,
+      PL_DHashFreeTable,
+      PL_DHashGetKeyStub,
+      PL_DHashVoidPtrKeyStub,
+      PL_DHashMatchEntryStub,
+      PL_DHashMoveEntryStub,
+      RangeListHashClearEntry,
+      PL_DHashFinalizeStub,
+      RangeListHashInitEntry
+    };
+
+    if (!PL_DHashTableInit(&sRangeListsHash, &hash_table_ops, nsnull,
+                           sizeof(RangeListMapEntry), 16)) {
+      sRangeListsHash.ops = nsnull;
+
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+  }
+
+  if (!sEventListenerManagersHash.ops) {
+    static PLDHashTableOps hash_table_ops =
+    {
+      PL_DHashAllocTable,
+      PL_DHashFreeTable,
+      PL_DHashGetKeyStub,
+      PL_DHashVoidPtrKeyStub,
+      PL_DHashMatchEntryStub,
+      PL_DHashMoveEntryStub,
+      EventListenerManagerHashClearEntry,
+      PL_DHashFinalizeStub,
+      EventListenerManagerHashInitEntry
+    };
+
+    if (!PL_DHashTableInit(&sEventListenerManagersHash, &hash_table_ops,
+                           nsnull, sizeof(EventListenerManagerMapEntry), 16)) {
+      sEventListenerManagersHash.ops = nsnull;
+
+      PL_DHashTableFinish(&sRangeListsHash);
+      sRangeListsHash.ops = nsnull;
+
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
   }
 
   sInitialized = PR_TRUE;
@@ -473,6 +609,53 @@ nsContentUtils::Shutdown()
     delete sPtrsToPtrsToRelease;
     sPtrsToPtrsToRelease = nsnull;
   }
+
+  if (sRangeListsHash.ops) {
+    NS_ASSERTION(sRangeListsHash.entryCount == 0,
+                 "Range list hash not empty at shutdown!");
+
+    // We're already being shut down and if there are entries left in
+    // this hash at this point it means we leaked nsGenericElements or
+    // nsGenericDOMDataNodes. Since we're already partly through the
+    // shutdown process it's too late to release what's held on to by
+    // this hash (since the teardown code relies on some things being
+    // around that aren't around any more) so we rather leak what's
+    // already leaked in stead of crashing trying to release what
+    // should've been released much earlier on.
+
+    // Copy the ops out of the hash table
+    PLDHashTableOps hash_table_ops = *sRangeListsHash.ops;
+
+    // Set the clearEntry hook to be a nop
+    hash_table_ops.clearEntry = NopClearEntry;
+
+    // Set the ops in the hash table to be the new ops
+    sRangeListsHash.ops = &hash_table_ops;
+
+    PL_DHashTableFinish(&sRangeListsHash);
+
+    sRangeListsHash.ops = nsnull;
+  }
+
+  if (sEventListenerManagersHash.ops) {
+    NS_ASSERTION(sEventListenerManagersHash.entryCount == 0,
+                 "Event listener manager hash not empty at shutdown!");
+
+    // See comment above.
+
+    // Copy the ops out of the hash table
+    PLDHashTableOps hash_table_ops = *sEventListenerManagersHash.ops;
+
+    // Set the clearEntry hook to be a nop
+    hash_table_ops.clearEntry = NopClearEntry;
+
+    // Set the ops in the hash table to be the new ops
+    sEventListenerManagersHash.ops = &hash_table_ops;
+
+    PL_DHashTableFinish(&sEventListenerManagersHash);
+
+    sEventListenerManagersHash.ops = nsnull;
+  }
 }
 
 // static
@@ -491,68 +674,6 @@ nsContentUtils::GetClassInfoInstance(nsDOMClassInfoID aID)
   }
 
   return sDOMScriptObjectFactory->GetClassInfoInstance(aID);
-}
-
-// static
-nsresult
-nsContentUtils::GetDocumentAndPrincipal(nsIDOMNode* aNode,
-                                        nsIDocument** aDocument,
-                                        nsIPrincipal** aPrincipal)
-{
-  // For performance reasons it's important to try to QI the node to
-  // nsIContent before trying to QI to nsIDocument since a QI miss on
-  // a node is potentially expensive.
-  nsCOMPtr<nsIContent> content = do_QueryInterface(aNode);
-  nsCOMPtr<nsIAttribute> attr;
-
-  if (!content) {
-    CallQueryInterface(aNode, aDocument);
-
-    if (!*aDocument) {
-      attr = do_QueryInterface(aNode);
-      if (!attr) {
-        // aNode is not a nsIContent, a nsIAttribute or a nsIDocument,
-        // something weird is going on...
-
-        NS_ERROR("aNode is not nsIContent, nsIAttribute or nsIDocument!");
-
-        return NS_ERROR_UNEXPECTED;
-      }
-    }
-  }
-
-  if (!*aDocument) {
-    nsCOMPtr<nsIDOMDocument> domDoc;
-    aNode->GetOwnerDocument(getter_AddRefs(domDoc));
-    if (!domDoc) {
-      // if we can't get a doc then lets try to get principal through nodeinfo
-      // manager
-      nsINodeInfo *ni = content ? content->NodeInfo() : attr->NodeInfo();
-
-      *aPrincipal = ni->NodeInfoManager()->GetDocumentPrincipal();
-      if (!*aPrincipal) {
-        // we can't get to the principal so we'll give up
-
-        return NS_OK;
-      }
-
-      NS_ADDREF(*aPrincipal);
-    }
-    else {
-      CallQueryInterface(domDoc, aDocument);
-      if (!*aDocument) {
-        NS_ERROR("QI to nsIDocument failed");
-
-        return NS_ERROR_UNEXPECTED;
-      }
-    }
-  }
-
-  if (!*aPrincipal) {
-    NS_IF_ADDREF(*aPrincipal = (*aDocument)->GetPrincipal());
-  }
-
-  return NS_OK;
 }
 
 /**
@@ -578,81 +699,22 @@ nsContentUtils::CheckSameOrigin(nsIDOMNode *aTrustedNode,
   }
 
   /*
-   * Get hold of each node's document or principal
+   * Get hold of each node's principal
    */
+  nsCOMPtr<nsINode> trustedNode = do_QueryInterface(aTrustedNode);
+  nsCOMPtr<nsINode> unTrustedNode = do_QueryInterface(aUnTrustedNode);
 
-  // In most cases this is a document, so lets try that first
-  nsCOMPtr<nsIDocument> trustedDoc = do_QueryInterface(aTrustedNode);
-  nsIPrincipal* trustedPrincipal = nsnull;
+  // Make sure these are both real nodes
+  NS_ENSURE_TRUE(trustedNode && unTrustedNode, NS_ERROR_UNEXPECTED);
 
-  if (!trustedDoc) {
-#ifdef DEBUG
-    nsCOMPtr<nsIContent> trustCont = do_QueryInterface(aTrustedNode);
-    NS_ASSERTION(trustCont,
-                 "aTrustedNode is neither nsIContent nor nsIDocument!");
-#endif
-    nsCOMPtr<nsIDOMDocument> domDoc;
-    aTrustedNode->GetOwnerDocument(getter_AddRefs(domDoc));
+  nsIPrincipal* trustedPrincipal = trustedNode->GetNodePrincipal();
+  nsIPrincipal* unTrustedPrincipal = unTrustedNode->GetNodePrincipal();
 
-    if (!domDoc) {
-      // In theory this should never happen. But since theory and reality are
-      // different for XUL elements we'll try to get the principal from the
-      // nsNodeInfoManager.
+  // Make sure we have both principals
+  NS_ENSURE_TRUE(trustedPrincipal && unTrustedPrincipal, NS_ERROR_UNEXPECTED);
 
-      nsCOMPtr<nsIContent> cont = do_QueryInterface(aTrustedNode);
-      NS_ENSURE_TRUE(cont, NS_ERROR_UNEXPECTED);
-
-      trustedPrincipal = cont->NodeInfo()->NodeInfoManager()->
-        GetDocumentPrincipal();
-
-      if (!trustedPrincipal) {
-        // Can't get principal of aTrustedNode so we can't check security
-        // against it
-
-        return NS_ERROR_UNEXPECTED;
-      }
-    } else {
-      trustedDoc = do_QueryInterface(domDoc);
-      NS_ASSERTION(trustedDoc, "QI to nsIDocument failed");
-    }
-  }
-
-  nsCOMPtr<nsIDocument> unTrustedDoc;
-  nsCOMPtr<nsIPrincipal> unTrustedPrincipal;
-
-  nsresult rv = GetDocumentAndPrincipal(aUnTrustedNode,
-                                        getter_AddRefs(unTrustedDoc),
-                                        getter_AddRefs(unTrustedPrincipal));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  if (!unTrustedDoc && !unTrustedPrincipal) {
-    // We can't get hold of the principal for this node. This should happen
-    // very rarely, like for textnodes out of the tree and <option>s created
-    // using 'new Option'.
-    // If we didn't allow access to nodes like this you wouldn't be able to
-    // insert these nodes into a document.
-
+  if (trustedPrincipal == unTrustedPrincipal) {
     return NS_OK;
-  }
-
-  /*
-   * Compare the principals
-   */
-
-  // If they are in the same document then everything is just fine
-  if (trustedDoc == unTrustedDoc && trustedDoc) {
-    return NS_OK;
-  }
-
-  if (!trustedPrincipal) {
-    trustedPrincipal = trustedDoc->GetPrincipal();
-
-    if (!trustedPrincipal) {
-      // If the trusted node doesn't have a principal we can't check
-      // security against it
-
-      return NS_ERROR_DOM_SECURITY_ERR;
-    }
   }
 
   return sSecurityManager->CheckSameOriginPrincipal(trustedPrincipal,
@@ -663,6 +725,9 @@ nsContentUtils::CheckSameOrigin(nsIDOMNode *aTrustedNode,
 PRBool
 nsContentUtils::CanCallerAccess(nsIDOMNode *aNode)
 {
+  // XXXbz why not check the IsCapabilityEnabled thing up front, and not bother
+  // with the system principal games?  But really, there should be a simpler
+  // API here, dammit.
   nsCOMPtr<nsIPrincipal> subjectPrincipal;
   sSecurityManager->GetSubjectPrincipal(getter_AddRefs(subjectPrincipal));
 
@@ -681,26 +746,18 @@ nsContentUtils::CanCallerAccess(nsIDOMNode *aNode)
     return PR_TRUE;
   }
 
-  nsCOMPtr<nsIDocument> document;
-  nsCOMPtr<nsIPrincipal> principal;
+  nsCOMPtr<nsINode> node = do_QueryInterface(aNode);
+  NS_ENSURE_TRUE(node, PR_FALSE);
 
-  nsresult rv = GetDocumentAndPrincipal(aNode,
-                                        getter_AddRefs(document),
-                                        getter_AddRefs(principal));
-  NS_ENSURE_SUCCESS(rv, PR_FALSE);
+  nsIPrincipal* principal = node->GetNodePrincipal();
 
-  if (!document && !principal) {
-    // We can't get hold of the principal for this node. This should happen
-    // very rarely, like for textnodes out of the tree and <option>s created
-    // using 'new Option'.
-    // If we didn't allow access to nodes like this you wouldn't be able to
-    // insert these nodes into a document.
-
-    return PR_TRUE;
+  if (!principal) {
+    // We can't get hold of the principal for this node. No access allowed.
+    return PR_FALSE;
   }
 
-  rv = sSecurityManager->CheckSameOriginPrincipal(subjectPrincipal,
-                                                  principal);
+  nsresult rv = sSecurityManager->CheckSameOriginPrincipal(subjectPrincipal,
+                                                           principal);
   if (NS_SUCCEEDED(rv)) {
     return PR_TRUE;
   }
@@ -1896,7 +1953,7 @@ nsContentUtils::CanLoadImage(nsIURI* aURI, nsISupports* aContext,
     // Editor apps get special treatment here, editors can load images
     // from anywhere.
     rv = sSecurityManager->
-      CheckLoadURIWithPrincipal(aLoadingDocument->GetPrincipal(), aURI,
+      CheckLoadURIWithPrincipal(aLoadingDocument->GetNodePrincipal(), aURI,
                                 nsIScriptSecurityManager::ALLOW_CHROME);
     if (NS_FAILED(rv)) {
       if (aImageBlockingStatus) {
@@ -2061,13 +2118,11 @@ nsContentUtils::GetXLinkURI(nsIContent* aContent)
 {
   NS_PRECONDITION(aContent, "Must have content node to work with");
 
-  nsAutoString value;
-  aContent->GetAttr(kNameSpaceID_XLink, nsHTMLAtoms::type, value);
-  if (value.EqualsLiteral("simple")) {
+  if (aContent->AttrValueIs(kNameSpaceID_XLink, nsGkAtoms::type,
+                            nsGkAtoms::simple, eCaseMatters)) {
+    nsAutoString value;
     // Check that we have a URI
-    aContent->GetAttr(kNameSpaceID_XLink, nsHTMLAtoms::href, value);
-
-    if (!value.IsEmpty()) {
+    if (aContent->GetAttr(kNameSpaceID_XLink, nsHTMLAtoms::href, value)) {
       //  Resolve it relative to aContent's base URI.
       nsCOMPtr<nsIURI> baseURI = aContent->GetBaseURI();
 
@@ -2295,7 +2350,8 @@ static const char gPropertiesFiles[nsContentUtils::PropertiesFile_COUNT][56] = {
   "chrome://global/locale/layout/HtmlForm.properties",
   "chrome://global/locale/printing.properties",
   "chrome://global/locale/dom/dom.properties",
-  "chrome://branding/locale/brand.properties"
+  "chrome://branding/locale/brand.properties",
+  "chrome://global/locale/commonDialogs.properties"
 };
 
 /* static */ nsresult
@@ -2325,7 +2381,7 @@ nsresult nsContentUtils::GetLocalizedString(PropertiesFile aFile,
   NS_ENSURE_SUCCESS(rv, rv);
   nsIStringBundle *bundle = sStringBundles[aFile];
 
-  return bundle->GetStringFromName(NS_ConvertASCIItoUCS2(aKey).get(),
+  return bundle->GetStringFromName(NS_ConvertASCIItoUTF16(aKey).get(),
                                    getter_Copies(aResult));
 }
 
@@ -2340,7 +2396,7 @@ nsresult nsContentUtils::FormatLocalizedString(PropertiesFile aFile,
   NS_ENSURE_SUCCESS(rv, rv);
   nsIStringBundle *bundle = sStringBundles[aFile];
 
-  return bundle->FormatStringFromName(NS_ConvertASCIItoUCS2(aKey).get(),
+  return bundle->FormatStringFromName(NS_ConvertASCIItoUTF16(aKey).get(),
                                       aParams, aParamsLength,
                                       getter_Copies(aResult));
 }
@@ -2413,7 +2469,7 @@ PRBool
 nsContentUtils::IsChromeDoc(nsIDocument *aDocument)
 {
   nsIPrincipal *principal;
-  if (!aDocument || !(principal = aDocument->GetPrincipal())) {
+  if (!aDocument || !(principal = aDocument->GetNodePrincipal())) {
     return PR_FALSE;
   }
 
@@ -2741,4 +2797,201 @@ nsContentUtils::HasNonEmptyAttr(nsIContent* aContent, PRInt32 aNameSpaceID,
   static nsIContent::AttrValuesArray strings[] = {&nsXULAtoms::_empty, nsnull};
   return aContent->FindAttrValueIn(aNameSpaceID, aName, strings, eCaseMatters)
     == nsIContent::ATTR_VALUE_NO_MATCH;
+}
+
+/* static */
+nsIEventListenerManager*
+nsContentUtils::LookupListenerManager(nsIContent *aContent)
+{
+  if (!sEventListenerManagersHash.ops) {
+    // We're already shut down.
+
+    return nsnull;
+  }
+
+  EventListenerManagerMapEntry *entry =
+    NS_STATIC_CAST(EventListenerManagerMapEntry *,
+                   PL_DHashTableOperate(&sEventListenerManagersHash, aContent,
+                                        PL_DHASH_LOOKUP));
+  if (PL_DHASH_ENTRY_IS_BUSY(entry)) {
+    return entry->mListenerManager;
+  }
+
+  return nsnull;
+}
+
+/* static */
+nsresult
+nsContentUtils::GetListenerManager(nsIContent *aContent,
+                                   nsIEventListenerManager **aResult,
+                                   PRBool *aCreated)
+{
+  *aResult = nsnull;
+  *aCreated = PR_FALSE;
+
+  if (!sEventListenerManagersHash.ops) {
+    // We're already shut down, don't bother creating an event listener
+    // manager.
+
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  EventListenerManagerMapEntry *entry =
+    NS_STATIC_CAST(EventListenerManagerMapEntry *,
+                   PL_DHashTableOperate(&sEventListenerManagersHash, aContent,
+                                        PL_DHASH_ADD));
+
+  if (!entry) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  if (!entry->mListenerManager) {
+    nsresult rv =
+      NS_NewEventListenerManager(getter_AddRefs(entry->mListenerManager));
+
+    if (NS_FAILED(rv)) {
+      PL_DHashTableRawRemove(&sEventListenerManagersHash, entry);
+
+      return rv;
+    }
+
+    entry->mListenerManager->SetListenerTarget(aContent);
+
+    *aCreated = PR_TRUE;
+  }
+
+  NS_ADDREF(*aResult = entry->mListenerManager);
+
+  return NS_OK;
+}
+
+/* static */
+void
+nsContentUtils::RemoveListenerManager(nsIContent *aContent)
+{
+  if (sEventListenerManagersHash.ops) {
+    PL_DHashTableOperate(&sEventListenerManagersHash, aContent,
+                         PL_DHASH_REMOVE);
+  }
+}
+
+/* static */
+nsresult
+nsContentUtils::AddToRangeList(nsIContent *aContent, nsIDOMRange *aRange,
+                               PRBool *aCreated)
+{
+  *aCreated = PR_FALSE;
+
+  if (!sRangeListsHash.ops) {
+    // We've already been shut down, don't bother adding a range...
+
+    return NS_OK;
+  }
+
+  RangeListMapEntry *entry =
+    NS_STATIC_CAST(RangeListMapEntry *,
+                   PL_DHashTableOperate(&sRangeListsHash, aContent,
+                                        PL_DHASH_ADD));
+
+  if (!entry) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  // lazy allocation of range list
+  if (!entry->mRangeList) {
+    entry->mRangeList = new nsAutoVoidArray();
+
+    if (!entry->mRangeList) {
+      PL_DHashTableRawRemove(&sRangeListsHash, entry);
+
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+
+    *aCreated = PR_TRUE;
+  }
+  else {
+    // Make sure we don't add a range that is already in the list!
+    PRInt32 i = entry->mRangeList->IndexOf(aRange);
+
+    if (i >= 0) {
+      // Range is already in the list, so there is nothing to do!
+
+      return NS_OK;
+    }
+  }
+
+  // dont need to addref - this call is made by the range object
+  // itself
+  PRBool rv = entry->mRangeList->AppendElement(aRange);
+  if (!rv) {
+    if (entry->mRangeList->Count() == 0) {
+      // Fresh entry, remove it from the hash...
+
+      PL_DHashTableRawRemove(&sRangeListsHash, entry);
+    }
+
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  return NS_OK;
+}
+
+/* static */
+PRBool
+nsContentUtils::RemoveFromRangeList(nsIContent *aContent, nsIDOMRange *aRange)
+{
+  if (!sRangeListsHash.ops) {
+    // We've already been shut down, don't bother removing a range...
+
+    return PR_FALSE;
+  }
+
+  RangeListMapEntry *entry =
+    NS_STATIC_CAST(RangeListMapEntry *,
+                   PL_DHashTableOperate(&sRangeListsHash, aContent,
+                                        PL_DHASH_LOOKUP));
+
+  if (PL_DHASH_ENTRY_IS_FREE(entry)) {
+    return PR_FALSE;
+  }
+
+  NS_ASSERTION(entry->mRangeList, "In the hash but without an object?");
+
+  // dont need to release - this call is made by the range object itself
+  entry->mRangeList->RemoveElement(aRange);
+
+  if (entry->mRangeList->Count() != 0) {
+    return PR_FALSE;
+  }
+
+  PL_DHashTableRawRemove(&sRangeListsHash, entry);
+
+  return PR_TRUE;
+}
+
+/* static */
+const nsVoidArray*
+nsContentUtils::LookupRangeList(const nsIContent *aContent)
+{
+  if (!sRangeListsHash.ops) {
+    // We've already been shut down, don't bother getting a range list...
+
+    return nsnull;
+  }
+
+  RangeListMapEntry *entry =
+    NS_STATIC_CAST(RangeListMapEntry *,
+                   PL_DHashTableOperate(&sRangeListsHash, aContent,
+                                        PL_DHASH_LOOKUP));
+
+  return PL_DHASH_ENTRY_IS_BUSY(entry) ? entry->mRangeList : nsnull;
+}
+
+/* static */
+void
+nsContentUtils::RemoveRangeList(nsIContent *aContent)
+{
+  if (sRangeListsHash.ops) {
+    PL_DHashTableOperate(&sRangeListsHash, aContent, PL_DHASH_REMOVE);
+  }
 }

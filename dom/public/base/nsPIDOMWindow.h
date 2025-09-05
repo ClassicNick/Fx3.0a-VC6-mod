@@ -66,8 +66,6 @@ enum PopupControlState {
 enum OpenAllowValue {
   allowNot = 0,     // the window opening is denied
   allowNoAbuse,     // allowed: not a popup
-  allowSelf,        // allowed: it's the same window (_self, _top, et.al.)
-  allowExtant,      // allowed: an already open window
   allowWhitelisted  // allowed: it's whitelisted or popup blocking is disabled
 };
 
@@ -77,8 +75,8 @@ class nsIDocument;
 struct nsTimeout;
 
 #define NS_PIDOMWINDOW_IID \
-{ 0xabb217ba, 0x2528, 0x467e, \
- { 0xaa, 0x29, 0xdd, 0x84, 0x2d, 0x97, 0x3c, 0x78 } }
+{ 0xebaabeb5, 0xb5e4, 0x4cd3, \
+ { 0x9e, 0xd2, 0xb9, 0xd0, 0x15, 0xd1, 0x27, 0x63 } }
 
 class nsPIDOMWindow : public nsIDOMWindowInternal
 {
@@ -258,6 +256,11 @@ public:
                                                   PRBool aForce) const = 0;
   virtual void PopPopupControlState(PopupControlState state) const = 0;
   virtual PopupControlState GetPopupControlState() const = 0;
+
+  // GetOpenAllow must not be called on a window that no longer has a docshell
+  // This function is deprecated.  It will assume that there is no existing
+  // window with name aName for purposes of its answer.  Expect this function
+  // to get removed soon!
   virtual OpenAllowValue GetOpenAllow(const nsAString &aName) = 0;
 
   // Returns an object containing the window's state.  This also suspends
@@ -337,9 +340,14 @@ public:
                                   PRBool aClearScope) = 0;
 
   /**
-   * Set the opener window.
+   * Set the opener window.  aOriginalOpener is true if and only if this is the
+   * original opener for the window.  That is, it can only be true at most once
+   * during the life cycle of a window, and then only the first time
+   * SetOpenerWindow is called.  It might never be true, of course, if the
+   * window does not have an opener when it's created.
    */
-  virtual void SetOpenerWindow(nsIDOMWindowInternal *aOpener) = 0;
+  virtual void SetOpenerWindow(nsIDOMWindowInternal *aOpener,
+                               PRBool aOriginalOpener) = 0;
 
 
 protected:

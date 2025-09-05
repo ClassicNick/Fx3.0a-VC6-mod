@@ -123,7 +123,7 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-echo Begining build of ChatZilla $VERSION...
+echo Beginning build of ChatZilla $VERSION...
 
 
 # Check for existing.
@@ -213,4 +213,4 @@ cd "$OLDPWD"
 echo   ".         done"
 
 
-echo "Build of ChatZilla $VERSION...         ALL DONE"
+echo "Build of ChatZilla $VERSION...        ALL DONE"

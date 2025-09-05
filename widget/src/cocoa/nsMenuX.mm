@@ -302,14 +302,12 @@ NS_IMETHODIMP nsMenuX::GetItemAt(const PRUint32 aPos, nsISupports *& aMenuItem)
 
 NS_IMETHODIMP nsMenuX::InsertItemAt(const PRUint32 aPos, nsISupports * aMenuItem)
 {
-  NS_ASSERTION(0, "Not implemented");
   return NS_OK;
 }
 
 
 NS_IMETHODIMP nsMenuX::RemoveItem(const PRUint32 aPos)
 {
-  NS_WARNING("Not implemented");
   return NS_OK;
 }
 
@@ -378,7 +376,7 @@ nsEventStatus nsMenuX::MenuItemSelected(const nsMenuEvent & aMenuEvent)
 
 nsEventStatus nsMenuX::MenuSelected(const nsMenuEvent & aMenuEvent)
 {
-  // printf("JOSH: MenuSelected called for %s \n", NS_LossyConvertUCS2toASCII(mLabel).get());
+  // printf("JOSH: MenuSelected called for %s \n", NS_LossyConvertUTF16toASCII(mLabel).get());
   nsEventStatus eventStatus = nsEventStatus_eIgnore;
 
   // Determine if this is the correct menu to handle the event
@@ -466,7 +464,7 @@ nsEventStatus nsMenuX::MenuConstruct(
   // reset destroy handler flag so that we'll know to fire it next time this menu goes away.
   mDestroyHandlerCalled = PR_FALSE;
   
-  //printf("nsMenuX::MenuConstruct called for %s = %d \n", NS_LossyConvertUCS2toASCII(mLabel).get(), mMacMenu);
+  //printf("nsMenuX::MenuConstruct called for %s = %d \n", NS_LossyConvertUTF16toASCII(mLabel).get(), mMacMenu);
   
   // Retrieve our menupopup.
   nsCOMPtr<nsIContent> menuPopup;
@@ -538,7 +536,7 @@ nsEventStatus nsMenuX::HelpMenuConstruct(
 
 nsEventStatus nsMenuX::MenuDestruct(const nsMenuEvent & aMenuEvent)
 {
-  // printf("nsMenuX::MenuDestruct() called for %s \n", NS_LossyConvertUCS2toASCII(mLabel).get());
+  // printf("nsMenuX::MenuDestruct() called for %s \n", NS_LossyConvertUTF16toASCII(mLabel).get());
   
   // Fire our ondestroy handler. If we're told to stop, don't destroy the menu
   PRBool keepProcessing = OnDestroy();
@@ -643,7 +641,7 @@ void nsMenuX::LoadMenuItem(nsIMenu* inParentMenu, nsIContent* inMenuItemContent)
     inMenuItemContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::type, type);
     inMenuItemContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::label, menuitemName);
 
-    // printf("menuitem %s \n", NS_LossyConvertUCS2toASCII(menuitemName).get());
+    // printf("menuitem %s \n", NS_LossyConvertUTF16toASCII(menuitemName).get());
 
     PRBool enabled = !(disabled.EqualsLiteral("true"));
     
@@ -713,7 +711,7 @@ nsMenuX::LoadSubMenu(nsIMenu * pParentMenu, nsIContent* inMenuItemContent)
   
   nsAutoString menuName; 
   inMenuItemContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::label, menuName);
-  //printf("Creating Menu [%s] \n", NS_LossyConvertUCS2toASCII(menuName).get());
+  //printf("Creating Menu [%s] \n", NS_LossyConvertUTF16toASCII(menuName).get());
 
   // Create nsMenu
   nsCOMPtr<nsIMenu> pnsMenu(do_CreateInstance(kMenuCID));
@@ -1193,7 +1191,7 @@ static pascal OSStatus MyMenuEventHandler(EventHandlerCallRef myHandler, EventRe
 
 static OSStatus InstallMyMenuEventHandler(MenuRef menuRef, void* userData, EventHandlerRef* outHandler)
 {
-  //XXXJOSH do we really need all these events?
+  // do we really need all these events?
   static EventTypeSpec eventList[] = {
   {kEventClassMenu, kEventMenuBeginTracking},
   {kEventClassMenu, kEventMenuEndTracking},

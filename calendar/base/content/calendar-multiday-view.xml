@@ -522,24 +522,31 @@
            var stdate = aOccurrence.startDate;
            var enddate = aOccurrence.endDate;
 
-           if (stdate.timezone != this.mTimezone)
+           if (stdate.timezone != this.mTimezone) {
                stdate = stdate.getInTimezone (this.mTimezone);
+           }
 
-           if (enddate.timezone != this.mTimezone)
+           if (enddate.timezone != this.mTimezone) {
                enddate = enddate.getInTimezone (this.mTimezone);
+           }
+
+           var startHour   = stdate.hour;
+           var startMinute = stdate.minute;
+           var endHour   = enddate.hour;
+           var endMinute = enddate.minute;
 
            // Handle cases where an event begins or ends on a day other than this
            if (stdate.compare(this.mDate) == -1) {
-               stdate.hour = 0;
-               stdate.minute = 0;
+               startHour = 0;
+               startMinute = 0;
            }
            if (enddate.compare(this.mDate) == 1) {
-               enddate.hour = 24;
-               enddate.minute = 0;
+               endHour = 24;
+               endMinute = 0;
            }
 
-           return { start: stdate.hour * 60 + stdate.minute,
-                    end: enddate.hour * 60 + enddate.minute };
+           return { start: startHour * 60 + startMinute,
+                    end:   endHour   * 60 + endMinute };
         ]]></body>
       </method>
 
@@ -667,24 +674,6 @@
                       chunkBox.setAttribute("context", this.getAttribute("item-context") || this.getAttribute("context"));
                       chunkBox.setAttribute("style", "min-width: 1px; min-height: 1px;");
                       chunkBox.setAttribute("orient", orient);
-                      // chunkBox.setAttribute("style", "background: #eeeeff; padding: 0px 1px 0px 1px");
-
-                      // chunkBox.setAttribute("flex", "1");
-
-                      chunkBox.setAttribute("tooltip", "itemTooltip");
-
-                      var categoriesSelectorList = "";
-                      if (chunk.event.event.getProperty("CATEGORIES") != null) {
-                        var categoriesList = chunk.event.event.getProperty("CATEGORIES").split(",");
-                        for (var i = 0; i < categoriesList.length; i++ ) {
-                          // Remove illegal chars.
-                          categoriesList[i] = categoriesList[i].replace(' ','_');
-                          categoriesList[i] = categoriesList[i].toLowerCase();
-                        }
-                        categoriesSelectorList = categoriesList.join(" ");
-                      }
-                      chunkBox.setAttribute("item-category", categoriesSelectorList);
-
                       if (orient == "vertical")
                           chunkBox.setAttribute("height", duration * this.mPixPerMin);
                       else
@@ -695,7 +684,6 @@
                       chunkBox.calendarView = this.calendarView;
                       chunkBox.occurrence = chunk.event.event;
                       chunkBox.parentColumn = this;
-                      chunkBox.setAttribute("item-calendar", chunk.event.event.calendar.uri.spec);
 
                       chunk.event.eventbox = chunkBox;
                   } else {
@@ -1229,10 +1217,97 @@
     </handlers>
   </binding>
 
+  <binding id="calendar-header-container">
+    <content>
+      <xul:vbox xbl:inherits="selected" anonid="thebox" flex="1" class="calendar-vent-column-header"/>
+    </content>
+
+    <implementation>
+      <field name="mItemBoxes">null</field>
+      <field name="mDate">null</field>
+      <field name="mCalendarView">null</field>
+
+      <constructor><![CDATA[
+        this.mItemBoxes = new Array();
+      ]]></constructor>
+
+      <property name="mainbox">
+        <getter><![CDATA[
+          return document.getAnonymousElementByAttribute(this, 'anonid', 'thebox');
+        ]]></getter>
+      </property>
+
+      <property name="date">
+        <getter><![CDATA[
+          return this.mDate;
+        ]]></getter>
+        <setter><![CDATA[
+          this.mDate = val;
+        ]]></setter>
+      </property>
+
+      <property name="calendarView">
+        <getter><![CDATA[
+          return this.mCalendarView;
+        ]]></getter>
+        <setter><![CDATA[
+          this.mCalendarView = val;
+        ]]></setter>
+      </property>
+
+      <method name="addEvent">
+        <parameter name="aItem"/>
+        <body><![CDATA[
+          function createXULElement(el) {
+            return document.createElementNS("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul", el);
+          }
+          var itemBox = createXULElement("calendar-editable-item");
+
+          this.mainbox.appendChild(itemBox);
+          itemBox.calendarView = this.calendarView;
+          itemBox.occurrence = aItem;
+
+          this.mItemBoxes.push(itemBox);
+        ]]></body>
+      </method>
+
+      <method name="deleteEvent">
+        <parameter name="aItem"/>
+        <body><![CDATA[
+          for (var i in this.mItemBoxes) {
+            if (this.mItemBoxes[i].occurrence.id == aItem.id) {
+              this.mainbox.removeChild(this.mItemBoxes[i]);
+              this.mItemBoxes.splice(i, 1);
+            }
+          }
+        ]]></body>
+      </method>
+
+      <method name="selectOccurrence">
+        <parameter name="aItem"/>
+        <body><![CDATA[
+          for each (itemBox in this.mItemBoxes) {
+            if (aItem && itemBox.occurrence.id == aItem.id) {
+              itemBox.selected = true;
+            } else {
+              itemBox.selected = false;
+            }
+          }
+        ]]></body>
+      </method>
+    </implementation>
+
+    <handlers>
+      <handler event="dblclick" button="0"><![CDATA[
+        this.calendarView.controller.createNewEvent();
+      ]]></handler>
+    </handlers>
+  </binding>
+
   <!--
      -  An individual event box, to be inserted into a column.
     -->
-  <binding id="calendar-event-box">
+  <binding id="calendar-event-box" extends="chrome://calendar/content/calendar-view-core.xml#calendar-editable-item">
 
     <content>
       <xul:box anonid="eventbox" xbl:inherits="orient,width,height" flex="1">
@@ -1268,13 +1343,7 @@
       ]]></constructor>
 
       <!-- fields -->
-      <field name="mOccurrence">null</field>
       <field name="mParentColumn">null</field>
-      <field name="mCalendarView">null</field>
-      <field name="mSelected">null</field>
-      <property name="calendarView"
-        onget="return this.mCalendarView;"
-        onset="return (this.mCalendarView = val);" />
 
       <!-- methods/properties -->
       <method name="setAttribute">
@@ -1307,48 +1376,6 @@
         ]]></body>
       </method>
 
-      <property name="eventNameLabel" readonly="true"
-        onget="return document.getAnonymousElementByAttribute(this, 'anonid', 'event-name');"/>
-      <property name="eventNameTextbox" readonly="true"
-        onget="return document.getAnonymousElementByAttribute(this, 'anonid', 'event-name-textbox');"/>
-      <property name="eventNameInput" readonly="true"
-        onget="return document.getAnonymousElementByAttribute(this, 'anonid', 'event-name-textbox').inputField;"/>
-
-      <property name="occurrence">
-        <getter><![CDATA[
-          return this.mOccurrence;
-        ]]></getter>
-        <setter><![CDATA[
-          this.mOccurrence = val;
-          var evl = this.eventNameLabel;
-
-          while (evl.firstChild)
-              evl.removeChild(evl.firstChild);
-
-          if (val && val != "")
-              evl.appendChild(document.createTextNode(val.title));
-          else
-              evl.appendChild(document.createTextNode("Untitled Event"));
-          return val;
-        ]]></setter>
-      </property>
-
-      <property name="selected">
-        <getter><![CDATA[
-          return this.mSelected;
-        ]]></getter>
-        <setter><![CDATA[
-          if (val && !this.mSelected) {
-              this.mSelected = true;
-              this.setAttribute("selected", "true");
-          } else if (!val && this.mSelected) {
-              this.mSelected = null;
-              this.removeAttribute("selected");
-          }
-          return val;
-        ]]></setter>
-      </property>
-
       <property name="parentColumn"
         onget="return this.mParentColumn;"
         onset="return (this.mParentColumn = val);"/>
@@ -1358,89 +1385,9 @@
 
       <property name="endMinute" readonly="true"
         onget="if (!this.mOccurrence) return 0; return this.mOccurrence.endDate.hour * 60 + this.mOccurrence.endDate.minute"/>
-
-      <method name="startEditing">
-        <body><![CDATA[
-          this.editingTimer = null;
-          this.mOriginalTextLabel = this.mOccurrence.title;
-
-          this.eventNameLabel.setAttribute("hidden", "true");
-
-          this.mEditing = true;
-
-          this.eventNameTextbox.value = this.mOriginalTextLabel;
-          this.eventNameTextbox.removeAttribute("hidden");
-          if (this.calendarView)
-              this.calendarView.activeInPlaceEdit = true;
-          this.eventNameInput.focus();
-          this.eventNameInput.select();
-        ]]></body>
-      </method>
-
-      <method name="stopEditing">
-        <parameter name="saveChanges"/>
-        <body><![CDATA[
-          this.mEditing = false;
-
-          if (this.calendarView)
-              this.calendarView.activeInPlaceEdit = false;
-
-          if (!saveChanges) {
-              this.eventNameTextbox.setAttribute("hidden", "true");
-              this.eventNameLabel.removeAttribute("hidden");
-              return;
-          }
-
-          if (this.eventNameTextbox.value != this.mOriginalTextLabel) {
-              var clone = this.mOccurrence.clone();
-              clone.title = this.eventNameTextbox.value;
-              clone.calendar.modifyItem(clone, this.mOccurrence, null);
-
-              // Note that as soon as we do the modifyItem, this element ceases to exist,
-              // so don't bother trying to modify anything further here! ('this' exists,
-              // because it's being kept alive, but our child content etc. is all gone)
-          }
-        ]]></body>
-      </method>
     </implementation>
 
     <handlers>
-      <handler event="click"><![CDATA[
-        var evTime = Date.now();
-        if (this.mMouseDownTime && (evTime - this.mMouseDownTime > 1000)) {
-            // not even a click!
-            return;
-        }
-
-        // If the middle/right button was used for click just select the item.
-        // If the left button was used and the item is already selected start
-        // the 'single click edit' timeout. Otherwise select the item too.
-        if (this.selected && (event.button == 0)) {
-            var self = this;
-            if (this.editingTimer) {
-                clearTimeout(this.editingTimer);
-            }
-            this.editingTimer = setTimeout(function () { self.startEditing(); }, 350);
-        } else {
-            this.calendarView.selectedItem = this.mOccurrence;
-        }
-      ]]></handler>
-
-      <handler event="dblclick" button="0"><![CDATA[
-        event.stopPropagation();
-
-        // stop 'single click edit' timeout (if started)
-        if (this.editingTimer) {
-            clearTimeout(this.editingTimer);
-            this.editingTimer = null;
-        }
-
-        if (this.calendarView.controller && this.mOccurrence) {
-            var occurrence = (event.ctrlKey) ? this.mOccurrence.parentItem : this.mOccurrence;
-            this.calendarView.controller.modifyOccurrence(occurrence);
-        }
-      ]]></handler>
-
       <handler event="mousedown" button="0"><![CDATA[
         event.preventBubble();
 
@@ -1450,7 +1397,6 @@
         this.mInMouseDown = true;
         this.mMouseX = event.screenX;
         this.mMouseY = event.screenY;
-        this.mMouseDownTime = Date.now();
       ]]></handler>
 
       <handler event="mousemove"><![CDATA[
@@ -1583,6 +1529,7 @@
       <field name="mStartMin">8*60</field>
       <field name="mEndMin">20*60</field>
       <field name="mTasksInView">true</field>
+      <field name="mTimezone">"UTC"</field>
 
       <field name="mSelectionObserver"><![CDATA[
       ({  calView: this,
@@ -1592,7 +1539,11 @@
                if (this.calView.mSelectedItem) {
                    var cols = this.calView.findColumnsForItem(this.calView.mSelectedItem);
                    for each (col in cols) {
-                       col.column.selectOccurrence(null);
+                       if (!this.calView.mSelectedItem.startDate.isDate) {
+                           col.column.selectOccurrence(null);
+                       } else {
+                           col.header.selectOccurrence(null);
+                       }
                    }
                }
                this.calView.mSelectedItem = itemSelectionArray[0];
@@ -1604,7 +1555,11 @@
                    this.calView.showDate(this.calView.mSelectedItem.entryDate);
                var cols = this.calView.findColumnsForItem(this.calView.mSelectedItem);
                for each (col in cols) {
-                   col.column.selectOccurrence(this.calView.mSelectedItem);
+                   if (!this.calView.mSelectedItem.startDate.isDate) {
+                       col.column.selectOccurrence(this.calView.mSelectedItem);
+                   } else {
+                       col.header.selectOccurrence(this.calView.mSelectedItem);
+                   }
                }
           }
       })
@@ -1803,11 +1758,21 @@
         ]]></setter>
       </property>
 
+      <property name="timezone">
+        <getter><![CDATA[
+          return this.mTimezone;
+        ]]></getter>
+        <setter><![CDATA[
+          this.mTimezone = val;
+          return val;
+        ]]></setter>
+      </property>
+
 
       <method name="showDate">
         <parameter name="aDate"/>
         <body><![CDATA[
-          var targetDate = aDate.clone();
+          var targetDate = aDate.getInTimezone(this.mTimezone);
           targetDate.isDate = true;
 
           if (this.mStartDate && this.mEndDate) {
@@ -1830,7 +1795,7 @@
             this.setDateRange(aDate.startOfWeek, aDate.endOfWeek);
           }
 
-          this.selectedDay = aDate;
+          this.selectedDay = targetDate;
         ]]></body>
       </method>
 
@@ -1841,11 +1806,11 @@
           //dump ("setDateRange\n");
           this.mDateList = null;
 
-          this.mStartDate = aStartDate.clone();
+          this.mStartDate = aStartDate.getInTimezone(this.mTimezone);
           this.mStartDate.isDate = true;
           this.mStartDate.makeImmutable();
 
-          this.mEndDate = aEndDate.clone();
+          this.mEndDate = aEndDate.getInTimezone(this.mTimezone);
           this.mEndDate.isDate = true;
           this.mEndDate.makeImmutable();
 
@@ -1951,6 +1916,7 @@
               if (this.mSelectedItem) {
                   var cols = this.findColumnsForItem(this.mSelectedItem);
                   for each (col in cols) {
+                      col.header.selectOccurrence(null);
                       col.column.selectOccurrence(null);
                   }
               }
@@ -1958,8 +1924,14 @@
               if (val) {
                   var cols = this.findColumnsForItem(val);
                   if (cols.length > 0) {
+                      var start = val.startDate;
                       for each (col in cols) {
-                          col.column.selectOccurrence(val);
+                          if(start.isDate) {
+                              col.header.selectOccurrence(val);
+                          }
+                          else {
+                              col.column.selectOccurrence(val);
+                          }
                       }
                       if(this.mController.selectionManager)
                           this.mController.selectionManager.replaceSelection(val);
@@ -2231,11 +2203,11 @@
               dayEventsBox.date = d;
               dayEventsBox.calendarView = this;
 
-              var dayHeaderBox = createXULElement("box");
-              dayHeaderBox.setAttribute("class", "calendar-event-column-header");
+              var dayHeaderBox = createXULElement("calendar-header-container");
               dayHeaderBox.setAttribute("flex", "1");
               headerdaybox.appendChild(dayHeaderBox);
 
+              dayHeaderBox.calendarView = this;
               dayHeaderBox.setAttribute("orient", orient);
 
               var labelbox = createXULElement("box");
@@ -2266,6 +2238,7 @@
               // they're likely to be immutable.
               var d2 = d.clone();
               d2.isDate = true;
+              d2.makeImmutable();
 
               this.mDateColumns.push ( { date: d2, column: dayEventsBox, header: dayHeaderBox } );
           }
@@ -2298,10 +2271,18 @@
           // We don't support tasks here, yet
           if (!(aItem instanceof Components.interfaces.calIEvent))
               return columns;
+          var tz = this.mDateColumns[0].date.timezone;
 
           // Note that these may be dates or datetimes
-          var targetDate = aItem.startDate.clone();
-          var finishDate = aItem.endDate;
+          var targetDate = aItem.startDate.getInTimezone(tz);
+          var finishDate = aItem.endDate.getInTimezone(tz);
+
+          if (!targetDate.isDate) {
+            // Set the time to 00:00 so that we get all the boxes
+            targetDate.hour = 0;
+            targetDate.minute = 0;
+            targetDate.second = 0;
+          }
 
           while (targetDate.compare(finishDate) == -1) {
             var col = this.findColumnForDate(targetDate);
@@ -2352,7 +2333,7 @@
 
               var estart = aEvent.startDate;
               if (estart.isDate) {
-                  // add it to header
+                  header.addEvent(aEvent);
               } else {
                   column.addEvent(aEvent);
               }
@@ -2373,7 +2354,7 @@
 
               var estart = aEvent.startDate;
               if (estart.isDate) {
-                  // remove from header
+                  header.deleteEvent(aEvent);
               } else {
                   column.deleteEvent(aEvent);
               }

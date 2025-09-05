@@ -86,8 +86,23 @@ function UIdependencyCheck() {
 	document.getElementById("networkProxyHTTP_Port").disabled=false;
   }
 
+  if(!document.getElementById("dontAskForLaunch").checked) {
+	document.getElementById("downloadDir").disabled=true;
+  } else {
+	document.getElementById("downloadDir").disabled=false;
+  }
+
 }
 
+
+/*
+ * OnReadPref callbacks 
+ */
+
+function downloadSetTextbox() {
+	var dirLocation=document.getElementById("downloadDir").value;
+	document.getElementById("downloadDirDisplay").value=dirLocation.path;
+}
 
 
 /* Live Synchronizers
@@ -148,6 +163,40 @@ function sanitizeBookmarks() {
 	// in Common.
 	BookmarksDeleteAllAndSync();
     document.getElementById("bookmarksSanitize").disabled=true;
+}
+
+function downloadChooseFolder() {
+
+  const nsIFilePicker = Components.interfaces.nsIFilePicker;
+  const nsIFile = Components.interfaces.nsIFile;
+  var fp = Components.classes["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
+  var refLocalFile = Components.classes["@mozilla.org/file/local;1"].createInstance(nsIFile );
+  fp.init(window, null, nsIFilePicker.modeSave);
+
+  fp.defaultString="save_file_here";
+
+  const nsILocalFile = Components.interfaces.nsILocalFile;
+
+  var customDirPref = document.getElementById("downloadDir");
+
+  if (customDirPref.value) {
+   var fileCustomDirFile=customDirPref.value;
+   fp.displayDirectory = fileCustomDirFile;
+  }
+  fp.appendFilters(nsIFilePicker.filterAll);
+
+  var returnFilePickerValue=fp.show();
+
+  if (returnFilePickerValue == nsIFilePicker.returnOK) {
+    var file = fp.file.QueryInterface(nsILocalFile);
+
+    var currentDirPref = document.getElementById("downloadDir");
+    customDirPref.value = currentDirPref.value = file.parent;
+
+    document.getElementById("downloadDirDisplay").value=file.parent.path;
+
+  }
+
 }
 
 /*
@@ -237,11 +286,13 @@ function show(idPane,toolbarButtonRef) {
 
 function eventHandlerMenu(e) {
 
+/*
   if(e.charCode==109) {
   	document.getElementById("general-button").focus();
     e.preventBubble();
   } 
- 
+*/
+
    if(e.keyCode==134 || e.keyCode==70) /*SoftKey1 or HWKey1*/ {
   	document.getElementById("general-button").focus();
     e.preventBubble();
@@ -372,6 +423,24 @@ function syncPrefSaveDOM() {
 				gPref.setBoolPref(prefName, prefSETValue);
 				} catch (e) { } 
 			}
+
+                  if (document.getElementById(prefName).getAttribute("preftype")=="file") {
+
+                   var lf;
+	             
+                   //if (typeof(val) == "string") {
+                   //   lf = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsILocalFile);
+                   //   lf.persistentDescriptor = val;
+                   //   if (!lf.exists())
+                   //      lf.initWithPath(val);
+                   // }
+	             //else lf = prefSETValue.QueryInterface(Components.interfaces.nsILocalFile);
+
+	             lf = prefSETValue.QueryInterface(Components.interfaces.nsILocalFile);
+                   gPref.setComplexValue(prefName, Components.interfaces.nsILocalFile, lf);
+	 
+                   }	
+
 		}
 
 		psvc.savePrefFile(null);
@@ -389,8 +458,35 @@ function syncPrefLoadDOM(elementList) {
 		var prefName=elementAndPref.getAttribute("preference");
 		var prefUIType=elementAndPref.getAttribute("prefuitype");
 		var transValidator=elementAndPref.getAttribute("onsyncfrompreference");
+		var onReadPref=elementAndPref.getAttribute("onreadpref");
 
 		var prefDOMValue=null;
+
+		if (document.getElementById(prefName).getAttribute("preftype")=="file") {
+
+		    try {
+
+		            prefDOMValue = gPref.getComplexValue(prefName, Components.interfaces.nsILocalFile);
+
+                } catch (ex) { prefDOMValue=null; } 
+
+		    document.getElementById(prefName).value=prefDOMValue;
+
+			if(transValidator) {
+				preGETValue=eval(transValidator);
+				if(prefUIType=="string" || prefUIType=="int") elementAndPref.value=preGETValue;
+				if(prefUIType=="bool") elementAndPref.checked=preGETValue;
+			} else {
+				elementAndPref.value=prefDOMValue;
+			}		
+		    
+
+			if(onReadPref) {
+				eval(onReadPref);
+			}
+
+		} 
+
 
 		if (document.getElementById(prefName).getAttribute("preftype")=="string") {
 

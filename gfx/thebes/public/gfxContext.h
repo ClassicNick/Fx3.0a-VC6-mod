@@ -81,6 +81,11 @@ public:
     gfxASurface* CurrentSurface();
 
     /**
+     * Return the current transparency group target, if any
+     */
+    gfxASurface* CurrentGroupSurface();
+
+    /**
      * Set a new surface to render to; the previous
      * surface is lost, but the current graphics state
      * is maintained.
@@ -480,7 +485,13 @@ public:
     /**
      * Groups
      */
-    void PushGroup();
+    enum SurfaceContent {
+        CONTENT_COLOR = CAIRO_CONTENT_COLOR,
+        CONTENT_ALPHA = CAIRO_CONTENT_ALPHA,
+        CONTENT_COLOR_ALPHA = CAIRO_CONTENT_COLOR_ALPHA
+    };
+
+    void PushGroup(SurfaceContent content = CONTENT_COLOR_ALPHA);
     gfxPattern *PopGroup();
     void PopGroupToSource();
 
@@ -504,12 +515,15 @@ public:
      */
     void PopFilter();
 
-
     /**
-     * ...
-     *
+     * Printing functions
      */
-    void ShowPage();
+    // XXX look and see if the arguments here should be a seperate object
+    void BeginPrinting(const nsAString& aTitle, const nsAString& aPrintToFileName);
+    void EndPrinting();
+    void AbortPrinting();
+    void BeginPage();
+    void EndPage();
 
 private:
     cairo_t *mCairo;

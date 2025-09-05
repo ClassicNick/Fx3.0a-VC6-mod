@@ -69,7 +69,9 @@ var gBrandBundle;
 var datasourceContractIDPrefix = "@mozilla.org/rdf/datasource;1?name=";
 var accountManagerDSContractID = datasourceContractIDPrefix + "msgaccountmanager";
 var folderDSContractID         = datasourceContractIDPrefix + "mailnewsfolders";
-
+var unreadFoldersDSContractID = datasourceContractIDPrefix + "mailnewsunreadfolders";
+var favoriteFoldersDSContractID = datasourceContractIDPrefix + "mailnewsfavefolders";
+var recentFoldersDSContractID = datasourceContractIDPrefix + "mailnewsrecentfolders";
 var accountManagerDataSource;
 var folderDataSource;
 
@@ -202,7 +204,9 @@ function CreateMailWindowGlobals()
   //Create datasources
   accountManagerDataSource = Components.classes[accountManagerDSContractID].createInstance();
   folderDataSource         = Components.classes[folderDSContractID].getService();
-
+  unreadFolderDataSource = Components.classes[unreadFoldersDSContractID].getService();
+  favoriteFoldersDataSource = Components.classes[favoriteFoldersDSContractID].getService();
+  recentFoldersDataSource = Components.classes[recentFoldersDSContractID].getService();
   accountCentralBox = document.getElementById("accountCentralBox");
 }
 
@@ -302,7 +306,7 @@ nsMsgStatusFeedback.prototype =
         this.statusTextFld.label = status;
       }
     },
-  setOverLink : function(link)
+  setOverLink : function(link, context)
     {
       this.ensureStatusFields();
       this.statusTextFld.label = link;

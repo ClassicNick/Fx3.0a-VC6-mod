@@ -1066,20 +1066,22 @@ nsAutoCompleteController::ProcessResult(PRInt32 aSearchIndex, nsIAutoCompleteRes
   if (result == nsIAutoCompleteResult::RESULT_FAILURE) {
     nsAutoString error;
     aResult->GetErrorDescription(error);
-    if (!error.IsEmpty())
+    if (!error.IsEmpty()) {
       ++mRowCount;
+      if (mTree)
+        mTree->RowCountChanged(oldRowCount, 1);
+    }
   } else if (result == nsIAutoCompleteResult::RESULT_SUCCESS) {
     // Increase the match count for all matches in this result
     PRUint32 matchCount = 0;
     aResult->GetMatchCount(&matchCount);
     mRowCount += matchCount;
+    if (mTree)
+      mTree->RowCountChanged(oldRowCount, matchCount);
 
     // Try to autocomplete the default index for this search
     CompleteDefaultIndex(aSearchIndex);
   }
-
-  if (oldRowCount != mRowCount && mTree)
-    mTree->RowCountChanged(oldRowCount, mRowCount - oldRowCount);
 
   // Refresh the popup view to display the new search results
   nsCOMPtr<nsIAutoCompletePopup> popup;
@@ -1198,7 +1200,7 @@ nsAutoCompleteController::CompleteValue(nsString &aValue, PRBool selectDifferenc
     // XXX There might be a pref someday for doing it this way instead.
     // The textbox value does not match the beginning of the default value, so we
     // have to append the entire default value
-    // mInput->SetTextValue(mSearchString + NS_ConvertUTF8toUCS2(kCompleteConcatSeparator) + aValue);
+    // mInput->SetTextValue(mSearchString + NS_ConvertUTF8toUTF16(kCompleteConcatSeparator) + aValue);
     // mInput->SelectTextRange(mSearchString.Length(), -1);
   }
 

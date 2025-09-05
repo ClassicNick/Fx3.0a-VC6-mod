@@ -70,13 +70,18 @@
                           type="checkbox" oncommand="BrowserOffline.toggleOfflineStatus();"/>
                 <menuitem id="menu_FileQuitItem" 
 #ifdef XP_WIN
-			  label="&quitApplicationCmdWin.label;"
-			  accesskey="&quitApplicationCmdWin.accesskey;"
+        label="&quitApplicationCmdWin.label;"
+        accesskey="&quitApplicationCmdWin.accesskey;"
 #else
-			  label="&quitApplicationCmd.label;" 
-			  accesskey="&quitApplicationCmd.accesskey;" 
+#ifdef XP_MACOSX
+        label="&quitApplicationCmdMac.label;"
+        key="key_quitApplicationCmdMac"
+#else
+        label="&quitApplicationCmd.label;"
+        accesskey="&quitApplicationCmd.accesskey;"
 #endif
-			  oncommand="goQuitApplication();"/>
+#endif
+        oncommand="goQuitApplication();"/>
               </menupopup>
             </menu>
   
@@ -146,16 +151,16 @@
                   </menupopup>
                 </menu>
                 <menuitem id="toggle_taskbar" label="&taskbarCmd.label;" accesskey="&taskbarCmd.accesskey;" type="checkbox" command="cmd_toggleTaskbar" checked="true" />
-#ifndef MOZ_PLACES
                 <menu id="viewSidebarMenuMenu"
                       label="&viewSidebarMenu.label;"
                       accesskey="&viewSidebarMenu.accesskey;">
                   <menupopup id="viewSidebarMenu">
+#ifndef MOZ_PLACES
                     <menuitem key="viewBookmarksSidebarKb" observes="viewBookmarksSidebar" accesskey="&bookmarksSidebarCmd.accesskey;"/>
                     <menuitem key="key_gotoHistory" observes="viewHistorySidebar" accesskey="&historySidebarCmd.accesskey;"/>
+#endif
                   </menupopup>
                 </menu>
-#endif
                 <menuseparator/>
                 <menuitem label="&stopCmd.label;"
                           accesskey="&stopCmd.accesskey;"
@@ -353,7 +358,7 @@
 #ifndef MOZ_PLACES
                 <menuitem observes="viewHistorySidebar" key="key_gotoHistory"/>
 #else
-                <menuitem label="&historyButton.label;" 
+                <menuitem label="&historyButton.label;"
                           command="Browser:ShowPlaces" key="key_gotoHistory"/>
 #endif
               </menupopup>
@@ -397,6 +402,7 @@
     <menupopup id="bookmarksMenuPopup" type="places" context="placesContext">
       <menuitem label="&addCurPageAsCmd.label;" 
                 command="Browser:AddBookmarkAs" key="addBookmarkAsKb"/>
+      <!-- XXXben - this should move to the end of the list -->
       <menuitem label="&manBookmarksCmd.label;" 
                 command="Browser:ShowBookmarks" key="manBookmarkKb"/>
       <menuseparator builder="start"/>
