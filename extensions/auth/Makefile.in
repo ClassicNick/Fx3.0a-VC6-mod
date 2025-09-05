@@ -45,9 +45,9 @@ topsrcdir	= @top_srcdir@
 srcdir		= @srcdir@
 VPATH		= @srcdir@
 
-ifneq ($(_MSC_VER), 1100)
-
 include $(DEPTH)/config/autoconf.mk
+
+ifneq ($(_MSC_VER), 1100)
 
 MODULE		= auth
 LIBRARY_NAME	= auth

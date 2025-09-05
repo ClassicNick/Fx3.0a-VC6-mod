@@ -54,14 +54,6 @@
 #include "nsTreeColumns.h"
 #include "nsTreeImageListener.h"
 #include "nsAutoPtr.h"
-#include "nsDataHashtable.h"
-
-// An entry in the tree's image cache
-struct nsTreeImageCacheEntry
-{
-  nsCOMPtr<imgIRequest> request;
-  nsCOMPtr<imgIDecoderObserver> listener;
-};
 
 // The actual frame that paints the cells and rows.
 class nsTreeBodyFrame : public nsLeafBoxFrame,
@@ -352,11 +344,11 @@ protected: // Data Members
   // (the power set of all row properties).
   nsTreeStyleCache mStyleCache;
 
-  // A hashtable that maps from URLs to image request/listener pairs.  The URL
-  // is provided by the view or by the style context. The style context
-  // represents a resolved :-moz-tree-cell-image (or twisty) pseudo-element.
+  // A hashtable that maps from URLs to image requests.  The URL is provided
+  // by the view or by the style context. The style context represents
+  // a resolved :-moz-tree-cell-image (or twisty) pseudo-element.
   // It maps directly to an imgIRequest.
-  nsDataHashtable<nsStringHashKey, nsTreeImageCacheEntry> mImageCache;
+  nsSupportsHashtable* mImageCache;
 
   // Our scrollbars.
   nsIFrame* mScrollbar;

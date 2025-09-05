@@ -15457,7 +15457,11 @@ if test -n "$MOZ_PLACES"; then
 EOF
 
     MOZ_MORK=
+    if test "$_CC_MAJOR_VERSION" = "11"; then
+    MOZ_MORKREADER=
+    else
     MOZ_MORKREADER=1
+    fi
 fi
 
 if test -n "$MOZ_CALENDAR" || test -n "$MOZ_PLACES"; then
