@@ -59,7 +59,6 @@
 // An entry in the tree's image cache
 struct nsTreeImageCacheEntry
 {
-  nsTreeImageCacheEntry() {}
   nsTreeImageCacheEntry(imgIRequest *aRequest, imgIDecoderObserver *aListener)
     : request(aRequest), listener(aListener) {}
 
