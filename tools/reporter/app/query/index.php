@@ -63,18 +63,19 @@ $db->SetFetchMode(ADODB_FETCH_ASSOC);
 $query = new query;
 $query_input = $query->getQueryInputs();
 
+$continuityParams = $query->continuityParams($query_input, null);
+
+$columnHeaders = $query->columnHeaders($query_input, $continuityParams);
+
 $result = $query->doQuery($query_input['selected'],
                           $query_input['where'],
                           $query_input['orderby'],
-                          $query_input['ascdesc'],
                           $query_input['show'],
                           $query_input['page'],
                           $query_input['count']
           );
 
-$continuity_params = $query->continuityParams($query_input);
-
-$output = $query->outputHTML($result, $query_input, $continuity_params, $columnHeaders);
+$output = $query->outputHTML($result, $query_input, $continuityParams, $columnHeaders);
 
 // disconnect database
 $db->Close();
@@ -97,13 +98,35 @@ if($result['totalResults'] < 2000){
     $content->assign('notice', 'This query returned too many reports for next/previous navigation to work');
 }
 
-$content->assign('continuity_params',  $continuity_params);
-$content->assign('column',             $query->columnHeaders($query_input, $continuity_params));
+$content->assign('column',             $columnHeaders);
 $content->assign('row',                $output['data']);
-$content->assign('continuityParams',   $continuity_params[1]);
+
+/* this particular continuity_params is for pagination (it doesn't include 'page') */
+$content->assign('continuity_params',  $query->continuityParams($query_input, array('page')));
+
+/* Pagination */
+$pages = ceil($result['totalResults']/$query_input['show']);
+
+/* These variables are also used for pagination purposes */
 $content->assign('count',              $result['totalResults']);
 $content->assign('show',               $query_input['show']);
 $content->assign('page',               $query_input['page']);
+$content->assign('pages',              $pages);
 
+if($query_input['page'] > 10){
+    $start = $query_input['page']-10;
+}
+if($query_input['page'] < 10){
+    $start = 1;
+}
+
+$content->assign('start',              $start);
+$content->assign('step',               1);
+if(ceil($result['totalResults']/$query_input['show']) < 20){
+    $content->assign('amt',            ceil($result['totalResults']/$query_input['show']));
+} else {
+    $content->assign('amt',            20);
+}
 displayPage($content, 'query', 'query.tpl');
+
 ?>

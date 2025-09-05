@@ -56,7 +56,6 @@
 #include "nsStyleCoord.h"
 #include "nsStyleConsts.h"
 #include "nsStyleContext.h"
-#include "nsIDocumentLoader.h"
 #include "nsHTMLParts.h"
 #include "nsILookAndFeel.h"
 #include "nsWidgetsCID.h"
@@ -992,7 +991,7 @@ nsHTMLFramesetFrame::Reflow(nsPresContext*          aPresContext,
   nscoord height = (aDesiredSize.height <= aReflowState.availableHeight)
     ? aDesiredSize.height : aReflowState.availableHeight;
 
-  PRBool firstTime = (eReflowReason_Initial == aReflowState.reason);
+  PRBool firstTime = (GetStateBits() & NS_FRAME_FIRST_REFLOW) != 0;
   if (firstTime) {
     nsContentUtils::RegisterPrefCallback(kFrameResizePref,
                                          FrameResizePrefCallback, this);

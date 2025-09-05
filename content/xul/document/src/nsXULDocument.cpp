@@ -114,6 +114,7 @@
 #include "nsContentCreatorFunctions.h"
 #include "nsContentUtils.h"
 #include "nsIParser.h"
+#include "nsIParserService.h"
 #include "nsICSSStyleSheet.h"
 #include "nsIScriptError.h"
 
@@ -163,76 +164,6 @@ nsIRDFResource* nsXULDocument::kNC_value;
 nsIXULPrototypeCache* nsXULDocument::gXULCache;
 
 PRLogModuleInfo* nsXULDocument::gXULLog;
-
-class nsProxyLoadStream : public nsIInputStream
-{
-private:
-    const char* mBuffer;
-    PRUint32    mSize;
-    PRUint32    mIndex;
-
-public:
-    nsProxyLoadStream(void) : mBuffer(nsnull)
-    {
-    }
-
-    virtual ~nsProxyLoadStream(void)
-    {
-    }
-
-    // nsISupports
-    NS_DECL_ISUPPORTS
-
-    // nsIBaseStream
-    NS_IMETHOD Close(void)
-    {
-        return NS_OK;
-    }
-
-    // nsIInputStream
-    NS_IMETHOD Available(PRUint32 *aLength)
-    {
-        *aLength = mSize - mIndex;
-        return NS_OK;
-    }
-
-    NS_IMETHOD Read(char* aBuf, PRUint32 aCount, PRUint32 *aReadCount)
-    {
-        PRUint32 readCount = 0;
-        while (mIndex < mSize && aCount > 0) {
-            *aBuf = mBuffer[mIndex];
-            ++aBuf;
-            ++mIndex;
-            readCount++;
-            --aCount;
-        }
-        *aReadCount = readCount;
-        return NS_OK;
-    }
-
-    NS_IMETHOD ReadSegments(nsWriteSegmentFun writer, void * closure,
-                            PRUint32 count, PRUint32 *_retval)
-    {
-        NS_NOTREACHED("ReadSegments");
-        return NS_ERROR_NOT_IMPLEMENTED;
-    }
-
-    NS_IMETHOD IsNonBlocking(PRBool *aNonBlocking)
-    {
-        *aNonBlocking = PR_TRUE;
-        return NS_OK;
-    }
-
-    // Implementation
-    void SetBuffer(const char* aBuffer, PRUint32 aSize)
-    {
-        mBuffer = aBuffer;
-        mSize = aSize;
-        mIndex = 0;
-    }
-};
-
-NS_IMPL_ISUPPORTS1(nsProxyLoadStream, nsIInputStream)
 
 //----------------------------------------------------------------------
 //
@@ -666,6 +597,10 @@ nsXULDocument::SetPrincipal(nsIPrincipal *aPrincipal)
 void
 nsXULDocument::EndLoad()
 {
+    // This can happen if an overlay fails to load
+    if (!mCurrentPrototype)
+        return;
+
     nsresult rv;
 
     // Whack the prototype document into the cache so that the next
@@ -832,12 +767,9 @@ nsXULDocument::SynchronizeBroadcastListener(nsIDOMElement   *aBroadcaster,
     if (aAttr.EqualsLiteral("*")) {
         PRUint32 count = broadcaster->GetAttrCount();
         while (count-- > 0) {
-            PRInt32 nameSpaceID;
-            nsCOMPtr<nsIAtom> name;
-            nsCOMPtr<nsIAtom> prefix;
-            broadcaster->GetAttrNameAt(count, &nameSpaceID,
-                                       getter_AddRefs(name),
-                                       getter_AddRefs(prefix));
+            const nsAttrName* attrName = broadcaster->GetAttrNameAt(count);
+            PRInt32 nameSpaceID = attrName->NamespaceID();
+            nsIAtom* name = attrName->LocalName();
 
             // _Don't_ push the |id|, |ref|, or |persist| attribute's value!
             if (! CanBroadcast(nameSpaceID, name))
@@ -845,7 +777,8 @@ nsXULDocument::SynchronizeBroadcastListener(nsIDOMElement   *aBroadcaster,
 
             nsAutoString value;
             broadcaster->GetAttr(nameSpaceID, name, value);
-            listener->SetAttr(nameSpaceID, name, prefix, value, PR_FALSE);
+            listener->SetAttr(nameSpaceID, name, attrName->GetPrefix(), value,
+                              PR_FALSE);
 
 #if 0
             // XXX we don't fire the |onbroadcast| handler during
@@ -1378,6 +1311,22 @@ nsXULDocument::Persist(const nsAString& aID,
         nameSpaceID = ni->NamespaceID();
     }
     else {
+        // Make sure that this QName is going to be valid.
+        nsIParserService *parserService = nsContentUtils::GetParserService();
+        NS_ASSERTION(parserService, "Running scripts during shutdown?");
+
+        const PRUnichar *colon;
+        rv = parserService->CheckQName(PromiseFlatString(aAttr), PR_TRUE, &colon);
+        if (NS_FAILED(rv)) {
+            // There was an invalid character or it was malformed.
+            return NS_ERROR_INVALID_ARG;
+        }
+
+        if (colon) {
+            // We don't really handle namespace qualifiers in attribute names.
+            return NS_ERROR_NOT_IMPLEMENTED;
+        }
+
         tag = do_GetAtom(aAttr);
         NS_ENSURE_TRUE(tag, NS_ERROR_OUT_OF_MEMORY);
 
@@ -2720,6 +2669,9 @@ nsXULDocument::LoadOverlayInternal(nsIURI* aURI, PRBool aIsDynamic, PRBool* aSho
         nsCOMPtr<nsILoadGroup> group = do_QueryReferent(mDocumentLoadGroup);
         rv = NS_OpenURI(listener, nsnull, aURI, nsnull, group);
         if (NS_FAILED(rv)) {
+            // Abandon this prototype
+            mCurrentPrototype = nsnull;
+
             // The parser won't get an OnStartRequest and
             // OnStopRequest, so it needs a Terminate.
             parser->Terminate();
@@ -3063,6 +3015,9 @@ nsXULDocument::ResumeWalk()
             nsCOMPtr<nsILoadGroup> group = do_QueryReferent(mDocumentLoadGroup);
             rv = NS_OpenURI(listener, nsnull, uri, nsnull, group);
             if (NS_FAILED(rv)) {
+                // Abandon this prototype
+                mCurrentPrototype = nsnull;
+
                 // The parser won't get an OnStartRequest and
                 // OnStopRequest, so it needs a Terminate.
                 parser->Terminate();
@@ -3832,19 +3787,16 @@ nsXULDocument::OverlayForwardReference::Merge(nsIContent* aTargetNode,
 
     // Merge attributes from the overlay content node to that of the
     // actual document.
-    PRUint32 i, attrCount = aOverlayNode->GetAttrCount();
-
-    for (i = 0; i < attrCount; ++i) {
-        PRInt32 nameSpaceID;
-        nsCOMPtr<nsIAtom> attr, prefix;
-        rv = aOverlayNode->GetAttrNameAt(i, &nameSpaceID,
-                                         getter_AddRefs(attr),
-                                         getter_AddRefs(prefix));
-        if (NS_FAILED(rv)) return rv;
-
+    PRUint32 i;
+    const nsAttrName* name;
+    for (i = 0; (name = aOverlayNode->GetAttrNameAt(i)); ++i) {
         // We don't want to swap IDs, they should be the same.
-        if (nameSpaceID == kNameSpaceID_None && attr.get() == nsXULAtoms::id)
+        if (name->Equals(nsXULAtoms::id))
             continue;
+
+        PRInt32 nameSpaceID = name->NamespaceID();
+        nsIAtom* attr = name->LocalName();
+        nsIAtom* prefix = name->GetPrefix();
 
         nsAutoString value;
         aOverlayNode->GetAttr(nameSpaceID, attr, value);

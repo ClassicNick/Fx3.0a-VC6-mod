@@ -54,17 +54,6 @@
  *                               use in OS2
  */
 
-/*
-
-  Implementation for a XUL content element.
-
-  TO DO
-
-  1. Possibly clean up the attribute walking code (e.g., in
-     SetDocument, GetAttrCount, etc.) by extracting into an iterator.
-
- */
-
 #include "jsapi.h"      // for JS_AddNamedRoot and JS_RemoveRootRT
 #include "jsxdrapi.h"
 #include "nsCOMPtr.h"
@@ -187,22 +176,6 @@ nsICSSOMFactory* nsXULElement::gCSSOMFactory = nsnull;
 
 static NS_DEFINE_CID(kXULPopupListenerCID,        NS_XULPOPUPLISTENER_CID);
 static NS_DEFINE_CID(kCSSOMFactoryCID,            NS_CSSOMFACTORY_CID);
-
-//----------------------------------------------------------------------
-
-#if 0 /* || defined(DEBUG_shaver) || defined(DEBUG_waterson) */
-#define DEBUG_ATTRIBUTE_STATS
-#endif
-
-#ifdef DEBUG_ATTRIBUTE_STATS
-#include <execinfo.h>
-
-static struct {
-    PRUint32 UnsetAttr;
-    PRUint32 Create;
-    PRUint32 Total;
-} gFaults;
-#endif
 
 //----------------------------------------------------------------------
 
@@ -390,21 +363,6 @@ NS_NewXULElement(nsIContent** aResult, nsINodeInfo *aNodeInfo)
     NS_ENSURE_TRUE(element, NS_ERROR_OUT_OF_MEMORY);
 
     NS_ADDREF(*aResult = element);
-
-#ifdef DEBUG_ATTRIBUTE_STATS
-    {
-        gFaults.Create++; gFaults.Total++;
-        nsAutoString tagstr;
-        element->NodeInfo()->GetQualifiedName(tagstr);
-        char *tagcstr = ToNewCString(tagstr);
-        fprintf(stderr, "XUL: Heavyweight create of <%s>: %d/%d\n",
-                tagcstr, gFaults.Create, gFaults.Total);
-        nsMemory::Free(tagcstr);
-        void *back[5];
-        backtrace(back, sizeof(back) / sizeof(back[0]));
-        backtrace_symbols_fd(back, sizeof(back) / sizeof(back[0]), 2);
-    }
-#endif
 
     return NS_OK;
 }
@@ -819,6 +777,8 @@ nsXULElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
                      aParent->GetBindingParent() == GetBindingParent()),
                     "Already have a binding parent.  Unbind first!");
 
+    nsresult rv;
+
     if (!aBindingParent && aParent) {
         aBindingParent = aParent->GetBindingParent();
     }
@@ -875,6 +835,13 @@ nsXULElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
                 NS_ASSERTION(newNodeInfo, "GetNodeInfo lies");
                 mNodeInfo.swap(newNodeInfo);
             }
+
+            // set a new nodeinfo on attribute nodes
+            nsDOMSlots *slots = GetExistingDOMSlots();
+            if (slots && slots->mAttributeMap) {
+              rv = slots->mAttributeMap->SetOwnerDocument(aDocument);
+              NS_ENSURE_SUCCESS(rv, rv);
+            }
         }
 
         // we need to (re-)initialize several attributes that are dependant on
@@ -887,7 +854,7 @@ nsXULElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
         PRBool haveLocalAttributes = (count > 0);
         PRInt32 i;
         for (i = 0; i < count; i++) {
-            AddListenerFor(*mAttrsAndChildren.GetSafeAttrNameAt(i),
+            AddListenerFor(*mAttrsAndChildren.AttrNameAt(i),
                            aCompileEventHandlers);
         }
 
@@ -913,10 +880,9 @@ nsXULElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
     PRUint32 i, n = GetChildCount();
 
     for (i = 0; i < n; ++i) {
-        nsresult rv =
-            mAttrsAndChildren.ChildAt(i)->BindToTree(aDocument, this,
-                                                     aBindingParent,
-                                                     aCompileEventHandlers);
+        rv = mAttrsAndChildren.ChildAt(i)->BindToTree(aDocument, this,
+                                                      aBindingParent,
+                                                      aCompileEventHandlers);
         NS_ENSURE_SUCCESS(rv, rv);
     }
 
@@ -1373,12 +1339,6 @@ nsXULElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName, PRBool aNotify)
         // fully fault and remove the local copy.
         rv = MakeHeavyweight();
         NS_ENSURE_SUCCESS(rv, rv);
-
-#ifdef DEBUG_ATTRIBUTE_STATS
-        gFaults.UnsetAttr++; gFaults.Total++;
-        fprintf(stderr, "XUL: Faulting for UnsetAttr: %d/%d\n",
-                gFaults.UnsetAttr, gFaults.Total);
-#endif
     }
 
     PRInt32 index = mAttrsAndChildren.IndexOfAttr(aName, aNameSpaceID);
@@ -1484,112 +1444,98 @@ nsXULElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName, PRBool aNotify)
     return NS_OK;
 }
 
-nsresult
-nsXULElement::GetAttrNameAt(PRUint32 aIndex, PRInt32* aNameSpaceID,
-                            nsIAtom** aName, nsIAtom** aPrefix) const
+const nsAttrName*
+nsXULElement::GetAttrNameAt(PRUint32 aIndex) const
 {
-#ifdef DEBUG_ATTRIBUTE_STATS
-    int proto = mPrototype ? mPrototype->mNumAttributes : 0;
-    fprintf(stderr, "GANA: %p[%d] of %d/%d:", (void *)this, aIndex,
-            mAttrsAndChildren.AttrCount(), proto);
-#endif
+    PRUint32 localCount = mAttrsAndChildren.AttrCount();
+    PRUint32 protoCount = mPrototype ? mPrototype->mNumAttributes : 0;
 
-    PRUint32 localAttrCount = mAttrsAndChildren.AttrCount();
-    if (aIndex < localAttrCount) {
-        const nsAttrName* name = mAttrsAndChildren.GetSafeAttrNameAt(aIndex);
+    if (localCount > protoCount) {
+        // More local than proto, put local first
 
-        *aNameSpaceID = name->NamespaceID();
-        NS_ADDREF(*aName = name->LocalName());
-        NS_IF_ADDREF(*aPrefix = name->GetPrefix());
-#ifdef DEBUG_ATTRIBUTE_STATS
-        fprintf(stderr, " local!\n");
-#endif
-        return NS_OK;
-    }
-
-    aIndex -= localAttrCount;
-
-    if (mPrototype && aIndex < mPrototype->mNumAttributes) {
-        // XXX This code looks very wrong. See bug 232639.
-
-        PRBool skip;
-        nsXULPrototypeAttribute* attr;
-        do {
-            attr = &mPrototype->mAttributes[aIndex];
-            skip = localAttrCount &&
-                   mAttrsAndChildren.GetAttr(attr->mName.LocalName(),
-                                             attr->mName.NamespaceID());
-#ifdef DEBUG_ATTRIBUTE_STATS
-            if (skip)
-                fprintf(stderr, " [skip %d/%d]", aIndex, aIndex + localAttrCount);
-#endif
-        } while (skip && aIndex++ < mPrototype->mNumAttributes);
-
-        if (aIndex <= mPrototype->mNumAttributes) {
-#ifdef DEBUG_ATTRIBUTE_STATS
-            fprintf(stderr, " proto[%d]!\n", aIndex);
-#endif
-            *aNameSpaceID = attr->mName.NamespaceID();
-            NS_ADDREF(*aName = attr->mName.LocalName());
-            NS_IF_ADDREF(*aPrefix = attr->mName.GetPrefix());
-
-            return NS_OK;
+        // Is the index low enough to just grab a local attr?
+        if (aIndex < localCount) {
+            return mAttrsAndChildren.AttrNameAt(aIndex);
         }
-        // else, we are out of attrs to return, fall-through
+
+        aIndex -= localCount;
+
+        // Search though prototype attributes while skipping names that exist in
+        // the local array.
+        for (PRUint32 i = 0; i < protoCount; i++) {
+            const nsAttrName* name = &mPrototype->mAttributes[i].mName;
+            if (mAttrsAndChildren.GetAttr(name->LocalName(), name->NamespaceID())) {
+                aIndex++;
+            }
+            if (i == aIndex) {
+                return name;
+            }
+        }
+    }
+    else {
+        // More proto than local, put proto first
+
+        // Is the index low enough to just grab a proto attr?
+        if (aIndex < protoCount) {
+            return &mPrototype->mAttributes[aIndex].mName;
+        }
+
+        aIndex -= protoCount;
+
+        // Search though local attributes while skipping names that exist in
+        // the prototype array.
+        for (PRUint32 i = 0; i < localCount; i++) {
+            const nsAttrName* name = mAttrsAndChildren.AttrNameAt(i);
+
+            for (PRUint32 j = 0; j < protoCount; j++) {
+                if (mPrototype->mAttributes[j].mName.Equals(*name)) {
+                    aIndex++;
+                    break;
+                }
+            }
+            if (i == aIndex) {
+                return name;
+            }
+        }
     }
 
-#ifdef DEBUG_ATTRIBUTE_STATS
-    fprintf(stderr, " not found\n");
-#endif
-
-    *aNameSpaceID = kNameSpaceID_None;
-    *aName = nsnull;
-    *aPrefix = nsnull;
-
-    return NS_ERROR_ILLEGAL_VALUE;
+    return nsnull;
 }
 
 PRUint32
 nsXULElement::GetAttrCount() const
 {
-    PRBool haveLocalAttributes;
+    PRUint32 localCount = mAttrsAndChildren.AttrCount();
+    PRUint32 protoCount = mPrototype ? mPrototype->mNumAttributes : 0;
 
-    PRUint32 count = mAttrsAndChildren.AttrCount();
-    haveLocalAttributes = count > 0;
+    if (localCount > protoCount) {
+        // More local than proto, remove dups from proto array
+        PRUint32 count = localCount;
 
-#ifdef DEBUG_ATTRIBUTE_STATS
-    int dups = 0;
-#endif
+        for (PRUint32 i = 0; i < protoCount; i++) {
+            const nsAttrName* name = &mPrototype->mAttributes[i].mName;
+            if (!mAttrsAndChildren.GetAttr(name->LocalName(), name->NamespaceID())) {
+                count++;
+            }
+        }
 
-    if (mPrototype) {
-        for (PRUint32 i = 0; i < mPrototype->mNumAttributes; i++) {
-            nsAttrName* attrName = &mPrototype->mAttributes[i].mName;
-            
-            if (!haveLocalAttributes ||
-                !mAttrsAndChildren.GetAttr(attrName->LocalName(),
-                                           attrName->NamespaceID())) {
-                ++count;
-#ifdef DEBUG_ATTRIBUTE_STATS
-            } else {
-                dups++;
-#endif
+        return count;
+    }
+
+    // More proto than local, remove dups from local array
+    PRUint32 count = protoCount;
+
+    for (PRUint32 i = 0; i < localCount; i++) {
+        const nsAttrName* name = mAttrsAndChildren.AttrNameAt(i);
+
+        count++;
+        for (PRUint32 j = 0; j < protoCount; j++) {
+            if (mPrototype->mAttributes[j].mName.Equals(*name)) {
+                count--;
+                break;
             }
         }
     }
-
-#ifdef DEBUG_ATTRIBUTE_STATS
-    {
-        int local = mAttrsAndChildren.AttrCount();
-        int proto = mPrototype ? mPrototype->mNumAttributes : 0;
-        nsAutoString tagstr;
-        mNodeInfo->GetName(tagstr);
-        char *tagcstr = ToNewCString(tagstr);
-
-        fprintf(stderr, "GAC: %p has %d+%d-%d=%d <%s%s>\n", (void *)this,
-                local, proto, dups, count, mPrototype ? "" : "*", tagcstr);
-        nsMemory::Free(tagcstr);
-    }
-#endif
 
     return count;
 }
@@ -1623,27 +1569,15 @@ nsXULElement::List(FILE* out, PRInt32 aIndent) const
     PRUint32 nattrs = GetAttrCount();
 
     for (i = 0; i < nattrs; ++i) {
-        nsCOMPtr<nsIAtom> attr;
-        nsCOMPtr<nsIAtom> prefix;
-        PRInt32 nameSpaceID;
-        GetAttrNameAt(i, &nameSpaceID, getter_AddRefs(attr),
-                      getter_AddRefs(prefix));
+        const nsAttrName* name = GetAttrNameAt(i);
 
         nsAutoString v;
-        GetAttr(nameSpaceID, attr, v);
+        GetAttr(name->NamespaceID(), name->LocalName(), v);
 
         fputs(" ", out);
 
         nsAutoString s;
-
-        if (prefix) {
-            prefix->ToString(s);
-
-            fputs(NS_LossyConvertUCS2toASCII(s).get(), out);
-            fputs(":", out);
-        }
-
-        attr->ToString(s);
+        name->GetQualifiedName(s);
 
         fputs(NS_LossyConvertUCS2toASCII(s).get(), out);
         fputs("=", out);

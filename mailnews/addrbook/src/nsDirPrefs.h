@@ -115,14 +115,6 @@ typedef enum
 	homephone
 } DIR_AttributeId;
 
-/* these enumerated types are returned by DIR_ValidateDirectoryDescription for validating a description name */
-typedef enum
-{
-	DIR_ValidDescription = 0,
-	DIR_DuplicateDescription,
-	DIR_InvalidDescription
-} DIR_DescriptionCode;
-
 typedef enum
 {
 	idNone = 0,					/* Special value                          */ 
@@ -142,21 +134,15 @@ typedef enum
 	idLocale,
 	idPositionLocked,
 	idDeletable,
-	idStopFiltersOnHit,
 	idIsOffline,
 	idIsSecure,
 	idVLVDisabled,
-	idSaveResults,
-	idEfficientWildcards,
 	idEnableAuth,
 	idSavePassword,
-	idCustomFilters,
 	idCustomAttributes,
 	idAutoCompleteNever,
 	idAutoCompleteEnabled,
-	idAutoCompleteFilter,
 	idTokenSeps,
-	idColumnAttributes,
 	idDnAttributes,
     idDnAttributesCount,
 	idSuppressedAttributes,
@@ -165,10 +151,8 @@ typedef enum
 	idUriAttributesCount,
 	idBasicSearchAttributes,
 	idBasicSearchAttributesCount,
-	idCustomDisplayUrl,
 	idAuthDn,
 	idPassword,
-	idSearchPairList,
 	idReplNever,
 	idReplEnabled,
 	idReplDescription,
@@ -225,22 +209,14 @@ typedef struct DIR_Server
 	/* Flags */
 	/* TBD: All the PRBool fields should eventually merge into "flags" */
 	PRUint32 flags;               
-	PRPackedBool stopFiltersOnHit;
 	PRPackedBool isOffline;
 	PRPackedBool isSecure;           /* use SSL?                               */
-	PRPackedBool saveResults;    
-	PRPackedBool efficientWildcards; /* server can match substrings            */
 	PRPackedBool enableAuth;			/* AUTH: Use DN/password when binding?    */
 	PRPackedBool savePassword;		/* AUTH: Remember DN and password?        */
 
-	/* site-configurable attributes and filters */
-	nsVoidArray *customFilters;
+	/* site-configurable attributes */
 	nsVoidArray *customAttributes;
 	char *tokenSeps;
-	char *autoCompleteFilter;
-
-	/* site-configurable display column attributes */
-	char *columnAttributes;     /* comma separated list of display columns */
 
 	/* site-configurable list of attributes whose values are DNs */
 	char **dnAttributes;
@@ -258,18 +234,12 @@ typedef struct DIR_Server
 	DIR_AttributeId *basicSearchAttributes;
 	PRInt32 basicSearchAttributesCount;
 
-	/* site-configurable URL to open LDAP results */
-	char *customDisplayUrl;
-
 	/* authentication fields */
 	char *authDn;				/* DN to give to authenticate as			*/
 	char *password;				/* Password for the DN						*/
 
 	/* Replication fields */
 	DIR_ReplicationInfo *replInfo;
-
-	/* VLV fields */
-	char *searchPairList;
 
 	/* fields for palm Sync */
 	PRInt32 PalmCategoryId;
@@ -329,28 +299,13 @@ const char  *DIR_GetFirstAttributeString (DIR_Server *server, DIR_AttributeId id
 
 nsresult DIR_AttributeNameToId (DIR_Server *server, const char *attrName, DIR_AttributeId *id);
 
-/* Callback Notification Flags/Types/Functions */
-#define DIR_NOTIFY_ADD                     0x00000001 
-#define DIR_NOTIFY_DELETE                  0x00000002 
-#define DIR_NOTIFY_PROPERTY_CHANGE         0x00000004 
-#define DIR_NOTIFY_SCRAMBLE                0x00000008 
-#define DIR_NOTIFY_ALL                     0x0000000F 
-
-typedef PRInt32 (*DIR_NOTIFICATION_FN)(DIR_Server *server, PRUint32 flag, DIR_PrefId id, void *inst_data);
-
 DIR_PrefId  DIR_AtomizePrefName(const char *prefname);
 
 /* Flags manipulation
  */
 #define DIR_AUTO_COMPLETE_ENABLED          0x00000001  /* Directory is configured for autocomplete addressing */
-#define DIR_ENABLE_AUTH                    0x00000002  /* Directory is configured for LDAP simple authentication */
-#define DIR_SAVE_PASSWORD                  0x00000004
-#define DIR_IS_SECURE                      0x00000008
-#define DIR_SAVE_RESULTS                   0x00000010  /* not used by the FEs */
-#define DIR_EFFICIENT_WILDCARDS            0x00000020  /* not used by the FEs */
 #define DIR_LDAP_VERSION3                  0x00000040
 #define DIR_LDAP_VLV_DISABLED              0x00000080  /* not used by the FEs */
-#define DIR_LDAP_VLV_SUPPORTED             0x00000100  /* not used by the FEs */
 #define DIR_LDAP_ROOTDSE_PARSED            0x00000200  /* not used by the FEs */
 #define DIR_AUTO_COMPLETE_NEVER            0x00000400  /* Directory is never to be used for autocompletion */
 #define DIR_REPLICATION_ENABLED            0x00000800  /* Directory is configured for offline use */
@@ -373,16 +328,6 @@ DIR_PrefId  DIR_AtomizePrefName(const char *prefname);
  * dir server anymore, we destroy the file and clear the server
  */
 #define DIR_CLEAR_SERVER				   0x80000000  
-
-
-/* DIR_GetDirServerSubset flags
- */
-#define DIR_SUBSET_HTML_ALL                0x00000001
-#define DIR_SUBSET_LDAP_ALL                0x00000002
-#define DIR_SUBSET_LDAP_AUTOCOMPLETE       0x00000004
-#define DIR_SUBSET_LDAP_REPLICATE          0x00000008
-#define DIR_SUBSET_PAB_ALL                 0x00000010
-
 
 PRBool DIR_TestFlag  (DIR_Server *server, PRUint32 flag);
 void    DIR_SetFlag   (DIR_Server *server, PRUint32 flag);

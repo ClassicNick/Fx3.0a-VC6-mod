@@ -19,22 +19,22 @@
 # Portions created by the Initial Developer are Copyright (C) 2002
 # the Initial Developer. All Rights Reserved.
 #
-# Contributors:
+# Contributor(s):
 #   Chip Clark <chipc@netscape.com>
 #   Seth Spitzer <sspitzer@netscape.com>
 #   Neil Rashbrook <neil@parkwaycc.co.uk>
 #
 # Alternatively, the contents of this file may be used under the terms of
-# either the GNU General Public License Version 2 or later (the "GPL"), or 
+# either the GNU General Public License Version 2 or later (the "GPL"), or
 # the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
 # in which case the provisions of the GPL or the LGPL are applicable instead
 # of those above. If you wish to allow use of your version of this file only
 # under the terms of either the GPL or the LGPL, and not to allow others to
-# use your version of this file under the terms of the NPL, indicate your
+# use your version of this file under the terms of the MPL, indicate your
 # decision by deleting the provisions above and replace them with the notice
 # and other provisions required by the GPL or the LGPL. If you do not delete
 # the provisions above, a recipient may use your version of this file under
-# the terms of any one of the NPL, the GPL or the LGPL.
+# the terms of any one of the MPL, the GPL or the LGPL.
 #
 # ***** END LICENSE BLOCK *****
 
@@ -365,20 +365,34 @@ function onConfigUnload()
 
 function FilterPrefs()
 {
-  var substring = document.getElementById("textbox").value.toLowerCase();
+  var substring = document.getElementById("textbox").value;
+  var rex;
+  // Check for "/regex/[i]"
+  if (substring.charAt(0) == '/') {
+    var r = substring.match(/^\/(.*)\/(i?)$/);
+    try {
+      rex = RegExp(r[1], r[2]);
+    }
+    catch (e) {
+      return; // Do nothing on incomplete or bad RegExp
+    }
+  }
+
   var prefCol = view.selection.currentIndex < 0 ? null : gPrefView[view.selection.currentIndex].prefCol;
-  var array = gPrefView;
+  var oldlen = gPrefView.length;
   gPrefView = gPrefArray;
   if (substring) {
     gPrefView = [];
+    if (!rex)
+      rex = RegExp(substring.replace(/([^* \w])/g, "\\$1").replace(/[*]/g, ".*"), "i");
     for (var i = 0; i < gPrefArray.length; ++i)
-      if (gPrefArray[i].prefCol.toLowerCase().indexOf(substring) >= 0)
+      if (rex.test(gPrefArray[i].prefCol + ";" + gPrefArray[i].valueCol))
         gPrefView.push(gPrefArray[i]);
     if (gFastIndex < gPrefArray.length)
       gPrefView.sort(gSortFunction);
   }
   view.treebox.invalidate();
-  view.treebox.rowCountChanged(array.length, gPrefView.length - array.length);
+  view.treebox.rowCountChanged(oldlen, gPrefView.length - oldlen);
   gotoPref(prefCol);
   document.getElementById("button").disabled = !substring;
 }

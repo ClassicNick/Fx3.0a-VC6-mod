@@ -735,6 +735,8 @@ nsGnomeVFSInputStream::Read(char *aBuf,
 {
   *aCountRead = 0;
 
+  if (mStatus == NS_BASE_STREAM_CLOSED)
+    return NS_OK;
   if (NS_FAILED(mStatus))
     return mStatus;
 
@@ -940,6 +942,7 @@ nsGnomeVFSProtocolHandler::NewURI(const nsACString &aSpec,
 NS_IMETHODIMP
 nsGnomeVFSProtocolHandler::NewChannel(nsIURI *aURI, nsIChannel **aResult)
 {
+  NS_ENSURE_ARG_POINTER(aURI);
   nsresult rv;
 
   nsCAutoString spec;

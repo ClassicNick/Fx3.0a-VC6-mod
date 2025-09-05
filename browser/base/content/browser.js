@@ -140,10 +140,12 @@ function pageShowEventHandlers(event)
     targetBrowser = gBrowser.mCurrentBrowser;
   }
 
+#ifndef MOZ_PLACES
   // update the last visited date
   if (targetBrowser.currentURI.spec)
     BMSVC.updateLastVisitedDate(targetBrowser.currentURI.spec,
                                 targetBrowser.contentDocument.characterSet);
+#endif
 }
 
 /**
@@ -325,7 +327,7 @@ const gPopupBlockerObserver = {
     var perm = shouldBlock ? this._kIPM.DENY_ACTION : this._kIPM.ALLOW_ACTION;
     pm.add(currentURI, "popup", perm);
 
-    gBrowser.hideMessage(gBrowser.selectedBrowser, "top");
+    gBrowser.hideMessage(null, "top");
   },
 
   fillPopupList: function (aEvent)
@@ -384,6 +386,7 @@ const gPopupBlockerObserver = {
         menuitem.setAttribute("requestingWindowURI", pageReport[i].requestingWindowURI.spec);
         menuitem.setAttribute("popupWindowURI", popupURIspec);
         menuitem.setAttribute("popupWindowFeatures", pageReport[i].popupWindowFeatures);
+        menuitem.setAttribute("popupWindowName", pageReport[i].popupWindowName);
         menuitem.setAttribute("oncommand", "gPopupBlockerObserver.showBlockedPopup(event);");
         aEvent.target.appendChild(menuitem);
       }
@@ -412,14 +415,14 @@ const gPopupBlockerObserver = {
 
     var popupWindowURI = aEvent.target.getAttribute("popupWindowURI");
     var features = aEvent.target.getAttribute("popupWindowFeatures");
+    var name = aEvent.target.getAttribute("popupWindowName");
 
     var shell = findChildShell(null, gBrowser.selectedBrowser.docShell,
                                requestingWindowURI);
     if (shell) {
       var ifr = shell.QueryInterface(Components.interfaces.nsIInterfaceRequestor);
       var dwi = ifr.getInterface(Components.interfaces.nsIDOMWindowInternal);
-      // XXXben - nsIDOMPopupBlockedEvent needs to store target, too!
-      dwi.open(popupWindowURI, "", features);
+      dwi.open(popupWindowURI, name, features);
     }
   },
 
@@ -465,7 +468,7 @@ const gPopupBlockerObserver = {
 
     gPrefService.setBoolPref("privacy.popups.showBrowserMessage", !showMessage);
 
-    gBrowser.hideMessage(gBrowser.selectedBrowser, "top");
+    gBrowser.hideMessage(null, "top");
   },
 
   _displayPageReportFirstTime: function ()
@@ -506,7 +509,7 @@ const gXPInstallObserver = {
   {
     var brandBundle = document.getElementById("bundle_brand");
     var browserBundle = document.getElementById("bundle_browser");
-    var browser, webNav, wm, tabbrowser;
+    var browser, webNav, wm;
     switch (aTopic) {
     case "xpinstall-install-blocked":
       var shell = aSubject.QueryInterface(Components.interfaces.nsIDocShell);
@@ -553,8 +556,7 @@ const gXPInstallObserver = {
       break;
     case "xpinstall-install-edit-prefs":
       openPreferences("paneContent");
-      tabbrowser = getBrowser();
-      tabbrowser.hideMessage(tabbrowser.selectedBrowser, "top");
+      getBrowser().hideMessage(null, "top");
       break;
     case "xpinstall-install-edit-permissions":
       browser = this._getBrowser(aSubject.QueryInterface(Components.interfaces.nsIDocShell));
@@ -579,8 +581,7 @@ const gXPInstallObserver = {
           window.openDialog("chrome://browser/content/preferences/permissions.xul",
                             "_blank", "resizable,dialog=no,centerscreen", params);
 
-        tabbrowser = getBrowser();
-        tabbrowser.hideMessage(tabbrowser.selectedBrowser, "top");
+        getBrowser().hideMessage(null, "top");
       }
       break;
     }
@@ -595,7 +596,7 @@ function BrowserStartup()
 
   var uriToLoad = null;
   // Check for window.arguments[0]. If present, use that for uriToLoad.
-  if ("arguments" in window && window.arguments.length >= 1 && window.arguments[0])
+  if ("arguments" in window && window.arguments[0])
     uriToLoad = window.arguments[0];
 
   gIsLoadingBlank = uriToLoad == "about:blank";
@@ -606,15 +607,13 @@ function BrowserStartup()
 #ifdef ENABLE_PAGE_CYCLER
   appCore.startPageCycler();
 #else
-  // only load url passed in when we're not page cycling
-
+# only load url passed in when we're not page cycling
   if (uriToLoad && !gIsLoadingBlank) {
-    if ("arguments" in window && window.arguments.length >= 3)
-      loadURI(uriToLoad, window.arguments[2], null);
+    if (window.arguments.length >= 3)
+      loadURI(uriToLoad, window.arguments[2], window.arguments[3] || null);
     else
       loadOneOrMoreURIs(uriToLoad);
   }
-
 #endif
 
   var sidebarSplitter;
@@ -714,7 +713,9 @@ function prepareForStartup()
   gNavigatorBundle = document.getElementById("bundle_browser");
   gProgressMeterPanel = document.getElementById("statusbar-progresspanel");
   gBrowser.addEventListener("DOMUpdatePageReport", gPopupBlockerObserver.onUpdatePageReport, false);
-  gBrowser.addEventListener("PluginNotFound", gMissingPluginInstaller.newMissingPlugin, false);
+  // Note: we need to listen to untrusted events, because the pluginfinder XBL
+  // binding can't fire trusted ones (runs with page privileges).
+  gBrowser.addEventListener("PluginNotFound", gMissingPluginInstaller.newMissingPlugin, false, true);
   gBrowser.addEventListener("NewTab", BrowserOpenTab, false);
 
   var webNavigation;
@@ -811,7 +812,9 @@ function delayedStartup()
 
   // loads the services
   initServices();
+#ifndef MOZ_PLACES
   initBMService();
+#endif
   gBrowser.addEventListener("pageshow", function(evt) { setTimeout(pageShowEventHandlers, 0, evt); }, true);
 
   window.addEventListener("keypress", ctrlNumberTabSelection, false);
@@ -827,6 +830,7 @@ function delayedStartup()
   // add bookmark options to context menu for tabs
   addBookmarkMenuitems();
   // now load bookmarks
+#ifndef MOZ_PLACES
   BMSVC.readBookmarks();
   var bt = document.getElementById("bookmarks-ptf");
   if (bt) {
@@ -835,6 +839,7 @@ function delayedStartup()
     document.getElementById("bookmarks-chevron").ref = btf;
     bt.database.AddObserver(BookmarksToolbarRDFObserver);
   }
+#endif
   window.addEventListener("resize", BookmarksToolbar.resizeFunc, false);
 #ifndef MOZ_PLACES
   document.getElementById("PersonalToolbar")
@@ -1061,7 +1066,9 @@ function nonBrowserWindowDelayedStartup()
 {
   // loads the services
   initServices();
+#ifndef MOZ_PLACES
   initBMService();
+#endif
 
   // init global pref service
   gPrefService = Components.classes["@mozilla.org/preferences-service;1"]
@@ -2127,7 +2134,7 @@ function handleURLBarCommand(aTriggeringEvent)
 
 function canonizeUrl(aTriggeringEvent, aPostDataRef)
 {
-  if (!gURLBar)
+  if (!gURLBar || !gURLBar.value)
     return;
 
   var url = gURLBar.value;
@@ -3095,6 +3102,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   // fix up the personal toolbar folder
   var bt = document.getElementById("bookmarks-ptf");
   if (bt) {
+#ifndef MOZ_PLACES
     var btf = BMSVC.getBookmarksToolbarFolder().Value;
     var btchevron = document.getElementById("bookmarks-chevron");
     bt.ref = btf;
@@ -3108,6 +3116,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
     bt.database.AddObserver(BookmarksToolbarRDFObserver);
     bt.builder.rebuild();
     btchevron.builder.rebuild();
+#endif
 
     // fake a resize; this function takes care of flowing bookmarks
     // from the bar to the overflow item
@@ -3472,8 +3481,7 @@ nsBrowserStatusHandler.prototype =
       if (newIndexOfHash != -1)
         newSpec = newSpec.substr(0, newSpec.indexOf("#"));
       if (newSpec != oldSpec) {
-        var tabbrowser = getBrowser();
-        tabbrowser.hideMessage(tabbrowser.selectedBrowser, "both");
+        getBrowser().hideMessage(null, "both");
       }
     }
     selectedBrowser.lastURI = aLocation;
@@ -4622,7 +4630,8 @@ nsContextMenu.prototype = {
     // Save URL of clicked-on link.
     saveLink : function () {
         urlSecurityCheck(this.linkURL, this.docURL);
-        saveURL( this.linkURL, this.linkText(), null, true, false, makeURI(this.docURL) );
+        saveURL( this.linkURL, this.linkText(), null, true, false,
+                 makeURI(this.docURL, this.target.ownerDocument.characterSet) );
     },
     sendLink : function () {
         MailIntegration.sendMessage( this.linkURL, "" ); // we don't know the title of the link so pass in an empty string
@@ -5120,7 +5129,8 @@ function handleLinkClick(event, href, linkNode)
       }
 
       if (event.altKey) {
-        saveURL(href, linkNode ? gatherTextUnder(linkNode) : "", null, true, true, makeURI(docURL));
+        saveURL(href, linkNode ? gatherTextUnder(linkNode) : "", null, true,
+                true, makeURI(docURL, event.target.ownerDocument.characterSet));
         return true;
       }
 
@@ -5869,6 +5879,11 @@ missingPluginInstaller.prototype.installSinglePlugin = function(aEvent){
 }
 
 missingPluginInstaller.prototype.newMissingPlugin = function(aEvent){
+  // Since we are expecting also untrusted events, make sure
+  // that the target is a plugin
+  if (!(aEvent.target instanceof Components.interfaces.nsIObjectLoadingContent))
+    return;
+
   // For broken non-object plugin tags, register a click handler so
   // that the user can click the plugin replacement to get the new
   // plugin. Object tags can, and often do, deal with that themselves,

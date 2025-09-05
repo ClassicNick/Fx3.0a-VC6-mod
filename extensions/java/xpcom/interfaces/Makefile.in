@@ -68,10 +68,6 @@ GARBAGE_DIRS += _javagen org
 
 include $(topsrcdir)/config/rules.mk
 
-ifdef MOZ_DEBUG
-JAVAC_FLAGS = -g
-endif
-
 ifeq ($(OS_ARCH),WINNT)
 RUN =
 OUTPUT_DIR = $(shell cygpath -w $(CURDIR)/_javagen/org/mozilla/xpcom)
@@ -112,3 +108,12 @@ IXPCOMError.java: $(topsrcdir)/xpcom/base/nsError.h gen-nsError.pl Makefile Make
 
 export:: IXPCOMError.java
 
+# Temporarily copy these not only to dist/sdk/lib but to dist/bin/sdk/lib
+
+TEMP_SDK_DIR = $(DIST)/bin/sdk/lib
+
+$(TEMP_SDK_DIR)::
+	$(NSINSTALL) -D $@
+
+libs:: $(JARFILE) $(JARFILE_SRC) $(TEMP_SDK_DIR)
+	$(INSTALL) $(IFLAGS2) $^

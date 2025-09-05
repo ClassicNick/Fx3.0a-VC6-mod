@@ -1199,7 +1199,12 @@ js_GetToken(JSContext *cx, JSTokenStream *ts)
             ADD_TO_TOKENBUF(c);
             while ((c = GetChar(ts)) != EOF && JS_ISXMLNAME(c)) {
                 if (c == ':') {
-                    if (sawColon || !JS_ISXMLNAME(PeekChar(ts))) {
+                    int nextc;
+
+                    if (sawColon ||
+                        (nextc = PeekChar(ts),
+                         ((ts->flags & TSF_XMLONLYMODE) || nextc != '{') &&
+                         !JS_ISXMLNAME(nextc))) {
                         js_ReportCompileErrorNumber(cx, ts,
                                                     JSREPORT_TS |
                                                     JSREPORT_ERROR,
@@ -1249,7 +1254,7 @@ js_GetToken(JSContext *cx, JSTokenStream *ts)
                  * so escape " if it is expressed directly in a single-quoted
                  * attribute value.
                  */
-                if (c == '"') {
+                if (c == '"' && !(ts->flags & TSF_XMLONLYMODE)) {
                     JS_ASSERT(qc == '\'');
                     js_AppendCString(&ts->tokenbuf, js_quot_entity_str);
                     continue;

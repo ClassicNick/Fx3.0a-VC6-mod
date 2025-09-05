@@ -282,7 +282,7 @@ nsGenericHTMLElement::CopyInnerTo(nsGenericElement* aDst, PRBool aDeep) const
   for (i = 0; i < count; ++i) {
     // XXX Once we have access to existing nsDOMAttributes for this element, we
     //     should call CloneNode or ImportNode on them.
-    const nsAttrName *name = mAttrsAndChildren.GetSafeAttrNameAt(i);
+    const nsAttrName *name = mAttrsAndChildren.AttrNameAt(i);
     const nsAttrValue *value = mAttrsAndChildren.AttrAt(i);
     if (name->Equals(nsHTMLAtoms::style, kNameSpaceID_None) &&
         value->Type() == nsAttrValue::eCSSStyleRule) {
@@ -1918,18 +1918,14 @@ nsGenericHTMLElement::ListAttributes(FILE* out) const
 
   for (index = 0; index < count; index++) {
     // name
-    nsCOMPtr<nsIAtom> attr;
-    nsCOMPtr<nsIAtom> prefix;
-    PRInt32 nameSpaceID;
-    GetAttrNameAt(index, &nameSpaceID, getter_AddRefs(attr),
-                  getter_AddRefs(prefix));
+    const nsAttrName* name = GetAttrNameAt(index);
 
     nsAutoString buffer;
-    attr->ToString(buffer);
+    name->LocalName()->ToString(buffer);
 
     // value
     nsAutoString value;
-    GetAttr(nameSpaceID, attr, value);
+    GetAttr(name->NamespaceID(), name->LocalName(), value);
     buffer.AppendLiteral("=\"");
     for (int i = value.Length(); i >= 0; --i) {
       if (value[i] == PRUnichar('"'))
@@ -2129,8 +2125,6 @@ nsGenericHTMLElement::GetFormControlFrameFor(nsIContent* aContent,
         return form_frame;
       }
     }
-        
-    NS_ERROR("Form control has a frame, but it's not a form frame");
   }
 
   return nsnull;

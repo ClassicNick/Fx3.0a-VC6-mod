@@ -501,10 +501,8 @@ NS_IMETHODIMP
 nsWindow::IsVisible(PRBool & aState)
 {
     aState = mIsVisible;
-    if (mIsTopLevel && mShell && !GTK_WIDGET_MAPPED(mShell)) {
-        /* we do not change mIsVisible to PR_FALSE here so we don't bother
-           to change it back to PR_TRUE when the mShell is mapped again. */
-        aState = PR_FALSE;
+    if (mIsTopLevel && mShell) {
+        aState = GTK_WIDGET_VISIBLE(mShell);
     }
     return NS_OK;
 }
@@ -697,6 +695,12 @@ nsWindow::SetFocus(PRBool aRaise)
     if (!GTK_WIDGET_HAS_FOCUS(owningWidget)) {
         LOGFOCUS(("  grabbing focus for the toplevel [%p]\n", (void *)this));
         owningWindow->mContainerBlockFocus = PR_TRUE;
+        
+        // Set focus to the window
+        if (gRaiseWindows && aRaise && toplevelWidget &&
+            !GTK_WIDGET_HAS_FOCUS(toplevelWidget))
+          gtk_window_present(GTK_WINDOW(owningWindow->mShell));
+        
         gtk_widget_grab_focus(owningWidget);
         owningWindow->mContainerBlockFocus = PR_FALSE;
 

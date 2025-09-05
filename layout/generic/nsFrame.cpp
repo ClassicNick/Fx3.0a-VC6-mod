@@ -1697,14 +1697,22 @@ NS_IMETHODIMP nsFrame::HandleRelease(nsPresContext* aPresContext,
 
       if (NS_SUCCEEDED(result) && !mouseDown && me && me->clickCount < 2)
       {
-        // We are doing this to simulate what we would have done on HandlePress
+        // We are doing this to simulate what we would have done on HandlePress.
+        // We didn't do it there to give the user an opportunity to drag
+        // the text, but since they didn't drag, we want to place the
+        // caret.
+        // However, we'll use the mouse position from the release, since:
+        //  * it's easier
+        //  * that's the normal click position to use (although really, in
+        //    the normal case, small movements that don't count as a drag
+        //    can do selection)
         result = frameselection->SetMouseDownState( PR_TRUE );
 
         nsCOMPtr<nsIContent> content;
         PRInt32 startOffset = 0, endOffset = 0;
         PRBool  beginFrameContent = PR_FALSE;
 
-        nsPoint pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(me, this);
+        nsPoint pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, this);
         result = GetContentAndOffsetsFromPoint(aPresContext, pt,
                                                getter_AddRefs(content),
                                                startOffset, endOffset, 
@@ -1754,12 +1762,21 @@ struct ContentOffsets {
 // Retrieve the content offsets of a frame
 static ContentOffsets GetOffsetsOfFrame(nsIFrame* aFrame) {
   nsCOMPtr<nsIContent> content, parent;
-  NS_ASSERTION(aFrame->GetContent(), "No content?!");
   content = aFrame->GetContent();
-  if (aFrame->GetType() == nsLayoutAtoms::textFrame) {
+  if (!content) {
+    NS_WARNING("Frame has no content");
+    return ContentOffsets(nsnull, -1, -1);
+  }
+  nsIAtom* type = aFrame->GetType();
+  if (type == nsLayoutAtoms::textFrame) {
     PRInt32 offset, offsetEnd;
     aFrame->GetOffsets(offset, offsetEnd);
     return ContentOffsets(content, offset, offsetEnd);
+  }
+  if (type == nsLayoutAtoms::brFrame) {
+    parent = content->GetParent();
+    PRInt32 beginOffset = parent->IndexOf(content);
+    return ContentOffsets(parent, beginOffset, beginOffset);
   }
   // Loop to deal with anonymous content, which has no index; this loop
   // probably won't run more than twice under normal conditions
@@ -2096,8 +2113,10 @@ nsresult nsFrame::GetContentAndOffsetsFromPoint(nsPresContext* aCX,
   if (adjustedFrame->GetStyleUIReset()->mUserSelect ==
       NS_STYLE_USER_SELECT_ALL) {
     ContentOffsets selectOffset = GetOffsetsOfFrame(adjustedFrame);
+    if (!selectOffset.content)
+      return NS_ERROR_NULL_POINTER;
 
-    NS_IF_ADDREF(*aNewContent = selectOffset.content);
+    NS_ADDREF(*aNewContent = selectOffset.content);
     aContentOffset = selectOffset.start;
     aContentOffsetEnd = selectOffset.end;
     aKeepWithAbove = PR_FALSE;
@@ -2112,6 +2131,8 @@ nsresult nsFrame::GetContentAndOffsetsFromPoint(nsPresContext* aCX,
   FrameTarget closest = GetSelectionClosestFrame(adjustedFrame, adjustedPoint);
 
   ContentOffsets offset = GetOffsetsOfFrame(closest.frame);
+  if (!offset.content)
+    return NS_ERROR_NULL_POINTER;
   // If the correct offset is at one end of a frame, use offset-based
   // calculation method
   if (closest.frameEdge) {
@@ -4521,6 +4542,19 @@ GetIBSpecialSibling(nsPresContext* aPresContext,
   return NS_OK;
 }
 
+static PRBool
+IsTablePseudo(nsIAtom* aPseudo)
+{
+  return
+    aPseudo == nsCSSAnonBoxes::tableOuter ||
+    aPseudo == nsCSSAnonBoxes::table ||
+    aPseudo == nsCSSAnonBoxes::tableRowGroup ||
+    aPseudo == nsCSSAnonBoxes::tableRow ||
+    aPseudo == nsCSSAnonBoxes::tableCell ||
+    aPseudo == nsCSSAnonBoxes::tableColGroup ||
+    aPseudo == nsCSSAnonBoxes::tableCol;
+}
+
 /**
  * Get the parent, corrected for the mangled frame tree resulting from
  * having a block within an inline.  The result only differs from the
@@ -4538,17 +4572,22 @@ GetCorrectedParent(nsPresContext* aPresContext, nsIFrame* aFrame,
   nsIFrame *parent = aFrame->GetParent();
   *aSpecialParent = parent;
   if (parent) {
-    nsIAtom* parentPseudo = parent->GetStyleContext()->GetPseudoType();
+    nsIAtom* pseudo = aFrame->GetStyleContext()->GetPseudoType();
 
     // if this frame itself is not scrolled-content, then skip any scrolled-content
     // parents since they're basically anonymous as far as the style system goes
-    if (parentPseudo == nsCSSAnonBoxes::scrolledContent) {
-      nsIAtom* pseudo = aFrame->GetStyleContext()->GetPseudoType();
-      if (pseudo != nsCSSAnonBoxes::scrolledContent) {
-        do {
-          parent = parent->GetParent();
-          parentPseudo = parent->GetStyleContext()->GetPseudoType();
-        } while (parentPseudo == nsCSSAnonBoxes::scrolledContent);
+    if (pseudo != nsCSSAnonBoxes::scrolledContent) {
+      while (parent->GetStyleContext()->GetPseudoType() ==
+             nsCSSAnonBoxes::scrolledContent) {
+        parent = parent->GetParent();
+      }
+    }
+
+    // If the frame is not a table pseudo frame, we want to move up
+    // the tree till we get to a non-table-pseudo frame.
+    if (!IsTablePseudo(pseudo)) {
+      while (IsTablePseudo(parent->GetStyleContext()->GetPseudoType())) {
+        parent = parent->GetParent();
       }
     }
 

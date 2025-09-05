@@ -76,7 +76,6 @@
 #include "nsIWebNavigation.h"
 #include "nsIBaseWindow.h"
 #include "nsIWebShellServices.h"
-#include "nsIDocumentLoader.h"
 #include "nsIScriptContext.h"
 #include "nsIXPConnect.h"
 #include "nsContentList.h"
@@ -84,6 +83,7 @@
 #include "nsIPrincipal.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIScrollableView.h"
+#include "nsAttrName.h"
 
 #include "nsNetCID.h"
 #include "nsIIOService.h"
@@ -1971,13 +1971,8 @@ nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
 
     // Remove all attributes from the root element
     while (count-- > 0) {
-      nsCOMPtr<nsIAtom> name, prefix;
-      PRInt32 nsid;
-
-      root->GetAttrNameAt(count, &nsid, getter_AddRefs(name),
-                          getter_AddRefs(prefix));
-
-      root->UnsetAttr(nsid, name, PR_FALSE);
+      const nsAttrName* name = root->GetAttrNameAt(count);
+      root->UnsetAttr(name->NamespaceID(), name->LocalName(), PR_FALSE);
     }
 
     // Remove the root from the childlist
@@ -2020,7 +2015,10 @@ nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
 
   // Zap the old title -- otherwise it would hang around until document.close()
   // (which might never come) if the new document doesn't explicitly set one.
+  // Void the title to make sure that we actually respect any titles set by the
+  // new document.
   SetTitle(EmptyString());
+  mDocumentTitle.SetIsVoid(PR_TRUE);
 
   // Store the security info of the caller now that we're done
   // resetting the document.

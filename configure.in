@@ -86,6 +86,7 @@ MOZJPEG=62
 MOZPNG=10207
 MOZZLIB=1.2.3
 NSPR_VERSION=4
+NSS_VERSION=3
 
 dnl Set the minimum version of toolkit libs used by mozilla
 dnl ========================================================
@@ -2015,19 +2016,19 @@ dnl the qsort routine under solaris is faulty
     SYSTEM_MAKEDEPEND=
     # $ORIGIN/.. is for shared libraries under components/ to locate shared
     # libraries one level up (e.g. libnspr4.so)
-    LDFLAGS="$LDFLAGS -R '\$\$ORIGIN:\$\$ORIGIN/..'"
+    LDFLAGS="$LDFLAGS -z ignore -R '\$\$ORIGIN:\$\$ORIGIN/..'"
     if test -z "$GNU_CC"; then
        NS_USE_NATIVE=1
        AC_DEFINE(NSCAP_DISABLE_DEBUG_PTR_TYPES)
        CFLAGS="$CFLAGS -xstrconst -xbuiltin=%all"
        CXXFLAGS="$CXXFLAGS -xbuiltin=%all -features=tmplife -norunpath"
-       LDFLAGS="-xildoff -zlazyload -zcombreloc $LDFLAGS"
+       LDFLAGS="-xildoff -z lazyload -z combreloc $LDFLAGS"
        MOZ_OPTIMIZE_FLAGS="-xO4"
        MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_PIC_FLAGS) $(DSO_LDOPTS) -h $@ -o $@'
-       MKCSHLIB='$(CC) $(CFLAGS) $(DSO_PIC_FLAGS) -G -Wl,-z -Wl,muldefs -h $@ -o $@'
-       MKSHLIB_FORCE_ALL='-Qoption ld -z,allextract'
+       MKCSHLIB='$(CC) $(CFLAGS) $(DSO_PIC_FLAGS) -G -z muldefs -h $@ -o $@'
+       MKSHLIB_FORCE_ALL='-z allextract'
        MKSHLIB_UNFORCE_ALL=''
-       DSO_LDOPTS='-G -Qoption ld -z,muldefs'
+       DSO_LDOPTS='-G -z muldefs'
        AR_LIST="$AR t"
        AR_EXTRACT="$AR x"
        AR_DELETE="$AR d"
@@ -2537,11 +2538,14 @@ esac
 
 dnl We don't want to link with libdl even if it's present on OS X, since
 dnl it's not used and not part of the default installation.
+dnl The same goes for BeOS.
 dnl We don't want to link against libm or libpthread on Darwin since
 dnl they both are just symlinks to libSystem and explicitly linking
 dnl against libSystem causes issues when debugging (see bug 299601).
 case $target in
 *-darwin*)
+    ;;
+*-beos*)
     ;;
 *)
     AC_CHECK_LIB(m, atan)
@@ -2753,7 +2757,6 @@ then
 			dnl -pthread links in -lc_r, so don't specify it explicitly.
 			if test "$ac_cv_have_dash_pthread" = "yes"; then
                 _PTHREAD_LDFLAGS="-pthread"
-                LDFLAGS="${_PTHREAD_LDFLAGS} ${LDFLAGS}"
 			fi
 			;;
 
@@ -2785,6 +2788,7 @@ then
 			fi
 			;;
 	esac
+    LDFLAGS="${_PTHREAD_LDFLAGS} ${LDFLAGS}"
 fi
 
 dnl ========================================================
@@ -2949,7 +2953,7 @@ if test "$ac_cv_func_gnu_get_libc_version" = "yes"; then
 fi
 
 case $target_os in
-    os2*|msvc*|mks*|cygwin*|mingw*|darwin*|wince*)
+    os2*|msvc*|mks*|cygwin*|mingw*|darwin*|wince*|beos*)
         ;;
     *)
     
@@ -3558,6 +3562,42 @@ if test -z "$MOZ_NATIVE_NSPR"; then
     fi
 fi
 
+dnl ========================================================
+dnl = If NSS was not detected in the system, 
+dnl = use the one in the source tree (mozilla/security/nss)
+dnl ========================================================
+
+MOZ_ARG_WITH_BOOL(system-nss,
+[  --with-system-nss      Use system installed NSS],
+    _USE_SYSTEM_NSS=1 )
+
+if test -n "$_USE_SYSTEM_NSS"; then
+    AM_PATH_NSS(3.0.0, [MOZ_NATIVE_NSS=1], [MOZ_NATIVE_NSS=])
+fi
+
+if test -n "$MOZ_NATIVE_NSS"; then
+   NSS_LIBS="$NSS_LIBS -lcrmf"
+else
+   NSS_CFLAGS='-I$(DIST)/public/nss'
+   NSS_DEP_LIBS='\\\
+        $(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \\\
+        $(DIST)/lib/$(DLL_PREFIX)smime'$NSS_VERSION'$(DLL_SUFFIX) \\\
+        $(DIST)/lib/$(DLL_PREFIX)ssl'$NSS_VERSION'$(DLL_SUFFIX) \\\
+        $(DIST)/lib/$(DLL_PREFIX)nss'$NSS_VERSION'$(DLL_SUFFIX) \\\
+        $(DIST)/lib/$(DLL_PREFIX)softokn'$NSS_VERSION'$(DLL_SUFFIX)'
+
+   if test -z "$GNU_CC" && test "$OS_ARCH" = "WINNT" -o "$OS_ARCH" = "WINCE" -o "$OS_ARCH" = "OS2"; then
+       NSS_LIBS='\\\
+        $(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \\\
+        $(DIST)/lib/$(LIB_PREFIX)smime'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
+        $(DIST)/lib/$(LIB_PREFIX)ssl'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
+        $(DIST)/lib/$(LIB_PREFIX)nss'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
+        $(DIST)/lib/$(LIB_PREFIX)softokn'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX)'
+   else
+       NSS_LIBS='-L$(LIBS_DIR)'" -lcrmf -lsmime$NSS_VERSION -lssl$NSS_VERSION -lnss$NSS_VERSION -lsoftokn$NSS_VERSION"
+   fi
+fi
+
 if test -z "$SKIP_LIBRARY_CHECKS"; then
 dnl system JPEG support
 dnl ========================================================
@@ -4038,7 +4078,7 @@ MOZ_BRANDING_DIRECTORY=
 MOZ_CALENDAR=
 MOZ_DBGRINFO_MODULES=
 MOZ_ENABLE_LIBXUL=
-MOZ_EXTENSIONS_ALL=" cookie wallet content-packs xml-rpc help p3p venkman inspector irc universalchardet typeaheadfind webservices spellcheck gnomevfs auth sroaming xmlterm datetime finger cview layout-debug tasks sql xforms permissions schema-validation reporter"
+MOZ_EXTENSIONS_ALL=" cookie wallet content-packs xml-rpc help p3p venkman inspector irc typeaheadfind webservices spellcheck gnomevfs sroaming xmlterm datetime finger cview layout-debug tasks sql xforms permissions schema-validation reporter"
 MOZ_IMG_DECODERS_DEFAULT="png gif jpeg bmp xbm icon"
 MOZ_IMG_ENCODERS_DEFAULT="png jpeg"
 MOZ_IPCD=
@@ -4050,6 +4090,7 @@ MOZ_LIBART_CFLAGS=
 MOZ_LIBART_LIBS=
 MOZ_MAIL_NEWS=
 MOZ_MATHML=1
+MOZ_AUTH_EXTENSION=1
 MOZ_NO_ACTIVEX_SUPPORT=1
 MOZ_NO_XPCOM_OBSOLETE=
 MOZ_NO_FAST_LOAD=
@@ -4074,9 +4115,11 @@ MOZ_SINGLE_PROFILE=
 MOZ_STATIC_MAIL_BUILD=
 MOZ_TIMELINE=
 MOZ_UI_LOCALE=en-US
+MOZ_UNIVERSALCHARDET=1
 MOZ_USE_NATIVE_UCONV=
 MOZ_V1_STRING_ABI=1
 MOZ_VIEW_SOURCE=1
+MOZ_WEBSERVICES=1
 MOZ_XMLEXTRAS=1
 MOZ_XPFE_COMPONENTS=1
 MOZ_XPINSTALL=1
@@ -4126,7 +4169,7 @@ suite)
   MOZ_SUITE=1
   MOZ_PROFILESHARING=
   MOZ_APP_VERSION=$SEAMONKEY_VERSION
-  MOZ_EXTENSIONS_DEFAULT=" cookie wallet content-packs xml-rpc help p3p venkman inspector irc universalchardet typeaheadfind webservices spellcheck gnomevfs auth sroaming permissions reporter"
+  MOZ_EXTENSIONS_DEFAULT=" cookie wallet content-packs xml-rpc help p3p venkman inspector irc typeaheadfind spellcheck gnomevfs sroaming permissions reporter"
   AC_DEFINE(MOZ_SUITE)
   ;;
 
@@ -4137,7 +4180,7 @@ browser)
   MOZ_UPDATER=1
   MOZ_PHOENIX=1
   MOZ_APP_VERSION=$FIREFOX_VERSION
-  MOZ_EXTENSIONS_DEFAULT=" cookie xml-rpc universalchardet webservices inspector gnomevfs auth permissions reporter"
+  MOZ_EXTENSIONS_DEFAULT=" cookie xml-rpc inspector gnomevfs permissions reporter"
   AC_DEFINE(MOZ_PHOENIX)
   ;;
 
@@ -4152,7 +4195,7 @@ minimo)
   MOZ_APP_VERSION=`cat $topsrcdir/minimo/config/version.txt`
   MOZ_COMPOSER=
   MOZ_ENABLE_POSTSCRIPT=
-  MOZ_EXTENSIONS_DEFAULT="xml-rpc webservices permissions spatialnavigation"
+  MOZ_EXTENSIONS_DEFAULT="xml-rpc permissions spatialnavigation"
   MOZ_IMG_DECODERS_DEFAULT="png gif jpeg"
   MOZ_IMG_ENCODERS_DEFAULT=
   MOZ_IMG_ENCODERS=
@@ -4161,6 +4204,7 @@ minimo)
   MOZ_LDAP_XPCOM=
   MOZ_MAIL_NEWS=
   MOZ_MATHML=
+  MOZ_AUTH_EXTENSION=
   MOZ_NO_ACTIVEX_SUPPORT=1
   MOZ_NO_XPCOM_OBSOLETE=1
   MOZ_NO_FAST_LOAD=1
@@ -4170,6 +4214,7 @@ minimo)
   MOZ_PROFILELOCKING=
   MOZ_PROFILESHARING=
   MOZ_SINGLE_PROFILE=1
+  MOZ_UNIVERSALCHARDET=
   MOZ_UPDATER=
   MOZ_USE_NATIVE_UCONV=1
   MOZ_V1_STRING_ABI=
@@ -4205,7 +4250,7 @@ mail)
   MOZ_STATIC_MAIL_BUILD=1
   MOZ_COMPOSER=1
   MOZ_APP_VERSION=$THUNDERBIRD_VERSION
-  MOZ_EXTENSIONS_DEFAULT=" wallet spellcheck webservices universalchardet auth"
+  MOZ_EXTENSIONS_DEFAULT=" wallet spellcheck"
   AC_DEFINE(MOZ_THUNDERBIRD)
   ;;
 
@@ -4229,6 +4274,7 @@ calendar)
   MOZ_CALENDAR=1
   MOZ_APP_VERSION=`cat $topsrcdir/calendar/sunbird/config/version.txt`
   MOZ_EXTENSIONS_DEFAULT=" pref"
+  MOZ_UNIVERSALCHARDET=
   AC_DEFINE(MOZ_SUNBIRD)
   ;;
 
@@ -4241,7 +4287,7 @@ xulrunner)
   MOZ_ENABLE_LIBXUL=1
   MOZ_APP_VERSION=$MOZILLA_VERSION
   MOZ_JAVAXPCOM=1
-  MOZ_EXTENSIONS_DEFAULT=" xml-rpc universalchardet webservices gnomevfs auth"
+  MOZ_EXTENSIONS_DEFAULT=" xml-rpc gnomevfs"
   AC_DEFINE(MOZ_XULRUNNER)
   ;;
 
@@ -4249,8 +4295,10 @@ macbrowser)
   MOZ_APP_NAME=mozilla
   MOZ_APP_DISPLAYNAME=Mozilla
   MOZ_APP_VERSION=$MOZILLA_VERSION
-  MOZ_EXTENSIONS_DEFAULT=" cookie universalchardet typeaheadfind permissions"
+  MOZ_EXTENSIONS_DEFAULT=" cookie typeaheadfind permissions"
+  MOZ_AUTH_EXTENSION=
   MOZ_PREF_EXTENSIONS=
+  MOZ_WEBSERVICES=
   AC_DEFINE(MOZ_MACBROWSER)
   ;;
 
@@ -4867,6 +4915,14 @@ if test -n "$MOZ_NO_FAST_LOAD"; then
 fi
 
 dnl ========================================================
+dnl NegotiateAuth
+dnl ========================================================
+MOZ_ARG_DISABLE_BOOL(negotiateauth,
+[  --disable-negotiateauth Disable GSS-API negotiation ],
+    MOZ_AUTH_EXTENSION=,
+    MOZ_AUTH_EXTENSION=1 )
+
+dnl ========================================================
 dnl XTF
 dnl ========================================================
 MOZ_ARG_DISABLE_BOOL(xtf,
@@ -4886,6 +4942,14 @@ MOZ_ARG_DISABLE_BOOL(xmlextras,
     MOZ_XMLEXTRAS=1 )
 
 dnl ========================================================
+dnl Webservices
+dnl ========================================================
+MOZ_ARG_DISABLE_BOOL(webservices,
+[  --disable-webservices Disable Webservices/SOAP support ],
+    MOZ_WEBSERVICES=,
+    MOZ_WEBSERVICES=1 )
+
+dnl ========================================================
 dnl Pref extensions (autoconfig and system-pref)
 dnl ========================================================
 MOZ_ARG_DISABLE_BOOL(pref-extensions,
@@ -4896,9 +4960,18 @@ MOZ_ARG_DISABLE_BOOL(pref-extensions,
   MOZ_PREF_EXTENSIONS=1 )
 
 dnl ========================================================
-dnl Javaconnect
+dnl = Universalchardet
 dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(javaconnect,
+MOZ_ARG_DISABLE_BOOL(universalchardet,
+[  --disable-universalchardet
+                          Disable universal encoding detection],
+  MOZ_UNIVERSALCHARDET=,
+  MOZ_UNIVERSALCHARDET=1 )
+
+dnl ========================================================
+dnl JavaXPCOM
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(javaxpcom,
 [  --enable-javaxpcom
                           Enable Java-XPCOM bridge],
     MOZ_JAVAXPCOM=1,
@@ -4948,7 +5021,6 @@ if test -n "${MOZ_JAVAXPCOM}"; then
     AC_MSG_ERROR([The programs javac and jar were not found.  Set \$JAVA_HOME or use --with-java-bin-path={java-bin-dir}.])
   fi
 fi
-
 
 dnl ========================================================
 dnl = Enable compilation of specific extension modules
@@ -5021,14 +5093,29 @@ if test `echo "$MOZ_EXTENSIONS" | grep -c xforms` -ne 0 && test `echo "$MOZ_EXTE
     MOZ_EXTENSIONS=`echo $MOZ_EXTENSIONS | sed -e 's|xforms||g'`
 fi
 
+if test `echo "$MOZ_EXTENSIONS" | grep -c auth` -ne 0; then
+    AC_MSG_WARN([auth is no longer an extension, use --disable-negotiateauth to disable.])
+    MOZ_EXTENSIONS=`echo $MOZ_EXTENSIONS | sed -e 's|auth||g'`
+fi
+
 if test `echo "$MOZ_EXTENSIONS" | grep -c xmlextras` -ne 0; then
     AC_MSG_WARN([xmlextras is no longer an extension, use --disable-xmlextras to disable.])
     MOZ_EXTENSIONS=`echo $MOZ_EXTENSIONS | sed -e 's|xmlextras||g'`
 fi
 
+if test `echo "$MOZ_EXTENSIONS" | grep -c webservices` -ne 0; then
+    AC_MSG_WARN([webservices is no longer an extension, use --disable-webservices to disable.])
+    MOZ_EXTENSIONS=`echo $MOZ_EXTENSIONS | sed -e 's|webservices||g'`
+fi
+
 if test `echo "$MOZ_EXTENSIONS" | grep -c pref` -ne 0; then
     AC_MSG_WARN([pref is no longer an extension, use --disable-pref-extensions to disable.])
     MOZ_EXTENSIONS=`echo $MOZ_EXTENSIONS | sed -e 's|pref||g'`
+fi
+
+if test `echo "$MOZ_EXTENSIONS" | grep -c universalchardet` -ne 0; then
+    AC_MSG_WARN([universalchardet is no longer an extension, use --disable-universalchardet to disable.])
+    MOZ_EXTENSIONS=`echo $MOZ_EXTENSIONS | sed -e 's|universalchardet||g'`
 fi
 
 if test `echo "$MOZ_EXTENSIONS" | grep -c java` -ne 0; then
@@ -6812,9 +6899,11 @@ AC_SUBST(MOZ_GFX_TOOLKIT)
 AC_SUBST(MOZ_GFX_TOOLKIT_LDFLAGS)
 AC_SUBST(MOZ_UPDATE_XTERM)
 AC_SUBST(MINIMO)
+AC_SUBST(MOZ_AUTH_EXTENSION)
 AC_SUBST(MOZ_MATHML)
 AC_SUBST(MOZ_XTF)
 AC_SUBST(MOZ_XMLEXTRAS)
+AC_SUBST(MOZ_WEBSERVICES)
 AC_SUBST(MOZ_PREF_EXTENSIONS)
 AC_SUBST(MOZ_SVG)
 AC_SUBST(MOZ_SVG_FOREIGNOBJECT)
@@ -6890,6 +6979,7 @@ AC_SUBST(MOZ_ENABLE_LIBXUL)
 AC_SUBST(ENABLE_TESTS)
 AC_SUBST(IBMBIDI)
 AC_SUBST(SUNCTL)
+AC_SUBST(MOZ_UNIVERSALCHARDET)
 AC_SUBST(ACCESSIBILITY)
 AC_SUBST(MOZ_XPINSTALL)
 AC_SUBST(MOZ_VIEW_SOURCE)
@@ -6984,6 +7074,11 @@ AC_SUBST(MOZ_PNG_LIBS)
 AC_SUBST(NSPR_CFLAGS)
 AC_SUBST(NSPR_LIBS)
 AC_SUBST(MOZ_NATIVE_NSPR)
+
+AC_SUBST(NSS_CFLAGS)
+AC_SUBST(NSS_LIBS)
+AC_SUBST(NSS_DEP_LIBS)
+AC_SUBST(MOZ_NATIVE_NSS)
 
 AC_SUBST(CFLAGS)
 AC_SUBST(CXXFLAGS)

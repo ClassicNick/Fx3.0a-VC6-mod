@@ -67,7 +67,7 @@ class  AutoSetInstantiatingToFalse;
  *   contract)
  * - mFrameLoader is null while this node is not in a document (XXX this
  *   invariant only exists due to nsFrameLoader suckage and needs to go away)
- * - mInstantiating is true while in ObjectURIChanged (it may be true in other
+ * - mInstantiating is true while in LoadObject (it may be true in other
  *   cases as well). Only the function that set mInstantiating should trigger
  *   frame construction or notifications like ContentStatesChanged or flushes.
  */
@@ -136,11 +136,11 @@ class nsObjectLoadingContent : public nsImageLoadingContent
      * @see the URI-taking version of this function for a detailed description
      *      of how a plugin will be found.
      */
-    nsresult ObjectURIChanged(const nsAString& aURI,
-                              PRBool aNotify,
-                              const nsCString& aTypeHint = EmptyCString(),
-                              PRBool aForceType = PR_FALSE,
-                              PRBool aForceLoad = PR_FALSE);
+    nsresult LoadObject(const nsAString& aURI,
+                        PRBool aNotify,
+                        const nsCString& aTypeHint = EmptyCString(),
+                        PRBool aForceType = PR_FALSE,
+                        PRBool aForceLoad = PR_FALSE);
     /**
      * Loads the object from the given URI.
      *
@@ -171,11 +171,11 @@ class nsObjectLoadingContent : public nsImageLoadingContent
      * @param aForceLoad If true, the object will be refetched even if the URI
      *                   is the same as the currently-loaded object.
      */
-    nsresult ObjectURIChanged(nsIURI* aURI,
-                              PRBool aNotify,
-                              const nsCString& aTypeHint = EmptyCString(),
-                              PRBool aForceType = PR_FALSE,
-                              PRBool aForceLoad = PR_FALSE);
+    nsresult LoadObject(nsIURI* aURI,
+                        PRBool aNotify,
+                        const nsCString& aTypeHint = EmptyCString(),
+                        PRBool aForceType = PR_FALSE,
+                        PRBool aForceLoad = PR_FALSE);
 
     enum Capabilities {
       eSupportImages    = PR_BIT(0), // Images are supported (imgILoader)
@@ -332,6 +332,8 @@ class nsObjectLoadingContent : public nsImageLoadingContent
     // Blocking status from content policy
     PRBool                      mUserDisabled  : 1;
     PRBool                      mSuppressed    : 1;
+    // Whether we fell back because of an unsupported type
+    PRBool                      mTypeUnsupported:1;
 
     friend struct nsAsyncInstantiateEvent;
 };

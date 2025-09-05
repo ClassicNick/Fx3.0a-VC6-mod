@@ -3,6 +3,7 @@
 <!ENTITY prefs.label                  "Preferences...">
 <!ENTITY quit.label                   "Quit">
 <!ENTITY newtab.label                 "New Tab">
+<!ENTITY bookmarks.label              "Bookmarks">
 
 <!-- Toolbar -->
 
@@ -30,8 +31,9 @@
 
 <!-- menu urlabr view options --> 
 
-<!ENTITY decksb.label                  "Search By Tag" >
-<!ENTITY decksearch.label              "Search Mode" >
+<!ENTITY decksb.label                  "Search del.icio.us" >
+<!ENTITY decksearch.label              "Google Search" >
+<!ENTITY deckdefault.label             "Browse Sites" >
 
 <!-- toolbar view options --> 
 

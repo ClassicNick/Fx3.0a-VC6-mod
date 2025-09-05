@@ -254,6 +254,16 @@ intl/ctl/src/hindiShaper/Makefile
 "
 fi
 
+if [ "$MOZ_UNIVERSALCHARDET" ] ; then
+MAKEFILES_intl="$MAKEFILES_intl
+extensions/universalchardet/Makefile
+extensions/universalchardet/src/Makefile
+extensions/universalchardet/src/base/Makefile
+extensions/universalchardet/src/xpcom/Makefile
+extensions/universalchardet/tests/Makefile
+"
+fi
+
 MAKEFILES_js="
 js/Makefile
 js/src/Makefile
@@ -466,6 +476,12 @@ intl/locale/idl/Makefile
 $MAKEFILES_js
 modules/libpref/public/Makefile
 "
+
+if [ "$MOZ_AUTH_EXTENSION" ]; then
+    MAKEFILES_netwerk="$MAKEFILES_netwerk
+        extensions/auth/Makefile
+    "
+fi
 
 MAKEFILES_uriloader="
 uriloader/Makefile
@@ -1356,6 +1372,27 @@ if [ "$MOZ_XMLEXTRAS" ]; then
 "
 fi
 
+if [ "$MOZ_WEBSERVICES" ]; then
+    MAKEFILES_content="$MAKEFILES_content
+        extensions/webservices/Makefile
+        extensions/webservices/build/Makefile
+        extensions/webservices/build/src/Makefile
+        extensions/webservices/interfaceinfo/Makefile
+        extensions/webservices/interfaceinfo/src/Makefile
+        extensions/webservices/proxy/Makefile
+        extensions/webservices/proxy/src/Makefile
+        extensions/webservices/public/Makefile
+        extensions/webservices/security/Makefile
+        extensions/webservices/security/src/Makefile
+        extensions/webservices/schema/Makefile
+        extensions/webservices/schema/src/Makefile
+        extensions/webservices/soap/Makefile
+        extensions/webservices/soap/src/Makefile
+        extensions/webservices/wsdl/Makefile
+        extensions/webservices/wsdl/src/Makefile
+"
+fi
+
 if [ "$MOZ_JAVAXPCOM" ]; then
     MAKEFILES_javaxpcom="
         extensions/java/Makefile
@@ -1428,9 +1465,6 @@ for extension in $MOZ_EXTENSIONS; do
         finger ) MAKEFILES_extensions="$MAKEFILES_extensions
             extensions/finger/Makefile
             " ;;
-        auth ) MAKEFILES_extensions="$MAKEFILES_extensions
-            extensions/auth/Makefile
-            " ;;
         gnomevfs ) MAKEFILES_extensions="$MAKEFILES_extensions
             extensions/gnomevfs/Makefile
             " ;;
@@ -1483,11 +1517,6 @@ for extension in $MOZ_EXTENSIONS; do
         tridentprofile ) MAKEFILES_extensions="$MAKEFILES_extensions
             $MAKEFILES_tridentprofile"
             ;;
-        universalchardet ) MAKEFILES_extensions="$MAKEFILES_extensions
-            extensions/universalchardet/Makefile
-            extensions/universalchardet/src/Makefile
-            extensions/universalchardet/tests/Makefile
-            " ;;
         venkman ) MAKEFILES_extensions="$MAKEFILES_extensions
             extensions/venkman/Makefile
             extensions/venkman/resources/Makefile
@@ -1500,24 +1529,6 @@ for extension in $MOZ_EXTENSIONS; do
             extensions/wallet/signonviewer/Makefile
             extensions/wallet/walletpreview/Makefile
             extensions/wallet/build/Makefile
-            " ;;
-        webservices ) MAKEFILES_extensions="$MAKEFILES_extensions
-            extensions/webservices/Makefile
-            extensions/webservices/build/Makefile
-            extensions/webservices/build/src/Makefile
-            extensions/webservices/interfaceinfo/Makefile
-            extensions/webservices/interfaceinfo/src/Makefile
-            extensions/webservices/proxy/Makefile
-            extensions/webservices/proxy/src/Makefile
-            extensions/webservices/public/Makefile
-            extensions/webservices/security/Makefile
-            extensions/webservices/security/src/Makefile
-            extensions/webservices/schema/Makefile
-            extensions/webservices/schema/src/Makefile
-            extensions/webservices/soap/Makefile
-            extensions/webservices/soap/src/Makefile
-            extensions/webservices/wsdl/Makefile
-            extensions/webservices/wsdl/src/Makefile
             " ;;
         xforms ) MAKEFILES_extensions="$MAKEFILES_extensions
             extensions/xforms/Makefile

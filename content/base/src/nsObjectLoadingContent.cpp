@@ -48,7 +48,8 @@
 #include "nsIPresShell.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptSecurityManager.h"
-#include "nsIURIContentListener.h"
+#include "nsIStreamConverterService.h"
+#include "nsIURILoader.h"
 #include "nsIURL.h"
 #include "nsIWebNavigation.h"
 #include "nsIWebNavigationInfo.h"
@@ -58,6 +59,7 @@
 #include "prlog.h"
 
 #include "nsAutoPtr.h"
+#include "nsCURILoader.h"
 #include "nsContentPolicyUtils.h"
 #include "nsContentUtils.h"
 #include "nsDocShellCID.h"
@@ -243,16 +245,28 @@ class AutoNotifier {
 class AutoFallback {
   public:
     AutoFallback(nsObjectLoadingContent* aContent, const nsresult* rv)
-      : mContent(aContent), mResult(rv) {}
+      : mContent(aContent), mResult(rv), mTypeUnsupported(PR_FALSE) {}
     ~AutoFallback() {
       if (NS_FAILED(*mResult)) {
         LOG(("OBJLC [%p]: rv=%08x, falling back\n", mContent, *mResult));
         mContent->Fallback(PR_FALSE);
+        if (mTypeUnsupported) {
+          mContent->mTypeUnsupported = PR_TRUE;
+        }
       }
+    }
+
+    /**
+     * This function can be called to indicate that, after falling back,
+     * mTypeUnsupported should be set to true.
+     */
+    void TypeUnsupported() {
+      mTypeUnsupported = PR_TRUE;
     }
   private:
     nsObjectLoadingContent* mContent;
     const nsresult* mResult;
+    PRBool mTypeUnsupported;
 };
 
 /**
@@ -299,6 +313,7 @@ nsObjectLoadingContent::nsObjectLoadingContent()
   , mInstantiating(PR_FALSE)
   , mUserDisabled(PR_FALSE)
   , mSuppressed(PR_FALSE)
+  , mTypeUnsupported(PR_FALSE)
 {
 }
 
@@ -342,7 +357,8 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest *aRequest, nsISupports *aConte
   // UnloadContent will set our type to null; need to be sure to only set it to
   // the real value on success
   ObjectType newType = GetTypeOfContent(mContentType);
-  LOG(("OBJLC [%p]: OnStartRequest: Old type=%u New Type=%u\n", this, mType, newType));
+  LOG(("OBJLC [%p]: OnStartRequest: Content Type=<%s> Old type=%u New Type=%u\n",
+       this, mContentType.get(), mType, newType));
   if (mType != newType) {
     UnloadContent();
   }
@@ -386,23 +402,15 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest *aRequest, nsISupports *aConte
       nsCOMPtr<nsIDocShell> docShell;
       rv = mFrameLoader->GetDocShell(getter_AddRefs(docShell));
       NS_ENSURE_SUCCESS(rv, rv);
-      nsCOMPtr<nsIURIContentListener> listener(do_GetInterface(docShell));
-      NS_ASSERTION(listener, "No content listener on the docshell?");
 
-#ifdef DEBUG
-      // Since this is a supported document type, the docshell must support it.
-      nsXPIDLCString str;
-      PRBool canHandle;
-      rv = listener->CanHandleContent(mContentType.get(), PR_TRUE,
-                                      getter_Copies(str), &canHandle);
-      NS_ASSERTION(NS_FAILED(rv) || canHandle, "Docshell should handle this!");
-#endif
+      nsCOMPtr<nsIInterfaceRequestor> req(do_QueryInterface(docShell));
+      NS_ASSERTION(req, "Docshell must be an ifreq");
 
-      PRBool abort;
-      rv = listener->DoContent(mContentType.get(), PR_TRUE, aRequest,
-                               getter_AddRefs(mFinalListener), &abort);
+      nsCOMPtr<nsIURILoader>
+        uriLoader(do_GetService(NS_URI_LOADER_CONTRACTID, &rv));
       NS_ENSURE_SUCCESS(rv, rv);
-      NS_ASSERTION(!abort, "Docshell content listeners shouldn't abort loads");
+      rv = uriLoader->OpenChannel(chan, nsIURILoader::DONT_RETARGET, req,
+                                  getter_AddRefs(mFinalListener));
       break;
     }
     case eType_Plugin:
@@ -427,11 +435,18 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest *aRequest, nsISupports *aConte
     case eType_Loading:
       NS_NOTREACHED("Should not have a loading type here!");
     case eType_Null:
+      LOG(("OBJLC [%p]: Unsupported type, falling back\n", this));
+      // Need to fallback here (instead of using the case below), so that we can
+      // set mTypeUnsupported without it being overwritten. This is also why we
+      // return early.
+      Fallback(PR_FALSE);
+
       // Do nothing, but fire the plugin not found event if needed
       if (IsUnsupportedPlugin(thisContent)) {
         FirePluginNotFound(thisContent);
       }
-      break;
+      mTypeUnsupported = PR_TRUE;
+      return NS_BINDING_ABORTED;
   }
 
   if (mFinalListener) {
@@ -534,7 +549,7 @@ nsObjectLoadingContent::EnsureInstantiation(nsIPluginInstance** aInstance)
       eventQ->RevokeEvents(this);
     }
   } else {
-    // mInstantiating is true if we're in ObjectURIChanged; we shouldn't
+    // mInstantiating is true if we're in LoadObject; we shouldn't
     // recreate frames in that case, we'd confuse that function.
     if (mInstantiating) {
       return NS_OK;
@@ -669,9 +684,13 @@ nsObjectLoadingContent::ObjectState() const
         return NS_EVENT_STATE_SUPPRESSED;
       if (mUserDisabled)
         return NS_EVENT_STATE_USERDISABLED;
-      
-      // Otherwise, just broken
-      return NS_EVENT_STATE_BROKEN;
+
+      // Otherwise, broken
+      PRInt32 state = NS_EVENT_STATE_BROKEN;
+      if (mTypeUnsupported) {
+        state |= NS_EVENT_STATE_TYPE_UNSUPPORTED;
+      }
+      return state;
   };
   NS_NOTREACHED("unknown type?");
   // this return statement only exists to avoid a compile warning
@@ -680,16 +699,16 @@ nsObjectLoadingContent::ObjectState() const
 
 // <protected>
 nsresult
-nsObjectLoadingContent::ObjectURIChanged(const nsAString& aURI,
-                                         PRBool aNotify,
-                                         const nsCString& aTypeHint,
-                                         PRBool aForceType,
-                                         PRBool aForceLoad)
+nsObjectLoadingContent::LoadObject(const nsAString& aURI,
+                                   PRBool aNotify,
+                                   const nsCString& aTypeHint,
+                                   PRBool aForceType,
+                                   PRBool aForceLoad)
 {
   LOG(("OBJLC [%p]: Loading object: URI string=<%s> notify=%i type=<%s> forcetype=%i forceload=%i\n",
        this, NS_ConvertUTF16toUTF8(aURI).get(), aNotify, aTypeHint.get(), aForceType, aForceLoad));
 
-  NS_ASSERTION(!mInstantiating, "ObjectURIChanged was reentered?");
+  NS_ASSERTION(!mInstantiating, "LoadObject was reentered?");
 
   // Avoid StringToURI in order to use the codebase attribute as base URI
   nsCOMPtr<nsIContent> thisContent = 
@@ -711,15 +730,15 @@ nsObjectLoadingContent::ObjectURIChanged(const nsAString& aURI,
     return NS_OK;
   }
 
-  return ObjectURIChanged(uri, aNotify, aTypeHint, aForceType, aForceLoad);
+  return LoadObject(uri, aNotify, aTypeHint, aForceType, aForceLoad);
 }
 
 nsresult
-nsObjectLoadingContent::ObjectURIChanged(nsIURI* aURI,
-                                         PRBool aNotify,
-                                         const nsCString& aTypeHint,
-                                         PRBool aForceType,
-                                         PRBool aForceLoad)
+nsObjectLoadingContent::LoadObject(nsIURI* aURI,
+                                   PRBool aNotify,
+                                   const nsCString& aTypeHint,
+                                   PRBool aForceType,
+                                   PRBool aForceLoad)
 {
   LOG(("OBJLC [%p]: Loading object: URI=<%p> notify=%i type=<%s> forcetype=%i forceload=%i\n",
        this, aURI, aNotify, aTypeHint.get(), aForceType, aForceLoad));
@@ -748,7 +767,7 @@ nsObjectLoadingContent::ObjectURIChanged(nsIURI* aURI,
   // AutoSetInstantiatingToFalse is instantiated after AutoNotifier, so that if
   // the AutoNotifier triggers frame construction, events can be posted as
   // appropriate.
-  NS_ASSERTION(!mInstantiating, "ObjectURIChanged was reentered?");
+  NS_ASSERTION(!mInstantiating, "LoadObject was reentered?");
   mInstantiating = PR_TRUE;
   AutoSetInstantiatingToFalse autoset(this);
 
@@ -862,7 +881,7 @@ nsObjectLoadingContent::ObjectURIChanged(nsIURI* aURI,
     switch (newType) {
       case eType_Image:
         // Don't notify, because we will take care of that ourselves.
-        rv = ImageURIChanged(aURI, aForceLoad, PR_FALSE);
+        rv = LoadImage(aURI, aForceLoad, PR_FALSE);
         break;
       case eType_Plugin:
         rv = Instantiate(aTypeHint, aURI);
@@ -877,6 +896,7 @@ nsObjectLoadingContent::ObjectURIChanged(nsIURI* aURI,
         if (IsUnsupportedPlugin(thisContent)) {
           FirePluginNotFound(thisContent);
         }
+        fallback.TypeUnsupported();
 
         break;
     };
@@ -1014,7 +1034,7 @@ nsObjectLoadingContent::RemovedFromDocument()
     mFrameLoader->Destroy();
     mFrameLoader = nsnull;
 
-    // Clear the current URI, so that ObjectURIChanged doesn't think that we
+    // Clear the current URI, so that LoadObject doesn't think that we
     // have already loaded the content.
     mURI = nsnull;
   }
@@ -1088,9 +1108,27 @@ nsObjectLoadingContent::IsSupportedDocument(const nsCString& aMimeType)
     rv = info->IsTypeSupported(aMimeType, webNav, &supported);
   }
 
-  return NS_SUCCEEDED(rv) &&
-    supported != nsIWebNavigationInfo::UNSUPPORTED &&
-    supported != nsIWebNavigationInfo::PLUGIN;
+  if (NS_SUCCEEDED(rv)) {
+    if (supported == nsIWebNavigationInfo::UNSUPPORTED) {
+      // Try a stream converter
+      // NOTE: We treat any type we can convert from as a supported type. If a
+      // type is not actually supported, the URI loader will detect that and
+      // return an error, and we'll fallback.
+      nsCOMPtr<nsIStreamConverterService> convServ =
+        do_GetService("@mozilla.org/streamConverters;1");
+      PRBool canConvert = PR_FALSE;
+      if (convServ) {
+        rv = convServ->CanConvert(aMimeType.get(), "*/*", &canConvert);
+      }
+
+      return NS_SUCCEEDED(rv) && canConvert;
+    }
+
+    // Don't want to support plugins as documents
+    return supported != nsIWebNavigationInfo::PLUGIN;
+  }
+
+  return PR_FALSE;
 }
 
 void
@@ -1103,7 +1141,7 @@ nsObjectLoadingContent::UnloadContent()
     mFrameLoader = nsnull;
   }
   mType = eType_Null;
-  mUserDisabled = mSuppressed = PR_FALSE;
+  mUserDisabled = mSuppressed = mTypeUnsupported = PR_FALSE;
 }
 
 void

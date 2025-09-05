@@ -63,6 +63,7 @@
 #include "nsMathMLContainerFrame.h"
 #include "nsAutoPtr.h"
 #include "nsStyleSet.h"
+#include "nsCSSFrameConstructor.h"
 
 NS_DEFINE_CID(kInlineFrameCID, NS_INLINE_FRAME_CID);
 

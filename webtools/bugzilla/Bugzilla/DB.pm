@@ -336,6 +336,13 @@ sub bz_setup_database {
     }
 }
 
+# The defauly implementation just returns what you passed-in. This function
+# really exists just to be overridden in Bugzilla::DB::Mysql.
+sub bz_enum_initial_values {
+    my ($self, $enum_defaults) = @_;
+    return $enum_defaults;
+}
+
 #####################################################################
 # Schema Modification Methods
 #####################################################################
@@ -1124,6 +1131,13 @@ formatted SQL command have prefix C<sql_>. All other methods have prefix C<bz_>.
  Returns:     formatted SQL for limiting number of rows returned from query
               with optional offset (e.g. LIMIT 1, 1) (scalar)
 
+=item C<sql_from_days>
+
+ Description: Outputs SQL syntax for converting Julian days to date.
+              Abstract method, should be overriden by database specific code.
+ Params:      $days = days to convert to date
+ Returns:     formatted SQL for returning Julian days in dates. (scalar)
+
 =item C<sql_to_days>
 
  Description: Outputs SQL syntax for converting date to Julian days.
@@ -1272,6 +1286,26 @@ These methods return information about data in the database.
  Params:      $table = name of table containing serial column (scalar)
               $column = name of column containing serial data type (scalar)
  Returns:     Last inserted ID (scalar)
+
+=back
+
+
+=head2 Database Setup Methods
+
+These methods are used by the Bugzilla installation programs to set up
+the database.
+
+=over 4
+
+=item C<bz_enum_initial_values(\%enum_defaults)>
+
+ Description: For an upgrade or an initial installation, provides
+              what the values should be for the "enum"-type fields,
+              such as version, op_sys, rep_platform, etc.
+ Params:      \%enum_defaults - The default initial list of values for
+                                each enum field. A hash, with the field
+                                names pointing to an arrayref of values.
+ Returns:     A hashref with the correct initial values for the enum fields.
 
 =back
 

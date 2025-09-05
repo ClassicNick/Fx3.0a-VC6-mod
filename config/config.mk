@@ -136,39 +136,6 @@ FINAL_LINK_LIBS = $(DEPTH)/config/final-link-libs
 FINAL_LINK_COMPS = $(DEPTH)/config/final-link-comps
 FINAL_LINK_COMP_NAMES = $(DEPTH)/config/final-link-comp-names
 
-# 
-# NSS libs needed for final link in static build
-# 
-
-NSS_LIBS	= \
-	$(LIBS_DIR) \
-	$(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \
-	-lsmime3 \
-	-lssl3 \
-	-lnss3 \
-	-lsoftokn3 \
-	$(NULL)
-
-ifneq (,$(filter OS2 WINNT WINCE, $(OS_ARCH)))
-ifndef GNU_CC
-NSS_LIBS	= \
-	$(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \
-	$(DIST)/lib/$(LIB_PREFIX)smime3.$(IMPORT_LIB_SUFFIX) \
-	$(DIST)/lib/$(LIB_PREFIX)ssl3.$(IMPORT_LIB_SUFFIX) \
-	$(DIST)/lib/$(LIB_PREFIX)nss3.$(IMPORT_LIB_SUFFIX) \
-	$(DIST)/lib/$(LIB_PREFIX)softokn3.$(IMPORT_LIB_SUFFIX) \
-	$(NULL)
-endif
-endif
-
-NSS_DEP_LIBS	= \
-	$(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \
-	$(DIST)/lib/$(DLL_PREFIX)smime3$(DLL_SUFFIX) \
-	$(DIST)/lib/$(DLL_PREFIX)ssl3$(DLL_SUFFIX) \
-	$(DIST)/lib/$(DLL_PREFIX)nss3$(DLL_SUFFIX) \
-	$(DIST)/lib/$(DLL_PREFIX)softokn3$(DLL_SUFFIX) \
-	$(NULL)
-
 MOZ_UNICHARUTIL_LIBS = $(DIST)/lib/$(LIB_PREFIX)unicharutil_s.$(LIB_SUFFIX)
 MOZ_REGISTRY_LIBS          = $(DIST)/lib/$(LIB_PREFIX)mozreg_s.$(LIB_SUFFIX)
 MOZ_WIDGET_SUPPORT_LIBS    = $(DIST)/lib/$(LIB_PREFIX)widgetsupport_s.$(LIB_SUFFIX)
@@ -780,6 +747,7 @@ endif
 # import lib, because that import lib will collide with the name of a
 # static version of the same library.
 ifeq ($(GNU_LD)$(OS_ARCH),WINNT)
+GARBAGE += fake-import fake-import.exp
 ifdef IS_COMPONENT
 LDFLAGS += -IMPLIB:fake-import
 DELETE_AFTER_LINK = fake-import.exp
@@ -897,4 +865,15 @@ DEFINES += -DBUILD_ID=$(BUILD_ID)
 
 ifeq (,$(filter WINCE WINNT OS2,$(OS_ARCH)))
 RUN_TEST_PROGRAM = $(DIST)/bin/run-mozilla.sh
+endif
+
+#
+# Java macros
+#
+
+# Make sure any compiled classes work with at least JVM 1.4
+JAVAC_FLAGS += -source 1.4
+
+ifdef MOZ_DEBUG
+JAVAC_FLAGS += -g
 endif

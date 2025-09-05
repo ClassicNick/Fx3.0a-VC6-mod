@@ -133,6 +133,12 @@ sub sql_istring {
     return $string;
 }
 
+sub sql_from_days {
+    my ($self, $days) = @_;
+
+    return "FROM_DAYS($days)";
+}
+
 sub sql_to_days {
     my ($self, $date) = @_;
 
@@ -262,6 +268,17 @@ sub bz_setup_database {
         print "\nISAM->MyISAM table conversion done.\n\n";
     }
 
+    # There is a bug in MySQL 4.1.0 - 4.1.15 that makes certain SELECT
+    # statements fail after a SHOW TABLE STATUS: 
+    # http://bugs.mysql.com/bug.php?id=13535
+    # This is a workaround, a dummy SELECT to reset the LAST_INSERT_ID.
+    my @tables = $self->bz_table_list_real();
+    if (lsearch(\@tables, 'bugs') != -1
+        && $self->bz_column_info_real("bugs", "bug_id"))
+    {
+        $self->do('SELECT 1 FROM bugs WHERE bug_id IS NULL');
+    }
+
     # Versions of Bugzilla before the existence of Bugzilla::DB::Schema did 
     # not provide explicit names for the table indexes. This means
     # that our upgrades will not be reliable, because we look for the name
@@ -277,11 +294,31 @@ sub bz_setup_database {
     # has existed at least since Bugzilla 2.8, and probably earlier.
     # For fixing the inconsistent naming of Schema indexes,
     # we also check for one of those inconsistently-named indexes.
-    my @tables = $self->bz_table_list_real();
     if ( scalar(@tables) && 
          ($self->bz_index_info_real('bugs', 'assigned_to') ||
           $self->bz_index_info_real('flags', 'flags_bidattid_idx')) )
     {
+
+        # This is a check unrelated to the indexes, to see if people are
+        # upgrading from 2.18 or below, but somehow have a bz_schema table
+        # already. This only happens if they have done a mysqldump into
+        # a database without doing a DROP DATABASE first.
+        # We just do the check here since this check is a reliable way
+        # of telling that we are upgrading from a version pre-2.20.
+        if (grep($_ eq 'bz_schema', $self->bz_table_list_real())) {
+            die("\nYou are upgrading from a version before 2.20, but the"
+              . " bz_schema\ntable already exists. This means that you"
+              . " restored a mysqldump into\nthe Bugzilla database without"
+              . " first dropping the already-existing\nBugzilla database,"
+              . " at some point. Whenever you restore a Bugzilla\ndatabase"
+              . " backup, you must always drop the entire database first.\n\n"
+              . "Please drop your Bugzilla database and restore it from a"
+              . " backup that\ndoes not contain the bz_schema table. If for"
+              . " some reason you cannot\ndo this, you can connect to your"
+              . " MySQL database and drop the bz_schema\ntable, as a last"
+              . " resort.\n");
+        }
+
         my $bug_count = $self->selectrow_array("SELECT COUNT(*) FROM bugs");
         # We estimate one minute for each 3000 bugs, plus 3 minutes just
         # to handle basic MySQL stuff.
@@ -502,6 +539,38 @@ sub bz_setup_database {
 
 }
 
+
+sub bz_enum_initial_values {
+    my ($self, $enum_defaults) = @_;
+    my %enum_values = %$enum_defaults;
+    # Get a complete description of the 'bugs' table; with DBD::MySQL
+    # there isn't a column-by-column way of doing this.  Could use
+    # $dbh->column_info, but it would go slower and we would have to
+    # use the undocumented mysql_type_name accessor to get the type
+    # of each row.
+    my $sth = $self->prepare("DESCRIBE bugs");
+    $sth->execute();
+    # Look for the particular columns we are interested in.
+    while (my ($thiscol, $thistype) = $sth->fetchrow_array()) {
+        if (defined $enum_values{$thiscol}) {
+            # this is a column of interest.
+            my @value_list;
+            if ($thistype and ($thistype =~ /^enum\(/)) {
+                # it has an enum type; get the set of values.
+                while ($thistype =~ /'([^']*)'(.*)/) {
+                    push(@value_list, $1);
+                    $thistype = $2;
+                }
+            }
+            if (@value_list) {
+                # record the enum values found.
+                $enum_values{$thiscol} = \@value_list;
+            }
+        }
+    }
+
+    return \%enum_values;
+}
 
 #####################################################################
 # MySQL-specific Database-Reading Methods

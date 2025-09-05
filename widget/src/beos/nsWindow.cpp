@@ -289,6 +289,7 @@ nsWindow::nsWindow() : nsBaseWidget()
 	mEnabled            = PR_TRUE;
 	mIsScrolling        = PR_FALSE;
 	mParent             = nsnull;
+	mWindowParent       = nsnull;
 	mUpdateArea = do_CreateInstance(kRegionCID);
 	mForeground = NS_RGBA(0xFF,0xFF,0xFF,0xFF);
 	mBackground = mForeground;
@@ -525,19 +526,21 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 		if (nsnull != aParent)
 		{
 			// nsIWidget parent dispatch
-			MethodInfo info(this, this, nsWindow::CREATE, 7, args);
+			MethodInfo info(this, this, nsSwitchToUIThread::CREATE, 7, args);
 			toolkit->CallMethod(&info);
 		}
 		else
 		{
 			// Native parent dispatch
-			MethodInfo info(this, this, nsWindow::CREATE_NATIVE, 5, args);
+			MethodInfo info(this, this, nsSwitchToUIThread::CREATE_NATIVE, 5, args);
 			toolkit->CallMethod(&info);
 		}
 		return NS_OK;
 	}
 
 	mParent = aParent;
+	// Useful shortcut, wondering if we can use it also in GetParent() instead nsIWidget* type mParent.
+	mWindowParent = (nsWindow *)aParent;
 	SetBounds(aRect);
 
 	BRect winrect = BRect(aRect.x, aRect.y, aRect.x + aRect.width - 1, aRect.y + aRect.height - 1);
@@ -634,14 +637,14 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 				return NS_ERROR_OUT_OF_MEMORY;
 	
 			w->AddChild(mView);
-			if (eWindowType_dialog==mWindowType && mParent)
+			// I'm wondering if we can move part of that code to above
+			if (eWindowType_dialog == mWindowType && mWindowParent) 
 			{
-				nsIWidget * topparent = nsnull;
-				for (topparent = mParent; nsnull != topparent->GetParent(); topparent = topparent->GetParent());
-				BWindow* subsetparent = NULL;
-				if (topparent)
-					subsetparent = (BWindow *)(topparent->GetNativeData(NS_NATIVE_WINDOW));
-
+				nsWindow *topparent = mWindowParent;
+				while(topparent->mWindowParent)
+					topparent = topparent->mWindowParent;
+				// may be got via mView and mView->Window() of topparent explicitly	
+				BWindow* subsetparent = (BWindow *)topparent->GetNativeData(NS_NATIVE_WINDOW);
 				if (subsetparent)
 				{
 					mBWindowFeel = B_FLOATING_SUBSET_WINDOW_FEEL;
@@ -649,11 +652,16 @@ nsresult nsWindow::StandardWindowCreate(nsIWidget *aParent,
 					w->AddToSubset(subsetparent);
 				}
 			} 
-			else if (eWindowType_popup==mWindowType && aNativeParent && ((BView *)aNativeParent)->Window())
+			else if (eWindowType_popup == mWindowType  && aNativeParent)
 			{
-				w->AddToSubset(((BView *)aNativeParent)->Window());
+				// Due poor BeOS capability to control windows hierarchy/z-order we use this workaround
+				// to show eWindowType_popup (e.g. drop-downs) over floating (subset) parent window.
+				if (((BView *)aNativeParent)->Window() &&  ((BView *)aNativeParent)->Window()->IsFloating())
+				{
+					mBWindowFeel = B_FLOATING_ALL_WINDOW_FEEL;
+					w->SetFeel(mBWindowFeel);
+				}
 			}
-
 			
 			DispatchStandardEvent(NS_CREATE);
 			return NS_OK;
@@ -720,7 +728,7 @@ NS_METHOD nsWindow::Destroy()
 	nsToolkit* toolkit = (nsToolkit *)mToolkit;
 	if (toolkit != nsnull && !toolkit->IsGuiThread())
 	{
-		MethodInfo info(this, this, nsWindow::DESTROY);
+		MethodInfo info(this, this, nsSwitchToUIThread::DESTROY);
 		toolkit->CallMethod(&info);
 		return NS_ERROR_FAILURE;
 	}
@@ -738,11 +746,12 @@ NS_METHOD nsWindow::Destroy()
 	{
 		// prevent the widget from causing additional events
 		mEventCallback = nsnull;
-
+	
 		if (mView->LockLooper())
 		{
 			// destroy from inside
 			BWindow	*w = mView->Window();
+			// Do we need here null-check for w ?
 			w->Sync();
 			if (mView->Parent())
 			{
@@ -771,7 +780,8 @@ NS_METHOD nsWindow::Destroy()
 			nsBaseWidget::Destroy();
 		}
 	}
-	mParent = 0;
+	mParent = nsnull;
+	mWindowParent = nsnull;
 	return NS_OK;
 }
 
@@ -1240,7 +1250,7 @@ NS_METHOD nsWindow::SetFocus(PRBool aRaise)
 	{
 		uint32 args[1];
 		args[0] = (uint32)aRaise;
-		MethodInfo info(this, this, nsWindow::SET_FOCUS, 1, args);
+		MethodInfo info(this, this, nsSwitchToUIThread::SET_FOCUS, 1, args);
 		toolkit->CallMethod(&info);
 		return NS_ERROR_FAILURE;
 	}
@@ -1838,7 +1848,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 
 	switch (info->methodId)
 	{
-	case nsWindow::CREATE:
+	case nsSwitchToUIThread::CREATE:
 		NS_ASSERTION(info->nArgs == 7, "Wrong number of arguments to CallMethod");
 		Create((nsIWidget*)(info->args[0]),
 		       (nsRect&)*(nsRect*)(info->args[1]),
@@ -1849,7 +1859,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		       (nsWidgetInitData*)(info->args[6]));
 		break;
 
-	case nsWindow::CREATE_NATIVE:
+	case nsSwitchToUIThread::CREATE_NATIVE:
 		NS_ASSERTION(info->nArgs == 7, "Wrong number of arguments to CallMethod");
 		Create((nsNativeWidget)(info->args[0]),
 		       (nsRect&)*(nsRect*)(info->args[1]),
@@ -1860,19 +1870,19 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		       (nsWidgetInitData*)(info->args[6]));
 		break;
 
-	case nsWindow::DESTROY:
+	case nsSwitchToUIThread::DESTROY:
 		NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
 		Destroy();
 		break;
 
-	case nsWindow::CLOSEWINDOW :
+	case nsSwitchToUIThread::CLOSEWINDOW :
 		NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
 		if (eWindowType_popup != mWindowType && eWindowType_child != mWindowType)
-			DealWithPopups(CLOSEWINDOW,nsPoint(0,0));
+			DealWithPopups(nsSwitchToUIThread::CLOSEWINDOW,nsPoint(0,0));
 		DispatchStandardEvent(NS_DESTROY);
 		break;
 
-	case nsWindow::SET_FOCUS:
+	case nsSwitchToUIThread::SET_FOCUS:
 		NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
 		if (!mEnabled)
 			return false;
@@ -1880,7 +1890,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		break;
 
 #ifdef DEBUG_FOCUS
-	case nsWindow::GOT_FOCUS:
+	case nsSwitchToUIThread::GOT_FOCUS:
 		NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
 		if (!mEnabled)
 			return false;
@@ -1888,7 +1898,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 			printf("Wrong view to get focus\n");*/
 		break;
 #endif
-	case nsWindow::KILL_FOCUS:
+	case nsSwitchToUIThread::KILL_FOCUS:
 		NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
 		if ((uint32)info->args[0] == (uint32)mView)
 			DispatchFocus(NS_LOSTFOCUS);
@@ -1906,7 +1916,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 #endif
 		break;
 
-	case nsWindow::BTNCLICK :
+	case nsSwitchToUIThread::BTNCLICK :
 		{
 			NS_ASSERTION(info->nArgs == 5, "Wrong number of arguments to CallMethod");
 			if (!mEnabled)
@@ -1922,7 +1932,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 			{
 				BPoint p(((int32 *)info->args)[1], ((int32 *)info->args)[2]);
 				mView->ConvertToScreen(&p);
-				rollup = DealWithPopups(nsWindow::ONMOUSE, nsPoint(p.x, p.y));
+				rollup = DealWithPopups(nsSwitchToUIThread::ONMOUSE, nsPoint(p.x, p.y));
 				mView->UnlockLooper();
 			}
 			// Drop click event - bug 314330
@@ -1943,7 +1953,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONWHEEL :
+	case nsSwitchToUIThread::ONWHEEL :
 		{
 			NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
 			// avoid mistargeting
@@ -1972,7 +1982,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONKEY :
+	case nsSwitchToUIThread::ONKEY :
 		NS_ASSERTION(info->nArgs == 6, "Wrong number of arguments to CallMethod");
 		if (((int32 *)info->args)[0] == NS_KEY_DOWN)
 		{
@@ -1991,7 +2001,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONPAINT :
+	case nsSwitchToUIThread::ONPAINT :
 		NS_ASSERTION(info->nArgs == 1, "Wrong number of arguments to CallMethod");
 		{
 			if ((uint32)mView != ((uint32 *)info->args)[0])
@@ -2008,11 +2018,11 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONRESIZE :
+	case nsSwitchToUIThread::ONRESIZE :
 		{
 			NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
 			if (eWindowType_popup != mWindowType && eWindowType_child != mWindowType)
-				DealWithPopups(ONRESIZE,nsPoint(0,0));
+				DealWithPopups(nsSwitchToUIThread::ONRESIZE,nsPoint(0,0));
 			// This should be called only from BWindow::FrameResized()
 			if (!mIsTopWidgetWindow  || !mView  || !mView->Window())
 				return false;
@@ -2033,7 +2043,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONMOUSE :
+	case nsSwitchToUIThread::ONMOUSE :
 		{
 			NS_ASSERTION(info->nArgs == 4, "Wrong number of arguments to CallMethod");
 			if (!mEnabled)
@@ -2045,7 +2055,7 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONDROP :
+	case nsSwitchToUIThread::ONDROP :
 		{
 			NS_ASSERTION(info->nArgs == 4, "Wrong number of arguments to CallMethod");
 
@@ -2066,24 +2076,29 @@ bool nsWindow::CallMethod(MethodInfo *info)
 		}
 		break;
 
-	case nsWindow::ONACTIVATE:
+	case nsSwitchToUIThread::ONACTIVATE:
 		NS_ASSERTION(info->nArgs == 2, "Wrong number of arguments to CallMethod");
 		if (!mEnabled || eWindowType_popup == mWindowType || 0 == mView->Window())
 			return false;
 		if ((BWindow *)info->args[1] != mView->Window())
 			return false;
-		if (*mEventCallback || eWindowType_child == mWindowType)
+		if (mEventCallback || eWindowType_child == mWindowType )
 		{
 			bool active = (bool)info->args[0];
 			if (!active) 
 			{
 				if (eWindowType_dialog == mWindowType || 
 				    eWindowType_toplevel == mWindowType)
-					DealWithPopups(ONACTIVATE,nsPoint(0,0));
-
+					DealWithPopups(nsSwitchToUIThread::ONACTIVATE,nsPoint(0,0));
 				//Testing if BWindow is really deactivated.
 				if (!mView->Window()->IsActive())
 				{
+					// BeOS is poor in windows hierarchy and variations support. In lot of aspects.
+					// Here is workaround for flacky Activate() handling for B_FLOATING windows.
+					// We should force parent (de)activation to allow main window to regain control after closing floating dialog.
+					if (mWindowParent &&  mView->Window()->IsFloating())
+						mWindowParent->DispatchFocus(NS_ACTIVATE);
+
 					DispatchFocus(NS_DEACTIVATE);
 #if defined(BeIME)
 					nsIMEBeOS::GetIME()->DispatchCancelIME();
@@ -2092,37 +2107,43 @@ bool nsWindow::CallMethod(MethodInfo *info)
 			} 
 			else 
 			{
+
 				if (mView->Window()->IsActive())
-					DispatchFocus(NS_ACTIVATE);
+				{
+					// See comment above.
+					if (mWindowParent &&  mView->Window()->IsFloating())
+						mWindowParent->DispatchFocus(NS_DEACTIVATE);
 					
-				if (mView && mView->Window())
-					gLastActiveWindow = mView->Window();
+					DispatchFocus(NS_ACTIVATE);
+					if (mView && mView->Window())
+						gLastActiveWindow = mView->Window();
+				}
 			}
 		}
 		break;
 
-	case nsWindow::ONMOVE:
+	case nsSwitchToUIThread::ONMOVE:
 		{
 			NS_ASSERTION(info->nArgs == 0, "Wrong number of arguments to CallMethod");
 			nsRect r;
 			// We use this only for tracking whole window moves
 			GetScreenBounds(r);		
 			if (eWindowType_popup != mWindowType && eWindowType_child != mWindowType)
-				DealWithPopups(ONMOVE,nsPoint(0,0));
+				DealWithPopups(nsSwitchToUIThread::ONMOVE,nsPoint(0,0));
 			OnMove(r.x, r.y);
 		}
 		break;
 		
-	case nsWindow::ONWORKSPACE:
+	case nsSwitchToUIThread::ONWORKSPACE:
 		{
 			NS_ASSERTION(info->nArgs == 2, "Wrong number of arguments to CallMethod");
 			if (eWindowType_popup != mWindowType && eWindowType_child != mWindowType)
-				DealWithPopups(ONWORKSPACE,nsPoint(0,0));
+				DealWithPopups(nsSwitchToUIThread::ONWORKSPACE,nsPoint(0,0));
 		}
 		break;
 
 #if defined(BeIME)
- 	case nsWindow::ONIME:
+ 	case nsSwitchToUIThread::ONIME:
  		//No assertion used, as number of arguments varies here
  		if (mView && mView->LockLooper())
  		{
@@ -2808,7 +2829,7 @@ bool nsWindowBeOS::QuitRequested( void )
 	if (w && (t = w->GetToolkit()) != 0)
 	{
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::CLOSEWINDOW)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::CLOSEWINDOW)))
 			t->CallMethodAsync(info);
 		NS_RELEASE(t);
 	}
@@ -2857,7 +2878,7 @@ void nsWindowBeOS::FrameMoved(BPoint origin)
 	if (w && (t = w->GetToolkit()) != 0) 
 	{
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONMOVE)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONMOVE)))
 			t->CallMethodAsync(info);
 		NS_RELEASE(t);
 	}
@@ -2874,7 +2895,7 @@ void nsWindowBeOS::WindowActivated(bool active)
 		args[0] = (uint32)active;
 		args[1] = (uint32)this;
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONACTIVATE, 2, args)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONACTIVATE, 2, args)))
 			t->CallMethodAsync(info);
 		NS_RELEASE(t);
 	}
@@ -2892,7 +2913,7 @@ void  nsWindowBeOS::WorkspacesChanged(uint32 oldworkspace, uint32 newworkspace)
 		args[0] = newworkspace;
 		args[1] = oldworkspace;
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONWORKSPACE, 2, args)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONWORKSPACE, 2, args)))
 			t->CallMethodAsync(info);
 		NS_RELEASE(t);
 	}	
@@ -2909,7 +2930,7 @@ void  nsWindowBeOS::FrameResized(float width, float height)
 	if (w && (t = w->GetToolkit()) != 0)
 	{
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONRESIZE)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONRESIZE)))
 		{
 			t->CallMethodAsync(info);
 			//Memorize fact of sending message
@@ -2950,7 +2971,7 @@ void nsViewBeOS::Draw(BRect updateRect)
 	if (w && (t = w->GetToolkit()) != 0)
 	{
 		MethodInfo *info = nsnull;
-		info = new MethodInfo(w, w, nsWindow::ONPAINT, 1, args);
+		info = new MethodInfo(w, w, nsSwitchToUIThread::ONPAINT, 1, args);
 		if (info)
 		{
 			t->CallMethodAsync(info);
@@ -3025,7 +3046,7 @@ void nsViewBeOS::MouseDown(BPoint point)
 	args[3] = clicks;
 	args[4] = modifiers();
 	MethodInfo *info = nsnull;
-	if (nsnull != (info = new MethodInfo(w, w, nsWindow::BTNCLICK, 5, args)))
+	if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::BTNCLICK, 5, args)))
 		t->CallMethodAsync(info);
 	NS_RELEASE(t);
 }
@@ -3082,7 +3103,7 @@ void nsViewBeOS::MouseMoved(BPoint point, uint32 transit, const BMessage *msg)
  	}
  	
 	MethodInfo *moveInfo = nsnull;
-	if (nsnull != (moveInfo = new MethodInfo(w, w, nsWindow::ONMOUSE, 4, args)))
+	if (nsnull != (moveInfo = new MethodInfo(w, w, nsSwitchToUIThread::ONMOUSE, 4, args)))
 		t->CallMethodAsync(moveInfo);
 	NS_RELEASE(t);
 }
@@ -3119,7 +3140,7 @@ void nsViewBeOS::MouseUp(BPoint point)
 	args[3] = 0;
 	args[4] = modifiers();
 	MethodInfo *info = nsnull;
-	if (nsnull != (info = new MethodInfo(w, w, nsWindow::BTNCLICK, 5, args)))
+	if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::BTNCLICK, 5, args)))
 		t->CallMethodAsync(info);
 	NS_RELEASE(t);
 }
@@ -3145,7 +3166,7 @@ void nsViewBeOS::MessageReceived(BMessage *msg)
 		args[2] = (uint32) aPoint.y;
 		args[3] = modifiers();
 
-		MethodInfo *info = new MethodInfo(w, w, nsWindow::ONDROP, 4, args);
+		MethodInfo *info = new MethodInfo(w, w, nsSwitchToUIThread::ONDROP, 4, args);
 		t->CallMethodAsync(info);
 		return;
 	}
@@ -3194,7 +3215,7 @@ void nsViewBeOS::MessageReceived(BMessage *msg)
 			{
 					
 				MethodInfo *info = nsnull;
-				if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONWHEEL, 1, args)))
+				if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONWHEEL, 1, args)))
 				{
 					t->CallMethodAsync(info);
 					fWheelDispatched = false;
@@ -3245,7 +3266,7 @@ void nsViewBeOS::KeyDown(const char *bytes, int32 numBytes)
 		args[4] = keycode;
 		args[5] = rawcode;
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONKEY, 6, args)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONKEY, 6, args)))
 			t->CallMethodAsync(info);
 		NS_RELEASE(t);
 	}
@@ -3279,7 +3300,7 @@ void nsViewBeOS::KeyUp(const char *bytes, int32 numBytes)
 		args[4] = keycode;
 		args[5] = rawcode;
 		MethodInfo *info = nsnull;
-		if (nsnull != (info = new MethodInfo(w, w, nsWindow::ONKEY, 6, args)))
+		if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::ONKEY, 6, args)))
 			t->CallMethodAsync(info);
 		NS_RELEASE(t);
 	}
@@ -3298,13 +3319,13 @@ void nsViewBeOS::MakeFocus(bool focused)
 		MethodInfo *info = nsnull;
 		if (!focused)
 		{
-			if (nsnull != (info = new MethodInfo(w, w, nsWindow::KILL_FOCUS),1,args))
+			if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::KILL_FOCUS),1,args))
 				t->CallMethodAsync(info);
 		}
 #ifdef DEBUG_FOCUS
 		else
 		{
-			if (nsnull != (info = new MethodInfo(w, w, nsWindow::GOT_FOCUS),1,args))
+			if (nsnull != (info = new MethodInfo(w, w, nsSwitchToUIThread::GOT_FOCUS),1,args))
 				t->CallMethodAsync(info);
 		}
 #endif		
@@ -3327,7 +3348,7 @@ void nsViewBeOS::DoIME(BMessage *msg)
 		if (args) 
 		{
 			msg->Flatten((char*)args, size);
-			MethodInfo *info = new MethodInfo(w, w, nsWindow::ONIME, argc, args);
+			MethodInfo *info = new MethodInfo(w, w, nsSwitchToUIThread::ONIME, argc, args);
 			if (info) 
 			{
 				t->CallMethodAsync(info);

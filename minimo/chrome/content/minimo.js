@@ -679,11 +679,15 @@ function BrowserViewRSS() {
   * Toggles menu item and deckmode.
   */
 function BrowserViewDeckSB() {
-  if(gDeckMode==1) BrowserSetDeck(0,null); else BrowserSetDeck(1,document.getElementById("command_ViewDeckSB"));
+  BrowserSetDeck(1,document.getElementById("command_ViewDeckSB"));
 }
 
 function BrowserViewDeckSearch() {
-  if(gDeckMode==2) BrowserSetDeck(0,null); else BrowserSetDeck(2,document.getElementById("command_ViewDeckSearch"));
+  BrowserSetDeck(2,document.getElementById("command_ViewDeckSearch"));
+}
+
+function BrowserViewDeckDefault() {
+  BrowserSetDeck(0,document.getElementById("command_ViewDeckDefault"));
 }
 
 
@@ -796,9 +800,12 @@ function BrowserPopupShowing () {
   var selectedRange=getBrowser().selectedBrowser.contentDocument.getSelection();
  
   /* Enable Copy */
+
   if(selectedRange.toString()) {
 
     document.getElementById("item-copy").style.display="block";
+  } else {
+    document.getElementById("item-copy").style.display="none";
   }
   
   /* Enable Paste - Can paste only if the focused element has a value attribute. :) 
@@ -808,7 +815,9 @@ function BrowserPopupShowing () {
     if(document.commandDispatcher.focusedElement.nodeName=="INPUT"||document.commandDispatcher.focusedElement.nodeName=="TEXTAREA") {
       if(DoClipCheckPaste()) {
         document.getElementById("item-paste").style.display="block";	
-      }
+      } else {
+        document.getElementById("item-paste").style.display="none";	
+	}
     }
   }
 }
@@ -1057,11 +1066,13 @@ function URLBarEntered()
     // SB mode
     if(gDeckMode==1) {
 	DoBrowserSB(gURLBar.value);
+      BrowserSetDeck(0,document.getElementById("command_ViewDeckDefault"));
 	return;
     }
 
     if(gDeckMode==2) {
 	DoBrowserSearchURLBAR(gURLBar.value);
+      BrowserSetDeck(0,document.getElementById("command_ViewDeckDefault"));
       return;
     }
     /* Other normal cases */ 
@@ -1160,13 +1171,6 @@ function MenuPopupHidden() {
  */
  
 function BrowserSetDeck(dMode,menuElement) {
-
- if(gDeckMenuChecked!=null) {
-    gDeckMenuChecked.setAttribute("checked","false");
- } 
- gDeckMenuChecked=menuElement;
-
- if(menuElement!=null) menuElement.setAttribute("checked","true");
 
  gDeckMode=dMode;
  if(dMode==2) document.getElementById("urlbar-deck").className='search';

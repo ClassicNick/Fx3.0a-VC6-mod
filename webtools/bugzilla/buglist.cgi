@@ -60,6 +60,11 @@ my $template = Bugzilla->template;
 my $vars = {};
 my $buffer = $cgi->query_string();
 
+# We have to check the login here to get the correct footer if an error is
+# thrown and to prevent a logged out user to use QuickSearch if 'requirelogin'
+# is turned 'on'.
+Bugzilla->login();
+
 if (length($buffer) == 0) {
     print $cgi->header(-refresh=> '10; URL=query.cgi');
     ThrowUserError("buglist_parameters_required");
@@ -89,9 +94,6 @@ if ($dotweak) {
                                          action => "modify",
                                          object => "multiple_bugs"});
     GetVersionTable();
-}
-else {
-    Bugzilla->login();
 }
 
 # Hack to support legacy applications that think the RDF ctype is at format=rdf.
@@ -515,6 +517,8 @@ if (!$params->param('query_format')) {
 #       "DESC" is added to the end of the field to sort in descending order, 
 #       and the redundant short_desc column is removed when the client
 #       requests "all" columns.
+# Note: For column names using aliasing (SQL "<field> AS <alias>"), the column
+#       ID needs to be identical to the field ID for list ordering to work.
 
 my $columns = {};
 sub DefineColumn {
@@ -558,7 +562,13 @@ DefineColumn("keywords"          , "bugs.keywords"              , "Keywords"    
 DefineColumn("estimated_time"    , "bugs.estimated_time"        , "Estimated Hours"  );
 DefineColumn("remaining_time"    , "bugs.remaining_time"        , "Remaining Hours"  );
 DefineColumn("actual_time"       , "(SUM(ldtime.work_time)*COUNT(DISTINCT ldtime.bug_when)/COUNT(bugs.bug_id)) AS actual_time", "Actual Hours");
-DefineColumn("percentage_complete","(100*((SUM(ldtime.work_time)*COUNT(DISTINCT ldtime.bug_when)/COUNT(bugs.bug_id))/((SUM(ldtime.work_time)*COUNT(DISTINCT ldtime.bug_when)/COUNT(bugs.bug_id))+bugs.remaining_time))) AS percentage_complete", "% Complete"); 
+DefineColumn("percentage_complete",
+    "(CASE WHEN (SUM(ldtime.work_time)*COUNT(DISTINCT ldtime.bug_when)/COUNT(bugs.bug_id)) " .
+    "            + bugs.remaining_time = 0.0 " .
+    "THEN 0.0 " .
+    "ELSE 100*((SUM(ldtime.work_time)*COUNT(DISTINCT ldtime.bug_when)/COUNT(bugs.bug_id)) " .
+    "     /((SUM(ldtime.work_time)*COUNT(DISTINCT ldtime.bug_when)/COUNT(bugs.bug_id)) + bugs.remaining_time)) " .
+    "END) AS percentage_complete"                               , "% Complete"); 
 DefineColumn("relevance"         , "relevance"                  , "Relevance"        );
 DefineColumn("deadline"          , $dbh->sql_date_format('bugs.deadline', '%Y-%m-%d') . " AS deadline", "Deadline");
 
@@ -757,7 +767,7 @@ if ($order) {
                 $fragment = trim($fragment);
                 # Accept an order fragment matching a column name, with
                 # asc|desc optionally following (to specify the direction)
-                if (grep($fragment =~ /^\Q$_\E(\s+(asc|desc))?$/, @columnnames)) {
+                if (grep($fragment =~ /^\Q$_\E(\s+(asc|desc))?$/, @columnnames, keys(%$columns))) {
                     next if $fragment =~ /\brelevance\b/ && !$fulltext;
                     push(@order, $fragment);
                 }
@@ -784,21 +794,29 @@ else {
     $order = "bugs.bug_status, bugs.priority, map_assigned_to.login_name, bugs.bug_id";
 }
 
+# Make sure ORDER BY columns are included in the field list.
 foreach my $fragment (split(/,/, $order)) {
     $fragment = trim($fragment);
     if (!grep($fragment =~ /^\Q$_\E(\s+(asc|desc))?$/, @selectnames)) {
         # Add order columns to selectnames
         # The fragment has already been validated
         $fragment =~ s/\s+(asc|desc)$//;
-        # This fixes an issue where columns being used in the ORDER BY statement
-        # can have the SQL that generates the value changed to become invalid -
-        # mainly affects time tracking.
+
+        # While newer fragments contain IDs for aliased columns, older
+        # LASTORDER cookies (or bookmarks) may contain full names.
+        # Convert them to an ID here.
         if ($fragment =~ / AS (\w+)/) {
-            $fragment = $columns->{$1}->{'name'};
+            $fragment = $columns->{$1}->{'id'};
         }
-        else {
-            $fragment =~ tr/a-zA-Z\.0-9\-_//cd;
+
+        $fragment =~ tr/a-zA-Z\.0-9\-_//cd;
+
+        # If the order fragment is an ID, we need its corresponding name
+        # to be in the field list.
+        if (exists($columns->{$fragment})) {
+            $fragment = $columns->{$fragment}->{'name'};
         }
+
         push @selectnames, $fragment;
     }
 }

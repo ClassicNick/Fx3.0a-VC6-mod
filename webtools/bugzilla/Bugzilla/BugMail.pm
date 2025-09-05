@@ -138,7 +138,7 @@ sub ProcessOneBug {
 
     my %values = %{$dbh->selectrow_hashref(
         'SELECT ' . join(',', @::log_columns) . ',
-                lastdiffed AS start, NOW() AS end
+                lastdiffed AS start, LOCALTIMESTAMP(0) AS end
            FROM bugs WHERE bug_id = ?',
         undef, $id)};
     
@@ -633,14 +633,22 @@ sub MessageToMTA {
     my $headers;
 
     if (Param('utf8') and (!is_7bit_clean($header) or !is_7bit_clean($body))) {
-        ($headers, $body) = encode_message($header, $body);
+        ($headers, $body) = encode_message($msg);
     } else {
         my @header_lines = split(/\n/, $header);
         $headers = new Mail::Header \@header_lines, Modify => 0;
     }
 
+    my $from = $headers->get('from');
+
     if (Param("mail_delivery_method") eq "sendmail" && $^O =~ /MSWin32/i) {
-        open(SENDMAIL, '|' . SENDMAIL_EXE . ' -t -i') ||
+        my $cmd = '|' . SENDMAIL_EXE . ' -t -i';
+        if ($from) {
+            # We're on Windows, thus no danger of command injection
+            # via $from. In other words, it is safe to embed $from.
+            $cmd .= qq# -f"$from"#;
+        }
+        open(SENDMAIL, $cmd) ||
             die "Failed to execute " . SENDMAIL_EXE . ": $!\n";
         print SENDMAIL $headers->as_string;
         print SENDMAIL "\n";
@@ -652,12 +660,18 @@ sub MessageToMTA {
     my @args;
     if (Param("mail_delivery_method") eq "sendmail") {
         push @args, "-i";
+        if ($from) {
+            push(@args, "-f$from");
+        }
     }
     if (Param("mail_delivery_method") eq "sendmail" && !Param("sendmailnow")) {
         push @args, "-ODeliveryMode=deferred";
     }
     if (Param("mail_delivery_method") eq "smtp") {
         push @args, Server => Param("smtpserver");
+        if ($from) {
+            $ENV{'MAILADDRESS'} = $from;
+        }
     }
     my $mailer = new Mail::Mailer Param("mail_delivery_method"), @args;
     if (Param("mail_delivery_method") eq "testfile") {
@@ -683,21 +697,26 @@ sub encode_qp_words {
 }
 
 sub encode_message {
-    my ($header, $body) = @_;
-
-    # read header into MIME::Entity
+    my ($msg) = @_;
 
     my $parser = MIME::Parser->new;
     $parser->output_to_core(1);
     $parser->tmp_to_core(1);
-    my $entity = $parser->parse_data($header);
+    my $entity = $parser->parse_data($msg);
+    $entity = encode_message_entity($entity);
+
+    my @header_lines = split(/\n/, $entity->header_as_string);
+    my $head = new Mail::Header \@header_lines, Modify => 0;
+
+    my $body = $entity->body_as_string;
+
+    return ($head, $body);
+}
+
+sub encode_message_entity {
+    my ($entity) = @_;
+
     my $head = $entity->head;
-
-    # set charset to UTF-8
-
-    $head->mime_attr('Content-Type' => 'text/plain')
-        unless defined $head->mime_attr('content-type');
-    $head->mime_attr('Content-Type.charset' => 'UTF-8');
 
     # encode the subject
 
@@ -731,23 +750,38 @@ sub encode_message {
 
     # process the body
 
-    if (!is_7bit_clean($body)) {
-        # count number of 7-bit chars, and use quoted-printable if more
-        # than half the message is 7-bit clean
-        my $count = ($body =~ tr/\x20-\x7E\x0A\x0D//);
-        if ($count > length($body) / 2) {
-            $head->mime_attr('Content-Transfer-Encoding' => 'quoted-printable');
-            $body = encode_qp($body);
-        } else {
-            $head->mime_attr('Content-Transfer-Encoding' => 'base64');
-            $body = encode_base64($body);
+    if (scalar($entity->parts)) {
+        my $newparts = [];
+        foreach my $part ($entity->parts) {
+            my $newpart = encode_message_entity($part);
+            push @$newparts, $newpart;
         }
+        $entity->parts($newparts);
+    }
+    else {
+        # Extract the body from the entity, for examination
+        # At this point, we can rely on MIME::Tools to do our encoding for us!
+        my $bodyhandle = $entity->bodyhandle;
+        my $body = $bodyhandle->as_string;
+        if (!is_7bit_clean($body)) {
+            # count number of 7-bit chars, and use quoted-printable if more
+            # than half the message is 7-bit clean
+            my $count = ($body =~ tr/\x20-\x7E\x0A\x0D//);
+            if ($count > length($body) / 2) {
+                $head->mime_attr('Content-Transfer-Encoding' => 'quoted-printable');
+            } else {
+                $head->mime_attr('Content-Transfer-Encoding' => 'base64');
+            }
+        }
+
+        # Set the content/type and charset of the part, if not set
+        $head->mime_attr('Content-Type' => 'text/plain')
+            unless defined $head->mime_attr('content-type');
+        $head->mime_attr('Content-Type.charset' => 'UTF-8');
     }
 
-    # done
-    
     $head->fold(75);
-    return ($head, $body);
+    return $entity;
 }
 
 # Send the login name and password of the newly created account to the user.

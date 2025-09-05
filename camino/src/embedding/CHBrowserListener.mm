@@ -153,7 +153,7 @@ CHBrowserListener::CreateChromeWindow(nsIWebBrowserChrome *parent,
   // apply scrollbar chrome flags
   if (!(chromeFlags & nsIWebBrowserChrome::CHROME_SCROLLBARS))
   {
-    nsCOMPtr<nsIDOMWindow> contentWindow = dont_AddRef([childView getContentWindow]);
+    nsCOMPtr<nsIDOMWindow> contentWindow = [childView getContentWindow];
     if (contentWindow)
     {
       nsCOMPtr<nsIDOMBarProp> scrollbars;
@@ -244,6 +244,7 @@ CHBrowserListener::GetChromeFlags(PRUint32 *aChromeFlags)
   *aChromeFlags = mChromeFlags;
   return NS_OK;
 }
+
 NS_IMETHODIMP 
 CHBrowserListener::SetChromeFlags(PRUint32 aChromeFlags)
 {

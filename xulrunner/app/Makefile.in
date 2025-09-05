@@ -47,8 +47,6 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MOZILLA_INTERNAL_API = 1
-
 DIRS		= profile
 
 PREF_JS_EXPORTS = $(srcdir)/xulrunner.js
@@ -62,6 +60,10 @@ else
 PROGRAM = xulrunner-bin$(BIN_SUFFIX)
 endif
 DEFINES += -DXULRUNNER_PROGNAME=\"xulrunner\"
+
+ifdef MOZ_JAVAXPCOM
+DEFINES += -DMOZ_JAVAXPCOM
+endif
 
 REQUIRES = \
         xpcom \
@@ -103,6 +105,7 @@ endif
 LIBS += \
 	$(EXTRA_DSO_LIBS) \
 	$(MOZ_JS_LIBS) \
+	$(DIST)/lib/$(LIB_PREFIX)xpcomglue_s.$(LIB_SUFFIX) \
 	$(XPCOM_LIBS) \
 	$(NSPR_LIBS) \
 	$(TK_LIBS) \

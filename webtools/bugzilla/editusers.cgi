@@ -138,7 +138,8 @@ if ($action eq 'search') {
             my $grouplist = join(',',
                 @{Bugzilla::User->flatten_group_membership($group->id)});
             $query .= " $nextCondition profiles.userid = ugm.user_id " .
-                      "AND ugm.group_id IN($grouplist)";
+                      "AND ugm.group_id IN($grouplist) " .
+                      "AND ugm.isbless = 0";
         }
         $query .= ' ORDER BY profiles.login_name';
 
@@ -180,6 +181,8 @@ if ($action eq 'search') {
     # Lock tables during the check+creation session.
     $dbh->bz_lock_tables('profiles WRITE',
                          'profiles_activity WRITE',
+                         'groups READ',
+                         'user_group_map WRITE',
                          'email_setting WRITE',
                          'namedqueries READ',
                          'whine_queries READ',
@@ -203,8 +206,6 @@ if ($action eq 'search') {
     insert_new_user($login, $realname, $password, $disabledtext);
     my $new_user_id = $dbh->bz_last_key('profiles', 'userid');
     $dbh->bz_unlock_tables();
-    my $newprofile = new Bugzilla::User($new_user_id);
-    $newprofile->derive_regexp_groups();
     userDataToVars($new_user_id);
 
     $vars->{'message'} = 'account_created';

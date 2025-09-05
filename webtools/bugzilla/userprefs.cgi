@@ -97,16 +97,18 @@ sub SaveAccount {
             $cgi->param('new_password1')
               || ThrowUserError("new_password_missing");
             ValidatePassword($pwd1, $pwd2);
-        
-            my $cryptedpassword = bz_crypt($pwd1);
-            trick_taint($cryptedpassword); # Only used in a placeholder
-            $dbh->do(q{UPDATE profiles
-                          SET cryptpassword = ?
-                        WHERE userid = ?},
-                     undef, ($cryptedpassword, $user->id));
 
-            # Invalidate all logins except for the current one
-            Bugzilla->logout(LOGOUT_KEEP_CURRENT);
+            if ($cgi->param('Bugzilla_password') ne $pwd1) {
+                my $cryptedpassword = bz_crypt($pwd1);
+                trick_taint($cryptedpassword); # Only used in a placeholder
+                $dbh->do(q{UPDATE profiles
+                              SET cryptpassword = ?
+                            WHERE userid = ?},
+                         undef, ($cryptedpassword, $user->id));
+
+                # Invalidate all logins except for the current one
+                Bugzilla->logout(LOGOUT_KEEP_CURRENT);
+            }
         }
     }
 
@@ -309,12 +311,12 @@ sub SaveEmail {
  
        # The new information given to us by the user.
         my @new_watch_names = split(/[,\s]+/, $cgi->param('watchedusers'));
-        my @new_watch_ids = ();
+        my %new_watch_ids;
         foreach my $username (@new_watch_names) {
             my $watched_userid = DBNameToIdAndCheck(trim($username));
-            push(@new_watch_ids, $watched_userid);
+            $new_watch_ids{$watched_userid} = 1;
         }
-        my ($removed, $added) = diff_arrays($old_watch_ids, \@new_watch_ids);
+        my ($removed, $added) = diff_arrays($old_watch_ids, [keys %new_watch_ids]);
 
         # Remove people who were removed.
         my $delete_sth = $dbh->prepare('DELETE FROM watch WHERE watched = ?'

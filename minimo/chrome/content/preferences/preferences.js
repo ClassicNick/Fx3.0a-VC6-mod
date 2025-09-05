@@ -144,6 +144,11 @@ function sanitizeAll()
     document.getElementById("privacySanitize").disabled=true;
 }
 
+function sanitizeBookmarks() {
+	// in Common.
+	BookmarksDeleteAllAndSync();
+    document.getElementById("bookmarksSanitize").disabled=true;
+}
 
 /*
  * New Mini Pref Implementation 
@@ -374,7 +379,9 @@ function syncPrefSaveDOM() {
 }
 function syncPrefLoadDOM(elementList) {
 
+
 	for(var strCurKey in elementList) {
+
 
 		var elementAndPref=document.getElementById(elementList[strCurKey]);
 		var prefName=elementAndPref.getAttribute("preference");

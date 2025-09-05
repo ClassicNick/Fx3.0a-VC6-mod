@@ -49,13 +49,12 @@ ifneq ($(_MSC_VER), 1100)
 
 include $(DEPTH)/config/autoconf.mk
 
-MOZILLA_INTERNAL_API = 1
-
 MODULE		= auth
 LIBRARY_NAME	= auth
 IS_COMPONENT	= 1
 EXPORT_LIBRARY	= 1
 MODULE_NAME	= nsAuthModule
+LIBXUL_LIBRARY = 1
 
 REQUIRES	= \
 		xpcom \

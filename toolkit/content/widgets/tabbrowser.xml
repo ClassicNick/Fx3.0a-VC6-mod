@@ -266,11 +266,12 @@
         <parameter name="aTopBottom"/>
         <body>
           <![CDATA[
+            var browser = aBrowser || this.mCurrentBrowser;
             if (aTopBottom != "both")
-              this.getMessageForBrowser(aBrowser, aTopBottom).hidden = true;
+              this.getMessageForBrowser(browser, aTopBottom).hidden = true;
             else {
-              this.getMessageForBrowser(aBrowser, "top").hidden = true;
-              this.getMessageForBrowser(aBrowser, "bottom").hidden = true;
+              this.getMessageForBrowser(browser, "top").hidden = true;
+              this.getMessageForBrowser(browser, "bottom").hidden = true;
             }
           ]]>
         </body>
@@ -755,8 +756,7 @@
         <parameter name="event"/>
         <body>
           <![CDATA[
-            if (event.button != 1 || event.target.localName != 'tab' ||
-                this.mPrefs.getBoolPref("middlemouse.contentLoadURL"))
+            if (event.button != 1 || event.target.localName != 'tab')
               return;
 
             this.removeTab(event.target);
@@ -1329,10 +1329,9 @@
         <parameter name="aEvent"/>
         <body>
           <![CDATA[
-            if (aEvent.button == 0 && aEvent.originalTarget.localName != 'tab' &&
-                // Workaround to Bug 224002, the preventBubble() call in the tabbox binding
-                // should block this event.
-                aEvent.originalTarget.localName != "toolbarbutton") {
+            if (aEvent.button == 0 &&
+                // Only capture clicks on tabbox.xml's <spacer>
+                aEvent.originalTarget.localName == "spacer") {
               var e = document.createEvent("Events");
               e.initEvent("NewTab", false, true);
               this.dispatchEvent(e);

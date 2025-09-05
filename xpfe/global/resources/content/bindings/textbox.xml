@@ -70,6 +70,13 @@
                 onset="if (val) this.setAttribute('clickSelectsAll', 'true');
                        else this.removeAttribute('clickSelectsAll'); return val;" />
 
+      <property name="editor" readonly="true">
+        <getter><![CDATA[
+          const nsIDOMNSEditableElement = Components.interfaces.nsIDOMNSEditableElement;
+          return this.inputField.QueryInterface(nsIDOMNSEditableElement).editor;
+        ]]></getter>
+      </property>
+
       <method name="select">
         <body>
           this.inputField.select();
@@ -91,11 +98,28 @@
         </body>
       </method>
 
-      <constructor action="var str = this.boxObject.getProperty('value'); 
-                                                if (str) {
-                                                  this.inputField.value=str;
-                                                  this.boxObject.removeProperty('value');
-                                                }"/>
+      <constructor><![CDATA[
+        var str = this.boxObject.getProperty('value');
+        if (str) {
+          this.inputField.value = str;
+          this.boxObject.removeProperty('value');
+        }
+
+        str = this.getAttribute('newlines');
+        if (str) {
+          const nsIPlaintextEditor = Components.interfaces.nsIPlaintextEditor;
+          for (var x in nsIPlaintextEditor) {
+            if (/^eNewlines/.test(x)) {
+              if (str == RegExp.rightContext.toLowerCase()) {
+                this.editor.QueryInterface(nsIPlaintextEditor)
+                    .newlineHandling = nsIPlaintextEditor[x];
+                break;
+              }
+            }
+          }
+        }
+      ]]></constructor>
+
       <destructor action="if (this.inputField.value) this.boxObject.setProperty('value', this.inputField.value);"/>
    
     </implementation>

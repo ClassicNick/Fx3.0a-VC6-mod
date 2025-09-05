@@ -51,7 +51,7 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
 
   private static Mozilla mozillaInstance = new Mozilla();
 
-  private static final String JAVACONNECT_JAR = "javaconnect.jar";
+  private static final String JAVAXPCOM_JAR = "javaxpcom.jar";
 
   private IGRE gre = null;
 
@@ -73,7 +73,7 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
   /**
    * Locates the path of a GRE with the specified properties.  This method
    * will only return GREs that support Java embedding (looks for the
-   * presence of "javaconnect.jar").
+   * presence of "javaxpcom.jar").
    * <p>
    * Currently this uses a "first-fit" algorithm, it does not select
    * the newest available GRE.
@@ -116,7 +116,13 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
       return null;
     }
 
-    // search for GRE in platform specific locations
+    // Search for GRE in platform specific locations.  We want a GRE that
+    // supports Java, so we look for the "javaxpcom" property by default.
+    if (aProperties == null) {
+      aProperties = new Properties();
+    }
+    aProperties.setProperty("javaxpcom", "1");
+
     String osName = System.getProperty("os.name").toLowerCase();
     if (osName.startsWith("mac os x")) {
       grePath = getGREPathMacOSX(aVersions);
@@ -194,7 +200,10 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
             File xpcomLib = new File(xulDir, "libxpcom.dylib");
             if (xpcomLib.canRead()) {
               File grePath = xpcomLib.getCanonicalFile().getParentFile();
-              File jar = new File(grePath, JAVACONNECT_JAR);
+
+              // Since GRE Properties aren't supported on Mac OS X, we check
+              // for the existence of the "javaxpcom.jar" file in the GRE.
+              File jar = new File(grePath, JAVAXPCOM_JAR);
               if (jar.canRead()) {
                 // found GRE
                 return grePath;
@@ -224,7 +233,10 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
     for (int i = 0; i < files.length; i++) {
       if (checkVersion(files[i].getName(), aVersions)) {
         File xpcomLib = new File(files[i], "libxpcom.dylib");
-        File jar = new File(files[i], JAVACONNECT_JAR);
+
+        // Since GRE Properties aren't supported on Mac OS X, we check
+        // for the existence of the "javaxpcom.jar" file in the GRE.
+        File jar = new File(files[i], JAVAXPCOM_JAR);
         if (xpcomLib.canRead() && jar.canRead()) {
           return files[i];
         }
@@ -382,8 +394,7 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
         File grePath = new File(pathStr);
         if (grePath.exists()) {
           File xpcomLib = new File(grePath, "xpcom.dll");
-          File jar = new File(grePath, JAVACONNECT_JAR);
-          if (xpcomLib.canRead() && jar.canRead()) {
+          if (xpcomLib.canRead()) {
             // found a good GRE
             return grePath;
           }
@@ -499,8 +510,7 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
         File grePath = new File(pathStr);
         if (grePath.exists()) {
           File xpcomLib = new File(grePath, "libxpcom.so");
-          File jar = new File(grePath, JAVACONNECT_JAR);
-          if (xpcomLib.canRead() && jar.canRead()) {
+          if (xpcomLib.canRead()) {
             // found a good GRE
             return grePath;
           }
@@ -584,7 +594,7 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
    */
   public void initEmbedding(File aLibXULDirectory, File aAppDirectory,
           IAppFileLocProvider aAppDirProvider) throws XPCOMException {
-    loadJavaconnect(aLibXULDirectory, true);
+    loadJavaXPCOM(aLibXULDirectory, true);
     gre.initEmbedding(aLibXULDirectory, aAppDirectory, aAppDirProvider);
   }
 
@@ -593,9 +603,9 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
    * @param aLoadGREImpl
    * @throws XPCOMException
    */
-  private void loadJavaconnect(File aLibXULDirectory, boolean aLoadGREImpl)
+  private void loadJavaXPCOM(File aLibXULDirectory, boolean aLoadGREImpl)
           throws XPCOMException {
-    File jar = new File(aLibXULDirectory, JAVACONNECT_JAR);
+    File jar = new File(aLibXULDirectory, JAVAXPCOM_JAR);
     if (!jar.exists()) {
       throw new XPCOMException(NS_ERROR_FILE_INVALID_PATH);
     }
@@ -667,7 +677,7 @@ public class Mozilla implements IGRE, IXPCOM, IXPCOMError {
    */
   public nsIServiceManager initXPCOM(File aMozBinDirectory,
           IAppFileLocProvider aAppFileLocProvider) throws XPCOMException {
-    loadJavaconnect(aMozBinDirectory, false);
+    loadJavaXPCOM(aMozBinDirectory, false);
     return xpcom.initXPCOM(aMozBinDirectory, aAppFileLocProvider);
   }
 

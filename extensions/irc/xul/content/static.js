@@ -43,7 +43,7 @@ const __cz_version   = "0.9.67+";
 const __cz_condition = "green";
 const __cz_suffix    = "";
 const __cz_guid      = "59c81df5-4b7a-477b-912d-4e0fdf64e5f2";
-const __cz_locale    = "0.9.67.5";
+const __cz_locale    = "0.9.67.6";
 
 var warn;
 var ASSERT;
@@ -179,6 +179,9 @@ function init()
     if (client.prefs["log"])
         client.openLogFile(client);
 
+    // Make sure the userlist is on the correct side.
+    updateUserlistSide(client.prefs["userlistLeft"]);
+
     client.display(MSG_WELCOME, "HELLO");
     client.dispatch("set-current-view", { view: client });
 
@@ -276,6 +279,11 @@ function initStatic()
         setListMode("symbol");
     else
         setListMode("graphic");
+
+    var tree = document.getElementById('user-list');
+    tree.setAttribute("ondraggesture",
+                      "nsDragAndDrop.startDrag(event, userlistDNDObserver);");
+
     setDebugMode(client.prefs["debugMode"]);
 
     var ver = __cz_version + (__cz_suffix ? "-" + __cz_suffix : "");
@@ -2251,16 +2259,13 @@ function updateProgress()
     if ("progress" in client.currentObject)
         progress = client.currentObject.progress;
 
+    if (!busy)
+        progress = 0;
+
     client.progressPanel.collapsed = !busy;
-    if (busy && (progress >= 0))
-    {
+    client.progressBar.mode = (progress < 0 ? "undetermined" : "determined");
+    if (progress >= 0)
         client.progressBar.value = progress;
-        client.progressBar.mode = "determined";
-    }
-    else
-    {
-        client.progressBar.mode = "undetermined";
-    }
 }
 
 function updateSecurityIcon()
@@ -2416,6 +2421,27 @@ function updateTitle (obj)
 
     document.title = tstring;
     client.statusBar["server-nick"].setAttribute("label", nick);
+}
+
+// Where 'right' is orientation, not wrong/right:
+function updateUserlistSide(shouldBeLeft)
+{
+    var listParent = document.getElementById("tabpanels-contents-box");
+    var isLeft = (listParent.childNodes[0].id == "user-list-box");
+    if (isLeft == shouldBeLeft)
+        return;
+    if (shouldBeLeft) // Move from right to left.
+    {
+        listParent.insertBefore(listParent.childNodes[1], listParent.childNodes[0]);
+        listParent.insertBefore(listParent.childNodes[2], listParent.childNodes[0]);
+        listParent.childNodes[1].setAttribute("collapse", "before");
+    }
+    else // Move from left to right.
+    {
+        listParent.appendChild(listParent.childNodes[1]);
+        listParent.appendChild(listParent.childNodes[0]);
+        listParent.childNodes[1].setAttribute("collapse", "after");
+    }
 }
 
 function multilineInputMode (state)
@@ -3202,6 +3228,20 @@ function tabdnd_dstart (aEvent, aXferData, aDragAction)
                                      name + "</a>");
 }
 
+var userlistDNDObserver = new Object();
+
+userlistDNDObserver.onDragStart =
+function userlistdnd_dstart(event, transferdata, dragAction)
+{
+    var tree = document.getElementById('user-list');
+    var index = tree.treeBoxObject.getRowAt(event.clientX, event.clientY);
+    var user = tree.contentView.getItemAtIndex(index).firstChild.firstChild;
+    var nickname = user.getAttribute("unicodeName");
+
+    transferdata.data = new TransferData();
+    transferdata.data.addDataForFlavour("text/unicode", nickname);
+}
+
 function deleteTab (tb)
 {
     if (!ASSERT(tb.hasAttribute("viewKey"),
@@ -3344,10 +3384,7 @@ function cli_say(msg)
 
         default:
             if (msg != "")
-            {
-                display(getMsg(MSG_ERR_NO_DEFAULT, client.currentObject.TYPE),
-                        MT_ERROR);
-            }
+                display(MSG_ERR_NO_DEFAULT, MT_ERROR);
             break;
     }
 }
@@ -4243,10 +4280,16 @@ function cli_gccount ()
 client.quit =
 function cli_quit (reason)
 {
+    var net, netReason;
     for (var n in client.networks)
     {
-        if (client.networks[n].isConnected())
-            client.networks[n].quit(reason);
+        net = client.networks[n];
+        if (net.isConnected())
+        {
+            netReason = (reason ? reason : net.prefs["defaultQuitMsg"]);
+            netReason = (netReason ? netReason : client.userAgent);
+            net.quit(netReason);
+        }
     }
 }
 

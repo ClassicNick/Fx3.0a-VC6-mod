@@ -50,8 +50,9 @@
 #include "nsIXULAppInstall.h"
 #include "nsCOMPtr.h"
 #include "nsMemory.h"
-#include "nsNativeCharsetUtils.h"
 #include "nsBuildID.h"
+#include "nsStringAPI.h"
+#include "nsServiceManagerUtils.h"
 #include "plstr.h"
 #include "prprf.h"
 #include "prenv.h"
@@ -172,7 +173,7 @@ static int LoadAppData(const char* appDataFile, nsXREAppData* aResult,
   // TODO: If these version checks fail, then look for a compatible XULRunner
   //       version on the system, and launch it instead.
 
-  nsCAutoString gkVersion;
+  nsCString gkVersion;
   rv = parser.GetString("Gecko", "MinVersion", gkVersion);
 
   if (NS_FAILED(rv) || !CheckMinVersion(gkVersion.get())) {
@@ -310,7 +311,7 @@ InstallXULApp(nsIFile* aXULRunnerDir,
 {
   nsCOMPtr<nsILocalFile> appLocation;
   nsCOMPtr<nsILocalFile> installTo;
-  nsAutoString leafName;
+  nsString leafName;
 
   nsresult rv = XRE_GetFileFromPath(aAppLocation, getter_AddRefs(appLocation));
   if (NS_FAILED(rv))
@@ -323,7 +324,8 @@ InstallXULApp(nsIFile* aXULRunnerDir,
   }
 
   if (aLeafName)
-    NS_CopyNativeToUnicode(nsDependentCString(aLeafName), leafName);
+    NS_CStringToUTF16(nsDependentCString(aLeafName),
+                      NS_CSTRING_ENCODING_NATIVE_FILESYSTEM, leafName);
 
   rv = NS_InitXPCOM2(nsnull, aXULRunnerDir, nsnull);
   if (NS_FAILED(rv))
@@ -348,6 +350,13 @@ InstallXULApp(nsIFile* aXULRunnerDir,
 
   return 0;
 }
+
+static const GREProperty kGREProperties[] = {
+  { "xulrunner", "true" }
+#ifdef MOZ_JAVAXPCOM
+  , { "javaxpcom", "1" }
+#endif
+};
 
 int main(int argc, char* argv[])
 {
@@ -379,7 +388,9 @@ int main(int argc, char* argv[])
       if (NS_FAILED(rv))
         return 2;
 
-      return RegisterXULRunner(registerGlobal, regDir) ? 0 : 2;
+      return RegisterXULRunner(registerGlobal, regDir,
+                               kGREProperties,
+                               NS_ARRAY_LENGTH(kGREProperties)) ? 0 : 2;
     }
 
     registerGlobal = IsArg(argv[1], "unregister-global");
@@ -405,11 +416,16 @@ int main(int argc, char* argv[])
       }
 
       char path[MAXPATHLEN];
-      const GREVersionRange vr = {
+      static const GREVersionRange vr = {
         argv[2], PR_TRUE,
         argv[2], PR_TRUE
       };
-      nsresult rv = GRE_GetGREPathWithProperties(&vr, 1, nsnull, 0,
+      static const GREProperty kProperties[] = {
+        { "xulrunner", "true" }
+      };
+
+      nsresult rv = GRE_GetGREPathWithProperties(&vr, 1, kProperties,
+                                                 NS_ARRAY_LENGTH(kProperties),
                                                  path, sizeof(path));
       if (NS_FAILED(rv))
         return 1;
@@ -489,7 +505,7 @@ int main(int argc, char* argv[])
     PR_SetEnv(kAppEnv);
   }
 
-  nsCAutoString vendor, name, version, buildID, appID, copyright;
+  nsCString vendor, name, version, buildID, appID, copyright;
 
   nsXREAppData appData = { sizeof(nsXREAppData), 0 };
 

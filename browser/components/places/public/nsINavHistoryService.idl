@@ -248,12 +248,6 @@ interface nsINavHistoryResult : nsINavHistoryResultNode
   void recursiveSort(in PRUint32 aSortingMode);
 
   /**
-   * Controls whether the day appears when time columns are requested
-   * through the tree interface. True is the default, meaning the date is shown
-   */
-  attribute boolean timesIncludeDates;
-
-  /**
    * Controls whether duplicate adjacent elements are collapsed into a single
    * item in the tree. This prevents you from seeing multiple entries for
    * things when you have selected to get visits. When you sort by date, the
@@ -323,30 +317,43 @@ interface nsINavHistoryObserver : nsISupports
   void onEndUpdateBatch();
 
   /**
-   * True requests that you want to get called for all updates, false if you
-   * don't necessarily care about which exact things changed during a batch
-   * update. If false, this will sometimes not call you for things in between
-   * onBeginUpdateBatch and onEndUpdateBatch. You'll still get the begin and
-   * end, so you'll know something changed.
+   * Called when a resource is visited. This is called the first time a
+   * resource (page, image, etc.) is seen as well as every subsequent time.
    *
-   * Lots of observers don't care about what changes, only that something
-   * changed so they can update their UI. This allows delete operations to
-   * avoid iterating over every item, and just doing a single bulk SQL DELETE
-   * command, which is much more efficient.
+   * Normally, transition types of TRANSITION_EMBED (corresponding to images in
+   * a page, for example) are not displayed in history results (unless
+   * includeHidden is set). Many observers can ignore _EMBED notifications
+   * (which will comprise the majority of visit notifications) to save work.
    *
-   * Note that you still might get called if you say false in some situations.
-   * This only skips certain time-consuming notifications if NO observers
-   * want the information.
+   * @param aVisitID        ID of the visit that was just created.
+   * @param aTime           Time of the visit
+   * @param aSessionID      The ID of one connected sequence of visits.
+   * @param aReferringID    The ID of the visit the user came from. 0 if empty.
+   * @param aTransitionType One of nsINavHistory.TRANSITION_*
    */
-  readonly attribute boolean wantAllDetails;
+  void onVisit(in nsIURI aURI, in PRInt64 aVisitID, in PRTime aTime,
+               in PRInt64 aSessionID, in PRInt64 aReferringID,
+               in PRUint32 aTransitionType);
 
   /**
-   * A page has been added that was visited at a given time. It's very possible
-   * that this page already existed in history, but was just visited again.
-   * Note that adding a page can (but doesn't always) make the page unhidden.
-   * This happens implicitly and you won't get a separate change notification.
+   * Called whenever either the "real" title or the custom title of the page
+   * changed. BOTH TITLES ARE ALWAYS INCLUDED in this notification, even though
+   * only one will change at a time. Often, consumers will want to display the
+   * user title if it is available, and fall back to the page title (the one
+   * specified in the <title> tag of the page).
+   *
+   * Note that there is a difference between an empty title and a NULL title.
+   * An empty string means that somebody specifically set the title to be
+   * nothing. NULL means nobody set it. From C++: use IsVoid() and SetIsVoid()
+   * to see whether an empty string is "null" or not (it will always be an
+   * empty string in either case).
+   *
+   * @param aUserTitleChanged Is true if the user title was the thing that was
+   *                          changed. If false, that means the "real" page
+   *                          title was changed instead.
    */
-  void onAddURI(in nsIURI aURI, in PRTime aTime);
+  void onTitleChanged(in nsIURI aURI, in AString aPageTitle,
+                      in AString aUserTitle, in PRBool aUserTitleChanged);
 
   /**
    * This page and all of its visits are being deleted. Note: the page may not
@@ -369,9 +376,6 @@ interface nsINavHistoryObserver : nsISupports
    * A page has had some attribute on it changed. Note that for TYPED and
    * HIDDEN, the page may not necessarily have been added yet.
    */
-  const PRUint32 ATTRIBUTE_TITLE = 0; // aString = new title
-  const PRUint32 ATTRIBUTE_HIDDEN = 1; // aString = empty
-  const PRUint32 ATTRIBUTE_TYPED = 2; // aString = empty
   const PRUint32 ATTRIBUTE_FAVICON = 3; // favicon updated, aString = favicon annotation URI
   void onPageChanged(in nsIURI aURI, in PRUint32 aWhat, in AString aValue);
 };
@@ -587,6 +591,29 @@ interface nsINavHistoryQueryOptions : nsISupports
   attribute boolean forceOriginalTitle;
 
   /**
+   * Most items in history are marked "hidden." Only toplevel pages that the
+   * user sees in the URL bar are not hidden. Hidden things include the content
+   * of iframes and all images on web pages. Normally, you don't want these
+   * things. If you do, set this flag and you'll get all items, even hidden
+   * ones.
+   */
+  attribute boolean includeHidden;
+
+  /**
+   * This is the maximum number of results that you want. The query is exeucted,
+   * the results are sorted, and then the top 'maxResults' results are taken
+   * and returned. Set to 0 (the default) to get all results.
+   *
+   * THIS DOES NOT WORK IN CONJUNCTION WITH SORTING BY TITLE. This is because
+   * sorting by title requires us to sort after using locale-sensetive sorting
+   * (as opposed to letting the database do it for us).
+   *
+   * Instead, we get the result ordered by date, pick the maxResult most recent
+   * ones, and THEN sort by title.
+   */
+  attribute PRUint32 maxResults;
+
+  /**
    * Creates a new options item with the same parameters of this one.
    */
   nsINavHistoryQueryOptions clone();
@@ -595,6 +622,32 @@ interface nsINavHistoryQueryOptions : nsISupports
 [scriptable, uuid(C51F54CB-5E89-4B20-A37C-1343888935B7)]
 interface nsINavHistoryService : nsISupports
 {
+  /**
+   * This transition type means the user follwed a link and got a new toplevel
+   * window. It is not true when 
+   */
+  const PRUint32 TRANSITION_LINK = 1;
+
+  /**
+   * This transition type means that the user typed the page's URL in the
+   * URL bar.
+   */
+  const PRUint32 TRANSITION_TYPED = 2;
+
+  /**
+   * This transition is set when the user followed a bookmark to get to the
+   * page.
+   */
+  const PRUint32 TRANSITION_BOOKMARK = 3;
+
+  /**
+   * This transition type is set when some inner content is loaded. This is
+   * true of all images on a page, and the contents of the iframe. It is also
+   * true of any content in a frame, regardless if whether or not the user
+   * clicked something to get there.
+   */
+  const PRUint32 TRANSITION_EMBED = 4;
+
   /**
    * True if there is any history. This can be used in UI to determine whether
    * the "clear history" button should be enabled or not. This is much better
@@ -605,9 +658,19 @@ interface nsINavHistoryService : nsISupports
 
   /**
    * This sets the user-defined title of the page. Silently fails if we have
-   * no knowledge of this page.
+   * no knowledge of this page. Set to empty string to clear the user title and
+   * only use the "real" title as declared on the page.
    */
   void setPageUserTitle(in nsIURI aURI, in AString aUserTitle);
+
+  /**
+   * This is just like markPageAsTyped (in nsIBrowserHistory, also implemented
+   * by the history service), but for bookmarks. It declares that the given URL
+   * is being opened as a result of following a bookmark. If this URL is loaded
+   * soon after this message has been received, that transition will be marked
+   * as following a bookmark.
+   */
+  void markPageAsFollowedBookmark(in nsIURI aURI);
 
   /**
    * Returns true if this URI would be added to the history. You don't have to
@@ -617,6 +680,45 @@ interface nsINavHistoryService : nsISupports
    * annotations).
    */
   boolean canAddURI(in nsIURI aURI);
+
+  /**
+   * Call to set the full information for a given page. If the page does not
+   * exist, it will be added to the database. If it does, the existing values
+   * WILL BE OVERWRITTEN. This is an updated version of addPageWithDetails
+   * for backup/restore type operations.
+   *
+   * @param aURI        Page to add/change.
+   * @param aTitle      Title as specified by the page.
+   * @param aUserTitle  Custom title provided by user. Set to NULL if none.
+   * @param aVisitCount Number of times this page has been visited. Setting this
+   *                    to 0 may make the page invisible in some views.
+   * @param aHidden     Whether the page is hidden. If the page has only
+   *                    TRANSITION_EMBED visits, this will be true, otherwise
+   *                    false.
+   * @param aTyped      True if this URL has ever been typed.
+   */
+  void setPageDetails(in nsIURI aURI, in AString aTitle, in AString aUserTitle,
+                      in PRUint32 aVisitCount, in boolean aHidden,
+                      in boolean aTyped);
+
+  /**
+   * Call to manually add a visit for a specific page. This will probably not
+   * be commonly used other than for backup/restore type operations. If the URI
+   * does not have an entry in the history database already, one will be created
+   * with no visits, no title, hidden, not typed.
+   *
+   * @param aURI             Visited page
+   * @param aTime            Time page was visited (microseconds)
+   * @param aReferrer        The ID of the visit that generated this one. Use 0
+   *                         for no referrer. This must be a valid visit already
+   *                         in the DB or 0.
+   * @param aTranstitionType Type of transition: one of TRANSITION_* above
+   * @param aSession         The session ID that this page belongs to. Use 0 for
+   *                         no session.
+   * @returns The ID of the created visit
+   */
+  PRInt64 addVisit(in nsIURI aURI, in PRTime aTime, in PRInt64 aReferrer,
+                   in PRInt32 aTransitionType, in PRInt64 aSession);
 
   /**
    * This returns a new query object that you can pass to executeQuer[y/ies].

@@ -52,16 +52,13 @@ class nsIAccessible;
 
 class nsPluginInstanceOwner;
 
-#define nsObjectFrameSuper nsHTMLContainerFrame
+#define nsObjectFrameSuper nsFrame
 
 class nsObjectFrame : public nsObjectFrameSuper, public nsIObjectFrame {
 public:
   // nsISupports 
   NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);
 
-  NS_IMETHOD SetInitialChildList(nsPresContext* aPresContext,
-                                 nsIAtom* aListName,
-                                 nsIFrame* aChildList);
   NS_IMETHOD Init(nsPresContext* aPresContext,
                   nsIContent* aContent,
                   nsIFrame* aParent,
@@ -89,8 +86,6 @@ public:
   virtual PRBool NeedsView() { return PR_TRUE; }
   virtual nsresult CreateWidgetForView(nsIView* aView);
 
-  virtual PRBool IsLeaf() const;
-  
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const;
 #endif
@@ -130,30 +125,12 @@ public:
 
   void FixUpURLS(const nsString &name, nsAString &value);
 
-  void PluginNotAvailable(const char *aMimeType);
-
-  // Returns true if this object frame links to content that we have
-  // no enabled plugin for, that means not even the default plugin.
-  PRBool IsBroken() const
-  {
-    return mIsBrokenPlugin;
-  }
-
-  virtual PRBool IsContainingBlock() const
-  {
-    // Broken plugins are containing blocks.
-
-    return IsBroken();
-  }
-
 protected:
   // nsISupports
   NS_IMETHOD_(nsrefcnt) AddRef(void);
   NS_IMETHOD_(nsrefcnt) Release(void);
 
   virtual ~nsObjectFrame();
-
-  virtual PRIntn GetSkipSides() const;
 
   // NOTE:  This frame class does not inherit from |nsLeafFrame|, so
   // this is not a virtual method implementation.
@@ -171,12 +148,6 @@ protected:
    */
   void FixupWindow(const nsSize& aSize);
 
-  nsresult HandleChild(nsPresContext* aPresContext,
-                       nsHTMLReflowMetrics& aMetrics,
-                       const nsHTMLReflowState& aReflowState,
-                       nsReflowStatus& aStatus,
-                       nsIFrame* child);
- 
   PRBool IsFocusable(PRInt32 *aTabIndex = nsnull, PRBool aWithMouse = PR_FALSE);
 
   // check attributes and optionally CSS to see if we should display anything
@@ -185,10 +156,6 @@ protected:
   void NotifyContentObjectWrapper();
 
   nsPoint GetWindowOriginInPixels(PRBool aWindowless);
-
-  void CreateDefaultFrames(nsPresContext *aPresContext,
-                           nsHTMLReflowMetrics& aMetrics,
-                           const nsHTMLReflowState& aReflowState);
 
   /**
    * Makes sure that mInstanceOwner is valid and without a current plugin
@@ -207,8 +174,6 @@ private:
   // to the underlying problem described in bug 136927.
   PRBool mInstantiating;
 #endif
-
-  PRPackedBool          mIsBrokenPlugin;
 };
 
 

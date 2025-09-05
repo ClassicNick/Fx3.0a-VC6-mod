@@ -315,9 +315,10 @@ calDavCalendar.prototype = {
         listener.onOperationComplete = function(aStatusCode, aResource,
                                                 aOperation, aClosure) {
 
+            // 201 = HTTP "Created"
             // 204 = HTTP "No Content"
             //
-            if (aStatusCode == 204) {
+            if (aStatusCode == 204 || aStatusCode == 201) {
                 debug("Item modified successfully.\n");
                 var retVal = Components.results.NS_OK;
 
@@ -459,9 +460,12 @@ calDavCalendar.prototype = {
         // XXX get rid of vevent filter?
         // XXX need a prefix in the namespace decl?
         default xml namespace = "urn:ietf:params:xml:ns:caldav";
+        var D = new Namespace("D", "DAV:");
         queryXml = 
-          <calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav">
-            <calendar-data/>
+          <calendar-query xmlns:D="DAV:">
+            <D:prop>
+              <calendar-data/>
+            </D:prop>
             <filter>
               <comp-filter name="VCALENDAR">
                 <comp-filter name="VEVENT">
@@ -533,9 +537,12 @@ calDavCalendar.prototype = {
 
                 // cause returned data to be parsed into the event item
                 var calData = responseElement..C::["calendar-data"];
-                if (calData.length == 0) {
-                    debug("server returned empty or non-existing "
-                          + "calendar-data element!\n");
+                if (!calData.toString().length) {
+                  Components.utils.reportError(
+                    "Empty or non-existent <calendar-data> element returned" +
+                    " by CalDAV server for URI <" + aResource.spec +
+                    ">; ignoring");
+                  return;
                 }
                 debug("item result = \n" + calData + "\n");
                 // XXX try-catch
@@ -659,11 +666,15 @@ calDavCalendar.prototype = {
             return;
 
         // this is our basic report xml
-        var C = new Namespace("urn:ietf:params:xml:ns:caldav")
+        var C = new Namespace("C", "urn:ietf:params:xml:ns:caldav");
+        var D = new Namespace("D", "DAV:");
         default xml namespace = C;
+
         var queryXml = 
-          <calendar-query>
-            <calendar-data/>
+          <calendar-query xmlns:D={D}>
+            <D:prop>
+              <calendar-data/>
+            </D:prop>
             <filter>
               <comp-filter name="VCALENDAR">
                 <comp-filter/>
@@ -711,7 +722,7 @@ calDavCalendar.prototype = {
         }
 
         var queryString = xmlHeader + queryXml.toXMLString();
-        debug("getItems(): querying CalDAV server for events: " + 
+        debug("getItems(): querying CalDAV server for events: \n" + 
               queryString + "\n");
 
         var occurrences = (aItemFilter &

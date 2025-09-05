@@ -2116,13 +2116,11 @@ nsTextFrame::PrepareUnicodeText(nsTextTransformer& aTX,
     // Get the next word
     bp = aTX.GetNextWord(inWord, &wordLen, &contentLen, &isWhitespace, &wasTransformed);
     if (nsnull == bp) {
-#ifdef IBMBIDI
-      if (indexp && (mState & NS_FRAME_IS_BIDI) ) {
+      if (indexp) {
         while (--n >= 0) {
-          *indexp++ = strInx++;
+          *indexp++ = strInx;
         }
       }
-#endif // IBMBIDI
       break;
     }
     // for ::first-letter or bidi, the content may be chopped
@@ -6753,7 +6751,7 @@ nsTextFrame::HasTerminalNewline() const
   if (tc && mContentLength > 0) {
     const nsTextFragment* frag = tc->Text();
     PRUnichar ch = frag->CharAt(mContentOffset + mContentLength - 1);
-    if (ch == '\n' || ch == '\r')
+    if (ch == '\n')
       return PR_TRUE;
   }
   return PR_FALSE;

@@ -87,8 +87,12 @@ inline PRInt32 CompareIntegers(PRUint32 a, PRUint32 b)
 NS_IMPL_ISUPPORTS2(nsNavHistoryResultNode,
                    nsNavHistoryResultNode, nsINavHistoryResultNode)
 
-nsNavHistoryResultNode::nsNavHistoryResultNode() : mID(0), mExpanded(PR_FALSE), 
-  mParent(nsnull), mAccessCount(0), mTime(0)
+nsNavHistoryResultNode::nsNavHistoryResultNode() :
+    mParent(nsnull),
+    mID(0),
+    mAccessCount(0),
+    mTime(0),
+    mExpanded(PR_FALSE)
 {
 }
 
@@ -252,12 +256,20 @@ nsNavHistoryResultNode::OnItemMoved(nsIURI *aBookmark, PRInt64 aFolder,
 
 }
 
-/* void onItemChanged(in nsIURI bookmark, in ACString property); */
+/* void onItemChanged(in nsIURI bookmark, in ACString property, in AString value); */
 NS_IMETHODIMP
 nsNavHistoryResultNode::OnItemChanged(nsIURI *aBookmark,
-                                      const nsACString &aProperty)
+                                      const nsACString &aProperty,
+                                      const nsAString &aValue)
 {
   // We let OnPageChanged handle this case
+  return NS_OK;
+}
+
+/* void onItemVisited(in nsIURI bookmark, in PRTime time); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnItemVisited(nsIURI* aBookmark, PRTime aVisitTime)
+{
   return NS_OK;
 }
 
@@ -306,9 +318,23 @@ nsNavHistoryResultNode::OnFolderChanged(PRInt64 aFolder,
 
 // nsINavHistoryObserver implementation
 
-/* void onAddURI(in nsiURI aURI, in PRTime aTime); */
+/* void onVisit(in nsIURI aURI, in PRInt64 aVisitID, in PRTime aTime,
+                in PRInt64 aSessionID, in PRInt64 aReferringID,
+                in PRUint32 aTransitionType); */
 NS_IMETHODIMP
-nsNavHistoryResultNode::OnAddURI(nsIURI *aURI, PRTime aTime)
+nsNavHistoryResultNode::OnVisit(nsIURI* aURI, PRInt64 aVisitID, PRTime aTime,
+               PRInt64 aSessionID, PRInt64 aReferringID,
+               PRUint32 aTransitionType)
+{
+  return NS_OK;
+}
+
+/* void onTitleChanged(in nsIURI aURI, in AString aPageTitle,
+                       in AString aUserTitle, in PRBool aUserTitleChanged); */
+NS_IMETHODIMP
+nsNavHistoryResultNode::OnTitleChanged(nsIURI* aURI, const nsAString& aPageTitle,
+                                      const nsAString& aUserTitle,
+                                      PRBool aIsUserTitleChanged)
 {
   return NS_OK;
 }
@@ -336,10 +362,17 @@ nsNavHistoryResultNode::OnPageChanged(nsIURI *aURI,
   // matches ours, and rebuild the row if so.
   nsCAutoString spec;
   aURI->GetSpec(spec);
-  if (spec.Equals(mUrl)) {
-    // TODO(bryner): only rebuild if aProperty is being shown
-    Rebuild();
+  if (! spec.Equals(mUrl))
+    return NS_OK; // not ours
+
+  // TODO(bryner): only rebuild if aProperty is being shown
+
+  if (aWhat == nsINavHistoryObserver::ATTRIBUTE_FAVICON) {
+    mFaviconURL = NS_ConvertUTF16toUTF8(aValue);
+    return NS_OK;
   }
+
+  Rebuild();
   return NS_OK;
 }
 
@@ -408,7 +441,7 @@ nsNavHistoryQueryNode::ParseQueries()
 }
 
 PRInt64
-nsNavHistoryQueryNode::GetFolderId() const
+nsNavHistoryQueryNode::FolderId() const
 {
   PRInt64 id;
   if (mQueryCount > 0) {
@@ -540,7 +573,7 @@ nsNavHistoryQueryNode::GetWantAllDetails(PRBool *aResult)
 NS_IMETHODIMP
 nsNavHistoryQueryNode::GetChildrenReadOnly(PRBool *aResult)
 {
-  PRInt64 folderId = GetFolderId();
+  PRInt64 folderId = FolderId();
   if (folderId == 0) {
     *aResult = PR_TRUE;
     return NS_OK;
@@ -588,7 +621,7 @@ nsNavHistoryQueryNode::OnItemAdded(nsIURI *aBookmark,
                                    PRInt64 aFolder, PRInt32 aIndex)
 {
   nsresult rv;
-  if (GetFolderId() == aFolder) {
+  if (FolderId() == aFolder) {
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -625,7 +658,7 @@ NS_IMETHODIMP
 nsNavHistoryQueryNode::OnItemRemoved(nsIURI *aBookmark,
                                      PRInt64 aFolder, PRInt32 aIndex)
 {
-  if (GetFolderId() == aFolder) {
+  if (FolderId() == aFolder) {
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -658,7 +691,7 @@ NS_IMETHODIMP
 nsNavHistoryQueryNode::OnItemMoved(nsIURI *aBookmark, PRInt64 aFolder,
                                    PRInt32 aOldIndex, PRInt32 aNewIndex)
 {
-  if (GetFolderId() == aFolder) {
+  if (FolderId() == aFolder) {
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -690,12 +723,22 @@ nsNavHistoryQueryNode::OnItemMoved(nsIURI *aBookmark, PRInt64 aFolder,
   return NS_OK;
 }
 
-/* void onItemChanged(in nsIURI bookmark, in ACString property); */
+/* void onItemChanged(in nsIURI bookmark, in ACString property, in AStirng value); */
 NS_IMETHODIMP
 nsNavHistoryQueryNode::OnItemChanged(nsIURI *aBookmark,
-                                     const nsACString &aProperty)
+                                     const nsACString &aProperty,
+                                     const nsAString &aValue)
 {
-  // We let OnPageChanged handle this case.
+  // We let OnPageChanged handle this case. FIXME: This should be able to do
+  // all the work necessary from bookmark callbacks, so this needs to handle
+  // all bookmark cases.
+  return NS_OK;
+}
+
+/* void onItemVisited(in nsIURI bookmark, in PRTime time); */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnItemVisited(nsIURI* aBookmark, PRTime aVisitTime)
+{
   return NS_OK;
 }
 
@@ -705,7 +748,7 @@ nsNavHistoryQueryNode::OnItemReplaced(PRInt64 aFolder,
                                       nsIURI *aItem, nsIURI *aNewItem)
 {
   nsresult rv;
-  if (GetFolderId() == aFolder) {
+  if (FolderId() == aFolder) {
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -750,7 +793,7 @@ nsNavHistoryQueryNode::OnFolderAdded(PRInt64 aFolder,
                                      PRInt64 aParent, PRInt32 aIndex)
 {
   nsresult rv;
-  if (GetFolderId() == aParent) {
+  if (FolderId() == aParent) {
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -788,7 +831,7 @@ NS_IMETHODIMP
 nsNavHistoryQueryNode::OnFolderRemoved(PRInt64 aFolder,
                                        PRInt64 aParent, PRInt32 aIndex)
 {
-  if (GetFolderId() == aParent) {
+  if (FolderId() == aParent) {
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -824,7 +867,7 @@ nsNavHistoryQueryNode::OnFolderMoved(PRInt64 aFolder,
                                      PRInt64 aNewParent, PRInt32 aNewIndex)
 {
   nsresult rv;
-  PRInt64 nodeFolder = GetFolderId();
+  PRInt64 nodeFolder = FolderId();
 
   if (aOldParent == aNewParent && aOldParent == nodeFolder) {
     // If we're not expanded, we can just invalidate our child list
@@ -868,7 +911,7 @@ NS_IMETHODIMP
 nsNavHistoryQueryNode::OnFolderChanged(PRInt64 aFolder,
                                        const nsACString &aProperty)
 {
-  if (GetFolderId() == aFolder) {
+  if (FolderId() == aFolder) {
     // TODO(bryner): only rebuild if aProperty is being shown
     Rebuild();
   } else {
@@ -883,17 +926,30 @@ nsNavHistoryQueryNode::OnFolderChanged(PRInt64 aFolder,
 
 // nsINavHistoryObserver implementation
 
-/* void onAddURI(in nsiURI aURI, in PRTime aTime); */
+/* void onVisit(in nsIURI aURI, in PRInt64 aVisitID, in PRTime aTime,
+                in PRInt64 aSessionID, in PRInt64 aReferringID,
+                in PRUint32 aTransitionType); */
 NS_IMETHODIMP
-nsNavHistoryQueryNode::OnAddURI(nsIURI *aURI, PRTime aTime)
+nsNavHistoryQueryNode::OnVisit(nsIURI* aURI, PRInt64 aVisitID, PRTime aTime,
+               PRInt64 aSessionID, PRInt64 aReferringID,
+               PRUint32 aTransitionType)
 {
   nsresult rv;
-  if (GetFolderId() == 0) {
+
+  // embedded transitions are not visible in queries unless you want to include
+  // hidden ones, so we can ignore these notifications (which comprise the bulk
+  // of history)
+  if (aTransitionType == nsINavHistoryService::TRANSITION_EMBED &&
+      ! mOptions->IncludeHidden())
+    return NS_OK;
+
+  if (FolderId() == 0) {
     // We're a non-folder query, so we need to requery.
     return UpdateQuery();
   } else {
     for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
-      rv = mChildren[i]->OnAddURI(aURI, aTime);
+      rv = mChildren[i]->OnVisit(aURI, aVisitID, aTime, aSessionID,
+                                 aReferringID, aTransitionType);
       NS_ENSURE_SUCCESS(rv, rv);
     }
   }
@@ -901,12 +957,37 @@ nsNavHistoryQueryNode::OnAddURI(nsIURI *aURI, PRTime aTime)
   return NS_OK;
 }
 
+/* void onTitleChange */
+NS_IMETHODIMP
+nsNavHistoryQueryNode::OnTitleChanged(nsIURI* aURI, const nsAString& aPageTitle,
+                                      const nsAString& aUserTitle,
+                                      PRBool aIsUserTitleChanged)
+{
+  nsresult rv;
+  PRInt64 folder = nsNavHistoryQueryNode::FolderId();
+  if (folder == 0) {
+    // If we're a query node (other than a folder), we need to re-execute
+    // our queries in case aBookmark should be added/removed from the
+    // results.
+    return UpdateQuery();
+  } else {
+    // We're a bookmark folder.  Run through our children and notify them.
+    for (PRInt32 i = 0; i < mChildren.Count(); ++i) {
+      rv = mChildren[i]->OnTitleChanged(aURI, aPageTitle, aUserTitle, aIsUserTitleChanged);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  return NS_OK;
+}
+
+
 /* void onDeleteURI(in nsIURI aURI); */
 NS_IMETHODIMP
 nsNavHistoryQueryNode::OnDeleteURI(nsIURI *aURI)
 {
   nsresult rv;
-  if (GetFolderId() == 0) {
+  if (FolderId() == 0) {
     // We're a non-folder query, so we need to requery.
     return UpdateQuery();
   } else {
@@ -924,7 +1005,7 @@ NS_IMETHODIMP
 nsNavHistoryQueryNode::OnClearHistory()
 {
   nsresult rv;
-  if (GetFolderId() == 0) {
+  if (FolderId() == 0) {
     // We're a non-folder query, so we need to requery.
     return UpdateQuery();
   } else {
@@ -943,7 +1024,7 @@ nsNavHistoryQueryNode::OnPageChanged(nsIURI *aURI,
                                      PRUint32 aWhat, const nsAString &aValue)
 {
   nsresult rv;
-  PRInt64 folder = nsNavHistoryQueryNode::GetFolderId();
+  PRInt64 folder = nsNavHistoryQueryNode::FolderId();
   if (folder == 0) {
     // If we're a query node (other than a folder), we need to re-execute
     // our queries in case aBookmark should be added/removed from the
@@ -963,7 +1044,7 @@ nsNavHistoryQueryNode::OnPageChanged(nsIURI *aURI,
 nsresult
 nsNavHistoryQueryNode::Rebuild()
 {
-  PRInt64 folderId = GetFolderId();
+  PRInt64 folderId = FolderId();
   if (folderId != 0) {
     nsNavBookmarks *bookmarks = nsNavBookmarks::GetBookmarksService();
     return bookmarks->FillFolderNode(folderId, this);
@@ -989,9 +1070,7 @@ nsNavHistoryResult::nsNavHistoryResult(nsNavHistory* aHistoryService,
                                        PRUint32 aQueryCount,
                                        nsNavHistoryQueryOptions* aOptions)
   : mBundle(aHistoryBundle), mHistoryService(aHistoryService),
-    mCollapseDuplicates(PR_TRUE),
-    mTimesIncludeDates(PR_TRUE),
-    mCurrentSort(nsINavHistoryQueryOptions::SORT_BY_NONE)
+    mCollapseDuplicates(PR_TRUE)
 {
   NS_ASSERTION(aOptions, "must have options!");
   // Fill saved source queries with copies of the original (the caller might
@@ -1011,8 +1090,7 @@ nsNavHistoryResult::nsNavHistoryResult(nsNavHistory* aHistoryService,
     }
     mQueryCount = aQueryCount;
   }
-  if (aOptions)
-    aOptions->Clone(getter_AddRefs(mOptions));
+  aOptions->Clone(getter_AddRefs(mOptions));
 
   PRInt64 folderId = 0;
   GetFolderId(&folderId);
@@ -1117,7 +1195,9 @@ nsNavHistoryResult::RecursiveSort(PRUint32 aSortingMode)
   if (aSortingMode > nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_DESCENDING)
     return NS_ERROR_INVALID_ARG;
 
-  mCurrentSort = aSortingMode;
+  NS_ASSERTION(mOptions, "Options should always be present for a root query");
+  mOptions->SetSortingMode(aSortingMode);
+
   RecursiveSortArray(mChildren, aSortingMode);
 
   // This sorting function is called from two contexts. First, when everything
@@ -1135,20 +1215,6 @@ nsNavHistoryResult::RecursiveSort(PRUint32 aSortingMode)
   // update the UI on the tree columns
   if (mTree)
     SetTreeSortingIndicator();
-  return NS_OK;
-}
-
-
-// nsNavHistoryResult::Get/SetTimesIncludeDates
-
-NS_IMETHODIMP nsNavHistoryResult::SetTimesIncludeDates(PRBool aValue)
-{
-  mTimesIncludeDates = aValue;
-  return NS_OK;
-}
-NS_IMETHODIMP nsNavHistoryResult::GetTimesIncludeDates(PRBool* aValue)
-{
-  *aValue = mTimesIncludeDates;
   return NS_OK;
 }
 
@@ -1370,10 +1436,11 @@ nsNavHistoryResult::SetTreeSortingIndicator()
   }
 
   // set new sorting indicator by looking through all columns for ours
-  if (mCurrentSort == nsINavHistoryQueryOptions::SORT_BY_NONE)
+  NS_ASSERTION(mOptions, "Options should always be present for a root query");
+  if (mOptions->SortingMode() == nsINavHistoryQueryOptions::SORT_BY_NONE)
     return;
   PRBool desiredIsDescending;
-  ColumnType desiredColumn = SortTypeToColumnType(mCurrentSort,
+  ColumnType desiredColumn = SortTypeToColumnType(mOptions->SortingMode(),
                                                   &desiredIsDescending);
   PRInt32 colCount;
   rv = columns->GetCount(&colCount);
@@ -1431,19 +1498,26 @@ PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_TitleGreater(
 
 // nsNavHistoryResult::SortComparison_Date*
 //
-//    Don't bother doing conflict resolution. Since dates are stored in
-//    microseconds, it will be very difficult to get collisions. This would be
-//    most likely for imported history, which I'm not too worried about.
+//    Equal times will be very unusual, but it is important that there is some
+//    deterministic ordering of the results so they don't move around. Use URLs
+//    for conflict resolution. If those are the same, we probably don't care
+//    about the relative ordering.
 
 PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_DateLess(
     nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
 {
-  return ComparePRTime(a->mTime, b->mTime);
+  PRInt32 value = ComparePRTime(a->mTime, b->mTime);
+  if (value == 0)
+    return a->mUrl.Compare(b->mUrl.get());
+  return value;
 }
 PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_DateGreater(
     nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure)
 {
-  return -ComparePRTime(a->mTime, b->mTime);
+  PRInt32 value = -ComparePRTime(a->mTime, b->mTime);
+  if (value == 0)
+    return -a->mUrl.Compare(b->mUrl.get());
+  return value;
 }
 
 
@@ -1507,6 +1581,85 @@ PRInt32 PR_CALLBACK nsNavHistoryResult::SortComparison_VisitCountGreater(
   if (value == 0)
     return -ComparePRTime(a->mTime, b->mTime);
   return value;
+}
+
+
+// nsNavHistoryResult::FormatFriendlyTime
+
+nsresult
+nsNavHistoryResult::FormatFriendlyTime(PRTime aTime, nsAString& aResult)
+{
+  // use navHistory's GetNow function for performance
+  nsNavHistory* history = nsNavHistory::GetHistoryService();
+  NS_ENSURE_TRUE(history, NS_ERROR_OUT_OF_MEMORY);
+  PRTime now = history->GetNow();
+
+  const PRInt64 ago = now - aTime;
+
+  /*
+   * This code generates strings like "X minutes ago" when the time is very
+   * recent. This looks much nicer, but we will have to redraw the list
+   * periodically. I also found it a little strange watching the numbers in
+   * the list change as I browse. For now, I'll leave this commented out,
+   * perhaps we can revisit whether it is a good idea to do this and put in
+   * the proper auto-refresh code so the numbers stay correct.
+   *
+   * To enable, you'll need to put these in places.properties:
+   *   0MinutesAgo=<1 minute ago
+   *   1MinutesAgo=1 minute ago
+   *   XMinutesAgo=%s minutes ago
+
+  static const PRInt64 minuteThreshold = (PRInt64)1000000 * 60 * 60;
+  if (ago > -10000000 && ago < minuteThreshold) {
+    // show "X minutes ago"
+    PRInt64 minutesAgo = NSToIntFloor(
+              NS_STATIC_CAST(float, (ago / 1000000)) / 60.0);
+
+    nsXPIDLString resultString;
+    if (minutesAgo == 0) {
+      nsresult rv = mBundle->GetStringFromName(
+          NS_LITERAL_STRING("0MinutesAgo").get(), getter_Copies(resultString));
+      NS_ENSURE_SUCCESS(rv, rv);
+    } else if (minutesAgo == 1) {
+      nsresult rv = mBundle->GetStringFromName(
+          NS_LITERAL_STRING("1MinutesAgo").get(), getter_Copies(resultString));
+      NS_ENSURE_SUCCESS(rv, rv);
+    } else {
+      nsAutoString minutesAgoString;
+      minutesAgoString.AppendInt(minutesAgo);
+      const PRUnichar* stringPtr = minutesAgoString.get();
+      nsresult rv = mBundle->FormatStringFromName(
+          NS_LITERAL_STRING("XMinutesAgo").get(),
+          &stringPtr, 1, getter_Copies(resultString));
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+    aResult = resultString;
+    return NS_OK;
+  } */
+
+  // Check if it is today and only display the time.  Only bother checking for
+  // today if it's within the last 24 hours, since computing midnight is not
+  // really cheap. Sometimes we may get dates in the future, so always show
+  // those. Note the 10s slop in case the cached GetNow value in NavHistory is
+  // out-of-date.
+  nsDateFormatSelector dateFormat = nsIScriptableDateFormat::dateFormatShort;
+  if (ago > -10000000 && ago < (PRInt64)1000000 * 24 * 60 * 60) {
+    PRExplodedTime explodedTime;
+    PR_ExplodeTime(aTime, PR_LocalTimeParameters, &explodedTime);
+    explodedTime.tm_min =
+      explodedTime.tm_hour =
+      explodedTime.tm_sec =
+      explodedTime.tm_usec = 0;
+    PRTime midnight = PR_ImplodeTime(&explodedTime);
+    if (aTime > midnight)
+      dateFormat = nsIScriptableDateFormat::dateFormatNone;
+  }
+  nsAutoString resultString;
+  mDateFormatter->FormatPRTime(mLocale, dateFormat,
+                               nsIScriptableDateFormat::timeFormatNoSeconds,
+                               aTime, resultString);
+  aResult = resultString;
+  return NS_OK;
 }
 
 
@@ -1773,7 +1926,7 @@ NS_IMETHODIMP nsNavHistoryResult::IsContainer(PRInt32 index, PRBool *_retval)
   nsNavHistoryResultNode *node = VisibleElementAt(index);
   *_retval = (node->mChildren.Count() > 0 ||
               (node->mType == nsINavHistoryResult::RESULT_TYPE_QUERY &&
-               (node->GetFolderId() > 0 ||
+               (node->FolderId() > 0 ||
                 (mOptions && mOptions->ExpandPlaces()))));
   return NS_OK;
 }
@@ -1993,16 +2146,7 @@ NS_IMETHODIMP nsNavHistoryResult::GetCellText(PRInt32 rowIndex,
         // information I know how to use. Only show this for URLs and visits
         _retval.Truncate(0);
       } else {
-        nsDateFormatSelector dateFormat;
-        if (mTimesIncludeDates)
-          dateFormat = nsIScriptableDateFormat::dateFormatShort;
-        else
-          dateFormat = nsIScriptableDateFormat::dateFormatNone;
-        nsAutoString realString; // stupid function won't take an nsAString
-        mDateFormatter->FormatPRTime(mLocale, dateFormat,
-                                     nsIScriptableDateFormat::timeFormatNoSeconds,
-                                     elt->mTime, realString);
-        _retval = realString;
+        return FormatFriendlyTime(elt->mTime, _retval);
       }
       break;
     }
@@ -2086,29 +2230,31 @@ NS_IMETHODIMP nsNavHistoryResult::CycleHeader(nsITreeColumn *col)
   PRInt32 colIndex;
   col->GetIndex(&colIndex);
 
+  NS_ASSERTION(mOptions, "Options should always be present for a root query");
+  PRInt32 oldSort = mOptions->SortingMode();
   PRInt32 newSort;
   switch (GetColumnType(col)) {
     case Column_Title:
-      if (mCurrentSort == nsINavHistoryQueryOptions::SORT_BY_TITLE_ASCENDING)
+      if (oldSort == nsINavHistoryQueryOptions::SORT_BY_TITLE_ASCENDING)
         newSort = nsINavHistoryQueryOptions::SORT_BY_TITLE_DESCENDING;
       else
         newSort = nsINavHistoryQueryOptions::SORT_BY_TITLE_ASCENDING;
       break;
     case Column_URL:
-      if (mCurrentSort == nsINavHistoryQueryOptions::SORT_BY_URL_ASCENDING)
+      if (oldSort == nsINavHistoryQueryOptions::SORT_BY_URL_ASCENDING)
         newSort = nsINavHistoryQueryOptions::SORT_BY_URL_DESCENDING;
       else
         newSort = nsINavHistoryQueryOptions::SORT_BY_URL_ASCENDING;
       break;
     case Column_Date:
-      if (mCurrentSort == nsINavHistoryQueryOptions::SORT_BY_DATE_ASCENDING)
+      if (oldSort == nsINavHistoryQueryOptions::SORT_BY_DATE_ASCENDING)
         newSort = nsINavHistoryQueryOptions::SORT_BY_DATE_DESCENDING;
       else
         newSort = nsINavHistoryQueryOptions::SORT_BY_DATE_ASCENDING;
       break;
     case Column_VisitCount:
       // visit count default is unusual because it is descending
-      if (mCurrentSort == nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_DESCENDING)
+      if (oldSort == nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_DESCENDING)
         newSort = nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_ASCENDING;
       else
         newSort = nsINavHistoryQueryOptions::SORT_BY_VISITCOUNT_DESCENDING;

@@ -137,7 +137,7 @@ function initPrefs()
          ["dcc.listenPorts",    [],       "dcc.ports"],
          ["dcc.useServerIP",    true,     "dcc"],
          ["debugMode",          "",       "global"],
-         ["defaultQuitMsg",     "",       "global"],
+         ["defaultQuitMsg",     "",       ".connect"],
          ["desc",               "New Now Know How", ".ident"],
          ["deleteOnPart",       true,     "global"],
          ["displayHeader",      true,     "appearance.misc"],
@@ -225,6 +225,7 @@ function initPrefs()
          ["username",           "chatzilla", ".ident"],
          ["usermode",           "+i",     ".ident"],
          ["userHeader",         true,     "global.header"],
+         ["userlistLeft",       true,     "appearance.userlist"],
          ["userLog",            false,    "global.log"],
          ["userMaxLines",       200,      "global.maxLines"],
          ["warnOnClose",        true,     "global"]
@@ -397,6 +398,7 @@ function getNetworkPrefManager(network)
          ["conference.limit", defer, "appearance.misc"],
          ["connectTries",     defer, ".connect"],
          ["dcc.useServerIP",  defer, "dcc"],
+         ["defaultQuitMsg",   defer, ".connect"],
          ["desc",             defer, ".ident"],
          ["displayHeader",    client.prefs["networkHeader"],
                                                              "appearance.misc"],
@@ -668,6 +670,10 @@ function onPrefChanged(prefName, newValue, oldValue)
 
         case "userMaxLines":
             CIRCChanUser.prototype.MAX_MESSAGES = newValue;
+            break;
+
+        case "userlistLeft":
+            updateUserlistSide(newValue);
             break;
 
         case "debugMode":

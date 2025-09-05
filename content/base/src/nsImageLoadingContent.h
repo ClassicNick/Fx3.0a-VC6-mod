@@ -3,9 +3,9 @@
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Mozilla Public License
- * Version 1.1 (the "License"); you may not use this file except in
- * compliance with the License. You may obtain a copy of the License at
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  * http://www.mozilla.org/MPL/
  *
  * Software distributed under the License is distributed on an "AS IS" basis,
@@ -15,13 +15,12 @@
  *
  * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is 
+ * The Initial Developer of the Original Code is
  * Boris Zbarsky <bzbarsky@mit.edu>.
  * Portions created by the Initial Developer are Copyright (C) 2003
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -29,11 +28,11 @@
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the NPL, indicate your
+ * use your version of this file under the terms of the MPL, indicate your
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL or the LGPL. If you do not delete
  * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the NPL, the GPL or the LGPL.
+ * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
 
@@ -69,7 +68,7 @@ public:
 
 protected:
   /**
-   * ImageURIChanged is called by subclasses when the appropriate
+   * LoadImage is called by subclasses when the appropriate
    * attributes (eg 'src' for <img> tags) change.  The string passed
    * in is the new uri string; this consolidates the code for getting
    * the charset, constructing URI objects, and any other incidentals
@@ -81,8 +80,8 @@ protected:
    * @param aNotify If true, nsIDocumentObserver state change notifications
    *                will be sent as needed.
    */
-  nsresult ImageURIChanged(const nsAString& aNewURI, PRBool aForce,
-                           PRBool aNotify);
+  nsresult LoadImage(const nsAString& aNewURI, PRBool aForce,
+                     PRBool aNotify);
 
   /**
    * ImageState is called by subclasses that are computing their content state.
@@ -97,7 +96,7 @@ protected:
   PRInt32 ImageState() const;
 
   /**
-   * ImageURIChanged is called by subclasses when the appropriate
+   * LoadImage is called by subclasses when the appropriate
    * attributes (eg 'src' for <img> tags) change. If callers have an
    * URI object already available, they should use this method.
    *
@@ -109,8 +108,8 @@ protected:
    * @param aDocument Optional parameter giving the document this node is in.
    *        This is purely a performance optimization.
    */
-  nsresult ImageURIChanged(nsIURI* aNewURI, PRBool aForce, PRBool aNotify,
-                           nsIDocument* aDocument = nsnull);
+  nsresult LoadImage(nsIURI* aNewURI, PRBool aForce, PRBool aNotify,
+                     nsIDocument* aDocument = nsnull);
 
   /**
    * helper to get the document for this content (from the nodeinfo
@@ -131,7 +130,7 @@ protected:
   /**
    * UseAsPrimaryRequest is called by subclasses when they have an existing
    * imgIRequest that they want this nsImageLoadingContent to use.  This may
-   * effectively be called instead of ImageURIChanged or LoadImageWithChannel.
+   * effectively be called instead of LoadImage or LoadImageWithChannel.
    * If aNotify is true, this method will notify on state changes.
    */
   nsresult UseAsPrimaryRequest(imgIRequest* aRequest, PRBool aNotify);

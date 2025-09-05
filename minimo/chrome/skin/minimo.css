@@ -120,6 +120,14 @@ caption {
 
 }
 
+#item-copy {
+	display:none;
+}
+
+#item-paste {
+	display:none;
+}
+
 .menu-button
   {
     background: url("chrome://minimo/skin/m-color.png") no-repeat 50% 50%;
@@ -205,13 +213,14 @@ caption {
   margin-right: 1px !important;
 }
 
-
+/*
 #feed-button[feeds] {
   list-style-image: url("chrome://minimo/skin/rssfavicon.png");
 }
 #feed-button[chromedir="rtl"][feeds] {
   list-style-image: url("chrome://minimo/skin/rssfavicon.png");
 }
+*/
 
 /*
  * urlbar selector icons, these are extensions
@@ -226,10 +235,23 @@ caption {
   list-style-image: url("chrome://minimo/skin/extensions/icon-delicious.png");
 }
 
-#urlbar-deck.search {
+#urlbar-deck.search {	
   list-style-image: url("chrome://minimo/skin/extensions/icon-google.png");
 }
 
+ 
+/* 
+ * popup for urlmore 
+ */
+#urlbarModeSelector {
+   padding:.3em ! important;
+}
+
+
+
+#menu_MainPopup {
+   padding:.3em ! important;
+}
  
 
 

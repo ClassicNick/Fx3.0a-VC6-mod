@@ -358,6 +358,9 @@ nsFaviconService::SetAndLoadFaviconForPage(nsIURI* aPage, nsIURI* aFavicon,
   if (isDataURL)
     return NS_OK;
 
+  // This will associate the favicon URL with the page. It will not send favicon
+  // change notifications. That will happen from OnStopRequest so that we know
+  // we have data before wasting time sending out notifications.
   PRBool hasData;
   PRTime expiration;
   rv = SetFaviconUrlForPageInternal(aPage, aFavicon, &hasData, &expiration);
@@ -604,7 +607,7 @@ nsFaviconService::GetFaviconSpecForIconString(const nsCString& aSpec, nsACString
 NS_IMPL_ISUPPORTS3(FaviconLoadListener,
                    nsIStreamListener, // is a nsIRequestObserver
                    nsIInterfaceRequestor,
-                   nsIChannelEventSink);
+                   nsIChannelEventSink)
 
 // FaviconLoadListener::FaviconLoadListener
 
@@ -685,6 +688,7 @@ FaviconLoadListener::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
 
   if (mimeType.IsEmpty()) {
     // we can not handle favicons that do not have a recognisable MIME type
+    // FIXME: add to failed cache
     return NS_OK;
   }
 

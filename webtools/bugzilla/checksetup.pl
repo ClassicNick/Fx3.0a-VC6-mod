@@ -34,6 +34,7 @@
 #                 Joel Peshkin <bugreport@peshkin.net>
 #                 Lance Larsh <lance.larsh@oracle.com>
 #                 A. Karl Kornel <karl@kornel.name>
+#                 Marc Schumann <wurblzap@gmail.com>
 #
 #
 #
@@ -773,22 +774,6 @@ my $my_db_name = ${*{$main::{'db_name'}}{SCALAR}};
 my $my_index_html = ${*{$main::{'index_html'}}{SCALAR}};
 my $my_create_htaccess = ${*{$main::{'create_htaccess'}}{SCALAR}};
 my $my_webservergroup = ${*{$main::{'webservergroup'}}{SCALAR}};
-# mkanat@bugzilla.org - bug 17453
-# The following values have been removed from localconfig.
-# However, if we are upgrading from a Bugzilla with enums to a 
-# Bugzilla without enums, we use these values one more time so 
-# that we correctly populate the tables.
-my @my_severities;
-@my_severities = @{*{$main::{'severities'}}{ARRAY}} 
-    if exists($main::{'severities'});
-my @my_priorities;
-@my_priorities = @{*{$main::{'priorities'}}{ARRAY}}
-    if exists($main::{'priorities'});
-my @my_platforms;
-@my_platforms = @{*{$main::{'platforms'}}{ARRAY}}
-    if exists($main::{'platforms'});
-my @my_opsys;
-@my_opsys = @{*{$main::{'opsys'}}{ARRAY}} if exists($main::{'opsys'});
 
 if ($my_webservergroup && !$silent) {
     if ($^O !~ /MSWin32/i) {
@@ -1809,9 +1794,12 @@ AddFDef($new_field_name, $field_description, 0);
 # Detect changed local settings
 ###########################################################################
 
-# mkanat@bugzilla.org - bug 17453
-# Create the values for the tables that hold what used to be enum types.
-# Don't populate the tables if the table isn't empty.
+# Nick Barnes nb+bz@ravenbrook.com 2005-10-05
+# 
+# PopulateEnumTable($table, @values): if the table $table has no
+# entries, fill it with the entries in the list @values, in the same
+# order as that list.
+
 sub PopulateEnumTable {
     my ($table, @valuelist) = @_;
 
@@ -1840,37 +1828,36 @@ sub PopulateEnumTable {
     }
 }
 
-# mkanat@bugzilla.org - bug 17453
-# Set default values for what used to be the enum types.
-# These values are no longer stored in localconfig.
-# However, if we are upgrading from a Bugzilla with enums to a 
-# Bugzilla without enums, we use the localconfig values one more time.
-
+# Set default values for what used to be the enum types.  These values
+# are no longer stored in localconfig.  If we are upgrading from a
+# Bugzilla with enums to a Bugzilla without enums, we use the
+# enum values.
+#
 # The values that you see here are ONLY DEFAULTS. They are only used
-# the FIRST time you run checksetup. After that, they are either 
-# controlled through the Bugzilla UI or through the DB.
-@my_severities = ('blocker','critical','major','normal','minor',
-                 'trivial','enhancement') if !@my_severities;
-@my_priorities = ("P1","P2","P3","P4","P5") if !@my_priorities;
-@my_opsys = ("All","Windows","Mac OS","Linux","Other") if !@my_opsys;
-@my_platforms = ("All","PC","Macintosh","Other") if !@my_platforms;
+# the FIRST time you run checksetup, IF you are NOT upgrading from a
+# Bugzilla with enums. After that, they are either controlled through
+# the Bugzilla UI or through the DB.
 
-PopulateEnumTable('bug_severity', @my_severities);
-PopulateEnumTable('priority', @my_priorities);
-PopulateEnumTable('op_sys', @my_opsys);
-PopulateEnumTable('rep_platform', @my_platforms);
+my $enum_defaults = {
+    bug_severity  => ['blocker', 'critical', 'major', 'normal',
+                      'minor', 'trivial', 'enhancement'],
+    priority     => ["P1","P2","P3","P4","P5"],
+    op_sys       => ["All","Windows","Mac OS","Linux","Other"],
+    rep_platform => ["All","PC","Macintosh","Other"],
+    bug_status   => ["UNCONFIRMED","NEW","ASSIGNED","REOPENED","RESOLVED",
+                     "VERIFIED","CLOSED"],
+    resolution   => ["","FIXED","INVALID","WONTFIX","LATER","REMIND",
+                     "DUPLICATE","WORKSFORME","MOVED"],
+};
 
-# The resolution and bug_status lists are absolute. On an upgrade from
-# a Bugzilla with enums, whatever is in the enum will be replaced with
-# this. This is because Bugzilla depends on the exact names of these 
-# resolutions in order to function properly.
-my @states = ("UNCONFIRMED","NEW","ASSIGNED","REOPENED","RESOLVED",
-             "VERIFIED","CLOSED");
-my @resolutions = ("","FIXED","INVALID","WONTFIX","LATER","REMIND",
-                  "DUPLICATE","WORKSFORME","MOVED");
-PopulateEnumTable('bug_status', @states);
-PopulateEnumTable('resolution', @resolutions);
+# Get all the enum column values for the existing database, or the
+# defaults if the columns are not enums.
+my $enum_values = $dbh->bz_enum_initial_values($enum_defaults);
 
+# Populate the enum tables.
+while (my ($table, $values) = each %$enum_values) {
+    PopulateEnumTable($table, @$values);
+}
 
 ###########################################################################
 # Create initial test product if there are no products present.
@@ -4101,6 +4088,128 @@ if ($dbh->bz_column_info("attachments", "thedata")) {
     $dbh->do("INSERT INTO attach_data (id, thedata) 
                    SELECT attach_id, thedata FROM attachments");
     $dbh->bz_drop_column("attachments", "thedata");    
+}
+
+# 2005-11-26 - wurblzap@gmail.com - Bug 300473
+# Repair broken automatically generated series queries for non-open bugs.
+my $broken_series_indicator =
+    'field0-0-0=resolution&type0-0-0=notequals&value0-0-0=---';
+my $broken_nonopen_series =
+    $dbh->selectall_arrayref("SELECT series_id, query FROM series
+                               WHERE query LIKE '$broken_series_indicator%'");
+if (@$broken_nonopen_series) {
+    print 'Repairing broken series...';
+    my $sth_nuke =
+        $dbh->prepare('DELETE FROM series_data WHERE series_id = ?');
+    # This statement is used to repair a series by replacing the broken query
+    # with the correct one.
+    my $sth_repair =
+        $dbh->prepare('UPDATE series SET query = ? WHERE series_id = ?');
+    # The corresponding series for open bugs look like one of these two
+    # variations (bug 225687 changed the order of bug states).
+    # This depends on the set of bug states representing open bugs not to have
+    # changed since series creation.
+    my $open_bugs_query_base_old = 
+        join("&", map { "bug_status=" . url_quote($_) }
+                      ('UNCONFIRMED', 'NEW', 'ASSIGNED', 'REOPENED'));
+    my $open_bugs_query_base_new = 
+        join("&", map { "bug_status=" . url_quote($_) } OpenStates());
+    my $sth_openbugs_series =
+        $dbh->prepare("SELECT series_id FROM series
+                        WHERE query IN (?, ?)");
+    # Statement to find the series which has collected the most data.
+    my $sth_data_collected =
+        $dbh->prepare('SELECT count(*) FROM series_data WHERE series_id = ?');
+    # Statement to select a broken non-open bugs count data entry.
+    my $sth_select_broken_nonopen_data =
+        $dbh->prepare('SELECT series_date, series_value FROM series_data' .
+                      ' WHERE series_id = ?');
+    # Statement to select an open bugs count data entry.
+    my $sth_select_open_data =
+        $dbh->prepare('SELECT series_value FROM series_data' .
+                      ' WHERE series_id = ? AND series_date = ?');
+    # Statement to fix a broken non-open bugs count data entry.
+    my $sth_fix_broken_nonopen_data =
+        $dbh->prepare('UPDATE series_data SET series_value = ?' .
+                      ' WHERE series_id = ? AND series_date = ?');
+    # Statement to delete an unfixable broken non-open bugs count data entry.
+    my $sth_delete_broken_nonopen_data =
+        $dbh->prepare('DELETE FROM series_data' .
+                      ' WHERE series_id = ? AND series_date = ?');
+
+    foreach (@$broken_nonopen_series) {
+        my ($broken_series_id, $nonopen_bugs_query) = @$_;
+
+        # Determine the product-and-component part of the query.
+        if ($nonopen_bugs_query =~ /^$broken_series_indicator(.*)$/) {
+            my $prodcomp = $1;
+
+            # If there is more than one series for the corresponding open-bugs
+            # series, we pick the one with the most data, which should be the
+            # one which was generated on creation.
+            # It's a pity we can't do subselects.
+            $sth_openbugs_series->execute($open_bugs_query_base_old . $prodcomp,
+                                          $open_bugs_query_base_new . $prodcomp);
+            my ($found_open_series_id, $datacount) = (undef, -1);
+            foreach my $open_series_id ($sth_openbugs_series->fetchrow_array()) {
+                $sth_data_collected->execute($open_series_id);
+                my ($this_datacount) = $sth_data_collected->fetchrow_array();
+                if ($this_datacount > $datacount) {
+                    $datacount = $this_datacount;
+                    $found_open_series_id = $open_series_id;
+                }
+            }
+
+            if ($found_open_series_id) {
+                # Move along corrupted series data and correct it. The
+                # corruption consists of it being the number of all bugs
+                # instead of the number of non-open bugs, so we calculate the
+                # correct count by subtracting the number of open bugs.
+                # If there is no corresponding open-bugs count for some reason
+                # (shouldn't happen), we drop the data entry.
+                print " $broken_series_id...";
+                $sth_select_broken_nonopen_data->execute($broken_series_id);
+                while (my $rowref =
+                       $sth_select_broken_nonopen_data->fetchrow_arrayref()) {
+                    my ($date, $broken_value) = @$rowref;
+                    my ($openbugs_value) =
+                        $dbh->selectrow_array($sth_select_open_data, undef,
+                                              $found_open_series_id, $date);
+                    if (defined($openbugs_value)) {
+                        $sth_fix_broken_nonopen_data->execute
+                            ($broken_value - $openbugs_value,
+                             $broken_series_id, $date);
+                    }
+                    else {
+                        print "\nWARNING - During repairs of series " .
+                              "$broken_series_id, the irreparable data\n" .
+                              "entry for date $date was encountered and is " .
+                              "being deleted.\n" .
+                              "Continuing repairs...";
+                        $sth_delete_broken_nonopen_data->execute
+                            ($broken_series_id, $date);
+                    }
+                }
+
+                # Fix the broken query so that it collects correct data in the
+                # future.
+                $nonopen_bugs_query =~
+                    s/^$broken_series_indicator/field0-0-0=resolution&type0-0-0=regexp&value0-0-0=./;
+                $sth_repair->execute($nonopen_bugs_query, $broken_series_id);
+            }
+            else {
+                print "\nWARNING - Series $broken_series_id was meant to\n" .
+                      "collect non-open bug counts, but it has counted\n" .
+                      "all bugs instead. It cannot be repaired\n" .
+                      "automatically because no series that collected open\n" .
+                      "bug counts was found. You'll probably want to delete\n" .
+                      "or repair collected data for series $broken_series_id " .
+                      "manually.\n" .
+                      "Continuing repairs...";
+            }
+        }
+    }
+    print " done.\n";
 }
 
 # 2005-09-15 lance.larsh@oracle.com Bug 308717

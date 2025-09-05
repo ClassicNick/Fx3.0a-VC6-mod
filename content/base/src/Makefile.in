@@ -72,10 +72,12 @@ REQUIRES	= xpcom \
 		  plugin \
 		  prefetch \
 		  xuldoc \
+		  uriloader \
 		  $(NULL)
 
 EXPORTS		= \
 		nsAtomListUtils.h \
+		nsAttrName.h \
 		nsContentList.h \
 		nsNodeInfoManager.h \
 		nsPropertyTable.h \

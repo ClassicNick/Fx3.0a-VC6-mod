@@ -158,7 +158,9 @@
     MODULE(nsUConvModule)                    \
     MODULE(nsI18nModule)                     \
     INTL_COMPAT_MODULES                      \
+    MODULE(nsUniversalCharDetModule)         \
     MODULE(necko)                            \
+    MODULE(nsAuthModule)                     \
     IPC_MODULE                               \
     MODULE(nsJarModule)                      \
     MODULE(nsPrefModule)                     \
@@ -173,6 +175,7 @@
     MODULE(nsPluginModule)                   \
     MODULE(nsLayoutModule)                   \
     MODULE(nsXMLExtrasModule)                \
+    MODULE(nsWebServicesModule)              \
     MODULE(docshell_provider)                \
     MODULE(embedcomponents)                  \
     MODULE(Browser_Embedding_Module)         \

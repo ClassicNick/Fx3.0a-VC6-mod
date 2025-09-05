@@ -534,9 +534,6 @@
       <xul:hbox>
         <children/>
       </xul:hbox>
-      <xul:keyset>
-        <xul:key anonid="keyClose" key="&windowClose.key;" modifiers="accel" oncommand="window.close();"/>
-      </xul:keyset>
     </content>
     <implementation implements="nsITimerCallback">
       <constructor>
@@ -563,16 +560,6 @@
             cancelButton.accesskey = docElt.getAttribute("closebuttonaccesskey");
 #endif
           }
-          else {
-            // No Cmd+W in non-instant-apply preferences windows
-            var keyClose = document.getAnonymousElementByAttribute(this, "anonid", "keyClose");
-            keyClose.parentNode.removeChild(keyClose);
-          }
-        }
-        else {
-          // No Cmd+W in child dialogs
-          var keyClose = document.getAnonymousElementByAttribute(this, "anonid", "keyClose");
-          keyClose.parentNode.removeChild(keyClose);          
         }
         var panes = this.preferencePanes;
 
@@ -605,6 +592,20 @@
           this._selector.setAttribute("collapsed", "true");
       ]]>
       </constructor>
+
+      <destructor>
+      <![CDATA[
+        // Release timers to avoid reference cycles.
+        if (this._animateTimer) {
+          this._animateTimer.cancel();
+          this._animateTimer = null;
+        }
+        if (this._fadeTimer) {
+          this._fadeTimer.cancel();
+          this._fadeTimer = null;
+        }
+      ]]>
+      </destructor>
 
       <field name="instantApply">false</field>
       
@@ -806,10 +807,10 @@
               this._setUpFadeTimer();
             }
           } else if (aTimer == this._fadeTimer) {
-            var lastSelectedPane = document.getElementById(this.lastSelected);
             var elt = document.getElementById(this.lastSelected);
-            if (parseFloat(window.getComputedStyle(lastSelectedPane, "").opacity) < (1.0 - this._fadeIncrement))
-              elt.style.opacity = parseFloat(window.getComputedStyle(elt, "").opacity) + this._fadeIncrement;
+            var newOpacity = parseFloat(window.getComputedStyle(elt, "").opacity) + this._fadeIncrement;
+            if (newOpacity < 1.0)
+              elt.style.opacity = newOpacity;
             else {
               aTimer.cancel();
               elt.style.opacity = 1.0;
@@ -1041,6 +1042,11 @@
           var pane = document.getElementById(event.originalTarget.getAttribute("pane"));
           event.originalTarget.parentNode.parentNode.showPane(pane);
         }
+      </handler>
+
+      <handler event="keypress" key="&windowClose.key;" modifiers="accel" phase="capturing">
+        if (this.instantApply)
+          window.close();
       </handler>
     </handlers>
   </binding>

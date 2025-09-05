@@ -95,6 +95,7 @@
 #include "nsIJSContextStack.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsAttrValue.h"
+#include "nsAttrName.h"
 
 struct RuleValue {
   /**
@@ -2939,6 +2940,25 @@ static PRBool SelectorMatches(RuleProcessorData &data,
                  child->Tag()->Equals(nsDependentString(pseudoClass->mString)))));
       result = (child == nsnull);
     }
+    else if (nsCSSPseudoClasses::mozHasHandlerRef == pseudoClass->mAtom) {
+      nsIContent *child = nsnull;
+      nsIContent *element = data.mContent;
+      PRInt32 index = -1;
+
+      result = PR_FALSE;
+      if (element) {
+        do {
+          child = element->GetChildAt(++index);
+          if (child && child->IsContentOfType(nsIContent::eHTML) &&
+              child->Tag() == nsHTMLAtoms::param &&
+              child->AttrValueIs(kNameSpaceID_None, nsHTMLAtoms::name,
+                                 NS_LITERAL_STRING("pluginurl"), eIgnoreCase)) {
+            result = PR_TRUE;
+            break;
+          }
+        } while (child);
+      }
+    }
     else if (nsCSSPseudoClasses::root == pseudoClass->mAtom) {
       result = (data.mParentContent == nsnull);
     }
@@ -3059,6 +3079,9 @@ static PRBool SelectorMatches(RuleProcessorData &data,
     else if (nsCSSPseudoClasses::mozLoading == pseudoClass->mAtom) {
       stateToCheck = NS_EVENT_STATE_LOADING;
     }
+    else if (nsCSSPseudoClasses::mozTypeUnsupported == pseudoClass->mAtom) {
+      stateToCheck = NS_EVENT_STATE_TYPE_UNSUPPORTED;
+    }
     else if (nsCSSPseudoClasses::required == pseudoClass->mAtom) {
       stateToCheck = NS_EVENT_STATE_REQUIRED;
     }
@@ -3144,20 +3167,12 @@ static PRBool SelectorMatches(RuleProcessorData &data,
           // have a chance at matching, of course, are ones that the element
           // actually has attributes in), short-circuiting if we ever match.
           PRUint32 attrCount = data.mContent->GetAttrCount();
-          PRInt32 nameSpaceID;
-          nsCOMPtr<nsIAtom> name;
-          nsCOMPtr<nsIAtom> prefix;
           result = PR_FALSE;
           for (PRUint32 i = 0; i < attrCount; ++i) {
-#ifdef DEBUG
-            nsresult attrState =
-#endif
-              data.mContent->GetAttrNameAt(i, &nameSpaceID,
-                                           getter_AddRefs(name),
-                                           getter_AddRefs(prefix));
-            NS_ASSERTION(NS_SUCCEEDED(attrState),
-                         "GetAttrCount lied or GetAttrNameAt failed");
-            if (name != attr->mAttr) {
+            const nsAttrName* attrName =
+              data.mContent->GetAttrNameAt(i);
+            NS_ASSERTION(attrName, "GetAttrCount lied or GetAttrNameAt failed");
+            if (attrName->LocalName() != attr->mAttr) {
               continue;
             }
             if (attr->mFunction == NS_ATTR_FUNC_SET) {
@@ -3167,7 +3182,8 @@ static PRBool SelectorMatches(RuleProcessorData &data,
 #ifdef DEBUG
               PRBool hasAttr =
 #endif
-                data.mContent->GetAttr(nameSpaceID, name, value);
+                data.mContent->GetAttr(attrName->NamespaceID(),
+                                       attrName->LocalName(), value);
               NS_ASSERTION(hasAttr, "GetAttrNameAt lied");
               result = AttrMatchesValue(attr, value);
             }

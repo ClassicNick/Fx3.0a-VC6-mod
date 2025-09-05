@@ -120,12 +120,14 @@ function initCommands()
          ["join-charset",      cmdJoin,             CMD_NEED_SRV | CMD_CONSOLE],
          ["kick",              cmdKick,            CMD_NEED_CHAN | CMD_CONSOLE],
          ["kick-ban",          cmdKick,            CMD_NEED_CHAN | CMD_CONSOLE],
+         ["knock",             cmdKnock,            CMD_NEED_SRV | CMD_CONSOLE],
          ["leave",             cmdLeave,           CMD_NEED_CHAN | CMD_CONSOLE],
          ["links",             cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
          ["list",              cmdList,             CMD_NEED_SRV | CMD_CONSOLE],
          ["list-plugins",      cmdListPlugins,                     CMD_CONSOLE],
          ["load",              cmdLoad,                            CMD_CONSOLE],
          ["log",               cmdLog,                             CMD_CONSOLE],
+         ["map",               cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
          ["me",                cmdMe,                              CMD_CONSOLE],
          ["motd",              cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
          ["mode",              cmdMode,             CMD_NEED_SRV | CMD_CONSOLE],
@@ -162,6 +164,7 @@ function initCommands()
          ["say",               cmdSay,              CMD_NEED_SRV | CMD_CONSOLE],
          ["server",            cmdServer,                          CMD_CONSOLE],
          ["set-current-view",  cmdSetCurrentView,                            0],
+         ["stats",             cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
          ["squery",            cmdSquery,           CMD_NEED_SRV | CMD_CONSOLE],
          ["sslserver",         cmdSSLServer,                       CMD_CONSOLE],
          ["stalk",             cmdStalk,                           CMD_CONSOLE],
@@ -624,8 +627,9 @@ function dispatchCommand (command, e, flags)
     if (typeof e.command.func == "function")
     {
         /* dispatch a real function */
-        if (e.command.usage)
-            client.commandManager.parseArguments (e);
+
+        client.commandManager.parseArguments (e);
+
         if ("parseError" in e)
         {
             displayUsageError(e, e.parseError);
@@ -1436,11 +1440,6 @@ function cmdSSLServer(e)
 
 function cmdQuit(e)
 {
-    if ((typeof e.reason != "string") || !e.reason)
-        e.reason = client.prefs["defaultQuitMsg"];
-    if (!e.reason)
-        e.reason = client.userAgent;
-
     client.quit(e.reason);
     window.close();
 }
@@ -1454,7 +1453,7 @@ function cmdQuitMozilla(e)
 function cmdDisconnect(e)
 {
     if ((typeof e.reason != "string") || !e.reason)
-        e.reason = client.prefs["defaultQuitMsg"];
+        e.reason = e.network.prefs["defaultQuitMsg"];
     if (!e.reason)
         e.reason = client.userAgent;
 
@@ -1463,6 +1462,7 @@ function cmdDisconnect(e)
 
 function cmdDisconnectAll(e)
 {
+    var netReason;
     if (confirmEx(MSG_CONFIRM_DISCONNECT_ALL, ["!yes", "!no"]) != 0)
         return;
 
@@ -1473,13 +1473,14 @@ function cmdDisconnectAll(e)
         return;
     }
 
-    if ((typeof e.reason != "string") || !e.reason)
-        e.reason = client.prefs["defaultQuitMsg"];
-    if (!e.reason)
-        e.reason = client.userAgent;
-
     for (var i = 0; i < conNetworks.length; i++)
-        conNetworks[i].quit(e.reason);
+    {
+        netReason = e.reason;
+        if ((typeof netReason != "string") || !netReason)
+            netReason = conNetworks[i].prefs["defaultQuitMsg"];
+        netReason = (netReason ? netReason : client.userAgent);
+        conNetworks[i].quit(netReason);
+    }
 }
 
 function cmdDeleteView(e)
@@ -2931,6 +2932,12 @@ function cmdKick(e)
         e.sourceObject.dispatch("ban", { nickname: e.user.encodedName });
 
     e.user.kick(e.reason);
+}
+
+function cmdKnock(e)
+{
+    var rest = (e.reason ? " :" + fromUnicode(e.reason, e.server) : "") + "\n";
+    e.server.sendData("KNOCK " + fromUnicode(e.channelName, e.server) + rest);
 }
 
 function cmdClient(e)
