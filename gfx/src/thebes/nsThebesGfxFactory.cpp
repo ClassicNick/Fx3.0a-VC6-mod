@@ -50,6 +50,7 @@
 #include "nsThebesRegion.h"
 #include "nsThebesBlender.h"
 #include "nsThebesFontMetrics.h"
+#include "nsThebesFontEnumerator.h"
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesFontMetrics)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesBlender)
@@ -58,25 +59,7 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesDeviceContext)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesRenderingContext)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesImage)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesRegion)
-
-
-#ifdef CAIRO_PRINTING_WORKS
-
-#ifdef XP_WIN
-#include "nsDeviceContextSpecWin.h"
-#include "nsDeviceContextSpecFactoryW.h"
-#include "nsPrintOptionsWin.h"
-#include "nsPrintSession.h"
-
-NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintOptionsWin, Init)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsPrinterEnumeratorWin)
-NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintSession, Init)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceContextSpecWin)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceContextSpecFactoryWin)
-#endif
-
-#endif /* CAIRO_PRINTING_WORKS */
-
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsThebesFontEnumerator)
 
 static NS_IMETHODIMP nsScriptableRegionConstructor(nsISupports *aOuter, REFNSIID aIID, void **aResult)
 {
@@ -125,6 +108,10 @@ static const nsModuleComponentInfo components[] =
     NS_FONT_METRICS_CID,
     "@mozilla.org/gfx/fontmetrics;1",
     nsThebesFontMetricsConstructor },
+  { "Thebes Font Enumerator",
+    NS_FONT_ENUMERATOR_CID,
+    "@mozilla.org/gfx/fontenumerator;1",
+    nsThebesFontEnumeratorConstructor },
   { "Thebes Device Context",
     NS_DEVICE_CONTEXT_CID,
     "@mozilla.org/gfx/devicecontext;1",
@@ -153,30 +140,6 @@ static const nsModuleComponentInfo components[] =
     GFX_IMAGEFRAME_CID,
     "@mozilla.org/gfx/image/frame;2",
     gfxImageFrameConstructor },
-
-#if 0
-  { "nsPrintOptionsWin",
-    NS_PRINTSETTINGSSERVICE_CID,
-    "@mozilla.org/gfx/printsettings-service;1",
-    nsPrintOptionsWinConstructor },
-  { "Win Printer Enumerator",
-    NS_PRINTER_ENUMERATOR_CID,
-    //    "@mozilla.org/gfx/printer_enumerator/win;1",
-    "@mozilla.org/gfx/printerenumerator;1",
-    nsPrinterEnumeratorWinConstructor },
-  { "Print Session",
-    NS_PRINTSESSION_CID,
-    "@mozilla.org/gfx/printsession;1",
-    nsPrintSessionConstructor },
-  { "nsDeviceContextSpecWin",
-    NS_DEVICE_CONTEXT_SPEC_CID,
-    "@mozilla.org/gfx/devicecontextspec;1",
-    nsDeviceContextSpecWinConstructor },
-  { "nsDeviceContextSpecFactoryWin",
-    NS_DEVICE_CONTEXT_SPEC_FACTORY_CID,
-    "@mozilla.org/gfx/devicecontextspecfactory;1",
-    nsDeviceContextSpecFactoryWinConstructor },
-#endif
 };
 
 PR_STATIC_CALLBACK(void)

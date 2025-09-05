@@ -80,6 +80,7 @@
 #include "nsSVGUtils.h"
 #include "nsISVGOuterSVGFrame.h"
 #include "nsISVGContainerFrame.h"
+#include "nsContentUtils.h"
   
 typedef nsContainerFrame  nsSVGPatternFrameBase;
 
@@ -141,6 +142,7 @@ public:
    * @see nsLayoutAtoms::svgPatternFrame
    */
   virtual nsIAtom* GetType() const;
+  virtual PRBool IsFrameOfType(PRUint32 aFlags) const;
 
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const
@@ -224,7 +226,7 @@ NS_INTERFACE_MAP_BEGIN(nsSVGPatternFrame)
   NS_INTERFACE_MAP_ENTRY(nsISVGPattern)
   NS_INTERFACE_MAP_ENTRY(nsISVGContainerFrame)
   NS_INTERFACE_MAP_ENTRY(nsISVGValueObserver)
-  NS_INTERFACE_MAP_ENTRY(nsSupportsWeakReference)
+  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsISVGValue)
 NS_INTERFACE_MAP_END_INHERITING(nsSVGPatternFrameBase)
 
@@ -272,6 +274,12 @@ nsIAtom*
 nsSVGPatternFrame::GetType() const
 {
   return nsLayoutAtoms::svgPatternFrame;
+}
+
+PRBool
+nsSVGPatternFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~nsIFrame::eSVG);
 }
 
 //----------------------------------------------------------------------
@@ -472,8 +480,8 @@ nsSVGPatternFrame::PaintPattern(nsISVGRendererCanvas* canvas,
 
   /*
    * OK, we've got the content geometry in general.  Now we need to get two
-   * different transformation matricies.  First, we need to transform the
-   * x,y,width,and heigth units.  This is done differently than the units of
+   * different transformation matrices.  First, we need to transform the
+   * x,y,width,and height units.  This is done differently than the units of
    * the actual elements we are going to paint.  We also need to pass some
    * of this information back to our caller (to get the x,y offset of the
    * pattern within the painted area.  So, we need to generate two matrices
@@ -1059,7 +1067,7 @@ nsSVGPatternFrame::ConstructCTM(nsIDOMSVGMatrix **ctm, nsIDOMSVGMatrix *aPCTM, n
     if (align == nsIDOMSVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_UNKNOWN)
       align = nsIDOMSVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_XMIDYMID;
     if (meetOrSlice == nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_UNKNOWN)
-      align = nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_MEET;
+      meetOrSlice = nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_MEET;
 
     float viewportWidth, viewportHeight;
     GetWidth(&viewportWidth);

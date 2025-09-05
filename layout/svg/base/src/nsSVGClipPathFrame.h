@@ -34,58 +34,46 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "nsSVGDefsFrame.h"
-#include "nsLayoutAtoms.h"
+#ifndef __NS_SVGCLIPPATHFRAME_H__
+#define __NS_SVGCLIPPATHFRAME_H__
 
-#define NS_SVGCLIPPATHFRAME_CID \
-{0xb497bbe2, 0x4434, 0x4d96, {0x9c, 0xe8, 0xf2, 0xad, 0xd1, 0x1f, 0x1d, 0x26}}
+#include "nsISupports.h"
 
-typedef nsSVGDefsFrame nsSVGClipPathFrameBase;
+class nsISVGRendererCanvas;
+class nsISVGRendererSurface;
+class nsISVGChildFrame;
+class nsIDOMSVGMatrix;
+class nsIURI;
+class nsIContent;
 
-class nsSVGClipPathFrame : public nsSVGClipPathFrameBase
-{
-  friend nsIFrame*
-  NS_NewSVGClipPathFrame(nsIPresShell* aPresShell, nsIContent* aContent);
+#define NS_ISVGCLIPPATHFRAME_IID \
+{0x9309e388, 0xde9b, 0x4848, {0x84, 0xfe, 0x22, 0xc1, 0xd8, 0x0c, 0x89, 0x11}}
 
-  virtual ~nsSVGClipPathFrame();
-  NS_IMETHOD InitSVG();
-
- public:
-  NS_DECL_ISUPPORTS
-
-  NS_DEFINE_STATIC_CID_ACCESSOR(NS_SVGCLIPPATHFRAME_CID)
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_SVGCLIPPATHFRAME_CID)
+class nsISVGClipPathFrame : public nsISupports {
+public:
+  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ISVGCLIPPATHFRAME_IID)
 
   NS_IMETHOD ClipPaint(nsISVGRendererCanvas* canvas,
+                       nsISVGRendererSurface* aClipSurface,
                        nsISVGChildFrame* aParent,
-                       nsCOMPtr<nsIDOMSVGMatrix> aMatrix);
+                       nsCOMPtr<nsIDOMSVGMatrix> aMatrix) = 0;
 
   NS_IMETHOD ClipHitTest(nsISVGChildFrame* aParent,
                          nsCOMPtr<nsIDOMSVGMatrix> aMatrix,
-                         float aX, float aY, PRBool *aHit);
-  /**
-   * Get the "type" of the frame
-   *
-   * @see nsLayoutAtoms::svgClipPathFrame
-   */
-  virtual nsIAtom* GetType() const;
+                         float aX, float aY, PRBool *aHit) = 0;
 
-#ifdef DEBUG
-  NS_IMETHOD GetFrameName(nsAString& aResult) const
-  {
-    return MakeFrameName(NS_LITERAL_STRING("SVGClipPath"), aResult);
-  }
-#endif
+  // Check if this clipPath is made up of more than one geometry object.
+  // If so, the clipping API in cairo isn't enough and we need to use
+  // mask based clipping.
 
- private:
-  nsISVGChildFrame *mClipParent;
-  nsCOMPtr<nsIDOMSVGMatrix> mClipParentMatrix;
-
-  // nsISVGContainerFrame interface:
-  already_AddRefed<nsIDOMSVGMatrix> GetCanvasTM();
+  NS_IMETHOD IsTrivial(PRBool *aTrivial) = 0;
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsSVGClipPathFrame, NS_SVGCLIPPATHFRAME_CID)
+NS_DEFINE_STATIC_IID_ACCESSOR(nsISVGClipPathFrame, NS_ISVGCLIPPATHFRAME_IID)
+
 
 nsresult
-NS_GetSVGClipPathFrame(nsSVGClipPathFrame **aResult, nsIURI *aURI, nsIContent *aContent);
+NS_GetSVGClipPathFrame(nsISVGClipPathFrame **aResult,
+                       nsIURI *aURI, nsIContent *aContent);
+
+#endif

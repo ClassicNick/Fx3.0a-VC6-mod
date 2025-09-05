@@ -34,17 +34,8 @@
         query.setFolders([this._bms.toolbarRoot], 1);
         var options = this._places.getNewQueryOptions();
         options.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
+        options.expandQueries = true;
         this._result = this._places.executeQuery(query, options);
-                                                     
-        // Check if the new query needs a show event.
-        if (PlacesController.nodeIsContainer(this._result)) {
-          var serv = Cc[this._result.folderType]
-                     .getService(Ci.nsIBookmarksContainer);
-          if (serv.onContainerOpening(this._result.folderId))
-            this._result = this._places.executeQueries(queries, queries.length,
-                                                       options);
-        }
-                                                         
         this._rebuild();
         ]]></body>
       </method>
@@ -66,21 +57,26 @@
           while (this.hasChildNodes())
             this.removeChild(this.firstChild);
           const XULNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
-          var cc = this._result.childCount;
+          var cc = this._result.root.childCount;
           for (var i = 0; i < cc; ++i) {
-            var child = this._result.getChild(i);
+            var child = this._result.root.getChild(i);
             var button = document.createElementNS(XULNS, "toolbarbutton");
             button.setAttribute("label", child.title);
-            if (PlacesController.nodeIsURL(child)) {
-              button.setAttribute("url", child.url);
+            if (PlacesController.nodeIsURI(child)) {
+              child = child.QueryInterface(Ci.nsINavHistoryURIResultNode);
+              button.setAttribute("url", child.uri);
               button.setAttribute("image", child.icon.spec);
-            } else if (PlacesController.nodeIsFolder(child)) {
+            } else if (PlacesController.nodeIsContainer(child)) {
               button.setAttribute("type", "menu");
               button.setAttribute("container", "true");
               var popup = document.createElementNS(XULNS, "menupopup");
               popup.setAttribute("type", "places");
+              // This is set here and not in the XBL constructor for the menu because
+              // it doesn't get initialized properly in the constructor.
+              popup.setAttribute("context", "placesContext");
               button.appendChild(popup);
-              popup.folderId = child.folderId;
+              popup._result = this._result;
+              popup._resultNode = child;
             }
             button.className = "menuitem-iconic bookmark-item";
             button.node = child;
@@ -100,7 +96,11 @@
           overflowPadder.appendChild(this._chevron);
           var popup = document.createElementNS(XULNS, "menupopup");
           popup.setAttribute("type", "places");
-          popup.folderId = this._result.folderId;
+          // This is set here and not in the XBL constructor for the menu because
+          // it doesn't get initialized properly in the constructor.
+          popup.setAttribute("context", "placesContext");
+          popup._result = this._result;
+          popup._resultNode = this._result.root;
           var t = this;
           popup.popupShowingCallback = function() {t.chevronPopupShowing();};
           this._chevron.appendChild(popup);
@@ -164,27 +164,17 @@
         <parameter name="queries"/>
         <parameter name="options"/>
         <body><![CDATA[
-          // Check if the old query needs a hidden event.
-          if (PlacesController.nodeIsContainer(this._result)) {
-            var serv = Cc[this._result.folderType]
-                       .getService(Ci.nsIBookmarksContainer);
-            serv.onContainerClosed(this._result.folderId);
-          }
-          
           this._result = this._places.executeQueries(queries, queries.length,
                                                      options);
-
-          // Check if the new query needs a show event.
-          if (PlacesController.nodeIsContainer(this._result)) {
-            var serv = Cc[this._result.folderType]
-                       .getService(Ci.nsIBookmarksContainer);
-            if (serv.onContainerOpening(this._result.folderId))
-              this._result = this._places.executeQueries(queries, queries.length,
-                                                         options);
-          }
           this._rebuild();
         ]]></body>
       </method>
+      
+      <property name="isBookmarks">
+        <getter><![CDATA[ 
+          return PlacesController.nodeIsFolder(this.getResult());
+        ]]></getter>
+      </property>
       
       <property name="hasSelection">
         <getter><![CDATA[ 
@@ -216,10 +206,10 @@
         ]]></getter>
       </property>
       
-      <property name="selectedURLNode">
+      <property name="selectedURINode">
         <getter><![CDATA[
           var node = this.selectedNode;
-          return node && PlacesController.nodeIsURL(node) ? node : null;
+          return node && PlacesController.nodeIsURI(node) ? node : null;
         ]]></getter>
       </property>
       
@@ -227,18 +217,22 @@
         <getter><![CDATA[
           // By default, the insertion point is at the top level, at the end. 
           var index = -1;
-          var folderId = this._result.folderId;
+          var folderId = this._result.root.QueryInterface(Ci.nsINavHistoryFolderResultNode).folderId;
           
           if (this.hasSelection) {
-            if(PlacesController.nodeIsFolder(this.selectedNode))
+            if(PlacesController.nodeIsFolder(this.selectedNode)) {
               // If there is a folder selected, the insertion point is the
               // end of the folder.
-              folderId = this.selectedNode.folderId;
-            else
+              dump("Selected node is folder. ");
+              folderId = this.selectedNode.QueryInterface(Ci.nsINavHistoryFolderResultNode).folderId;
+            } else {
               // If there is another type of node selected, the insertion point
               // is after that node.
+              dump("Selected node is node. ");
               index = PlacesController.getIndexOfNode(this.selectedNode)
+            }
           }
+          dump("setting insertion point to index " + index + " folderId " + folderId + "\n");
           return new InsertionPoint(folderId, index);
         ]]></getter>
       </property>
@@ -286,7 +280,7 @@
           if (!this._numBatches)
             this._self.init();
         },
-        onItemVisited: function TB_0_onItemVisited(bookmark, time) {
+        onItemVisited: function TB_0_onItemVisited(bookmark, visitId, time) {
           //this._self.init();
         },
         onItemReplaced: function TB_0_onItemReplaced(filder, item, newItem) {
@@ -326,11 +320,15 @@
         },
         onDrop: function TBV_DO_onDrop(event, dropData, session) {
           var result = this._self.getResult();
-          var destContainer = result.folderId;
+          if (!PlacesController.nodeIsFolder(result.root))
+            return;
+          result.root.QueryInterface(Ci.nsINavHistoryFolderResultNode);
+          var destContainer = result.root.QueryInterface(Ci.nsINavHistoryFolderResultNode).folderId;
           var destIndex = -1;
           var orientation = 1;
           if (event.target.localName == "toolbarbutton") {
             if (PlacesController.nodeIsFolder(event.target.node)) {
+              event.target.node.QueryInterface(Ci.nsINavHistoryFolderResultNode);
               destContainer = event.target.node.folderId;
               destIndex = -1;
               orientation = 0;
@@ -355,6 +353,15 @@
         },
         
       })]]></field>
+
+      <method name="saveSelection">
+        <body><![CDATA[
+        ]]></body>
+      </method>
+      <method name="restoreSelection">
+        <body><![CDATA[
+        ]]></body>
+      </method>
     </implementation>
     <handlers>
       <handler event="mousedown"><![CDATA[
@@ -363,7 +370,7 @@
         if (event.target.localName == "toolbarbutton")
           this._selection = event.target.node;
         else 
-          this._selection = this.getResult();
+          this._selection = this.getResult().root;
         PlacesController.activeView = this;
         document.commandDispatcher.updateCommands("mousedown");
       ]]></handler>

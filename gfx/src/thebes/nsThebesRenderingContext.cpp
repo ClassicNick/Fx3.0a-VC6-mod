@@ -230,6 +230,17 @@ nsThebesRenderingContext::PopTranslation(PushedTranslation* aState)
 }
 
 NS_IMETHODIMP
+nsThebesRenderingContext::SetTranslation(nscoord aX, nscoord aY)
+{
+    gfxMatrix mat = mThebes->CurrentMatrix();
+    gfxFloat a, b, c, d, tx, ty;
+    mat.ToValues(&a, &b, &c, &d, &tx, &ty);
+    gfxMatrix newMat(a, b, c, d, aX, aY);
+    mThebes->SetMatrix(newMat);
+    return NS_OK;
+}
+
+NS_IMETHODIMP
 nsThebesRenderingContext::GetHints(PRUint32& aResult)
 {
     aResult = 0;
@@ -849,23 +860,30 @@ NS_IMETHODIMP
 nsThebesRenderingContext::PushFilter(const nsRect& twRect, PRBool aAreaIsOpaque, float aOpacity)
 {
     gfxPoint p0(FROM_TWIPS(twRect.x), FROM_TWIPS(twRect.y));
-    gfxPoint p1(FROM_TWIPS(twRect.XMost()), FROM_TWIPS(twRect.YMost()));
+    gfxSize ps(FROM_TWIPS(twRect.XMost() - twRect.x),
+               FROM_TWIPS(twRect.YMost() - twRect.y));
 
-    p0 = mThebes->UserToDevice(p0);
-    p1 = mThebes->UserToDevice(p1);
+    mOpacityArray.AppendElement(aOpacity);
 
-    nsIntRect deviceRect(TO_TWIPS(floor(PR_MIN(p0.x, p1.x))),
-                         TO_TWIPS(floor(PR_MIN(p0.y, p1.y))),
-                         TO_TWIPS(ceil(PR_MAX(p0.x, p1.x))),
-                         TO_TWIPS(ceil(PR_MAX(p0.y, p1.y))));
-
-    return mDrawingSurface->PushFilter(deviceRect, aAreaIsOpaque, aOpacity);
+    mThebes->Save();
+    mThebes->Clip(gfxRect(p0, ps));
+    mThebes->PushGroup();
+    return NS_OK;
 }
 
 NS_IMETHODIMP
 nsThebesRenderingContext::PopFilter()
 {
-    mDrawingSurface->PopFilter();
+    if (mOpacityArray.Length() > 0) {
+        float f = mOpacityArray[mOpacityArray.Length()-1];
+        mOpacityArray.RemoveElementAt(mOpacityArray.Length()-1);
+
+        mThebes->PopGroupToSource();
+        mThebes->Paint(f);
+    }
+
+    mThebes->Restore();
+
     return NS_OK;
 }
 

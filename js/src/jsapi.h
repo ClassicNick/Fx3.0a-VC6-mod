@@ -503,6 +503,12 @@ JS_StringToVersion(const char *string);
                                                    called with a null script
                                                    parameter, by native code
                                                    that loops intensively */
+#define JSOPTION_DONT_REPORT_UNCAUGHT \
+                                JS_BIT(8)       /* When returning from the
+                                                   outermost API call, prevent
+                                                   uncaught exceptions from
+                                                   being converted to error
+                                                   reports */
 
 extern JS_PUBLIC_API(uint32)
 JS_GetOptions(JSContext *cx);
@@ -671,6 +677,10 @@ JS_ClearNewbornRoots(JSContext *cx);
  * call to JS_EnterLocalRootScope.  If JS_EnterLocalRootScope fails, you must
  * not make the matching JS_LeaveLocalRootScope call.
  *
+ * JS_LeaveLocalRootScopeWithResult(cx, rval) is an alternative way to leave
+ * a local root scope that protects a result or return value, by effectively
+ * pushing it in the caller's local root scope.
+ *
  * In case a native hook allocates many objects or other GC-things, but the
  * native protects some of those GC-things by storing them as property values
  * in an object that is itself protected, the hook can call JS_ForgetLocalRoot
@@ -690,6 +700,9 @@ JS_EnterLocalRootScope(JSContext *cx);
 
 extern JS_PUBLIC_API(void)
 JS_LeaveLocalRootScope(JSContext *cx);
+
+extern JS_PUBLIC_API(void)
+JS_LeaveLocalRootScopeWithResult(JSContext *cx, jsval rval);
 
 extern JS_PUBLIC_API(void)
 JS_ForgetLocalRoot(JSContext *cx, void *thing);

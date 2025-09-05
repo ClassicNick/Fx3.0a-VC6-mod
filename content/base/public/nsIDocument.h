@@ -37,7 +37,7 @@
 #ifndef nsIDocument_h___
 #define nsIDocument_h___
 
-#include "nsIDOMGCParticipant.h"
+#include "nsINode.h"
 #include "nsEvent.h"
 #include "nsStringGlue.h"
 #include "nsCOMArray.h"
@@ -50,7 +50,6 @@
 #include "nsILoadGroup.h"
 #include "nsCRT.h"
 #include "mozFlushType.h"
-#include "nsPropertyTable.h"
 #include "nsAutoPtr.h"
 #include "nsIAtom.h"
 
@@ -92,10 +91,10 @@ class nsIVariant;
 class nsIDOMUserDataHandler;
 
 // IID for the nsIDocument interface
-// a5d8343d-9b0a-40a8-a47e-893065749f0b
+// bc831b59-2148-4016-a3c8-bf65f68da758
 #define NS_IDOCUMENT_IID \
-{ 0xa5d8343d, 0x9b0a, 0x40a8, \
-  { 0xa4, 0x7e, 0x89, 0x30, 0x65, 0x74, 0x9f, 0x0b } }
+{ 0xbc831b59, 0x2148, 0x4016, \
+ { 0xa3, 0xc8, 0xbf, 0x65, 0xf6, 0x8d, 0xa7, 0x58 } }
 
 // Flag for AddStyleSheet().
 #define NS_STYLESHEET_FROM_CATALOG                (1 << 0)
@@ -104,19 +103,22 @@ class nsIDOMUserDataHandler;
 
 // Document interface.  This is implemented by all document objects in
 // Gecko.
-class nsIDocument : public nsIDOMGCParticipant
+class nsIDocument : public nsINode
 {
 public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOCUMENT_IID)
   NS_DECL_AND_IMPL_ZEROING_OPERATOR_NEW
 
+#ifdef MOZILLA_INTERNAL_API
   nsIDocument()
-    : mCharacterSet(NS_LITERAL_CSTRING("ISO-8859-1")),
+    : nsINode(nsnull),
+      mCharacterSet(NS_LITERAL_CSTRING("ISO-8859-1")),
       mNodeInfoManager(nsnull),
       mPartID(0)
   {
   }
-
+#endif
+  
   /**
    * Let the document know that we're starting to load data into it.
    * @param aCommand The parser command
@@ -371,26 +373,6 @@ public:
   {
     return mRootContent;
   }
-
-  /**
-   * Set aRoot as the root content object for this document.  If aRoot is
-   * non-null, this should not be called on documents that currently have a
-   * root content without first clearing out the document's children.  Passing
-   * in null to unbind the existing root content is allowed.  This method will
-   * bind aRoot to the document; the caller need not call BindToTree on aRoot.
-   *
-   * Note that this method never sends out nsIDocumentObserver notifications;
-   * doing that is the caller's responsibility.
-   */
-  virtual nsresult SetRootContent(nsIContent* aRoot) = 0;
-
-  /** 
-   * Get the direct children of the document - content in
-   * the prolog, the root content and content in the epilog.
-   */
-  virtual nsIContent *GetChildAt(PRUint32 aIndex) const = 0;
-  virtual PRInt32 IndexOf(nsIContent* aPossibleChild) const = 0;
-  virtual PRUint32 GetChildCount() const = 0;
 
   /**
    * Accessors to the collection of stylesheets owned by this document.
@@ -690,18 +672,6 @@ public:
    */
   virtual PRInt32 GetDefaultNamespaceID() const = 0;
 
-  virtual void* GetProperty(nsIAtom *aPropertyName,
-                            nsresult *aStatus = nsnull) const = 0;
-
-  virtual nsresult SetProperty(nsIAtom            *aPropertyName,
-                               void               *aValue,
-                               NSPropertyDtorFunc  aDtor = nsnull) = 0;
-
-  virtual nsresult DeleteProperty(nsIAtom *aPropertyName) = 0;
-
-  virtual void* UnsetProperty(nsIAtom  *aPropertyName,
-                              nsresult *aStatus = nsnull) = 0;
-
   nsPropertyTable* PropertyTable() { return &mPropertyTable; }
 
   /**
@@ -828,7 +798,7 @@ public:
    * Associate an object aData to aKey on node aObject. Should only be used to
    * implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsISupports pointer of the node to add aData to
+   * @param aObject cannonical nsINode pointer of the node to add aData to
    * @param aKey the key to associate the object to
    * @param aData the object to associate to aKey on aObject
    * @param aHandler the UserDataHandler to call when the node is
@@ -837,7 +807,7 @@ public:
    *                      if any
    * @return whether adding the object and UserDataHandler succeeded
    */
-  nsresult SetUserData(const nsISupports *aObject, const nsAString &aKey,
+  nsresult SetUserData(const nsINode *aObject, const nsAString &aKey,
                        nsIVariant *aData, nsIDOMUserDataHandler *aHandler,
                        nsIVariant **aResult)
   {
@@ -855,7 +825,7 @@ public:
    * aObject will be removed. Should only be used to implement the DOM Level 3
    * UserData API.
    *
-   * @param aObject cannonical nsISupports pointer of the node to add aData to
+   * @param aObject cannonical nsINode pointer of the node to add aData to
    * @param aKey the key to associate the object to
    * @param aData the object to associate to aKey on aObject (may be nulll)
    * @param aHandler the UserDataHandler to call when the node is
@@ -864,7 +834,7 @@ public:
    *                      if any
    * @return whether adding the object and UserDataHandler succeeded
    */
-  virtual nsresult SetUserData(const nsISupports *aObject, nsIAtom *aKey,
+  virtual nsresult SetUserData(const nsINode *aObject, nsIAtom *aKey,
                                nsIVariant *aData,
                                nsIDOMUserDataHandler *aHandler,
                                nsIVariant **aResult) = 0;
@@ -874,13 +844,13 @@ public:
    * if no object was associated to aKey on aObject. Should only be used to
    * implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsISupports pointer of the node to get the
+   * @param aObject cannonical nsINode pointer of the node to get the
    *                object for
    * @param aKey the key the object is associated to
    * @param aResult [out] the registered object for aKey on aObject, if any
    * @return whether an error occured while looking up the registered object
    */
-  nsresult GetUserData(nsISupports *aObject, const nsAString &aKey,
+  nsresult GetUserData(nsINode *aObject, const nsAString &aKey,
                        nsIVariant **aResult)
   {
     nsCOMPtr<nsIAtom> key = do_GetAtom(aKey);
@@ -896,13 +866,13 @@ public:
    * if no object was associated to aKey on aObject. Should only be used to
    * implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsISupports pointer of the node to get the
+   * @param aObject cannonical nsINode pointer of the node to get the
    *                object for
    * @param aKey the key the object is associated to
    * @param aResult [out] the registered object for aKey on aObject, if any
    * @return whether an error occured while looking up the registered object
    */
-  virtual nsresult GetUserData(const nsISupports *aObject, nsIAtom *aKey,
+  virtual nsresult GetUserData(const nsINode *aObject, nsIAtom *aKey,
                                nsIVariant **aResult) = 0;
 
   /**
@@ -911,25 +881,25 @@ public:
    *
    * @param aOperation the type of operation that is being performed on the
    *                   node. @see nsIDOMUserDataHandler
-   * @param aObject cannonical nsISupports pointer of the node to call the
+   * @param aObject cannonical nsINode pointer of the node to call the
    *                UserDataHandler for
    * @param aSource the node that aOperation is being performed on, or null if
    *                the operation is a deletion
    * @param aDest the newly created node if any, or null
    */
   virtual void CallUserDataHandler(PRUint16 aOperation,
-                                   const nsISupports *aObject,
+                                   const nsINode *aObject,
                                    nsIDOMNode *aSource, nsIDOMNode *aDest) = 0;
 
   /**
    * Copy the objects and UserDataHandlers for node aObject to a new document.
    * Should only be used to implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsISupports pointer of the node to copy objects
+   * @param aObject cannonical nsINode pointer of the node to copy objects
    *                and UserDataHandlers for
    * @param aDestination the new document
    */
-  virtual void CopyUserData(const nsISupports *aObject,
+  virtual void CopyUserData(const nsINode *aObject,
                             nsIDocument *aDestination) = 0;
 
 protected:

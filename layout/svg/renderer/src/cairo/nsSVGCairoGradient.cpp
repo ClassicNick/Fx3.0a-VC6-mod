@@ -63,7 +63,7 @@ static cairo_matrix_t SVGToMatrix(nsIDOMSVGMatrix *ctm)
 
 
 static void
-CairoSetStops(cairo_pattern_t *aPattern, nsISVGGradient *aGrad)
+CairoSetStops(cairo_pattern_t *aPattern, nsISVGGradient *aGrad, float aOpacity)
 {
   PRUint32 nStops;
   float lastOffset = 0.0f;
@@ -87,7 +87,7 @@ CairoSetStops(cairo_pattern_t *aPattern, nsISVGGradient *aGrad)
                                       NS_GET_R(rgba)/255.0,
                                       NS_GET_G(rgba)/255.0,
                                       NS_GET_B(rgba)/255.0,
-                                      opacity);
+                                      opacity * aOpacity);
   }
 }
 
@@ -161,7 +161,7 @@ CairoGradient(cairo_t *ctx, nsISVGGradient *aGrad,
   PRUint16 aSpread;
   aGrad->GetSpreadMethod(&aSpread);
   if (aSpread == nsIDOMSVGGradientElement::SVG_SPREADMETHOD_PAD)
-    cairo_pattern_set_extend(gradient, CAIRO_EXTEND_NONE);
+    cairo_pattern_set_extend(gradient, CAIRO_EXTEND_PAD);
   else if (aSpread == nsIDOMSVGGradientElement::SVG_SPREADMETHOD_REFLECT)
     cairo_pattern_set_extend(gradient, CAIRO_EXTEND_REFLECT);
   else if (aSpread == nsIDOMSVGGradientElement::SVG_SPREADMETHOD_REPEAT)
@@ -169,7 +169,10 @@ CairoGradient(cairo_t *ctx, nsISVGGradient *aGrad,
   
   cairo_pattern_set_matrix(gradient, &patternMatrix);
 
-  CairoSetStops(gradient, aGrad);
+  float opacity;
+  aSource->GetFillOpacity(&opacity);
+
+  CairoSetStops(gradient, aGrad, opacity);
 
   return gradient;
 }

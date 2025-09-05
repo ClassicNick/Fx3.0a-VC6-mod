@@ -90,18 +90,9 @@ public:
     */
   friend nsIFrame* NS_NewTableRowFrame(nsIPresShell* aPresShell);
 
-  /** @see nsIFrame::Paint */
-  NS_IMETHOD Paint(nsPresContext*      aPresContext,
-                   nsIRenderingContext& aRenderingContext,
-                   const nsRect&        aDirtyRect,
-                   nsFramePaintLayer    aWhichLayer,
-                   PRUint32             aFlags = 0);
-
-  // rows don't paint their own background -- the cells do
-  virtual PRBool CanPaintBackground() { return PR_FALSE; }
-
-  virtual nsIFrame* GetFrameForPoint(const nsPoint&    aPoint,
-                                     nsFramePaintLayer aWhichLayer);
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists);
 
   nsTableCellFrame* GetFirstCell() ;
 
@@ -123,8 +114,7 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus);
 
-  void DidResize(nsPresContext*          aPresContext,
-                 const nsHTMLReflowState& aReflowState);
+  void DidResize(const nsHTMLReflowState& aReflowState);
 
   /**
    * Get the "type" of the frame

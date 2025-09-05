@@ -41,7 +41,6 @@ cp -a bin/chrome/toolkit.manifest                        minimo/chrome
 mkdir -p minimo/components
 
 cp -a bin/components/nsDictionary.js                     minimo/components
-cp -a bin/components/nsInterfaceInfoToIDL.js             minimo/components
 cp -a bin/components/nsXmlRpcClient.js                   minimo/components
 
 cp -a bin/extensions/spatial-navigation@extensions.mozilla.org/components/* minimo/components
@@ -99,9 +98,9 @@ cp -a ../customization/HelperAppDlg.js                    $OBJDIR/dist/minimo/co
 
 cat ../customization/ua.css.additions >> $OBJDIR/dist/minimo/res/ua.css
 
-echo Copying ARM shunt lib.  Adjust if you are not building ARM
-
-cp -a ../../build/wince/shunt/build/ARMV4Rel/shunt.dll $OBJDIR/dist/minimo
+#echo Copying ARM shunt lib.  Adjust if you are not building ARM
+#
+#cp -a ../../build/wince/shunt/build/ARMV4Rel/shunt.dll $OBJDIR/dist/minimo
 
 popd
 

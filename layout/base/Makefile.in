@@ -102,7 +102,6 @@ EXPORTS		= \
 		nsIPercentHeightObserver.h  \
 		nsIPresShell.h \
 		nsIReflowCallback.h \
-		nsLayoutAtomList.h \
 		nsLayoutAtoms.h \
 		nsLayoutErrors.h \
 		nsLayoutUtils.h \
@@ -120,13 +119,13 @@ CPPSRCS		= \
 		nsCaret.cpp \
 		nsChildIterator.cpp \
 		nsCounterManager.cpp \
+                nsDisplayList.cpp \
 		nsDocumentViewer.cpp \
 		nsFrameContentIterator.cpp \
 		nsFrameManager.cpp \
 		nsFrameTraversal.cpp \
 		nsGenConList.cpp \
 		nsImageLoader.cpp \
-		nsLayoutAtoms.cpp \
 		nsLayoutDebugger.cpp \
 		nsLayoutHistoryState.cpp \
 		nsLayoutUtils.cpp \

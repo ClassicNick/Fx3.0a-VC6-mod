@@ -37,7 +37,6 @@
  
 /**
  * MODULE NOTES:
- * @update  gess 4/1/98
  * 
  *  This class does two primary jobs:
  *    1) It iterates the tokens provided during the 
@@ -179,8 +178,6 @@ class nsParser : public nsIParser,
 
 
     NS_IMETHOD_(void) SetParserFilter(nsIParserFilter* aFilter);
-    
-    NS_IMETHOD RegisterDTD(nsIDTD* aDTD);
 
     /**
      *  Retrieve the scanner from the topmost parser context
@@ -227,6 +224,8 @@ class nsParser : public nsIParser,
                      PRBool aEnableVerify,
                      PRBool aLastCall,
                      nsDTDMode aMode = eDTDMode_autodetect);
+
+    NS_IMETHOD_(void *) GetRootContextKey();
 
     /**
      * This method needs documentation

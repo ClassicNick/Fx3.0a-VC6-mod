@@ -47,15 +47,11 @@ MODULE		= test_content
 
 include $(topsrcdir)/config/rules.mk
 
-_UNIT_FILES	= unit/test_all.sh \
-		  unit/head.js \
-		  unit/tail.js \
-		  unit/test_xml_parser.js \
-		  unit/test_xml_serializer.js \
-		  $(NULL)
+_UNIT_FILES := $(wildcard $(srcdir)/unit/*.js)
 
 libs:: $(_UNIT_FILES)
 	$(INSTALL) $^ $(DIST)/bin/content_unit_tests
 
 check::
-	$(RUN_TEST_PROGRAM) $(DIST)/bin/content_unit_tests/test_all.sh
+	$(RUN_TEST_PROGRAM) $(DIST)/bin/test_all.sh \
+		$(DIST)/bin/content_unit_tests

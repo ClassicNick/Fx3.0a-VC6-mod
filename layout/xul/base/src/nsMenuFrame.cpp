@@ -83,6 +83,7 @@
 #include "nsIEventStateManager.h"
 #include "nsITimerInternal.h"
 #include "nsContentUtils.h"
+#include "nsDisplayList.h"
 
 #define NS_MENU_POPUP_LIST_INDEX   0
 
@@ -354,26 +355,19 @@ nsMenuFrame::Destroy(nsPresContext* aPresContext)
   return nsBoxFrame::Destroy(aPresContext);
 }
 
-// Called to prevent events from going to anything inside the menu.
-nsIFrame*
-nsMenuFrame::GetFrameForPoint(const nsPoint& aPoint, 
-                              nsFramePaintLayer aWhichLayer)
+NS_IMETHODIMP
+nsMenuFrame::BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
+                                         const nsRect&           aDirtyRect,
+                                         const nsDisplayListSet& aLists)
 {
-  nsIFrame* frame = nsBoxFrame::GetFrameForPoint(aPoint, aWhichLayer);
-  if (!frame || frame == this) {
-    return frame;
-  }
-  nsIContent* content = frame->GetContent();
-  if (content) {
-    // This allows selective overriding for subcontent.
-    nsAutoString value;
-    content->GetAttr(kNameSpaceID_None, nsXULAtoms::allowevents, value);
-    if (value.EqualsLiteral("true"))
-      return frame;
-  }
-  if (GetStyleVisibility()->IsVisible())
-    return this; // Capture all events so that we can perform selection
-  return nsnull;
+  if (!aBuilder->IsForEventDelivery())
+    return nsBoxFrame::BuildDisplayListForChildren(aBuilder, aDirtyRect, aLists);
+    
+  nsDisplayListCollection set;
+  nsresult rv = nsBoxFrame::BuildDisplayListForChildren(aBuilder, aDirtyRect, set);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  return WrapListsInRedirector(aBuilder, set, aLists);
 }
 
 NS_IMETHODIMP 
@@ -1725,39 +1719,24 @@ nsMenuFrame::OnCreate()
           nsCOMPtr<nsIContent> commandContent(do_QueryInterface(commandElt));
 
           if ( commandContent ) {
-            nsAutoString commandAttr, menuAttr;
-            commandContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, commandAttr);
-            grandChild->GetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, menuAttr);
-            if (!commandAttr.Equals(menuAttr)) {
-              // The menu's disabled state needs to be updated to match the command.
-              if (commandAttr.IsEmpty()) 
-                grandChild->UnsetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, PR_TRUE);
-              else grandChild->SetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, commandAttr, PR_TRUE);
-            }
+            nsAutoString commandAttr;
+            // The menu's disabled state needs to be updated to match the command.
+            if (commandContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, commandAttr))
+              grandChild->SetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, commandAttr, PR_TRUE);
+            else
+              grandChild->UnsetAttr(kNameSpaceID_None, nsHTMLAtoms::disabled, PR_TRUE);
 
-            // The menu's label, accesskey, and checked states need to be updated to match the command.
-            // Note that (unlike the disabled state) if the command has *no* label for either, we
-            // assume the menu is supplying its own.
-            commandContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::checked, commandAttr);
-            grandChild->GetAttr(kNameSpaceID_None, nsHTMLAtoms::checked, menuAttr);
-            if (!commandAttr.Equals(menuAttr)) {
-              if (!commandAttr.IsEmpty()) 
-                grandChild->SetAttr(kNameSpaceID_None, nsHTMLAtoms::checked, commandAttr, PR_TRUE);
-            }
+            // The menu's label, accesskey and checked states need to be updated
+            // to match the command. Note that unlike the disabled state if the
+            // command has *no* value, we assume the menu is supplying its own.
+            if (commandContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::checked, commandAttr))
+              grandChild->SetAttr(kNameSpaceID_None, nsHTMLAtoms::checked, commandAttr, PR_TRUE);
 
-            commandContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::accesskey, commandAttr);
-            grandChild->GetAttr(kNameSpaceID_None, nsHTMLAtoms::accesskey, menuAttr);
-            if (!commandAttr.Equals(menuAttr)) {
-              if (!commandAttr.IsEmpty()) 
-                grandChild->SetAttr(kNameSpaceID_None, nsHTMLAtoms::accesskey, commandAttr, PR_TRUE);
-            }
+            if (commandContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::accesskey, commandAttr))
+              grandChild->SetAttr(kNameSpaceID_None, nsHTMLAtoms::accesskey, commandAttr, PR_TRUE);
 
-            commandContent->GetAttr(kNameSpaceID_None, nsXULAtoms::label, commandAttr);
-            grandChild->GetAttr(kNameSpaceID_None, nsXULAtoms::label, menuAttr);
-            if (!commandAttr.Equals(menuAttr)) {
-              if (!commandAttr.IsEmpty()) 
-                grandChild->SetAttr(kNameSpaceID_None, nsXULAtoms::label, commandAttr, PR_TRUE);
-            }
+            if (commandContent->GetAttr(kNameSpaceID_None, nsXULAtoms::label, commandAttr))
+              grandChild->SetAttr(kNameSpaceID_None, nsXULAtoms::label, commandAttr, PR_TRUE);
           }
         }
       }

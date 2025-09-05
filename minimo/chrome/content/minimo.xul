@@ -75,10 +75,14 @@
   </popupset>
   
   <keyset>
-    <key id="minimo-key" keycode="VK_F23" oncommand="BrowserMenuPopup()"/>
-    <key id="minimo-key2" keycode="VK_F11" oncommand="BrowserMenuPopup()"/>
+    <!-- ***** IMPORTANT ***** 
+         Everytime you edit these keys, you may also consider
+         to check/edit the key assignment on minimo.js/MenuHandleMenuEscape
+         -->
+    <key id="minimo-key"  keycode="VK_F23" oncommand="BrowserMenuSpin()"/>
+    <key id="minimo-key2" keycode="VK_F11" oncommand="BrowserMenuSpin()"/>
 
-    <key id="minimo-key3" keycode="VK_F24" oncommand="BrowserNavMenuPopup()"/>
+    <key id="minimo-key3" keycode="VK_F24" oncommand="DoToggleSoftwareKeyboard()"/>
     <key id="minimo-key4" keycode="VK_F12" oncommand="BrowserNavMenuPopup()"/>
 
   </keyset>
@@ -244,8 +248,10 @@
 	  <menuitem id="menu_closeWindow" command="cmd_closeWindow" key="key_closeWindow" label=""  />
 	</popup>
     
-    
     <menupopup id="menu_MainPopup"
+               onpopupshown="MenuEnableEscapeKeys()"
+               onpopuphidden="MenuDisableEscapeKeys()" 
+               onpopuphiding="MenuMainPopupHiding()" 
                onpopupshowing="MenuMainPopupShowing()" >
       
       <menuitem id="command_BrowserOpenTab" 
@@ -305,8 +311,12 @@
                 label="&quit.label;"  /> 
       
     </menupopup>  
-    
-    <menupopup id="menu_NavPopup">
+             
+    <menupopup id="menu_NavPopup"
+               onpopuphiding="MenuNavPopupHiding()" 
+               onpopupshown="MenuEnableEscapeKeys()"
+               onpopuphidden="MenuDisableEscapeKeys()" 
+    >
       
 	  <menuitem id="command_BrowserBookmark"
 	            command="cmd_BrowserBookmark"

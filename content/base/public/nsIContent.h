@@ -43,14 +43,9 @@
 #include "nsEvent.h"
 #include "nsStringGlue.h"
 #include "nsContentErrors.h"
-#include "nsPropertyTable.h"
 #include "nsCaseTreatment.h"
 #include "nsChangeHint.h"
-#include "nsIDOMGCParticipant.h"
-
-#ifdef MOZILLA_INTERNAL_API
-#include "nsINodeInfo.h"
-#endif
+#include "nsINode.h"
 
 // Forward declarations
 class nsIAtom;
@@ -69,16 +64,16 @@ class nsAttrValue;
 class nsAttrName;
 
 // IID for the nsIContent interface
-// ffc6f2b8-bcdc-4cf7-b72f-e843860f14a6
+// bb761f7a-62a8-43d4-9694-1cf7850b0453
 #define NS_ICONTENT_IID \
-{ 0xffc6f2b8, 0xbcdc, 0x4cf7, \
-  { 0xb7, 0x2f, 0xe8, 0x43, 0x86, 0x0f, 0x14, 0xa6 } }
+{ 0xbb761f7a, 0x62a8, 0x43d4, \
+ { 0x96, 0x94, 0x1c, 0xf7, 0x85, 0x0b, 0x04, 0x53 } }
 
 /**
  * A node of content in a document's content model. This interface
  * is supported by all content objects.
  */
-class nsIContent : public nsIDOMGCParticipant {
+class nsIContent : public nsINode {
 public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICONTENT_IID)
 
@@ -87,8 +82,8 @@ public:
   // nsIContent is that it exists with an IID
 
   nsIContent(nsINodeInfo *aNodeInfo)
-    : mParentPtrBits(0),
-      mNodeInfo(aNodeInfo)
+    : nsINode(aNodeInfo),
+      mParentPtrBits(0)
   {
     NS_ASSERTION(aNodeInfo,
                  "No nsINodeInfo passed to nsIContent, PREPARE TO CRASH!!!");
@@ -172,16 +167,6 @@ public:
   }
 
   /**
-   * Get the ownerDocument for this content.
-   *
-   * @return the ownerDocument
-   */
-  nsIDocument *GetOwnerDoc() const
-  {
-    return mNodeInfo->GetDocument();
-  }
-
-  /**
    * Get the parent content for this content.
    * @return the parent, or null if no parent
    */
@@ -230,57 +215,6 @@ public:
   {
     return mNodeInfo;
   }
-
-  /**
-   * Get the number of children
-   * @return the number of children
-   */
-  virtual PRUint32 GetChildCount() const = 0;
-
-  /**
-   * Get a child by index
-   * @param aIndex the index of the child to get, or null if index out
-   *               of bounds
-   * @return the child
-   */
-  virtual nsIContent *GetChildAt(PRUint32 aIndex) const = 0;
-
-  /**
-   * Get the index of a child within this content
-   * @param aPossibleChild the child to get the index
-   * @return the index of the child, or -1 if not a child
-   */
-  virtual PRInt32 IndexOf(nsIContent* aPossibleChild) const = 0;
-
-  /**
-   * Insert a content node at a particular index.
-   *
-   * @param aKid the content to insert
-   * @param aIndex the index it is being inserted at (the index it will have
-   *        after it is inserted)
-   * @param aNotify whether to notify the document that the insert has
-   *        occurred
-   */
-  virtual nsresult InsertChildAt(nsIContent* aKid, PRUint32 aIndex,
-                                 PRBool aNotify) = 0;
-
-  /**
-   * Append a content node to the end of the child list.
-   *
-   * @param aKid the content to append
-   * @param aNotify whether to notify the document that the replace has
-   *        occurred
-   */
-  virtual nsresult AppendChildTo(nsIContent* aKid, PRBool aNotify) = 0;
-
-  /**
-   * Remove a child from this content node.
-   *
-   * @param aIndex the index of the child to remove
-   * @param aNotify whether to notify the document that the replace has
-   *        occurred
-   */
-  virtual nsresult RemoveChildAt(PRUint32 aIndex, PRBool aNotify) = 0;
 
   /**
    * Returns an atom holding the name of the attribute of type ID on
@@ -377,7 +311,7 @@ public:
   {
     return PR_FALSE;
   }
-
+  
   /**
    * Test whether this content node's given attribute has the given value.  If
    * the attribute is not set at all, this will return false.
@@ -394,6 +328,36 @@ public:
                              nsCaseTreatment aCaseSensitive) const
   {
     return PR_FALSE;
+  }
+  
+  enum {
+    ATTR_MISSING = -1,
+    ATTR_VALUE_NO_MATCH = -2
+  };
+  /**
+   * Check whether this content node's given attribute has one of a given
+   * list of values. If there is a match, we return the index in the list
+   * of the first matching value. If there was no attribute at all, then
+   * we return ATTR_MISSING. If there was an attribute but it didn't
+   * match, we return ATTR_VALUE_NO_MATCH. A non-negative result always
+   * indicates a match.
+   * 
+   * @param aNameSpaceID The namespace ID of the attribute.  Must not
+   *                     be kNameSpaceID_Unknown.
+   * @param aName The name atom of the attribute.  Must not be null.
+   * @param aValues a NULL-terminated array of pointers to atom values to test
+   *                against.
+   * @param aCaseSensitive Whether to do a case-sensitive compare on the values.
+   * @return ATTR_MISSING, ATTR_VALUE_NO_MATCH or the non-negative index
+   * indicating the first value of aValues that matched
+   */
+  typedef nsIAtom* const* const AttrValuesArray;
+  virtual PRInt32 FindAttrValueIn(PRInt32 aNameSpaceID,
+                                  nsIAtom* aName,
+                                  AttrValuesArray* aValues,
+                                  nsCaseTreatment aCaseSensitive) const
+  {
+    return -1;
   }
 
   /**
@@ -750,27 +714,6 @@ public:
   }
     
 
-  /* Methods for manipulating content node properties.  For documentation on
-   * properties, see nsPropertyTable.h.
-   */
-
-  virtual void* GetProperty(nsIAtom  *aPropertyName,
-                            nsresult *aStatus = nsnull) const
-  { if (aStatus) *aStatus = NS_ERROR_NOT_IMPLEMENTED; return nsnull; }
-
-  virtual nsresult SetProperty(nsIAtom                   *aPropertyName,
-                               void                      *aValue,
-                               NSPropertyDtorFunc         aDtor = nsnull)
-  { return NS_ERROR_NOT_IMPLEMENTED; }
-
-  virtual nsresult DeleteProperty(nsIAtom *aPropertyName)
-  { return NS_ERROR_NOT_IMPLEMENTED; }
-
-  virtual void* UnsetProperty(nsIAtom  *aPropertyName,
-                              nsresult *aStatus = nsnull)
-  { if (aStatus) *aStatus = NS_ERROR_NOT_IMPLEMENTED; return nsnull; }
-
-
   virtual void SetHasProperties() = 0;
 
   /**
@@ -886,8 +829,6 @@ protected:
 
   PtrBits      mParentPtrBits;
   
-  nsCOMPtr<nsINodeInfo> mNodeInfo;
-
 #endif // MOZILLA_INTERNAL_API
 };
 

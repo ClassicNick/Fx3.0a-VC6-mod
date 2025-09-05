@@ -78,7 +78,7 @@
 #include "nsAutoPtr.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsStyleSet.h"
-
+#include "nsDisplayList.h"
 
 /********************************************************************************
  ** nsTableReflowState                                                         **
@@ -1343,117 +1343,147 @@ nsTableFrame::GetAdditionalChildListName(PRInt32 aIndex) const
   return nsnull;
 }
 
-void 
-nsTableFrame::PaintChildren(nsPresContext*      aPresContext,
-                            nsIRenderingContext& aRenderingContext,
-                            const nsRect&        aDirtyRect,
-                            nsFramePaintLayer    aWhichLayer,
-                            PRUint32             aFlags)
+MOZ_DECL_CTOR_COUNTER(nsDisplayTableBorderBackground)
+class nsDisplayTableBorderBackground : public nsDisplayItem {
+public:
+  nsDisplayTableBorderBackground(nsTableFrame* aFrame) : mFrame(aFrame) {
+    MOZ_COUNT_CTOR(nsDisplayTableBorderBackground);
+  }
+#ifdef NS_BUILD_REFCNT_LOGGING
+  virtual ~nsDisplayTableBorderBackground() {
+    MOZ_COUNT_DTOR(nsDisplayTableBorderBackground);
+  }
+#endif
+
+  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
+  virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
+     const nsRect& aDirtyRect);
+  // With collapsed borders, parts of the collapsed border can extend outside
+  // the table frame, so allow this display element to blow out to our
+  // overflow rect.
+  virtual nsRect GetBounds(nsDisplayListBuilder* aBuilder) {
+    return mFrame->GetOverflowRect() + aBuilder->ToReferenceFrame(mFrame);
+  }
+  NS_DISPLAY_DECL_NAME("TableBorderBackground")
+private:
+  nsTableFrame* mFrame;
+};
+
+void
+nsDisplayTableBorderBackground::Paint(nsDisplayListBuilder* aBuilder,
+    nsIRenderingContext* aCtx, const nsRect& aDirtyRect)
 {
-  PRBool clip = GetStyleDisplay()->IsTableClip();
-  // If overflow is hidden then set the clip rect so that children don't
-  // leak out of us. Note that because overflow'-clip' only applies to
-  // the content area we do this after painting the border and background
-  if (clip) {
-    aRenderingContext.PushState();
-    SetOverflowClipRect(aRenderingContext);
+  mFrame->PaintTableBorderBackground(*aCtx, aDirtyRect, 
+                                     aBuilder->ToReferenceFrame(mFrame));
+}
+
+/* static */ nsresult
+nsTableFrame::DisplayGenericTablePart(nsDisplayListBuilder* aBuilder,
+                                      nsFrame* aFrame,
+                                      const nsRect& aDirtyRect,
+                                      const nsDisplayListSet& aLists)
+{
+  // Create dedicated background display items per-frame when we're
+  // handling events.
+  // XXX how to handle collapsed borders?
+  if (aBuilder->IsForEventDelivery() &&
+      aFrame->IsVisibleForPainting(aBuilder)) {
+    nsresult rv = aLists.BorderBackground()->AppendNewToTop(new (aBuilder)
+        nsDisplayBackground(aFrame));
+    NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  nsHTMLContainerFrame::PaintChildren(aPresContext, aRenderingContext, aDirtyRect, aWhichLayer, aFlags);
-
-  if (clip)
-    aRenderingContext.PopState();
+  // This is similar to what nsContainerFrame::BuildDisplayListForNonBlockChildren
+  // does, except that we allow the children's background and borders to go
+  // in our BorderBackground list. This doesn't really affect background
+  // painting --- the children won't actually draw their own backgrounds
+  // because the nsTableFrame already drew them, unless a child has its own
+  // stacking context, in which case the child won't use its passed-in
+  // BorderBackground list anyway. It does affect cell borders though; this
+  // lets us get cell borders into the nsTableFrame's BorderBackground list.
+  nsIFrame* kid = aFrame->GetFirstChild(nsnull);
+  while (kid) {
+    nsresult rv = aFrame->BuildDisplayListForChild(aBuilder, kid, aDirtyRect, aLists);
+    NS_ENSURE_SUCCESS(rv, rv);
+    kid = kid->GetNextSibling();
+  }
+  
+  return aFrame->DisplayOutline(aBuilder, aLists);
 }
 
 // table paint code is concerned primarily with borders and bg color
 // SEC: TODO: adjust the rect for captions 
-NS_METHOD 
-nsTableFrame::Paint(nsPresContext*      aPresContext,
-                    nsIRenderingContext& aRenderingContext,
-                    const nsRect&        aDirtyRect,
-                    nsFramePaintLayer    aWhichLayer,
-                    PRUint32             aFlags)
+NS_IMETHODIMP
+nsTableFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                               const nsRect&           aDirtyRect,
+                               const nsDisplayListSet& aLists)
 {
-  if (NS_FRAME_PAINT_LAYER_BACKGROUND == aWhichLayer) {
-    TableBackgroundPainter painter(this, TableBackgroundPainter::eOrigin_Table,
-                                   aPresContext, aRenderingContext, aDirtyRect);
-    nsresult rv;
+  if (!IsVisibleInSelection(aBuilder))
+    return NS_OK;
 
-    if (eCompatibility_NavQuirks == aPresContext->CompatibilityMode()) {
-      nsMargin deflate(0,0,0,0);
-      if (IsBorderCollapse()) {
-        GET_PIXELS_TO_TWIPS(aPresContext, p2t);
-        BCPropertyData* propData =
-          (BCPropertyData*)nsTableFrame::GetProperty((nsIFrame*)this,
-                                                     nsLayoutAtoms::tableBCProperty,
-                                                     PR_FALSE);
-        if (propData) {
-          deflate.top    = BC_BORDER_TOP_HALF_COORD(p2t, propData->mTopBorderWidth);
-          deflate.right  = BC_BORDER_RIGHT_HALF_COORD(p2t, propData->mRightBorderWidth);
-          deflate.bottom = BC_BORDER_BOTTOM_HALF_COORD(p2t, propData->mBottomBorderWidth);
-          deflate.left   = BC_BORDER_LEFT_HALF_COORD(p2t, propData->mLeftBorderWidth);
-        }
+  // This background is created regardless of whether this frame is
+  // visible or not. Visibility decisions are delegated to the
+  // table background painter.
+  nsresult rv = aLists.BorderBackground()->AppendNewToTop(new (aBuilder)
+      nsDisplayTableBorderBackground(this));
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  return DisplayGenericTablePart(aBuilder, this, aDirtyRect, aLists);
+}
+
+// XXX We don't put the borders and backgrounds in tree order like we should.
+// That requires some major surgery which we aren't going to do right now.
+void
+nsTableFrame::PaintTableBorderBackground(nsIRenderingContext& aRenderingContext,
+                                         const nsRect& aDirtyRect,
+                                         nsPoint aPt)
+{
+  nsPresContext* presContext = GetPresContext();
+  nsRect dirtyRect = aDirtyRect - aPt;
+  nsIRenderingContext::AutoPushTranslation
+    translate(&aRenderingContext, aPt.x, aPt.y);
+
+  TableBackgroundPainter painter(this, TableBackgroundPainter::eOrigin_Table,
+                                 presContext, aRenderingContext, dirtyRect);
+  nsresult rv;
+  
+  if (eCompatibility_NavQuirks == presContext->CompatibilityMode()) {
+    nsMargin deflate(0,0,0,0);
+    if (IsBorderCollapse()) {
+      GET_PIXELS_TO_TWIPS(presContext, p2t);
+      BCPropertyData* propData =
+        (BCPropertyData*)nsTableFrame::GetProperty((nsIFrame*)this,
+                                                   nsLayoutAtoms::tableBCProperty,
+                                                   PR_FALSE);
+      if (propData) {
+        deflate.top    = BC_BORDER_TOP_HALF_COORD(p2t, propData->mTopBorderWidth);
+        deflate.right  = BC_BORDER_RIGHT_HALF_COORD(p2t, propData->mRightBorderWidth);
+        deflate.bottom = BC_BORDER_BOTTOM_HALF_COORD(p2t, propData->mBottomBorderWidth);
+        deflate.left   = BC_BORDER_LEFT_HALF_COORD(p2t, propData->mLeftBorderWidth);
       }
-      rv = painter.PaintTable(this, &deflate);
-      if (NS_FAILED(rv)) return rv;
+    }
+    rv = painter.PaintTable(this, &deflate);
+    if (NS_FAILED(rv)) return;
+  }
+  else {
+    rv = painter.PaintTable(this, nsnull);
+    if (NS_FAILED(rv)) return;
+  }
+
+  if (GetStyleVisibility()->IsVisible()) {
+    const nsStyleBorder* border = GetStyleBorder();
+    nsRect  rect(0, 0, mRect.width, mRect.height);
+    if (!IsBorderCollapse()) {
+      PRIntn skipSides = GetSkipSides();
+      nsCSSRendering::PaintBorder(presContext, aRenderingContext, this,
+                                  dirtyRect, rect, *border, mStyleContext,
+                                  skipSides);
     }
     else {
-      rv = painter.PaintTable(this, nsnull);
-      if (NS_FAILED(rv)) return rv;
+      PaintBCBorders(aRenderingContext, dirtyRect);
     }
-
-    if (GetStyleVisibility()->IsVisible()) {
-      const nsStyleBorder* border = GetStyleBorder();
-      nsRect  rect(0, 0, mRect.width, mRect.height);
-      if (!IsBorderCollapse()) {
-        PRIntn skipSides = GetSkipSides();
-        nsCSSRendering::PaintBorder(aPresContext, aRenderingContext, this,
-                                    aDirtyRect, rect, *border, mStyleContext,
-                                    skipSides);
-      }
-      else {
-        PaintBCBorders(aRenderingContext, aDirtyRect);
-      }
-    }
-    aFlags |= NS_PAINT_FLAG_TABLE_BG_PAINT;
-    aFlags &= ~NS_PAINT_FLAG_TABLE_CELL_BG_PASS;
   }
-
-  PaintChildren(aPresContext, aRenderingContext, aDirtyRect,
-                aWhichLayer, aFlags);
-
-  // Paint outline
-  nsRect rect(0, 0, mRect.width, mRect.height);
-  const nsStyleOutline* outlineStyle = GetStyleOutline();
-  const nsStyleBorder* borderStyle  = GetStyleBorder();
-  nsCSSRendering::PaintOutline(aPresContext, aRenderingContext, this,
-                               aDirtyRect, rect, *borderStyle, *outlineStyle,
-                               mStyleContext, 0);
-#ifdef DEBUG
-  // for debug...
-  if ((NS_FRAME_PAINT_LAYER_DEBUG == aWhichLayer) && GetShowFrameBorders()) {
-    aRenderingContext.SetColor(NS_RGB(0,255,0));
-    aRenderingContext.DrawRect(0, 0, mRect.width, mRect.height);
-  }
-#endif
-
-  DO_GLOBAL_REFLOW_COUNT_DSP_J("nsTableFrame", &aRenderingContext, NS_RGB(255,128,255));
-  return NS_OK;
-  /*nsFrame::Paint(aPresContext,
-                        aRenderingContext,
-                        aDirtyRect,
-                        aWhichLayer);*/
 }
-
-nsIFrame*
-nsTableFrame::GetFrameForPoint(const nsPoint& aPoint,
-                               nsFramePaintLayer aWhichLayer)
-{
-  // this should act like a block, so we need to override
-  return GetFrameForPointUsing(aPoint, nsnull, aWhichLayer,
-                               aWhichLayer == NS_FRAME_PAINT_LAYER_BACKGROUND);
-}
-
 
 //null range means the whole thing
 NS_IMETHODIMP
@@ -3190,14 +3220,25 @@ nsTableFrame::ReflowChildren(nsTableReflowState& aReflowState,
         if (NS_UNCONSTRAINEDSIZE != aReflowState.availSize.height) {
           aReflowState.availSize.height -= cellSpacingY;
         }
-        // record the next in flow in case it gets destroyed and the row group array
-        // needs to be recomputed.
+        // record the presence of a next in flow, it might get destroyed so we
+        // need to reorder the row group array
         nsIFrame* kidNextInFlow = kidFrame->GetNextInFlow();
-  
+        PRBool reorder = PR_FALSE;
+        if (kidFrame->GetNextInFlow())
+          reorder = PR_TRUE;
+      
         rv = ReflowChild(kidFrame, presContext, desiredSize, kidReflowState,
                          aReflowState.x, aReflowState.y, 0, aStatus);
         haveReflowedRowGroup = PR_TRUE;
-        
+
+        if (reorder) {
+          // reorder row groups the reflow may have changed the nextinflows
+          OrderRowGroups(rowGroups, numRowGroups, &aReflowState.firstBodySection, &thead, &tfoot);
+          for (childX = 0; childX < numRowGroups; childX++) {
+            if (kidFrame == (nsIFrame*)rowGroups.ElementAt(childX))
+              break;
+          }
+        }
         // see if the rowgroup did not fit on this page might be pushed on
         // the next page
         if (NS_FRAME_IS_COMPLETE(aStatus) && isPaginated &&
@@ -3474,7 +3515,6 @@ nsTableFrame::CalcDesiredHeight(const nsHTMLReflowState& aReflowState, nsHTMLRef
 
 static
 void ResizeCells(nsTableFrame&            aTableFrame,
-                 nsPresContext*          aPresContext,
                  const nsHTMLReflowState& aReflowState)
 {
   nsAutoVoidArray rowGroups;
@@ -3498,7 +3538,7 @@ void ResizeCells(nsTableFrame&            aTableFrame,
                                       groupDesiredSize.height);
     nsTableRowFrame* rowFrame = rgFrame->GetFirstRow();
     while (rowFrame) {
-      rowFrame->DidResize(aPresContext, aReflowState);
+      rowFrame->DidResize(aReflowState);
       rgFrame->ConsiderChildOverflow(groupDesiredSize.mOverflowArea, rowFrame);
       rowFrame = rowFrame->GetNextRow();
     }
@@ -3517,9 +3557,8 @@ void
 nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
                                      nscoord                  aAmount)
 { 
-  nsPresContext *presContext = GetPresContext();
-  float p2t;
-  p2t = presContext->PixelsToTwips();
+ 
+  GET_PIXELS_TO_TWIPS(GetPresContext(), p2t);
 
   nscoord cellSpacingY = GetCellSpacingY();
 
@@ -3556,7 +3595,7 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
             yEndRG += rowRect.height + cellSpacingY;
             amountUsed += amountForRow;
             amountUsedByRG += amountForRow;
-            //rowFrame->DidResize(aPresContext, aReflowState);        
+            //rowFrame->DidResize(aReflowState);        
             nsTableFrame::RePositionViews(rowFrame);
           }
         }
@@ -3585,7 +3624,7 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
   }
 
   if (amountUsed >= aAmount) {
-    ResizeCells(*this, presContext, aReflowState);
+    ResizeCells(*this, aReflowState);
     return;
   }
 
@@ -3661,7 +3700,7 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
           amountUsed += amountForRow;
           amountUsedByRG += amountForRow;
           NS_ASSERTION((amountUsed <= aAmount), "invalid row allocation");
-          //rowFrame->DidResize(aPresContext, aReflowState);        
+          //rowFrame->DidResize(aReflowState);        
           nsTableFrame::RePositionViews(rowFrame);
         }
         else {
@@ -3690,7 +3729,7 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
     yOriginRG = yEndRG;
   }
 
-  ResizeCells(*this, presContext, aReflowState);
+  ResizeCells(*this, aReflowState);
 }
 
 static void
@@ -4144,8 +4183,7 @@ nsTableFrame::CalcBorderBoxWidth(const nsHTMLReflowState& aState)
   width = PR_MAX(width, 0);
 
   if (NS_UNCONSTRAINEDSIZE != width) {
-    float p2t;
-    p2t = GetPresContext()->PixelsToTwips();
+    GET_PIXELS_TO_TWIPS(GetPresContext(), p2t);
     width = RoundToPixel(width, p2t, eRoundUpIfHalfOrMore);
   }
 

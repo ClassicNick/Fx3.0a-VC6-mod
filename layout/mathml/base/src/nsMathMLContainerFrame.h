@@ -116,6 +116,7 @@ public:
   // Overloaded nsHTMLContainerFrame methods -- see documentation in nsIFrame.h
 
   virtual nsIAtom* GetType() const;
+  virtual PRBool IsFrameOfType(PRUint32 aFlags) const;
 
   NS_IMETHOD
   Init(nsPresContext*  aPresContext,
@@ -162,12 +163,9 @@ public:
     return nsHTMLContainerFrame::DidReflow(aPresContext, aReflowState, aStatus);
   }
 
-  NS_IMETHOD 
-  Paint(nsPresContext*      aPresContext,
-        nsIRenderingContext& aRenderingContext,
-        const nsRect&        aDirtyRect,
-        nsFramePaintLayer    aWhichLayer,
-        PRUint32             aFlags = 0);
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists);
 
   // Notification when an attribute is changed. The MathML module uses the
   // following paradigm:
@@ -212,10 +210,6 @@ public:
   virtual nsresult
   ReflowError(nsIRenderingContext& aRenderingContext,
               nsHTMLReflowMetrics& aDesiredSize);
-  virtual nsresult
-  PaintError(nsIRenderingContext& aRenderingContext,
-             const nsRect&        aDirtyRect,
-             nsFramePaintLayer    aWhichLayer);
 
   // helper method to reflow a child frame. We are inline frames, and we don't
   // know our positions until reflow is finished. That's why we ask the

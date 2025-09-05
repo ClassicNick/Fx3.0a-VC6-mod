@@ -108,6 +108,8 @@ GNOMEUI_VERSION=2.2.0
 GCONF_VERSION=1.2.1
 LIBGNOME_VERSION=2.0
 
+MSMANIFEST_TOOL=
+
 dnl Set various checks
 dnl ========================================================
 MISSING_X=
@@ -203,6 +205,10 @@ case "$target" in
     cat shunt.out
     rm shunt.out
     $srcdir/build/wince/tools/topsrcdir.h
+
+    `$srcdir/build/cygwin-wrapper evc $srcdir/build/wince/shunt/build/static/shunt.vcw /MAKE ALL > shunt.out <<\EOF`
+    cat shunt.out
+    rm shunt.out
 
     echo -n "#define TOPSRCDIR \"" > $srcdir/build/wince/tools/topsrcdir.h
     `$srcdir/build/cygwin-wrapper echo -n $_topsrcdir >> $srcdir/build/wince/tools/topsrcdir.h`
@@ -383,8 +389,25 @@ case "$target" in
             _CC_SUITE=7
         elif test "$_CC_MAJOR_VERSION" = "14"; then
             _CC_SUITE=8
+            CXXFLAGS="$CXXFLAGS -Zc:wchar_t-"
         else
             AC_MSG_ERROR([This version of the MSVC compiler, $CC_VERSION , is unsupported.])
+        fi
+	
+        # bug #249782
+        # ensure that mt.exe is Microsoft (R) Manifest Tool and not magnetic tape manipulation utility (or something else)
+        if test "$_CC_SUITE" -ge "8"; then
+                MSMT_TOOL=`mt 2>&1|grep 'Microsoft (R) Manifest Tool'`
+                if test -n "MSMT_TOOL"; then
+                        MSMANIFEST_TOOL_VERSION=`echo ${MSMANIFEST_TOOL}|grep -Po "(^|\s)[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(\s|$)"`
+                        if test -z "MSMANIFEST_TOOL_VERSION"; then
+                                AC_MSG_WARN([Unknown version of the Microsoft (R) Manifest Tool.])
+                        fi
+                        MSMANIFEST_TOOL=1
+                        unset MSMT_TOOL
+                else
+                        AC_MSG_ERROR([Microsoft (R) Manifest Tool must be in your \$PATH.])
+                fi
         fi
 
         # Check linker version
@@ -746,22 +769,22 @@ HOST_AR='$(AR)'
 HOST_AR_FLAGS='$(AR_FLAGS)'
 
 MOZ_JPEG_CFLAGS=
-MOZ_JPEG_LIBS='-L$(DIST)/lib -lmozjpeg'
+MOZ_JPEG_LIBS='-L$(LIBXUL_DIST)/lib -lmozjpeg'
 MOZ_ZLIB_CFLAGS=
-MOZ_ZLIB_LIBS='-L$(DIST)/lib -lmozz'
+MOZ_ZLIB_LIBS='-L$(LIBXUL_DIST)/lib -lmozz'
 MOZ_PNG_CFLAGS=
-MOZ_PNG_LIBS='-L$(DIST)/lib -lmozpng'
+MOZ_PNG_LIBS='-L$(LIBXUL_DIST)/lib -lmozpng'
 
-MOZ_JS_LIBS='-L$(DIST)/bin -lmozjs'
-DYNAMIC_XPCOM_LIBS='-L$(DIST)/bin -lxpcom -lxpcom_core'
-MOZ_FIX_LINK_PATHS='-Wl,-rpath-link,$(DIST)/bin'
-XPCOM_FROZEN_LDOPTS='-L$(DIST)/bin $(MOZ_FIX_LINK_PATHS) -lxpcom'
+MOZ_JS_LIBS='-L$(LIBXUL_DIST)/bin -lmozjs'
+DYNAMIC_XPCOM_LIBS='-L$(LIBXUL_DIST)/bin -lxpcom -lxpcom_core'
+MOZ_FIX_LINK_PATHS='-Wl,-rpath-link,$(LIBXUL_DIST)/bin'
+XPCOM_FROZEN_LDOPTS='-L$(LIBXUL_DIST)/bin $(MOZ_FIX_LINK_PATHS) -lxpcom'
 LIBXUL_LIBS='$(XPCOM_FROZEN_LDOPTS) -lxul'
-XPCOM_GLUE_LDOPTS='$(DIST)/lib/$(LIB_PREFIX)xpcomglue_s.$(LIB_SUFFIX) $(XPCOM_FROZEN_LDOPTS)'
-XPCOM_STANDALONE_GLUE_LDOPTS='$(DIST)/lib/$(LIB_PREFIX)xpcomglue.$(LIB_SUFFIX)'
+XPCOM_GLUE_LDOPTS='$(LIBXUL_DIST)/lib/$(LIB_PREFIX)xpcomglue_s.$(LIB_SUFFIX) $(XPCOM_FROZEN_LDOPTS)'
+XPCOM_STANDALONE_GLUE_LDOPTS='$(LIBXUL_DIST)/lib/$(LIB_PREFIX)xpcomglue.$(LIB_SUFFIX)'
 
-MOZ_COMPONENT_NSPR_LIBS='-L$(DIST)/bin $(NSPR_LIBS)'
-MOZ_XPCOM_OBSOLETE_LIBS='-L$(DIST)/lib -lxpcom_compat'
+MOZ_COMPONENT_NSPR_LIBS='-L$(LIBXUL_DIST)/bin $(NSPR_LIBS)'
+MOZ_XPCOM_OBSOLETE_LIBS='-L$(LIBXUL_DIST)/lib -lxpcom_compat'
 
 USE_DEPENDENT_LIBS=1
 
@@ -940,6 +963,7 @@ CYGWIN32_NT|CYGWIN_NT*|MINGW*_NT*)
     ;;
 AIX)
     OS_RELEASE=`uname -v`.`uname -r`
+    OS_TEST=`uname -p`
     ;;
 BSD_386)
     OS_ARCH=BSD
@@ -1210,8 +1234,8 @@ case "$host" in
     HOST_CFLAGS="$HOST_CFLAGS -DXP_UNIX -DXP_MACOSX -DNO_X11"
     HOST_NSPR_MDCPUCFG='\"md/_darwin.cfg\"'
     HOST_OPTIMIZE_FLAGS="${HOST_OPTIMIZE_FLAGS=-O3}"
-    MOZ_FIX_LINK_PATHS='-Wl,-executable_path,$(DIST)/bin'
-    LIBXUL_LIBS='$(XPCOM_FROZEN_LDOPTS) $(DIST)/bin/XUL -lobjc'
+    MOZ_FIX_LINK_PATHS='-Wl,-executable_path,$(LIBXUL_DIST)/bin'
+    LIBXUL_LIBS='$(XPCOM_FROZEN_LDOPTS) $(LIBXUL_DIST)/bin/XUL -lobjc'
     ;;
 
 *-linux*)
@@ -1225,7 +1249,7 @@ case "$host" in
     HOST_NSPR_MDCPUCFG='\"md/_os2.cfg\"'
     HOST_OPTIMIZE_FLAGS="${HOST_OPTIMIZE_FLAGS=-O2}"
     HOST_BIN_SUFFIX=.exe
-    MOZ_FIX_LINK_PATHS='-Wl,$(DIST)/bin'
+    MOZ_FIX_LINK_PATHS='-Wl,$(LIBXUL_DIST)/bin'
     ;;
 
 *-osf*)
@@ -1294,6 +1318,7 @@ case "$target" in
                 AC_MSG_RESULT([yes])    
             fi
             AC_LANG_RESTORE
+            TARGET_COMPILER_ABI="ibmc"
             CC_VERSION=`lslpp -Lcq vac.C 2>/dev/null | awk -F: '{ print $3 }'`
             CXX_VERSION=`lslpp -Lcq vacpp.cmp.core 2>/dev/null | awk -F: '{ print $3 }'`
         fi
@@ -1407,13 +1432,13 @@ case "$target" in
     	DSO_LDOPTS='-b -Wl,+s'
     	DSO_CFLAGS=""
     	DSO_PIC_CFLAGS="+Z"
-    	MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_LDOPTS) -L$(DIST)/bin -o $@'
-    	MKCSHLIB='$(LD) -b +s -L$(DIST)/bin -o $@'
+    	MKSHLIB='$(CXX) $(CXXFLAGS) $(DSO_LDOPTS) -L$(LIBXUL_DIST)/bin -o $@'
+    	MKCSHLIB='$(LD) -b +s -L$(LIBXUL_DIST)/bin -o $@'
         CXXFLAGS="$CXXFLAGS -Wc,-ansi_for_scope,on"
     else
         DSO_LDOPTS='-b -E +s'
-        MKSHLIB='$(LD) $(DSO_LDOPTS) -L$(DIST)/bin -L$(DIST)/lib -o $@'
-        MKCSHLIB='$(LD) $(DSO_LDOPTS) -L$(DIST)/bin -L$(DIST)/lib -o $@'
+        MKSHLIB='$(LD) $(DSO_LDOPTS) -L$(LIBXUL_DIST)/bin -L$(LIBXUL_DIST)/lib -o $@'
+        MKCSHLIB='$(LD) $(DSO_LDOPTS) -L$(LIBXUL_DIST)/bin -L$(LIBXUL_DIST)/lib -o $@'
     fi
     MOZ_POST_PROGRAM_COMMAND='chatr +s enable'
     AC_DEFINE(NSCAP_DISABLE_DEBUG_PTR_TYPES)
@@ -1532,11 +1557,11 @@ case "$target" in
     DLL_PREFIX=
     DOXYGEN=:
     DSO_LDOPTS=-SUBSYSTEM:WINDOWSCE
-    DYNAMIC_XPCOM_LIBS='$(DIST)/lib/xpcom.lib $(DIST)/lib/xpcom_core.lib'
+    DYNAMIC_XPCOM_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xpcom_core.lib'
     GARBAGE=
     IMPORT_LIB_SUFFIX=lib
     LIBS="$LIBS"
-    LIBXUL_LIBS='$(DIST)/lib/xpcom.lib $(DIST)/lib/xul.lib'
+    LIBXUL_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xul.lib'
     LIB_PREFIX=
     LIB_SUFFIX=lib 
     MKCSHLIB='$(LD) -NOLOGO -DLL -OUT:$@ $(DSO_LDOPTS)'
@@ -1548,19 +1573,19 @@ case "$target" in
     MOZ_DEBUG_FLAGS='-Zi'
     MOZ_DEBUG_LDFLAGS='-DEBUG -DEBUGTYPE:CV'
     MOZ_FIX_LINK_PATHS=
-    MOZ_JPEG_LIBS='$(DIST)/lib/mozjpeg.lib'
-    MOZ_JS_LIBS='$(DIST)/lib/js$(MOZ_BITS)$(VERSION_NUMBER).lib'
+    MOZ_JPEG_LIBS='$(LIBXUL_DIST)/lib/mozjpeg.lib'
+    MOZ_JS_LIBS='$(LIBXUL_DIST)/lib/js$(MOZ_BITS)$(VERSION_NUMBER).lib'
     MOZ_OPTIMIZE_FLAGS='-O1'
-    MOZ_PNG_LIBS='$(DIST)/lib/mozpng.lib'
-    MOZ_XPCOM_OBSOLETE_LIBS='$(DIST)/lib/xpcom_compat.lib'
-    MOZ_ZLIB_LIBS='$(DIST)/lib/mozz.lib'
+    MOZ_PNG_LIBS='$(LIBXUL_DIST)/lib/mozpng.lib'
+    MOZ_XPCOM_OBSOLETE_LIBS='$(LIBXUL_DIST)/lib/xpcom_compat.lib'
+    MOZ_ZLIB_LIBS='$(LIBXUL_DIST)/lib/mozz.lib'
     OBJ_SUFFIX=obj
     RANLIB='echo not_ranlib'
     STRIP='echo not_strip'
     TARGET_NSPR_MDCPUCFG='\"md/_wince.cfg\"'
     UNZIP=unzip
     XARGS=xargs
-    XPCOM_FROZEN_LDOPTS='$(DIST)/lib/xpcom.lib'
+    XPCOM_FROZEN_LDOPTS='$(LIBXUL_DIST)/lib/xpcom.lib'
     ZIP=zip
     LIBIDL_CFLAGS="-I$MOZ_TOOLS_DIR/include ${GLIB_CFLAGS}"
     LIBIDL_LIBS="$MOZ_TOOLS_DIR/lib/libidl-0.6.lib $MOZ_TOOLS_DIR/lib/glib-1.2.lib"
@@ -1607,13 +1632,13 @@ case "$target" in
         RC='$(WINDRES)'
         # Use temp file for windres (bug 213281)
         RCFLAGS='-O coff --use-temp-file'
-        MOZ_JPEG_LIBS='-L$(DIST)/lib -ljpeg$(MOZ_BITS)$(VERSION_NUMBER)'
-        MOZ_ZLIB_LIBS='-L$(DIST)/lib -lmozz'
-        MOZ_PNG_LIBS='-L$(DIST)/lib -lpng'
-        MOZ_JS_LIBS='-L$(DIST)/lib -ljs$(MOZ_BITS)$(VERSION_NUMBER)'
+        MOZ_JPEG_LIBS='-L$(LIBXUL_DIST)/lib -ljpeg$(MOZ_BITS)$(VERSION_NUMBER)'
+        MOZ_ZLIB_LIBS='-L$(LIBXUL_DIST)/lib -lmozz'
+        MOZ_PNG_LIBS='-L$(LIBXUL_DIST)/lib -lpng'
+        MOZ_JS_LIBS='-L$(LIBXUL_DIST)/lib -ljs$(MOZ_BITS)$(VERSION_NUMBER)'
         MOZ_FIX_LINK_PATHS=
-        DYNAMIC_XPCOM_LIBS='-L$(DIST)/lib -lxpcom -lxpcom_core'
-        XPCOM_FROZEN_LDOPTS='-L$(DIST)/lib -lxpcom'
+        DYNAMIC_XPCOM_LIBS='-L$(LIBXUL_DIST)/lib -lxpcom -lxpcom_core'
+        XPCOM_FROZEN_LDOPTS='-L$(LIBXUL_DIST)/lib -lxpcom'
         DLL_PREFIX=
         IMPORT_LIB_SUFFIX=dll.a
     else
@@ -1646,16 +1671,16 @@ case "$target" in
         MOZ_DEBUG_FLAGS='-Zi'
         MOZ_DEBUG_LDFLAGS='-DEBUG -DEBUGTYPE:CV'
     	MOZ_OPTIMIZE_FLAGS='-O1'
-        MOZ_JPEG_LIBS='$(DIST)/lib/jpeg$(MOZ_BITS)$(VERSION_NUMBER).lib'
-        MOZ_ZLIB_LIBS='$(DIST)/lib/mozz.lib'
-        MOZ_PNG_LIBS='$(DIST)/lib/png.lib'
-        MOZ_JS_LIBS='$(DIST)/lib/js$(MOZ_BITS)$(VERSION_NUMBER).lib'
+        MOZ_JPEG_LIBS='$(LIBXUL_DIST)/lib/jpeg$(MOZ_BITS)$(VERSION_NUMBER).lib'
+        MOZ_ZLIB_LIBS='$(LIBXUL_DIST)/lib/mozz.lib'
+        MOZ_PNG_LIBS='$(LIBXUL_DIST)/lib/png.lib'
+        MOZ_JS_LIBS='$(LIBXUL_DIST)/lib/js$(MOZ_BITS)$(VERSION_NUMBER).lib'
         MOZ_FIX_LINK_PATHS=
-        DYNAMIC_XPCOM_LIBS='$(DIST)/lib/xpcom.lib $(DIST)/lib/xpcom_core.lib'
-        XPCOM_FROZEN_LDOPTS='$(DIST)/lib/xpcom.lib'
-        LIBXUL_LIBS='$(DIST)/lib/xpcom.lib $(DIST)/lib/xul.lib'
+        DYNAMIC_XPCOM_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xpcom_core.lib'
+        XPCOM_FROZEN_LDOPTS='$(LIBXUL_DIST)/lib/xpcom.lib'
+        LIBXUL_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xul.lib'
         MOZ_COMPONENT_NSPR_LIBS='$(NSPR_LIBS)'
-        MOZ_XPCOM_OBSOLETE_LIBS='$(DIST)/lib/xpcom_compat.lib'
+        MOZ_XPCOM_OBSOLETE_LIBS='$(LIBXUL_DIST)/lib/xpcom_compat.lib'
     fi
     AC_DEFINE(HAVE_SNPRINTF)
     AC_DEFINE(_WINDOWS)
@@ -1729,7 +1754,13 @@ case "$target" in
         AC_MSG_ERROR([Cannot find $_GLIB_PREFIX_DIR/include/glib.h .])
     fi
     GLIB_CFLAGS="-I${_GLIB_PREFIX_DIR}/include"
-    GLIB_LIBS="${_GLIB_PREFIX_DIR}/lib/glib-1.2.lib"
+    if test -f "${_GLIB_PREFIX_DIR}/lib/glib-1.2_s.lib"; then
+        GLIB_LIBS="${_GLIB_PREFIX_DIR}/lib/glib-1.2_s.lib"
+    elif test -f "${_GLIB_PREFIX_DIR}/lib/glib-1.2.lib"; then
+        GLIB_LIBS="${_GLIB_PREFIX_DIR}/lib/glib-1.2.lib"
+    else
+        AC_MSG_ERROR([Cannot find $_GLIB_PREFIX_DIR/lib/glib-1.2.lib or $_GLIB_PREFIX_DIR/lib/glib-1.2_s.lib])
+    fi
 
     if test -n "$LIBIDL_PREFIX"; then
         _LIBIDL_PREFIX_DIR=`cd $LIBIDL_PREFIX && pwd`
@@ -1748,17 +1779,40 @@ case "$target" in
         AC_MSG_ERROR([Cannot find $_LIBIDL_PREFIX_DIR/include/libIDL/IDL.h .])
     fi
     LIBIDL_CFLAGS="-I${_LIBIDL_PREFIX_DIR}/include ${GLIB_CFLAGS}"
-    LIBIDL_LIBS="${_LIBIDL_PREFIX_DIR}/lib/libidl-0.6.lib ${_GLIB_PREFIX_DIR}/lib/glib-1.2.lib"
+    if test -f "${_LIBIDL_PREFIX_DIR}/lib/libidl-0.6_s.lib"; then
+        LIBIDL_LIBS="${_LIBIDL_PREFIX_DIR}/lib/libidl-0.6_s.lib"
+        STATIC_LIBIDL=1
+    elif test -f "${_LIBIDL_PREFIX_DIR}/lib/libidl-0.6.lib"; then
+        LIBIDL_LIBS="${_LIBIDL_PREFIX_DIR}/lib/libidl-0.6.lib"
+    else
+        AC_MSG_ERROR([Cannot find $_LIBIDL_PREFIX_DIR/lib/libidl-0.6.lib or $_LIBIDL_PREFIX_DIR/lib/libidl-0.6_s.lib])
+    fi
+    LIBIDL_LIBS="${LIBIDL_LIBS} ${GLIB_LIBS}"
     ;;
+
     *) # else cross-compiling
         if test -n "$GLIB_PREFIX"; then
             GLIB_CFLAGS="-I${GLIB_PREFIX}/include"
-            GLIB_LIBS="${GLIB_PREFIX}/lib/glib-1.2.lib"
+            if test -f "${GLIB_PREFIX}/lib/glib-1.2_s.lib"; then
+                GLIB_LIBS="${GLIB_PREFIX}/lib/glib-1.2_s.lib"
+            elif test -f "${GLIB_PREFIX}/lib/glib-1.2.lib"; then
+                GLIB_LIBS="${GLIB_PREFIX}/lib/glib-1.2.lib"
+            else
+                AC_MSG_ERROR([Cannot find $GLIB_PREFIX/lib/glib-1.2.lib or $GLIB_PREFIX/lib/glib-1.2_s.lib])
+            fi
         fi
         if test -n "$LIBIDL_PREFIX"; then
             LIBIDL_CFLAGS="-I${LIBIDL_PREFIX}/include ${GLIB_CFLAGS}"
-            LIBIDL_LIBS="${LIBIDL_PREFIX}/lib/libIDL-0.6.lib ${GLIB_LIBS}"
+            if test -f "${LIBIDL_PREFIX}/lib/libIDL-0.6_s.lib"; then
+                LIBIDL_LIBS="${LIBIDL_PREFIX}/lib/libIDL-0.6_s.lib"
+                STATIC_LIBIDL=1
+            elif test -f "${LIBIDL_PREFIX}/lib/libIDL-0.6.lib"; then
+                LIBIDL_LIBS="${LIBIDL_PREFIX}/lib/libIDL-0.6.lib"
+            else
+                AC_MSG_ERROR([Cannot find $LIBIDL_PREFIX/lib/libIDL-0.6.lib or $LIBIDL_PREFIX/lib/libIDL-0.6_s.lib])
+            fi
         fi
+        LIBIDL_LIBS="${LIBIDL_LIBS} ${GLIB_LIBS}"
         ;;
     esac 
 
@@ -1908,9 +1962,9 @@ case "$target" in
         MOZ_OPTIMIZE_LDFLAGS="-Zlinker /EXEPACK:2 -Zlinker /PACKCODE -Zlinker /PACKDATA"
         MOZ_WIDGET_TOOLKIT_LDFLAGS='-lwdgt$(MOZ_WIDGET_TOOLKIT)'
         MOZ_GFX_TOOLKIT_LDFLAGS='-lgfx_$(MOZ_GFX_TOOLKIT)'
-        MOZ_XPCOM_OBSOLETE_LIBS='-L$(DIST)/lib $(DIST)/lib/xpcomct.lib'
-        DYNAMIC_XPCOM_LIBS='-L$(DIST)/lib $(DIST)/lib/xpcom.lib $(DIST)/lib/xpcomcor.lib'
-        LIBXUL_LIBS='-L$(DIST)/lib $(DIST)/lib/xpcom.lib $(DIST)/lib/xul.lib'
+        MOZ_XPCOM_OBSOLETE_LIBS='-L$(LIBXUL_DIST)/lib $(LIBXUL_DIST)/lib/xpcomct.lib'
+        DYNAMIC_XPCOM_LIBS='-L$(LIBXUL_DIST)/lib $(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xpcomcor.lib'
+        LIBXUL_LIBS='-L$(LIBXUL_DIST)/lib $(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xul.lib'
 
         # GCC for OS/2 currently predefines these, but we don't want them
         _DEFINES_CFLAGS="$_DEFINES_CFLAGS -Uunix -U__unix -U__unix__"
@@ -1951,15 +2005,15 @@ case "$target" in
         MOZ_COMPONENT_NSPR_LIBS='$(NSPR_LIBS)'
         MKSHLIB='$(LD) $(DSO_LDOPTS)'
         MKCSHLIB='$(LD) $(DSO_LDOPTS)'
-        MOZ_JS_LIBS='$(DIST)/lib/mozjs.lib'
-        MOZ_XPCOM_OBSOLETE_LIBS='$(DIST)/lib/xpcomct.lib'
-        DYNAMIC_XPCOM_LIBS='$(DIST)/lib/xpcom.lib $(DIST)/lib/xpcomcor.lib'
-        LIBXUL_LIBS='$(DIST)/lib/xpcom.lib $(DIST)/lib/xul.lib'
-        MOZ_JPEG_LIBS='$(DIST)/lib/mozjpeg.$(LIB_SUFFIX)'
-        MOZ_ZLIB_LIBS='$(DIST)/lib/mozz.$(LIB_SUFFIX)'
-        MOZ_PNG_LIBS='$(DIST)/lib/mozpng.$(LIB_SUFFIX)'
-        MOZ_WIDGET_TOOLKIT_LDFLAGS='$(DIST)/lib/wdgt$(MOZ_WIDGET_TOOLKIT)'
-        MOZ_GFX_TOOLKIT_LDFLAGS='$(DIST)/lib/gfx_$(MOZ_GFX_TOOLKIT)'
+        MOZ_JS_LIBS='$(LIBXUL_DIST)/lib/mozjs.lib'
+        MOZ_XPCOM_OBSOLETE_LIBS='$(LIBXUL_DIST)/lib/xpcomct.lib'
+        DYNAMIC_XPCOM_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xpcomcor.lib'
+        LIBXUL_LIBS='$(LIBXUL_DIST)/lib/xpcom.lib $(LIBXUL_DIST)/lib/xul.lib'
+        MOZ_JPEG_LIBS='$(LIBXUL_DIST)/lib/mozjpeg.$(LIB_SUFFIX)'
+        MOZ_ZLIB_LIBS='$(LIBXUL_DIST)/lib/mozz.$(LIB_SUFFIX)'
+        MOZ_PNG_LIBS='$(LIBXUL_DIST)/lib/mozpng.$(LIB_SUFFIX)'
+        MOZ_WIDGET_TOOLKIT_LDFLAGS='$(LIBXUL_DIST)/lib/wdgt$(MOZ_WIDGET_TOOLKIT)'
+        MOZ_GFX_TOOLKIT_LDFLAGS='$(LIBXUL_DIST)/lib/gfx_$(MOZ_GFX_TOOLKIT)'
     fi
     ;;
 
@@ -3543,6 +3597,25 @@ dnl =
 dnl ========================================================
 MOZ_ARG_HEADER(External Packages)
 
+MOZ_ARG_WITH_STRING(libxul-sdk,
+[  --with-libxul-sdk=PFX   Use the libXUL SDK at <PFX>],
+  LIBXUL_SDK_DIR=$withval)
+
+if test "$LIBXUL_SDK_DIR" = "yes"; then
+    AC_MSG_ERROR([--with-libxul-sdk must specify a path])
+elif test -n "$LIBXUL_SDK_DIR" -a "$LIBXUL_SDK_DIR" != "no"; then
+    LIBXUL_SDK=`cd "$LIBXUL_SDK_DIR" && pwd`
+
+    if test ! -f "$LIBXUL_SDK/sdk/include/xpcom-config.h"; then
+        AC_MSG_ERROR([$LIBXUL_SDK/sdk/include/xpcom-config.h doesn't exist])
+    fi
+
+    if test "$MOZ_BUILD_APP" = "xulrunner"; then
+        AC_MSG_ERROR([Building XULRunner --with-libxul-sdk doesn't make sense; XULRunner provides the libxul SDK.])
+    fi
+fi
+AC_SUBST(LIBXUL_SDK)
+
 dnl ========================================================
 dnl = If NSPR was not detected in the system, 
 dnl = use the one in the source tree (mozilla/nsprpub)
@@ -3556,22 +3629,22 @@ if test -n "$_USE_SYSTEM_NSPR"; then
 fi
 
 if test -z "$MOZ_NATIVE_NSPR"; then
-    NSPR_CFLAGS='`$(DEPTH)/nsprpub/config/nspr-config --prefix=$(DIST) --includedir=$(DIST)/include/nspr --cflags`'
+    NSPR_CFLAGS='`$(DEPTH)/nsprpub/config/nspr-config --prefix=$(LIBXUL_DIST) --includedir=$(LIBXUL_DIST)/include/nspr --cflags`'
     # explicitly set libs for Visual Age C++ for OS/2
     if test "$OS_ARCH" = "OS2" -a "$VACPP" = "yes"; then
-        NSPR_LIBS='$(DIST)/lib/nspr'$NSPR_VERSION'.lib $(DIST)/lib/plc'$NSPR_VERSION'.lib $(DIST)/lib/plds'$NSPR_VERSION'.lib '$_PTHREAD_LDFLAGS''
+        NSPR_LIBS='$(LIBXUL_DIST)/lib/nspr'$NSPR_VERSION'.lib $(LIBXUL_DIST)/lib/plc'$NSPR_VERSION'.lib $(LIBXUL_DIST)/lib/plds'$NSPR_VERSION'.lib '$_PTHREAD_LDFLAGS''
     elif test "$OS_ARCH" = "WINCE"; then
-        NSPR_CFLAGS='-I$(DIST)/include/nspr'
-        NSPR_LIBS='$(DIST)/lib/nspr'$NSPR_VERSION'.lib $(DIST)/lib/plc'$NSPR_VERSION'.lib $(DIST)/lib/plds'$NSPR_VERSION'.lib '
+        NSPR_CFLAGS='-I$(LIBXUL_DIST)/include/nspr'
+        NSPR_LIBS='$(LIBXUL_DIST)/lib/nspr'$NSPR_VERSION'.lib $(LIBXUL_DIST)/lib/plc'$NSPR_VERSION'.lib $(LIBXUL_DIST)/lib/plds'$NSPR_VERSION'.lib '
     elif test "$OS_ARCH" = "WINNT"; then
-        NSPR_CFLAGS='-I$(DIST)/include/nspr'
+        NSPR_CFLAGS='-I$(LIBXUL_DIST)/include/nspr'
         if test -n "$GNU_CC"; then
-            NSPR_LIBS="-L\$(DIST)/lib -lnspr$NSPR_VERSION -lplc$NSPR_VERSION -lplds$NSPR_VERSION"
+            NSPR_LIBS="-L\$(LIBXUL_DIST)/lib -lnspr$NSPR_VERSION -lplc$NSPR_VERSION -lplds$NSPR_VERSION"
         else
-            NSPR_LIBS='$(DIST)/lib/nspr'$NSPR_VERSION'.lib $(DIST)/lib/plc'$NSPR_VERSION'.lib $(DIST)/lib/plds'$NSPR_VERSION'.lib '
+            NSPR_LIBS='$(LIBXUL_DIST)/lib/nspr'$NSPR_VERSION'.lib $(LIBXUL_DIST)/lib/plc'$NSPR_VERSION'.lib $(LIBXUL_DIST)/lib/plds'$NSPR_VERSION'.lib '
         fi
     else
-        NSPR_LIBS='`$(DEPTH)/nsprpub/config/nspr-config --prefix=$(DIST) --libdir=$(DIST)/lib --libs`'
+        NSPR_LIBS='`$(DEPTH)/nsprpub/config/nspr-config --prefix=$(LIBXUL_DIST) --libdir=$(LIBXUL_DIST)/lib --libs`'
     fi
 fi
 
@@ -3591,23 +3664,23 @@ fi
 if test -n "$MOZ_NATIVE_NSS"; then
    NSS_LIBS="$NSS_LIBS -lcrmf"
 else
-   NSS_CFLAGS='-I$(DIST)/public/nss'
+   NSS_CFLAGS='-I$(LIBXUL_DIST)/public/nss'
    NSS_DEP_LIBS='\\\
-        $(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \\\
-        $(DIST)/lib/$(DLL_PREFIX)smime'$NSS_VERSION'$(DLL_SUFFIX) \\\
-        $(DIST)/lib/$(DLL_PREFIX)ssl'$NSS_VERSION'$(DLL_SUFFIX) \\\
-        $(DIST)/lib/$(DLL_PREFIX)nss'$NSS_VERSION'$(DLL_SUFFIX) \\\
-        $(DIST)/lib/$(DLL_PREFIX)softokn'$NSS_VERSION'$(DLL_SUFFIX)'
+        $(LIBXUL_DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(DLL_PREFIX)smime'$NSS_VERSION'$(DLL_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(DLL_PREFIX)ssl'$NSS_VERSION'$(DLL_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(DLL_PREFIX)nss'$NSS_VERSION'$(DLL_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(DLL_PREFIX)softokn'$NSS_VERSION'$(DLL_SUFFIX)'
 
    if test -z "$GNU_CC" && test "$OS_ARCH" = "WINNT" -o "$OS_ARCH" = "WINCE" -o "$OS_ARCH" = "OS2"; then
        NSS_LIBS='\\\
-        $(DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \\\
-        $(DIST)/lib/$(LIB_PREFIX)smime'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
-        $(DIST)/lib/$(LIB_PREFIX)ssl'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
-        $(DIST)/lib/$(LIB_PREFIX)nss'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
-        $(DIST)/lib/$(LIB_PREFIX)softokn'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX)'
+        $(LIBXUL_DIST)/lib/$(LIB_PREFIX)crmf.$(LIB_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(LIB_PREFIX)smime'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(LIB_PREFIX)ssl'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(LIB_PREFIX)nss'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX) \\\
+        $(LIBXUL_DIST)/lib/$(LIB_PREFIX)softokn'$NSS_VERSION'.$(IMPORT_LIB_SUFFIX)'
    else
-       NSS_LIBS='-L$(LIBS_DIR)'" -lcrmf -lsmime$NSS_VERSION -lssl$NSS_VERSION -lnss$NSS_VERSION -lsoftokn$NSS_VERSION"
+       NSS_LIBS='$(LIBS_DIR)'" -lcrmf -lsmime$NSS_VERSION -lssl$NSS_VERSION -lnss$NSS_VERSION -lsoftokn$NSS_VERSION"
    fi
 fi
 
@@ -4103,6 +4176,8 @@ MOZ_LIBART_CFLAGS=
 MOZ_LIBART_LIBS=
 MOZ_MAIL_NEWS=
 MOZ_MATHML=1
+MOZ_MORK=1
+MOZ_MORKREADER=
 MOZ_AUTH_EXTENSION=1
 MOZ_NO_ACTIVEX_SUPPORT=1
 MOZ_NO_XPCOM_OBSOLETE=
@@ -5144,7 +5219,7 @@ dnl ========================================================
 dnl Image decoders
 dnl ========================================================
 case "$MOZ_WIDGET_TOOLKIT" in
-windows|os2|mac|cocoa)
+beos|windows|os2|mac|cocoa)
     ;;
 *)
     if test -z "$MOZ_ENABLE_GNOMEUI"; then
@@ -5423,6 +5498,8 @@ MOZ_ARG_ENABLE_BOOL(places,
     MOZ_PLACES= )
 if test -n "$MOZ_PLACES"; then
     AC_DEFINE(MOZ_PLACES)
+    MOZ_MORK=
+    MOZ_MORKREADER=1
 fi
 
 dnl ========================================================
@@ -6518,6 +6595,7 @@ fi
 
 AC_SUBST(LIBIDL_CFLAGS)
 AC_SUBST(LIBIDL_LIBS)
+AC_SUBST(STATIC_LIBIDL)
 AC_SUBST(GLIB_CFLAGS)
 AC_SUBST(GLIB_LIBS)
 AC_SUBST(GLIB_GMODULE_LIBS)
@@ -6539,7 +6617,7 @@ mk_add_options MOZ_CO_MODULE=mozilla/other-licenses/libart_lgpl])
   MOZ_LIBART_CFLAGS='-I${DIST}/include/libart_lgpl'
   case "$target_os" in
   msvc*|mks*|cygwin*|mingw*|wince*)
-      MOZ_LIBART_LIBS='$(DIST)/lib/$(LIB_PREFIX)moz_art_lgpl.$(IMPORT_LIB_SUFFIX)' 
+      MOZ_LIBART_LIBS='$(LIBXUL_DIST)/lib/$(LIB_PREFIX)moz_art_lgpl.$(IMPORT_LIB_SUFFIX)' 
       ;;
   os2*)
       MOZ_LIBART_LIBS='-lmoz_art -lm'
@@ -6561,7 +6639,7 @@ dnl ========================================================
 dnl Check for cairo
 dnl ========================================================
 if test "$MOZ_SVG_RENDERER_CAIRO" -o "$MOZ_ENABLE_CANVAS" -o "$MOZ_ENABLE_CAIRO_GFX" ; then
-   MOZ_CAIRO_CFLAGS='-I$(DIST)/include/cairo'
+   MOZ_CAIRO_CFLAGS='-I$(LIBXUL_DIST)/include/cairo'
 
    MOZ_TREE_CAIRO=1
    MOZ_ARG_ENABLE_BOOL(system-cairo,
@@ -6580,7 +6658,11 @@ if test "$MOZ_SVG_RENDERER_CAIRO" -o "$MOZ_ENABLE_CANVAS" -o "$MOZ_ENABLE_CAIRO_
        # Define macros for cairo-features.h
        if test "$MOZ_X11"; then
            XLIB_SURFACE_FEATURE="#define CAIRO_HAS_XLIB_SURFACE 1"
+           PS_SURFACE_FEATURE="#define CAIRO_HAS_PS_SURFACE 1"
+           PDF_SURFACE_FEATURE="#define CAIRO_HAS_PDF_SURFACE 1"
            FT_FONT_FEATURE="#define CAIRO_HAS_FT_FONT 1"
+           MOZ_ENABLE_CAIRO_FT=1
+           CAIRO_FT_CFLAGS="$FT2_CFLAGS"
        fi
        if test "$MOZ_WIDGET_TOOLKIT" = "mac" -o "$MOZ_WIDGET_TOOLKIT" = "cocoa"; then
            QUARTZ_SURFACE_FEATURE="#define CAIRO_HAS_QUARTZ_SURFACE 1"
@@ -6590,9 +6672,24 @@ if test "$MOZ_SVG_RENDERER_CAIRO" -o "$MOZ_ENABLE_CANVAS" -o "$MOZ_ENABLE_CAIRO_
            WIN32_SURFACE_FEATURE="#define CAIRO_HAS_WIN32_SURFACE 1"
            WIN32_FONT_FEATURE="#define CAIRO_HAS_WIN32_FONT 1"
        fi
+       if test "$MOZ_WIDGET_TOOLKIT" = "os2"; then
+           OS2_SURFACE_FEATURE="#define CAIRO_HAS_OS2_SURFACE 1"
+           FT_FONT_FEATURE="#define CAIRO_HAS_FT_FONT 1"
+           MOZ_ENABLE_CAIRO_FT=1
+           CAIRO_FT_CFLAGS="-I${FREETYPE2}/include -I${FONTCONFIG2}/include"
+           CAIRO_FT_LIBS="${FREETYPE2}/lib/freetype.lib ${FONTCONFIG2}/lib/fontcfg.lib"
+       fi
        if test "$MOZ_ENABLE_GLITZ"; then
            GLITZ_SURFACE_FEATURE="#define CAIRO_HAS_GLITZ_SURFACE 1"
        fi
+       if test "$MOZ_WIDGET_TOOLKIT" = "beos"; then
+           PKG_CHECK_MODULES(CAIRO_FT, fontconfig freetype2)
+           BEOS_SURFACE_FEATURE="#define CAIRO_HAS_BEOS_SURFACE 1"
+           FT_FONT_FEATURE="#define CAIRO_HAS_FT_FONT 1"
+           MOZ_ENABLE_CAIRO_FT=1
+       fi
+       AC_SUBST(MOZ_ENABLE_CAIRO_FT)
+       AC_SUBST(CAIRO_FT_CFLAGS)
 
        if test "$MOZ_DEBUG"; then
          SANITY_CHECKING_FEATURE="#define CAIRO_DO_SANITY_CHECKING 1"
@@ -6609,6 +6706,7 @@ if test "$MOZ_SVG_RENDERER_CAIRO" -o "$MOZ_ENABLE_CANVAS" -o "$MOZ_ENABLE_CAIRO_
        AC_SUBST(QUARTZ_SURFACE_FEATURE)
        AC_SUBST(XCB_SURFACE_FEATURE)
        AC_SUBST(WIN32_SURFACE_FEATURE)
+       AC_SUBST(OS2_SURFACE_FEATURE)
        AC_SUBST(BEOS_SURFACE_FEATURE)
        AC_SUBST(GLITZ_SURFACE_FEATURE)
        AC_SUBST(DIRECTFB_SURFACE_FEATURE)
@@ -6618,12 +6716,12 @@ if test "$MOZ_SVG_RENDERER_CAIRO" -o "$MOZ_ENABLE_CANVAS" -o "$MOZ_ENABLE_CAIRO_
        AC_SUBST(PNG_FUNCTIONS_FEATURE)
 
        if test "$_WIN32_MSVC"; then
-           MOZ_CAIRO_LIBS='$(DIST)/lib/mozcairo.lib $(DIST)/lib/mozlibpixman.lib'
+           MOZ_CAIRO_LIBS='$(LIBXUL_DIST)/lib/mozcairo.lib $(LIBXUL_DIST)/lib/mozlibpixman.lib'
            if test "$MOZ_ENABLE_GLITZ"; then
-               MOZ_CAIRO_LIBS="$MOZ_CAIRO_LIBS $(DIST)/lib/mozglitz.lib $(DIST)/lib/mozglitzwgl.lib"
+               MOZ_CAIRO_LIBS="$MOZ_CAIRO_LIBS $(LIBXUL_DIST)/lib/mozglitz.lib $(LIBXUL_DIST)/lib/mozglitzwgl.lib"
            fi
        else
-           MOZ_CAIRO_LIBS="-lmozcairo -lmozlibpixman"
+           MOZ_CAIRO_LIBS='-L$(LIBXUL_DIST)/lib'" -lmozcairo -lmozlibpixman $CAIRO_FT_LIBS"
 
            if test "$MOZ_X11"; then
                MOZ_CAIRO_LIBS="$MOZ_CAIRO_LIBS $XLDFLAGS -lXrender -lfreetype -lfontconfig"
@@ -6711,13 +6809,37 @@ if test `echo "$MOZ_EXTENSIONS" | grep -c python/xpcom` -ne 0; then
     else
         dnl Non-Windows include and libs
         MOZ_PYTHON_DLL_SUFFIX=$DLL_SUFFIX
-        PYTHON_INCLUDE_SRC=$MOZ_PYTHON_PREFIX/include/python$MOZ_PYTHON_VER_DOTTED
-        PYTHON_LIB_SRC=`$PYTHON  -c 'from distutils import sysconfig; print sysconfig.get_config_var("LIBPL")'`
-        if test ! -f $PYTHON_INCLUDE_SRC/Python.h; then
-            AC_MSG_ERROR([Include directory $PYTHON_INCLUDE_SRC not found or does not contain development headers])
+        MOZ_PYTHON_INCLUDES="-I$MOZ_PYTHON_PREFIX/include/python$MOZ_PYTHON_VER_DOTTED"
+        dnl Check for dynamic Python lib
+        dnl - A static Python is no good - multiple dynamic libraries (xpcom
+        dnl - core, xpcom loader, pydom etc) all need to share Python.
+        dnl - Python 2.3's std --enable-shared configure option will
+        dnl   create a libpython2.3.so.1.0. We should first try this
+        dnl   dotted versioned .so file because this is the one that
+        dnl   the PyXPCOM build mechanics tries to link to.
+        dnl   XXX Should find a better way than hardcoding "1.0".
+        dnl - Python developement tree dir layouts are NOT allowed here
+        dnl   because the PyXPCOM build just dies on it later anyway.
+        dnl - Fixes to the above by Python/*nix knowledgable people welcome!
+        if test -f "$MOZ_PYTHON_PREFIX/lib/libpython$MOZ_PYTHON_VER_DOTTED.so.1.0"; then
+            MOZ_PYTHON_LIBS="-L$MOZ_PYTHON_PREFIX/lib -lpython$MOZ_PYTHON_VER_DOTTED"
+        elif test -f "$MOZ_PYTHON_PREFIX/lib/libpython$MOZ_PYTHON_VER_DOTTED.so"; then
+            MOZ_PYTHON_LIBS="-L$MOZ_PYTHON_PREFIX/lib -lpython$MOZ_PYTHON_VER_DOTTED"
+        elif test -f "$MOZ_PYTHON_PREFIX/libpython$MOZ_PYTHON_VER_DOTTED.so"; then
+            dnl Don't Python development tree directory layout.
+            MOZ_PYTHON_LIBS="-L$MOZ_PYTHON_PREFIX -lpython$MOZ_PYTHON_VER_DOTTED"
+            AC_MSG_ERROR([The Python at $MOZ_PYTHON_PREFIX looks like a dev tree. The PyXPCOM build cannot handle this yet. You must 'make install' Python and use the installed tree.])
+        elif test "$OS_ARCH" = "Darwin"; then
+            dnl We do Darwin last, so if a custom non-framework build of
+            dnl python is used on OSX, then it will be picked up first by
+            dnl the logic above.
+            MOZ_PYTHON_LIBS="-framework Python"
+        else
+            AC_MSG_ERROR([Could not find build shared libraries for Python at $MOZ_PYTHON_PREFIX.  This is required for PyXPCOM.])
         fi
-        MOZ_PYTHON_INCLUDES="-I$PYTHON_INCLUDE_SRC"
-        MOZ_PYTHON_LIBS="-L$PYTHON_LIB_SRC -lpython$MOZ_PYTHON_VER_DOTTED"
+        if test "$OS_ARCH" = "Linux"; then
+            MOZ_PYTHON_LIBS="$MOZ_PYTHON_LIBS -lutil"
+        fi
     fi
     dnl Handle "_d" on Windows
     if test "$OS_ARCH" = "WINNT" && test -n "$MOZ_DEBUG"; then
@@ -6845,6 +6967,18 @@ MOZ_ARG_DISABLE_BOOL(v1-string-abi,
 AC_SUBST(MOZ_V1_STRING_ABI)
 if test "$MOZ_V1_STRING_ABI"; then
     AC_DEFINE(MOZ_V1_STRING_ABI)
+fi
+
+dnl Only build Mork if it's required
+AC_SUBST(MOZ_MORK)
+if test "$MOZ_MORK"; then
+  AC_DEFINE(MOZ_MORK)
+fi
+
+dnl Build the lightweight Mork reader if required
+AC_SUBST(MOZ_MORKREADER)
+if test "$MOZ_MORKREADER"; then
+  AC_DEFINE(MOZ_MORKREADER)
 fi
 
 dnl ========================================================
@@ -7152,6 +7286,7 @@ AC_SUBST(IMPORT_LIB_SUFFIX)
 AC_SUBST(USE_N32)
 AC_SUBST(CC_VERSION)
 AC_SUBST(CXX_VERSION)
+AC_SUBST(MSMANIFEST_TOOL)
 
 if test "$USING_HCC"; then
    CC='${topsrcdir}/build/hcc'
@@ -7426,11 +7561,11 @@ if test -z "$MOZ_NATIVE_NSPR"; then
     # Hack to deal with the fact that we use NSPR_CFLAGS everywhere
     AC_MSG_WARN([Recreating autoconf.mk with updated nspr-config output])
     if test ! "$VACPP" && test "$OS_ARCH" != "WINNT" && test "$OS_ARCH" != "WINCE"; then
-       _libs=`./nsprpub/config/nspr-config --prefix=$\(DIST\) --exec-prefix=$\(DIST\) --libdir=$\(DIST\)/lib --libs`
+       _libs=`./nsprpub/config/nspr-config --prefix=$\(LIBXUL_DIST\) --exec-prefix=$\(DIST\) --libdir=$\(LIBXUL_DIST\)/lib --libs`
        $PERL -pi.bak -e "s '^NSPR_LIBS\\s*=.*'NSPR_LIBS = $_libs'" config/autoconf.mk
     fi
     if test "$OS_ARCH" != "WINNT" && test "$OS_ARCH" != "WINCE" ; then
-       _cflags=`./nsprpub/config/nspr-config --prefix=$\(DIST\) --exec-prefix=$\(DIST\) --includedir=$\(DIST\)/include/nspr --cflags`
+       _cflags=`./nsprpub/config/nspr-config --prefix=$\(LIBXUL_DIST\) --exec-prefix=$\(DIST\) --includedir=$\(LIBXUL_DIST\)/include/nspr --cflags`
        $PERL -pi.bak -e "s '^NSPR_CFLAGS\\s*=.*'NSPR_CFLAGS = $_cflags'" config/autoconf.mk
     fi
     rm -f config/autoconf.mk.bak

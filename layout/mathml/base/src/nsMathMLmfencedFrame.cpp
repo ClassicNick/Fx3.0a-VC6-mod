@@ -136,7 +136,7 @@ nsMathMLmfencedFrame::CreateFencesAndSeparators(nsPresContext* aPresContext)
 
   //////////////  
   // see if the opening fence is there ...
-  if (!GetAttribute(mContent, mPresentationData.mstyle, nsMathMLAtoms::open_,
+  if (!GetAttribute(mContent, mPresentationData.mstyle, nsMathMLAtoms::open,
                     value)) {
     value = PRUnichar('('); // default as per the MathML REC
   }
@@ -155,7 +155,7 @@ nsMathMLmfencedFrame::CreateFencesAndSeparators(nsPresContext* aPresContext)
   //////////////
   // see if the closing fence is there ...
   if(!GetAttribute(mContent, mPresentationData.mstyle,
-                    nsMathMLAtoms::close_, value)) {
+                    nsMathMLAtoms::close, value)) {
     value = PRUnichar(')'); // default as per the MathML REC
   }
   else {
@@ -206,29 +206,32 @@ nsMathMLmfencedFrame::CreateFencesAndSeparators(nsPresContext* aPresContext)
 }
 
 NS_IMETHODIMP
-nsMathMLmfencedFrame::Paint(nsPresContext*      aPresContext,
-                            nsIRenderingContext& aRenderingContext,
-                            const nsRect&        aDirtyRect,
-                            nsFramePaintLayer    aWhichLayer,
-                            PRUint32             aFlags)
+nsMathMLmfencedFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                       const nsRect&           aDirtyRect,
+                                       const nsDisplayListSet& aLists)
 {
   /////////////
-  // paint the content
-  nsresult rv = nsMathMLContainerFrame::Paint(aPresContext, aRenderingContext, 
-                                              aDirtyRect, aWhichLayer);
+  // display the content
+  nsresult rv = nsMathMLContainerFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
   ////////////
-  // paint fences and separators
-  if (NS_SUCCEEDED(rv)) {
-    if (mOpenChar) mOpenChar->Paint(aPresContext, aRenderingContext,
-                                    aDirtyRect, aWhichLayer, this);
-    if (mCloseChar) mCloseChar->Paint(aPresContext, aRenderingContext,
-                                      aDirtyRect, aWhichLayer, this);
-    for (PRInt32 i = 0; i < mSeparatorsCount; i++) {
-      mSeparatorsChar[i].Paint(aPresContext, aRenderingContext,
-                               aDirtyRect, aWhichLayer, this);
-    }
+  // display fences and separators
+  if (mOpenChar) {
+    rv = mOpenChar->Display(aBuilder, this, aLists);
+    NS_ENSURE_SUCCESS(rv, rv);
   }
-  return rv;
+  
+  if (mCloseChar) {
+    rv = mCloseChar->Display(aBuilder, this, aLists);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  
+  for (PRInt32 i = 0; i < mSeparatorsCount; i++) {
+    rv = mSeparatorsChar[i].Display(aBuilder, this, aLists);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  return NS_OK;
 }
 
 NS_IMETHODIMP

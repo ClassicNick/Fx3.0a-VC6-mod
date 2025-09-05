@@ -829,7 +829,7 @@ function CCKZip(zipfile, location)
   line = "cd /d \"" + location.path + "\"\n";
   fos.write(line, line.length);
   if (navigator.platform == "Win32")
-    line = zipLocation + " -r \"" + location.path + "\\" + zipfile + "\"";
+    line =  "\"" + zipLocation + "\" -r \"" + location.path + "\\" + zipfile + "\"";
   else
     line = zipLocation + " -r \"" + location.path + "/" + zipfile + "\"";  
   for (var i=2; i < arguments.length; i++) {
@@ -860,6 +860,13 @@ function CCKZip(zipfile, location)
   
   process.run(true, args, args.length);
 //  file.remove(false);
+  var file = location.clone();
+  file.append(zipfile);
+  if (!file.exists()) {
+    var bundle = document.getElementById("bundle_cckwizard");
+    gPromptService.alert(window, bundle.getString("windowTitle"),
+                       bundle.getString("zipError"));
+  }
 }
 
 function CCKWriteXULOverlay(destdir)
@@ -1417,8 +1424,16 @@ function CCKCopyFile(source, destination)
   try {
     destfile.remove(false);
   } catch (ex) {}
-
-  sourcefile.copyTo(destination, "");
+  
+  try {
+    sourcefile.copyTo(destination, "");
+  } catch (ex) {
+      var bundle = document.getElementById("bundle_cckwizard");
+      var consoleService = Components.classes["@mozilla.org/consoleservice;1"]
+                                     .getService(Components.interfaces.nsIConsoleService);
+      consoleService.logStringMessage(bundle.getString("windowTitle") + ": " + ex + "\n\nSource: " +  source + "\n\nDestination: " + destination.path );
+      throw("Stopping Javascript execution");
+  }
   
   return true;
 }

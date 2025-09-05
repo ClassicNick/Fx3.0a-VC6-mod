@@ -79,6 +79,14 @@ extern "C" {
 extern "C" {
 #include <cairo-win32.h>
 }
+#elif defined(XP_OS2)
+#define INCL_WINWINDOWMGR
+#define INCL_GPIBITMAPS
+#include <os2.h>
+#include "nsDrawingSurfaceOS2.h"
+extern "C" {
+#include <cairo-os2.h>
+}
 #elif defined(MOZ_ENABLE_GTK2) || defined(MOZ_ENABLE_GTK)
 #include "nsRenderingContextGTK.h"
 #include <gdk/gdkx.h>
@@ -263,6 +271,23 @@ nsSVGCairoCanvas::Init(nsIRenderingContext *ctx,
     cairoSurf = cairo_win32_surface_create(hdc);
   }
 #endif
+#elif defined(XP_OS2)
+  nsDrawingSurfaceOS2 *surface; /* to get a HPS from this */
+  nsOffscreenSurface *surface2; /* to get a HDC from this */
+  ctx->GetDrawingSurface((nsIDrawingSurface**)&surface);
+  ctx->GetDrawingSurface((nsIDrawingSurface**)&surface2);
+
+  HPS hps = surface->GetPS();
+  HDC hdc = surface2->GetDC();
+  LONG caps;
+  if (DevQueryCaps(hdc, CAPS_TECHNOLOGY, 1L, &caps) &&
+      caps == CAPS_TECH_RASTER_DISPLAY && hps) {
+    /* only the display with an existing presentationn handle *
+     * can handle content drawn by cairo                      */
+    surface->GetDimensions(&mWidth, &mHeight);
+    cairoSurf = cairo_os2_surface_create(hps, mWidth, mHeight);
+    cairo_surface_mark_dirty(cairoSurf);
+  }
 #elif defined(MOZ_ENABLE_GTK2) || defined(MOZ_ENABLE_GTK)
   nsDrawingSurfaceGTK *surface;
   ctx->GetDrawingSurface((nsIDrawingSurface**)&surface);
@@ -307,13 +332,13 @@ nsSVGCairoCanvas::Init(nsIRenderingContext *ctx,
     
     mBuffer = do_CreateInstance("@mozilla.org/gfx/image/frame;2");
     if (mPreBlendImage) {
-#ifdef XP_WIN
+#if defined(XP_WIN) || defined(XP_OS2) || defined(XP_BEOS) || defined(MOZ_WIDGET_PHOTON)
       mBuffer->Init(0, 0, mWidth, mHeight, gfxIFormats::BGR, 24);
 #else
       mBuffer->Init(0, 0, mWidth, mHeight, gfxIFormats::RGB, 24);
 #endif
     } else {
-#ifdef XP_WIN
+#if defined(XP_WIN) || defined(XP_OS2) || defined(XP_BEOS) || defined(MOZ_WIDGET_PHOTON)
       mBuffer->Init(0, 0, mWidth, mHeight, gfxIFormats::BGR_A8, 24);
 #else
       mBuffer->Init(0, 0, mWidth, mHeight, gfxIFormats::RGB_A8, 24);
@@ -526,7 +551,7 @@ static nsresult CopyCairoImageToIImage(PRUint8* aData, PRInt32 aWidth, PRInt32 a
       *outrowrgb++ = 0;
 #endif
 
-#ifdef XP_WIN
+#if defined(XP_WIN) || defined(XP_OS2) || defined(XP_BEOS) || defined(MOZ_WIDGET_PHOTON)
       // On windows, RGB_A8 is really BGR_A8.
       // in fact, BGR_A8 is also BGR_A8.
       if (!aPreBlend) {
@@ -676,6 +701,12 @@ nsSVGCairoCanvas::SetClipRect(nsIDOMSVGMatrix *aCTM, float aX, float aY,
   return NS_OK;
 }
 
+struct ctxEntry {
+  cairo_t *mCR;
+  PRUint32 mWidth;
+  PRUint32 mHeight;
+};
+
 /** Implements pushSurface(in nsISVGRendererSurface surface); */
 NS_IMETHODIMP
 nsSVGCairoCanvas::PushSurface(nsISVGRendererSurface *aSurface)
@@ -684,11 +715,19 @@ nsSVGCairoCanvas::PushSurface(nsISVGRendererSurface *aSurface)
   if (!cairoSurface)
     return NS_ERROR_FAILURE;
 
-  cairo_t* oldCR = mCR;
-  mContextStack.AppendElement(NS_STATIC_CAST(void*, oldCR));
+  ctxEntry *ctx = new ctxEntry;
+  if (!ctx)
+    return NS_ERROR_OUT_OF_MEMORY;
+
+  ctx->mCR = mCR;
+  ctx->mWidth = mWidth;
+  ctx->mHeight = mHeight;
+
+  mContextStack.AppendElement(NS_STATIC_CAST(void*, ctx));
 
   mCR = cairo_create(cairoSurface->GetSurface());
-  // XXX Copy state over from oldCR?
+  aSurface->GetWidth(&mWidth);
+  aSurface->GetHeight(&mHeight);
 
   return NS_OK;
 }
@@ -700,10 +739,22 @@ nsSVGCairoCanvas::PopSurface()
   PRUint32 count = mContextStack.Count();
   if (count != 0) {
     cairo_destroy(mCR);
-    mCR = NS_STATIC_CAST(cairo_t*, mContextStack[count - 1]);
+    ctxEntry *ctx = NS_STATIC_CAST(ctxEntry*, mContextStack[count - 1]);
+    mCR = ctx->mCR;
+    mWidth = ctx->mWidth;
+    mHeight = ctx->mHeight;
+    delete ctx;
     mContextStack.RemoveElementAt(count - 1);
   }
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSVGCairoCanvas::GetSurfaceSize(PRUint32 *aWidth, PRUint32 *aHeight)
+{
+  *aWidth = mWidth;
+  *aHeight = mHeight;
   return NS_OK;
 }
 
@@ -721,12 +772,32 @@ nsSVGCairoCanvas::CompositeSurface(nsISVGRendererSurface *aSurface,
   cairo_save(mCR);
   cairo_translate(mCR, aX, aY);
 
-  PRUint32 width, height;
-  aSurface->GetWidth(&width);
-  aSurface->GetHeight(&height);
-
   cairo_set_source_surface(mCR, cairoSurface->GetSurface(), 0.0, 0.0);
   cairo_paint_with_alpha(mCR, aOpacity);
+  cairo_restore(mCR);
+
+  return NS_OK;
+}
+
+/** Implements void compositeSurfaceWithMask(in nsISVGRendererSurface surface,
+                                             in unsigned long x,
+                                             in unsigned long y,
+                                             in nsISVGRendererSurface mask); */
+NS_IMETHODIMP
+nsSVGCairoCanvas::CompositeSurfaceWithMask(nsISVGRendererSurface *aSurface,
+                                           PRUint32 aX, PRUint32 aY,
+                                           nsISVGRendererSurface *aMask)
+{
+  nsCOMPtr<nsISVGCairoSurface> cairoSurface = do_QueryInterface(aSurface);
+  nsCOMPtr<nsISVGCairoSurface> maskSurface = do_QueryInterface(aMask);
+  if (!cairoSurface || !maskSurface)
+    return NS_ERROR_FAILURE;
+
+  cairo_save(mCR);
+  cairo_translate(mCR, aX, aY);
+
+  cairo_set_source_surface(mCR, cairoSurface->GetSurface(), 0.0, 0.0);
+  cairo_mask_surface(mCR, maskSurface->GetSurface(), 0.0, 0.0);
   cairo_restore(mCR);
 
   return NS_OK;
@@ -767,10 +838,6 @@ nsSVGCairoCanvas::CompositeSurfaceMatrix(nsISVGRendererSurface *aSurface,
 
   cairo_matrix_t matrix = {m[0], m[1], m[2], m[3], m[4], m[5]};
   cairo_transform(mCR, &matrix);
-
-  PRUint32 width, height;
-  aSurface->GetWidth(&width);
-  aSurface->GetHeight(&height);
 
   cairo_set_source_surface(mCR, cairoSurface->GetSurface(), 0.0, 0.0);
   cairo_paint_with_alpha(mCR, aOpacity);

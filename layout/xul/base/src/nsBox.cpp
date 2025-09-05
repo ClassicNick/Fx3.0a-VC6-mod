@@ -178,7 +178,7 @@ nsBox::BeginLayout(nsBoxLayoutState& aState)
 
   nsBoxAddIndents();
 
-  nsAutoString reason;
+  nsCAutoString reason;
   switch(aState.LayoutReason())
     {
     case nsBoxLayoutState::Dirty:
@@ -192,9 +192,7 @@ nsBox::BeginLayout(nsBoxLayoutState& aState)
       break;
     }
 
-  char ch[100];
-  reason.ToCString(ch,100);
-  printf("%s Layout: ", ch);
+  printf("%s Layout: ", reason.get());
   DumpBox(stdout);
   printf("\n");
   gIndent++;
@@ -862,8 +860,8 @@ nsBox::SyncLayout(nsBoxLayoutState& aState)
       GetChildBox(&box);
       while (box) {
         nsRect* overflowArea = box->GetOverflowAreaProperty();
-        nsRect bounds = overflowArea ? *overflowArea + box->GetPosition() :
-                                       bounds = box->GetRect();
+        nsRect bounds = overflowArea ? *overflowArea + box->GetPosition()
+                                     : box->GetRect();
         rect.UnionRect(rect, bounds);
 
         box->GetNextBox(&box);

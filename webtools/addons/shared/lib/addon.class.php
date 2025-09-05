@@ -83,7 +83,7 @@ class AddOn extends AMO_Object {
      */
     function getAddOn() {
         $this->getAddonCats();
-        $this->getComments();
+        $this->getComments('3');
         $this->getCurrentVersion();
         $this->getMainPreview();
         $this->getUserInfo();
@@ -110,8 +110,8 @@ class AddOn extends AMO_Object {
         if (!empty($this->db->record)) {
             $this->setVars($this->db->record);
 
-            if (file_exists(ROOT_PATH.$this->PreviewURI)) {
-                $size = getimagesize(ROOT_PATH.$this->PreviewURI);
+            if (file_exists(ROOT_PATH.'/htdocs'.$this->PreviewURI)) {
+                $size = getimagesize(ROOT_PATH.'/htdocs'.$this->PreviewURI);
                 $this->setVar('PreviewWidth',$size[0]);
                 $this->setVar('PreviewHeight',$size[1]);
             }
@@ -139,7 +139,7 @@ class AddOn extends AMO_Object {
         while ($this->db->next(SQL_ASSOC)) {
             $result = $this->db->record;
             $uri = $result['PreviewURI'];
-            list($src_width, $src_height, $type, $attr) = getimagesize(ROOT_PATH.$uri);
+            list($src_width, $src_height, $type, $attr) = getimagesize(ROOT_PATH.'/htdocs'.$uri);
             $this->Previews[] = array(
                 'PreviewURI' => $uri,
                 'caption' => $result['caption'],
@@ -154,7 +154,7 @@ class AddOn extends AMO_Object {
      */
     function getHistory() {
         $this->db->query("
-             SELECT
+             SELECT DISTINCT
                  TV.vID,
                  TV.Version,
                  TV.MinAppVer,
@@ -172,8 +172,10 @@ class AddOn extends AMO_Object {
             WHERE
                 TV.ID = {$this->ID} AND
                 approved = 'YES'
+            GROUP BY
+                TV.Version
             ORDER BY
-               VerDateAdded DESC
+                TV.vID DESC
         ", SQL_ALL, SQL_ASSOC);
 
         $this->History = $this->db->record;
@@ -246,7 +248,11 @@ class AddOn extends AMO_Object {
      * @param int $limit number of rows to limit by.
      * @todo add left/right limit clauses i.e. LIMIT 10,20 to work with pagination
      */
-    function getComments($limit=5) {
+    function getComments($limit=null) {
+
+        // Set the LIMIT if it is not null.
+        $_limitSql = !empty($limit) ? " LIMIT {$limit} " : null;
+    
         // Gather 10 latest comments.
         $this->db->query("
             SELECT
@@ -266,7 +272,7 @@ class AddOn extends AMO_Object {
                 CommentNote IS NOT NULL
             ORDER BY
                 CommentDate DESC
-            LIMIT {$limit}
+            {$_limitSql}
         ", SQL_ALL, SQL_ASSOC);
         
         $this->setVar('Comments',$this->db->record);

@@ -41,17 +41,19 @@
 #include "nsIAnnotationService.h"
 #include "nsNavHistory.h"
 #include "nsBrowserCompsCID.h"
+#include "nsILoadGroup.h"
 
 // Constants for livemark annotations
 #define LMANNO_FEEDURI     "livemark/feedURI"
 #define LMANNO_SITEURI     "livemark/siteURI"
 #define LMANNO_EXPIRATION  "livemark/expiration"
+#define LMANNO_BMANNO      "livemark/bookmarkFeedURI"
 
 class nsLivemarkService : public nsILivemarkService
 {
 public:
   NS_DECL_ISUPPORTS
-  NS_DECL_NSIBOOKMARKSCONTAINER
+  NS_DECL_NSIREMOTECONTAINER
   NS_DECL_NSILIVEMARKSERVICE
 
   nsLivemarkService();
@@ -62,7 +64,8 @@ public:
   nsresult DeleteLivemarkChildren(PRInt64 aLivemarkFolderId);
   nsresult InsertLivemarkChild(PRInt64 aLivemarkFolderId, 
                                nsIURI *aURI,
-                               const nsAString &aTitle);
+                               const nsAString &aTitle,
+                               const nsAString &aFeedURI);
   nsresult InsertLivemarkLoadingItem(PRInt64 aFolder);
   nsresult InsertLivemarkFailedItem(PRInt64 aFolder);
 
@@ -71,13 +74,21 @@ public:
     nsCOMPtr<nsIURI> folderURI;
     nsCOMPtr<nsIURI> feedURI;
     PRBool locked;
+    // Keep track of the load group that contains the channel we're using
+    // to load this livemark.  This allows the load to be cancelled if
+    // necessary.  The load group automatically adds redirect channels, so
+    // cancelling the load group cancels everything.
+    nsCOMPtr<nsILoadGroup> loadGroup;
 
-    LivemarkInfo(PRInt64 aFolderId, nsCOMPtr<nsIURI> aFolderURI, nsCOMPtr<nsIURI> aFeedURI) {
-      folderId = aFolderId;
-      folderURI = aFolderURI;
-      feedURI = aFeedURI;
-      locked = false;
-    }
+    LivemarkInfo(PRInt64 aFolderId, nsIURI *aFolderURI, nsIURI *aFeedURI)
+      : folderId(aFolderId), folderURI(aFolderURI), feedURI(aFeedURI),
+        locked(PR_FALSE) { }
+
+    void AddRef() { ++mRefCnt; }
+    void Release() { if (--mRefCnt == 0) delete this; }
+
+  private:
+    nsAutoRefCnt mRefCnt;
   };
 
 private:
@@ -98,7 +109,7 @@ private:
   nsCOMPtr<nsINavBookmarksService> mBookmarksService;
 
   // The list of livemarks is stored in this array
-  nsTArray<LivemarkInfo> mLivemarks;
+  nsTArray< nsRefPtr<LivemarkInfo> > mLivemarks;
 
   // Livemarks are updated on a timer.
   nsCOMPtr<nsITimer> mTimer;

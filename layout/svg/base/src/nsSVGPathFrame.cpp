@@ -37,8 +37,6 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include <math.h>
-
 #include "nsSVGPathGeometryFrame.h"
 #include "nsIDOMSVGAnimatedPathData.h"
 #include "nsIDOMSVGPathSegList.h"
@@ -50,6 +48,7 @@
 #include "nsISupports.h"
 #include "nsLayoutAtoms.h"
 #include "nsISVGPathFlatten.h"
+#include "nsSVGUtils.h"
 
 class nsSVGPathFrame : public nsSVGPathGeometryFrame,
                        public nsISVGMarkable,
@@ -939,7 +938,7 @@ nsSVGPathFrame::GetMarkPoints(nsVoidArray *aMarks) {
         ((nsSVGMark *)aMarks->ElementAt(aMarks->Count()-1))->angle = prevAngle;
     } else {
       ((nsSVGMark *)aMarks->ElementAt(aMarks->Count()-1))->angle =
-        nsSVGMarkerFrame::bisect(prevAngle, startAngle);
+        nsSVGUtils::AngleBisect(prevAngle, startAngle);
       prevAngle = endAngle;
     }
     
@@ -949,7 +948,7 @@ nsSVGPathFrame::GetMarkPoints(nsVoidArray *aMarks) {
     aMarks->AppendElement(mark);
     
     if (type == nsIDOMSVGPathSeg::PATHSEG_CLOSEPATH) {
-      prevAngle = nsSVGMarkerFrame::bisect(endAngle, pathAngle);
+      prevAngle = nsSVGUtils::AngleBisect(endAngle, pathAngle);
       ((nsSVGMark *)aMarks->ElementAt(pathIndex))->angle = prevAngle;
     }
 

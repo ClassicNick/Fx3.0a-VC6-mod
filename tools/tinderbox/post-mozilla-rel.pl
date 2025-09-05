@@ -392,6 +392,46 @@ sub packit {
   return ($status)?0:1;
 }
 
+sub get_buildid {
+  my %args = @_;
+
+  if (defined($Settings::buildid)) {
+      return $Settings::buildid;
+  }
+
+  my $dist = $args{'dist'};
+  my $objdir = $args{'objdir'};
+  my $buildid;
+
+  if (defined($dist)) {
+      # First try to get the build ID from the files in dist/.
+      my $find_master = `find $dist -iname master.ini -print`;
+      my @find_output = split(/\n/, $find_master);
+
+      if (scalar(@find_output) gt 0) {
+          my $master = read_file($find_output[0]);
+          # BuildID = "2005100517"
+          if ( $master =~ /^BuildID\s+=\s+\"(\d+)\"\s+$/m ) {
+              $buildid = $1;
+          }
+      }
+  }
+
+  # If the first method of getting the build ID failed, grab it from config.
+  if (!defined($buildid) and defined($objdir)) {
+      if ( -f "$objdir/config/build_number" ) {
+          $buildid = `cd $objdir/config/ && cat build_number`;
+          chomp($buildid);
+      }
+  }
+
+  if (defined($buildid)) {
+      $Settings::buildid = $buildid;
+  }
+
+  return $buildid;
+}
+
 sub update_create_package {
     my %args = @_;
 
@@ -514,25 +554,7 @@ sub update_create_package {
       TinderUtils::run_shell_command "mkdir -p $objdir/dist/update/";
       TinderUtils::print_log "\nGathering complete update info...\n";
 
-      my $buildid;
-
-      # First try to get the build ID from the files in dist/.
-      my $find_master = `find $distdir -iname master.ini -print`;
-      my @find_output = split(/\n/, $find_master);
-
-      if (scalar(@find_output) gt 0) {
-          my $master = read_file($find_output[0]);
-          # BuildID = "2005100517"
-          if ( $master =~ /^BuildID\s+=\s+\"(\d+)\"\s+$/m ) {
-              $buildid = $1;
-          }
-      }
-
-      # If the first method of getting the build ID failed, grab it from config.
-      if (!defined($buildid)) {
-          $buildid = `cd $objdir/config/ && cat build_number`;
-          chomp($buildid);
-      }
+      my $buildid = get_buildid( dist => $distdir );;
 
       TinderUtils::print_log "Got build ID $buildid.\n";
       # Gather stats for update file.
@@ -570,7 +592,7 @@ sub update_create_package {
       }
 
       # Push the build schema 2 data.
-      {
+      if ( $Settings::update_pushinfo ) {
           TinderUtils::print_log "\nPushing third-gen update info...\n";
           my $path = "/opt/aus2/build/0";
           $path = "$path/$update_product/$update_version/$update_platform/$buildid/$locale";
@@ -681,7 +703,7 @@ sub packit_l10n {
   TinderUtils::print_log "Starting l10n builds\n";
 
   foreach my $wgeturl (keys(%Settings::WGetFiles)) {
-    my $status = TinderUtils::run_shell_command_with_timeout("wget --non-verbose --output-document \"$Settings::WGetFiles{$wgeturl}\" $wgeturl",
+    my $status = TinderUtils::run_shell_command_with_timeout("wget -nv --output-document \"$Settings::WGetFiles{$wgeturl}\" $wgeturl",
                                                              $Settings::WGetTimeout);
     if ($status->{exit_value} != 0) {
       TinderUtils::print_log "Error: wget failed or timed out.\n";
@@ -1104,11 +1126,6 @@ sub PreBuild {
       if ( -d "mozilla") {
         TinderUtils::run_shell_command "rm -rf mozilla";
         $cachebuild = 1;
-      } else {
-        TinderUtils::print_log "starting non-release build\n";
-        # Bug 305233 
-        TinderUtils::run_shell_command "rm -rf mozilla/dist";
-        $cachebuild = 0;
       }
     }
     if ( -d "l10n" ) {
@@ -1181,8 +1198,8 @@ sub main {
 
   my($package_dir, $store_name, $local_build_dir);
 
-  my $buildid = `cd $objdir/config/ && cat build_number`;
-  chomp($buildid);
+  my $buildid = get_buildid(objdir=>$objdir);
+  my $pretty_build_name = shorthost() . "-" . $Settings::milestone;
 
   if ($cachebuild) {
     TinderUtils::print_log "uploading nightly release build\n";
@@ -1190,10 +1207,13 @@ sub main {
     $package_dir = "$datestamp";
     $url_path         = $url_path . "/" . $package_dir;
   } else {
+    $package_dir = $pretty_build_name;
     $ftp_path   = $Settings::tbox_ftp_path;
-    $package_dir = shorthost() . "-" . "$Settings::milestone";
-    $store_name = $package_dir;
     $url_path   = $Settings::tbox_url_path . "/" . $package_dir;
+  }
+
+  if (!defined($store_name)) {
+    $store_name = $pretty_build_name;
   }
 
   if (!is_os2()) {
@@ -1225,6 +1245,21 @@ sub main {
 
   my $store_home;
   $store_home = "$mozilla_build_dir/$store_name";
+
+  if (is_windows()) {
+    # need to convert the path in case we're using activestate perl or
+    # cygwin rsync
+    $local_build_dir = `cygpath -u $local_build_dir`;
+    $store_home = `cygpath -u $store_home`;
+  }
+  chomp($local_build_dir);
+  chomp($store_home);
+
+  if ( -e "$store_home/packages" ) {
+    # remove old storage directory
+    TinderUtils::print_log "Found old storage directory.  Removing.\n";
+    TinderUtils::run_shell_command "rm -rf $store_home/packages";
+  }
 
   # save the current build in the appropriate store directory
   TinderUtils::run_shell_command "mkdir -p $store_home/packages";

@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -64,6 +65,8 @@
 #include "nsIDOMSVGPoint.h"
 #include "nsSVGPoint.h"
 #include "nsDOMError.h"
+#include "nsISVGOuterSVGFrame.h"
+#include "nsISVGRendererCanvas.h"
 
 #if defined(MOZ_SVG_RENDERER_GDIPLUS)
 #include <windows.h>
@@ -393,6 +396,22 @@ nsSVGUtils::TransformPoint(nsIDOMSVGMatrix *matrix,
   xfpoint->GetY(y);
 }
 
+nsresult
+nsSVGUtils::GetSurface(nsISVGOuterSVGFrame *aOuterSVGFrame,
+                       nsISVGRendererCanvas *aCanvas,
+                       nsISVGRendererSurface **aSurface)
+{
+  PRUint32 width, height;
+  aCanvas->GetSurfaceSize(&width, &height);
+  
+  nsCOMPtr<nsISVGRenderer> renderer;
+  aOuterSVGFrame->GetRenderer(getter_AddRefs(renderer));
+  if (renderer)
+    return renderer->CreateSurface(width, height, aSurface);
+  else
+    return NS_ERROR_FAILURE;
+}
+
 nsISVGGlyphFragmentLeaf *
 nsSVGUtils::GetGlyphFragmentAtCharNum(nsISVGGlyphFragmentNode* node,
                                       PRUint32 charnum)
@@ -409,4 +428,13 @@ nsSVGUtils::GetGlyphFragmentAtCharNum(nsISVGGlyphFragmentNode* node,
 
   // not found
   return nsnull;
+}
+
+float
+nsSVGUtils::AngleBisect(float a1, float a2)
+{
+  if (a2 - a1 < M_PI)
+    return (a1+a2)/2;
+  else
+    return M_PI + (a1+a2)/2;
 }

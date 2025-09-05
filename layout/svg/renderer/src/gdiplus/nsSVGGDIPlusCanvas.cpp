@@ -455,6 +455,13 @@ nsSVGGDIPlusCanvas::PopSurface()
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsSVGGDIPlusCanvas::GetSurfaceSize(PRUint32 *aWidth, PRUint32 *aHeight)
+{
+  // XXX
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
 /** Implements  void compositeSurface(in nsISVGRendererSurface surface,
                                       in unsigned long x, in unsigned long y,
                                       in float opacity); */
@@ -483,6 +490,19 @@ nsSVGGDIPlusCanvas::CompositeSurface(nsISVGRendererSurface *aSurface,
                        rect, 0, 0, width, height, UnitPixel, &attrib);
 
   return NS_OK;
+}
+
+/** Implements void compositeSurfaceWithMask(in nsISVGRendererSurface surface,
+                                             in unsigned long x,
+                                             in unsigned long y,
+                                             in nsISVGRendererSurface mask); */
+NS_IMETHODIMP
+nsSVGGDIPlusCanvas::CompositeSurfaceWithMask(nsISVGRendererSurface *aSurface,
+                                             PRUint32 aX, PRUint32 aY,
+                                             nsISVGRendererSurface *aMask)
+{
+  // XXX
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 /** Implements  void compositeSurface(in nsISVGRendererSurface surface,

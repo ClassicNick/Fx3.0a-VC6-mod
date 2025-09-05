@@ -114,7 +114,6 @@ static const  char kInvalidTagStackPos[] = "Error: invalid tag stack position";
                                             NS_DTD_FLAG_HAD_FRAMESET)
 
 NS_IMPL_ISUPPORTS2(CNavDTD, nsIDTD, CNavDTD)
-NS_DEFINE_STATIC_IID_ACCESSOR(CNavDTD, NS_INAVHTML_DTD_IID)
 
 CNavDTD::CNavDTD()
   : mMisplacedContent(0),
@@ -133,14 +132,6 @@ CNavDTD::CNavDTD()
     mFlags(NS_DTD_FLAG_NONE)
 {
 }
-
-const nsIID&
-CNavDTD::GetMostDerivedIID() const
-{
-  static nsIID kClassIID = NS_GET_IID(CNavDTD);
-  return kClassIID;
-}
-
 
 #ifdef NS_DEBUG
 
@@ -192,41 +183,6 @@ CNavDTD::~CNavDTD()
 #endif
 
   NS_IF_RELEASE(mSink);
-}
-
-nsresult
-CNavDTD::CreateNewInstance(nsIDTD** aInstancePtrResult)
-{
-  nsresult result = NS_NewNavHTMLDTD(aInstancePtrResult);
-  NS_ENSURE_SUCCESS(result, result);
-
-  CNavDTD* dtd = NS_STATIC_CAST(CNavDTD*, *aInstancePtrResult);
-    
-  dtd->mDTDMode = mDTDMode;
-  dtd->mParserCommand = mParserCommand;
-  dtd->mDocType = mDocType;
-
-  return result;
-}
-
-NS_IMETHODIMP_(eAutoDetectResult)
-CNavDTD::CanParse(CParserContext& aParserContext)
-{
-  NS_ASSERTION(!aParserContext.mMimeType.IsEmpty(),
-               "How'd we get here with an unknown type?");
-  
-  if (aParserContext.mParserCommand != eViewSource &&
-      aParserContext.mDocType != eXML) {
-    // This means that we're
-    // 1) Looking at a type the parser claimed to know how to handle (so XML
-    //    or HTML or a plaintext type)
-    // 2) Not looking at XML
-    //
-    // Therefore, we want to handle this data with this DTD
-    return ePrimaryDetect;
-  }
-
-  return eUnknownDetect;
 }
 
 nsresult
@@ -1054,6 +1010,9 @@ CNavDTD::WillHandleStartTag(CToken* aToken, eHTMLTags aTag,
     if (theToken) {
       theToken->SetKey(NS_LITERAL_STRING("_moz-userdefined"));
       aNode.AddAttribute(theToken);
+
+      // Make sure to remember that we added this attribute.
+      aToken->SetAttributeCount(aNode.GetAttributeCount());
     }
   }
 
@@ -1106,20 +1065,16 @@ CNavDTD::WillHandleStartTag(CToken* aToken, eHTMLTags aTag,
 }
 
 static void
-PushMisplacedAttributes(nsIParserNode& aNode, nsDeque& aDeque, PRInt32& aCount)
+PushMisplacedAttributes(nsIParserNode& aNode, nsDeque& aDeque)
 {
-  if (aCount <= 0) {
-    return;
-  }
-
   nsCParserNode& theAttrNode = NS_STATIC_CAST(nsCParserNode &, aNode);
-  while (aCount) {
+
+  for (PRInt32 count = aNode.GetAttributeCount(); count > 0; --count) {
     CToken* theAttrToken = theAttrNode.PopAttributeToken();
     if (theAttrToken) {
       theAttrToken->SetNewlineCount(0);
       aDeque.Push(theAttrToken);
     }
-    --aCount;
   }
 }
 
@@ -1134,50 +1089,44 @@ CNavDTD::HandleOmittedTag(CToken* aToken, eHTMLTags aChildTag,
   // if it's potentially a child of another section. If it is, the cache it for
   // later.
   PRInt32 theTagCount = mBodyContext->GetCount();
+  PRBool pushToken = PR_FALSE;
 
-  // XXX This null check seems like it might be redundant.
-  if (aToken) {
-    PRInt32 attrCount = aToken->GetAttributeCount();
-    if (gHTMLElements[aParent].HasSpecialProperty(kBadContentWatch) &&
-        !nsHTMLElement::IsWhitespaceTag(aChildTag)) {
-      eHTMLTags theTag = eHTMLTag_unknown;
+  if (gHTMLElements[aParent].HasSpecialProperty(kBadContentWatch) &&
+      !nsHTMLElement::IsWhitespaceTag(aChildTag)) {
+    eHTMLTags theTag = eHTMLTag_unknown;
 
-      // Determine the insertion point
-      while (theTagCount > 0) {
-        theTag = mBodyContext->TagAt(--theTagCount);
-        if (!gHTMLElements[theTag].HasSpecialProperty(kBadContentWatch)) {
-          // This is our insertion point.
-          mBodyContext->mContextTopIndex = theTagCount;
-          break;
-        }
-      }
-
-      if (mBodyContext->mContextTopIndex > -1) {
-        PushIntoMisplacedStack(aToken);
-        // We're going to be using this token later.
-        IF_HOLD(aToken);
-
-        // If the token is attributed then save those attributes too.
-        if (attrCount > 0) {
-          PushMisplacedAttributes(*aNode, mMisplacedContent, attrCount);
-        }
-
-        // Remember that we've stashed some misplaced content.
-        mFlags |= NS_DTD_FLAG_MISPLACED_CONTENT;
+    // Determine the insertion point
+    while (theTagCount > 0) {
+      theTag = mBodyContext->TagAt(--theTagCount);
+      if (!gHTMLElements[theTag].HasSpecialProperty(kBadContentWatch)) {
+        // This is our insertion point.
+        mBodyContext->mContextTopIndex = theTagCount;
+        break;
       }
     }
 
-    if (aChildTag != aParent &&
-        gHTMLElements[aParent].HasSpecialProperty(kSaveMisplaced)) {
-      // Hold on to this token for later use. Ref Bug. 53695
-      IF_HOLD(aToken);
-      PushIntoMisplacedStack(aToken);
+    if (mBodyContext->mContextTopIndex > -1) {
+      pushToken = PR_TRUE;
 
-      // If the token is attributed then save those attributes too.
-      if (attrCount > 0) {
-        PushMisplacedAttributes(*aNode, mMisplacedContent, attrCount);
-      }
+      // Remember that we've stashed some misplaced content.
+      mFlags |= NS_DTD_FLAG_MISPLACED_CONTENT;
     }
+  }
+  
+  if (aChildTag != aParent &&
+      gHTMLElements[aParent].HasSpecialProperty(kSaveMisplaced)) {
+    NS_ASSERTION(!pushToken, "A strange element has both kBadContentWatch "
+                             "and kSaveMisplaced");
+    pushToken = PR_TRUE;
+  }
+
+  if (pushToken) {
+    // Hold on to this token for later use. Ref Bug. 53695
+    IF_HOLD(aToken);
+    PushIntoMisplacedStack(aToken);
+
+    // If the token is attributed then save those attributes too.
+    PushMisplacedAttributes(*aNode, mMisplacedContent);
   }
 }
 
@@ -2076,7 +2025,7 @@ CNavDTD::CollectAttributes(nsIParserNode *aNode, eHTMLTags aTag, PRInt32 aCount)
           break;
         }
 
-        if (IsParserInDocWrite()) {
+        if (!IsParserInDocWrite()) {
           mLineNumber += theToken->GetNewlineCount();
         }
 

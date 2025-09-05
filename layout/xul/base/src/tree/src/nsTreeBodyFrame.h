@@ -41,7 +41,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsLeafBoxFrame.h"
-#include "nsITreeBoxObject.h"
+#include "nsPITreeBoxObject.h"
 #include "nsITreeView.h"
 #include "nsICSSPseudoComparator.h"
 #include "nsIScrollbarMediator.h"
@@ -54,6 +54,20 @@
 #include "nsTreeColumns.h"
 #include "nsTreeImageListener.h"
 #include "nsAutoPtr.h"
+#include "nsDataHashtable.h"
+#include "imgIRequest.h"
+#include "imgIDecoderObserver.h"
+
+// An entry in the tree's image cache
+struct nsTreeImageCacheEntry
+{
+  nsTreeImageCacheEntry() {}
+  nsTreeImageCacheEntry(imgIRequest *aRequest, imgIDecoderObserver *aListener)
+    : request(aRequest), listener(aListener) {}
+
+  nsCOMPtr<imgIRequest> request;
+  nsCOMPtr<imgIDecoderObserver> listener;
+};
 
 // The actual frame that paints the cells and rows.
 class nsTreeBodyFrame : public nsLeafBoxFrame,
@@ -96,14 +110,12 @@ public:
                          nsGUIEvent* aEvent,
                          nsEventStatus* aEventStatus);
 
-  // Painting methods.
-  // Paint is the generic nsIFrame paint method.  We override this method
-  // to paint our contents (our rows and cells).
-  NS_IMETHOD Paint(nsPresContext*      aPresContext,
-                   nsIRenderingContext& aRenderingContext,
-                   const nsRect&        aDirtyRect,
-                   nsFramePaintLayer    aWhichLayer,
-                   PRUint32             aFlags = 0);
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists);
+                              
+  void PaintTreeBody(nsIRenderingContext& aRenderingContext,
+                     const nsRect& aDirtyRect, nsPoint aPt);
 
   // This method paints a specific column background of the tree.
   void PaintColumn(nsTreeColumn*        aColumn,
@@ -115,9 +127,10 @@ public:
   // This method paints a single row in the tree.
   void PaintRow(PRInt32              aRowIndex,
                 const nsRect&        aRowRect,
-                nsPresContext*      aPresContext,
+                nsPresContext*       aPresContext,
                 nsIRenderingContext& aRenderingContext,
-                const nsRect&        aDirtyRect);
+                const nsRect&        aDirtyRect,
+                nsPoint              aPt);
 
   // This method paints a single separator in the tree.
   void PaintSeparator(PRInt32              aRowIndex,
@@ -130,10 +143,11 @@ public:
   void PaintCell(PRInt32              aRowIndex, 
                  nsTreeColumn*        aColumn,
                  const nsRect&        aCellRect,
-                 nsPresContext*      aPresContext,
+                 nsPresContext*       aPresContext,
                  nsIRenderingContext& aRenderingContext,
                  const nsRect&        aDirtyRect,
-                 nscoord&             aCurrX);
+                 nscoord&             aCurrX,
+                 nsPoint              aPt);
 
   // This method paints the twisty inside a cell in the primary column of an tree.
   void PaintTwisty(PRInt32              aRowIndex,
@@ -329,7 +343,7 @@ protected:
 
 protected: // Data Members
   // The cached box object parent.
-  nsCOMPtr<nsITreeBoxObject> mTreeBoxObject;
+  nsCOMPtr<nsPITreeBoxObject> mTreeBoxObject;
 
   // Cached column information.
   nsRefPtr<nsTreeColumns> mColumns;
@@ -344,11 +358,11 @@ protected: // Data Members
   // (the power set of all row properties).
   nsTreeStyleCache mStyleCache;
 
-  // A hashtable that maps from URLs to image requests.  The URL is provided
-  // by the view or by the style context. The style context represents
-  // a resolved :-moz-tree-cell-image (or twisty) pseudo-element.
+  // A hashtable that maps from URLs to image request/listener pairs.  The URL
+  // is provided by the view or by the style context. The style context
+  // represents a resolved :-moz-tree-cell-image (or twisty) pseudo-element.
   // It maps directly to an imgIRequest.
-  nsSupportsHashtable* mImageCache;
+  nsDataHashtable<nsStringHashKey, nsTreeImageCacheEntry> mImageCache;
 
   // Our scrollbars.
   nsIFrame* mScrollbar;

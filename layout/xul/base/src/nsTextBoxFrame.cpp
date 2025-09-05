@@ -22,6 +22,7 @@
  * Contributor(s):
  *   Peter Annema <disttsc@bart.nl>
  *   Dean Tessman <dean_tessman@hotmail.com>
+ *   Masayuki Nakano <masayuki@d-toybox.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -68,6 +69,7 @@
 #include "nsITheme.h"
 #include "nsUnicharUtils.h"
 #include "nsContentUtils.h"
+#include "nsDisplayList.h"
 
 #ifdef IBMBIDI
 #include "nsBidiUtils.h"
@@ -278,47 +280,69 @@ nsTextBoxFrame::UpdateAttributes(nsPresContext*  aPresContext,
 
 }
 
-NS_IMETHODIMP
-nsTextBoxFrame::Paint(nsPresContext*      aPresContext,
-                      nsIRenderingContext& aRenderingContext,
-                      const nsRect&        aDirtyRect,
-                      nsFramePaintLayer    aWhichLayer,
-                      PRUint32             aFlags)
+MOZ_DECL_CTOR_COUNTER(nsDisplayXULTextBox)
+class nsDisplayXULTextBox : public nsDisplayItem {
+public:
+  nsDisplayXULTextBox(nsTextBoxFrame* aFrame) : mFrame(aFrame) {
+      MOZ_COUNT_CTOR(nsDisplayXULTextBox);
+  }
+#ifdef NS_BUILD_REFCNT_LOGGING
+  virtual ~nsDisplayXULTextBox() {
+      MOZ_COUNT_DTOR(nsDisplayXULTextBox);
+  }
+#endif
+
+  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
+  virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
+     const nsRect& aDirtyRect);
+  NS_DISPLAY_DECL_NAME("XULTextBox")
+private:
+  nsTextBoxFrame* mFrame;
+};
+
+void nsDisplayXULTextBox::Paint(nsDisplayListBuilder* aBuilder,
+     nsIRenderingContext* aCtx, const nsRect& aDirtyRect)
 {
-    if (!GetStyleVisibility()->IsVisible())
-        return NS_OK;
-
-    if (NS_FRAME_PAINT_LAYER_FOREGROUND == aWhichLayer) {
-
-        // remove the border and padding
-        nsStyleBorderPadding  bPad;
-        mStyleContext->GetBorderPaddingFor(bPad);
-        nsMargin border(0,0,0,0);
-        bPad.GetBorderPadding(border);
-
-        nsRect textRect(0,0,mRect.width, mRect.height);
-        textRect.Deflate(border);
-
-        PaintTitle(aPresContext, aRenderingContext, aDirtyRect, textRect);
-    }
-
-    return nsLeafFrame::Paint(aPresContext, aRenderingContext, aDirtyRect, aWhichLayer);
+  mFrame->PaintTitle(*aCtx, aDirtyRect, aBuilder->ToReferenceFrame(mFrame));
 }
 
 NS_IMETHODIMP
-nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
-                           nsIRenderingContext& aRenderingContext,
+nsTextBoxFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                 const nsRect&           aDirtyRect,
+                                 const nsDisplayListSet& aLists)
+{
+    if (!IsVisibleForPainting(aBuilder))
+      return NS_OK;
+
+    nsresult rv = nsLeafBoxFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
+    NS_ENSURE_SUCCESS(rv, rv);
+    
+    return aLists.Content()->AppendNewToTop(new (aBuilder)
+        nsDisplayXULTextBox(this));
+}
+
+void
+nsTextBoxFrame::PaintTitle(nsIRenderingContext& aRenderingContext,
                            const nsRect&        aDirtyRect,
-                           const nsRect&        aRect)
+                           nsPoint              aPt)
 {
     if (mTitle.IsEmpty())
-        return NS_OK;
+        return;
+
+    nsStyleBorderPadding  bPad;
+    mStyleContext->GetBorderPaddingFor(bPad);
+    nsMargin border(0,0,0,0);
+    bPad.GetBorderPadding(border);
+
+    nsRect textRect(aPt, GetSize());
+    textRect.Deflate(border);
 
     // determine (cropped) title and underline position
-    LayoutTitle(aPresContext, aRenderingContext, aRect);
+    nsPresContext* presContext = GetPresContext();
+    LayoutTitle(presContext, aRenderingContext, textRect);
 
     // make the rect as small as our (cropped) text.
-    nsRect textRect(aRect);
+    nscoord outerWidth = textRect.width;
     textRect.width = mTitleWidth;
 
     // Align our text within the overall rect by checking our text-align property.
@@ -326,19 +350,19 @@ nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
     const nsStyleText* textStyle = GetStyleText();
 
     if (textStyle->mTextAlign == NS_STYLE_TEXT_ALIGN_CENTER)
-      textRect.x += (aRect.width - textRect.width)/2;
+      textRect.x += (outerWidth - textRect.width)/2;
     else if (textStyle->mTextAlign == NS_STYLE_TEXT_ALIGN_RIGHT) {
       if (vis->mDirection == NS_STYLE_DIRECTION_LTR)
-        textRect.x += (aRect.width - textRect.width);
+        textRect.x += (outerWidth - textRect.width);
     }
     else {
       if (vis->mDirection == NS_STYLE_DIRECTION_RTL)
-        textRect.x += (aRect.width - textRect.width);
+        textRect.x += (outerWidth - textRect.width);
     }
 
     // don't draw if the title is not dirty
     if (PR_FALSE == aDirtyRect.Intersects(textRect))
-        return NS_OK;
+        return;
 
     // paint the title
     nscolor overColor;
@@ -387,8 +411,8 @@ nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
     nscoord size;
     nscoord baseline;
     nsCOMPtr<nsIFontMetrics> fontMet;
-    aPresContext->DeviceContext()->GetMetricsFor(fontStyle->mFont,
-                                                 *getter_AddRefs(fontMet));
+    presContext->DeviceContext()->GetMetricsFor(fontStyle->mFont,
+                                                *getter_AddRefs(fontMet));
     fontMet->GetMaxAscent(baseline);
 
     if (decorations & (NS_FONT_DECORATION_OVERLINE | NS_FONT_DECORATION_UNDERLINE)) {
@@ -418,8 +442,8 @@ nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
     nsresult rv = NS_ERROR_FAILURE;
 
     if (mState & NS_FRAME_IS_BIDI) {
-      aPresContext->SetBidiEnabled(PR_TRUE);
-      nsBidiPresUtils* bidiUtils = aPresContext->GetBidiUtils();
+      presContext->SetBidiEnabled(PR_TRUE);
+      nsBidiPresUtils* bidiUtils = presContext->GetBidiUtils();
 
       if (bidiUtils) {
         const nsStyleVisibility* vis = GetStyleVisibility();
@@ -430,7 +454,7 @@ nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
            nsBidiPositionResolve posResolve;
            posResolve.logicalIndex = mAccessKeyInfo->mAccesskeyIndex;
            rv = bidiUtils->RenderText(mCroppedTitle.get(), mCroppedTitle.Length(), direction,
-                                      aPresContext, aRenderingContext,
+                                      presContext, aRenderingContext,
                                       textRect.x, textRect.y + baseline,
                                       &posResolve,
                                       1);
@@ -439,7 +463,7 @@ nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
         else
         {
            rv = bidiUtils->RenderText(mCroppedTitle.get(), mCroppedTitle.Length(), direction,
-                                      aPresContext, aRenderingContext,
+                                      presContext, aRenderingContext,
                                       textRect.x, textRect.y + baseline);
         }
       }
@@ -467,8 +491,6 @@ nsTextBoxFrame::PaintTitle(nsPresContext*      aPresContext,
                                    mAccessKeyInfo->mAccessWidth,
                                    mAccessKeyInfo->mAccessUnderlineSize);
     }
-
-    return NS_OK;
 }
 
 void
@@ -705,34 +727,45 @@ nsTextBoxFrame::UpdateAccessTitle()
 {
     PRInt32 menuAccessKey;
     nsMenuBarListener::GetMenuAccessKey(&menuAccessKey);
-    if (menuAccessKey) {
-        if (!mAccessKey.IsEmpty()) {
-            if (( !FindInReadable(mAccessKey, mTitle, nsCaseInsensitiveStringComparator()))
-                || AlwaysAppendAccessKey()) 
-            {
-                nsAutoString tmpstring;
-                if (InsertSeparatorBeforeAccessKey() &&
-                    !mTitle.IsEmpty() && !NS_IS_SPACE(mTitle.Last())) {
-                  tmpstring += ' ';
-                }
-                tmpstring += '(';
-                tmpstring += mAccessKey;
-                ToUpperCase(tmpstring);
-                tmpstring.Append(NS_LITERAL_STRING(")"));
-                PRInt32 offset = mTitle.RFind("...");
-                if (offset != kNotFound) {
-                    mTitle.Insert(tmpstring,NS_STATIC_CAST(PRUint32, offset));
-                } else {
-                    PRUint32 l = mTitle.Length();
-                    if((l > 0) && (PRUnichar(':')==mTitle[l-1])) {
-                      mTitle.Insert(tmpstring,l-1);
-                    } else {
-                      mTitle += tmpstring;
-                    }
-                }
-            }
-        }
+    if (!menuAccessKey || mAccessKey.IsEmpty())
+        return;
+
+    if (!AlwaysAppendAccessKey() &&
+        FindInReadable(mAccessKey, mTitle, nsCaseInsensitiveStringComparator()))
+        return;
+
+    nsAutoString accessKeyLabel;
+    accessKeyLabel += '(';
+    accessKeyLabel += mAccessKey;
+    ToUpperCase(accessKeyLabel);
+    accessKeyLabel += ')';
+
+    if (mTitle.IsEmpty()) {
+        mTitle = accessKeyLabel;
+        return;
     }
+
+    PRInt32 offset = mTitle.RFind("...");
+    if (offset == kNotFound) {
+        offset = (PRInt32)mTitle.Length();
+        if (mTitle.Last() == PRUnichar(':'))
+            offset--;
+    }
+
+    PRInt32 len = (PRInt32)accessKeyLabel.Length();
+    if (offset >= len &&
+        Substring(mTitle, offset - len, len) == accessKeyLabel) {
+        // We don't need to append access key label. See bug 324159
+        return;
+    }
+
+    if (InsertSeparatorBeforeAccessKey() && offset > 0 &&
+        !NS_IS_SPACE(mTitle[offset - 1])) {
+        mTitle.Insert(NS_LITERAL_STRING(" "), (PRUint32)offset);
+        offset++;
+    }
+
+    mTitle.Insert(accessKeyLabel, (PRUint32)offset);
 }
 
 void

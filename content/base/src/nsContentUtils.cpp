@@ -127,6 +127,7 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 #include "nsXBLPrototypeBinding.h"
 #include "nsEscape.h"
 #include "nsICharsetConverterManager.h"
+#include "nsXULAtoms.h"
 
 // for ReportToConsole
 #include "nsIStringBundle.h"
@@ -1734,7 +1735,7 @@ nsContentUtils::LookupNamespaceURI(nsIContent* aNamespaceResolver,
     NS_ENSURE_TRUE(name, NS_ERROR_OUT_OF_MEMORY);
   }
   else {
-    name = nsLayoutAtoms::xmlnsNameSpace;
+    name = nsLayoutAtoms::xmlns;
   }
   // Trace up the content parent chain looking for the namespace
   // declaration that declares aNamespacePrefix.
@@ -1789,9 +1790,9 @@ nsContentUtils::GetNodeInfoFromQName(const nsAString& aNamespaceURI,
   // "http://www.w3.org/2000/xmlns/", or if the namespaceURI is
   // "http://www.w3.org/2000/xmlns/" and neither the qualifiedName nor its
   // prefix is "xmlns".
-  PRBool xmlPrefix = prefix == nsLayoutAtoms::xmlNameSpace;
-  PRBool xmlns = (*aNodeInfo)->Equals(nsLayoutAtoms::xmlnsNameSpace, nil) ||
-                 prefix == nsLayoutAtoms::xmlnsNameSpace;
+  PRBool xmlPrefix = prefix == nsLayoutAtoms::xml;
+  PRBool xmlns = (*aNodeInfo)->Equals(nsLayoutAtoms::xmlns, nil) ||
+                 prefix == nsLayoutAtoms::xmlns;
 
   return (prefix && DOMStringIsNull(aNamespaceURI)) ||
          (xmlPrefix && nsID != kNameSpaceID_XML) ||
@@ -2730,4 +2731,14 @@ nsContentUtils::GetReferencedElement(nsIURI* aURI, nsIContent *aFromContent)
   }
 
   return content;
+}
+
+/* static */
+PRBool
+nsContentUtils::HasNonEmptyAttr(nsIContent* aContent, PRInt32 aNameSpaceID,
+                                nsIAtom* aName)
+{
+  static nsIContent::AttrValuesArray strings[] = {&nsXULAtoms::_empty, nsnull};
+  return aContent->FindAttrValueIn(aNameSpaceID, aName, strings, eCaseMatters)
+    == nsIContent::ATTR_VALUE_NO_MATCH;
 }

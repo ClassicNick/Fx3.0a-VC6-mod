@@ -44,6 +44,7 @@
 #include "nsCSSPseudoElements.h"
 #include "nsINameSpaceManager.h"
 #include "nsStyleSet.h"
+#include "nsDisplayList.h"
 
 #define ACTIVE   "active"
 #define HOVER    "hover"
@@ -92,19 +93,88 @@ nsButtonFrameRenderer::isDisabled()
                                        nsHTMLAtoms::disabled);
 }
 
-void 
-nsButtonFrameRenderer::PaintButton     (nsPresContext* aPresContext,
-          nsIRenderingContext& aRenderingContext,
-          const nsRect& aDirtyRect,
-          const nsRect& aRect)
+MOZ_DECL_CTOR_COUNTER(nsDisplayButtonBorderBackground)
+class nsDisplayButtonBorderBackground : public nsDisplayItem {
+public:
+  nsDisplayButtonBorderBackground(nsButtonFrameRenderer* aRenderer)
+    : mBFR(aRenderer) {
+    MOZ_COUNT_CTOR(nsDisplayButtonBorderBackground);
+  }
+#ifdef NS_BUILD_REFCNT_LOGGING
+  virtual ~nsDisplayButtonBorderBackground() {
+    MOZ_COUNT_DTOR(nsDisplayButtonBorderBackground);
+  }
+#endif  
+  
+  virtual nsIFrame* GetUnderlyingFrame() { return mBFR->GetFrame(); }
+  virtual nsIFrame* HitTest(nsDisplayListBuilder* aBuilder, nsPoint aPt) {
+    return mBFR->GetFrame();
+  }
+  virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
+     const nsRect& aDirtyRect);
+  NS_DISPLAY_DECL_NAME("ButtonBorderBackground")
+private:
+  nsButtonFrameRenderer* mBFR;
+};
+
+MOZ_DECL_CTOR_COUNTER(nsDisplayButtonForeground)
+class nsDisplayButtonForeground : public nsDisplayItem {
+public:
+  nsDisplayButtonForeground(nsButtonFrameRenderer* aRenderer)
+    : mBFR(aRenderer) {
+    MOZ_COUNT_CTOR(nsDisplayButtonForeground);
+  }
+#ifdef NS_BUILD_REFCNT_LOGGING
+  virtual ~nsDisplayButtonForeground() {
+    MOZ_COUNT_DTOR(nsDisplayButtonForeground);
+  }
+#endif  
+
+  virtual nsIFrame* GetUnderlyingFrame() { return mBFR->GetFrame(); }
+  virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
+     const nsRect& aDirtyRect);
+  NS_DISPLAY_DECL_NAME("ButtonForeground")
+private:
+  nsButtonFrameRenderer* mBFR;
+};
+
+void nsDisplayButtonBorderBackground::Paint(nsDisplayListBuilder* aBuilder,
+                                            nsIRenderingContext* aCtx,
+                                            const nsRect& aDirtyRect)
 {
-  //printf("painted width='%d' height='%d'\n",aRect.width, aRect.height);
-
+  nsIFrame* f = mBFR->GetFrame();
+  NS_ASSERTION(f, "No frame?");
+  nsPresContext* pc = f->GetPresContext();
+  nsRect r = nsRect(aBuilder->ToReferenceFrame(f), f->GetSize());
+  
   // draw the border and background inside the focus and outline borders
-  PaintBorderAndBackground(aPresContext, aRenderingContext, aDirtyRect, aRect);
+  mBFR->PaintBorderAndBackground(pc, *aCtx, aDirtyRect, r);
+}
 
+void nsDisplayButtonForeground::Paint(nsDisplayListBuilder* aBuilder,
+                                      nsIRenderingContext* aCtx,
+                                      const nsRect& aDirtyRect)
+{
+  nsIFrame* f = mBFR->GetFrame();
+  NS_ASSERTION(f, "No frame?");
+  nsPresContext* pc = f->GetPresContext();
+  nsRect r = nsRect(aBuilder->ToReferenceFrame(f), f->GetSize());
+  
   // draw the focus and outline borders
-  PaintOutlineAndFocusBorders(aPresContext, aRenderingContext, aDirtyRect, aRect);
+  mBFR->PaintOutlineAndFocusBorders(pc, *aCtx, aDirtyRect, r);
+}
+
+nsresult
+nsButtonFrameRenderer::DisplayButton(nsDisplayListBuilder* aBuilder,
+                                     nsDisplayList* aBackground,
+                                     nsDisplayList* aForeground)
+{
+  nsresult rv = aBackground->AppendNewToTop(new (aBuilder)
+      nsDisplayButtonBorderBackground(this));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return aForeground->AppendNewToTop(new (aBuilder)
+      nsDisplayButtonForeground(this));
 }
 
 void

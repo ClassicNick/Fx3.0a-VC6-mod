@@ -44,6 +44,16 @@
 // Debug
 $config['debug']                           = false;
 
+// Service Active
+$config['service_active']                  = true; // true=on | false=off
+
+// Screenshot Formats
+$config['screenshot_imageTypes']           = array('png' => 'image/png',
+                                                   'jpg' => 'image/jpeg');
+
+// Turn on WSDL??
+$config['use_wsdl']                        = false;
+
 // Paths
 $config['base_url']                        = 'http://reporter.server.tld'; // no trailing slash
 $config['base_path']                       = '/path/to/reporter'; // no trailing slash
@@ -55,6 +65,9 @@ $config['db_user']                         = 'USERNAME';
 $config['db_pass']                         = 'PASSWORD';
 $config['db_database']                     = 'DATABASE';
 $config['db_dsn']                          = $config['db_type'].'://'.$config['db_user'].':'.$config['db_pass'].'@'.$config['db_server'].'/'.$config['db_database'];
+
+// Theme
+$config['theme']                           = 'mozilla';
 
 // Smarty Configurations
 $config['smarty_template_directory']       = $config['base_path'].'/templates/';
@@ -100,6 +113,10 @@ $config['products'][1]                     = 'Firefox/1.0+';
 
 // How many items to show by default
 $config['show'] = 25;
+$config['max_show'] = 200;
+
+// Max items to remember for next/prev navigation
+$config['max_nav_count'] = 2000;
 
 // Field Names, and how they should appear in the UI
 $config['fields']['report_id']             = 'Report ID';

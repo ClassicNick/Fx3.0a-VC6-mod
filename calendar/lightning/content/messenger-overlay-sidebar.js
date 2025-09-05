@@ -93,16 +93,6 @@ function ltnOnLoad(event)
     document.getElementById("messengerWindow")
             .addEventListener("unload", ltnFinish, false);
 
-    // Set up the multiday-view to start/end at the correct hours, since this
-    // doesn't persist between startups.  (Fails if pref undefined)
-    try {
-        var sHour = rootPrefBranch.getIntPref("calendar.view.defaultstarthour");
-        var eHour = rootPrefBranch.getIntPref("calendar.view.defaultendhour");
-        document.getElementById("calendar-multiday-view")
-                .setStartEndMinutes(sHour*60, eHour*60);
-    }
-    catch(ex) {}
-
     return;
 }
 
@@ -163,6 +153,14 @@ function showCalendarView(type)
     previousCommand.setAttribute("label", previousCommand.getAttribute("label-"+type));
 }
 
+function goToToday()
+{
+    // set the current date in the minimonth control;
+    // note, that the current view in the calendar-view-box is automatically updated
+    var currentDay = today();
+    document.getElementById("ltnMinimonth").value = currentDay.jsDate;
+}
+
 function selectedCalendarPane(event)
 {
     var deck = document.getElementById("displayDeck");
@@ -201,9 +199,7 @@ function LtnObserveDisplayDeckChange(event)
 
 function ltnPublishCalendar()
 {
-    currentCalendar = ltnSelectedCalendar();
-
-    openDialog("chrome://calendar/content/calendar-publish-dialog.xul", "caPublishEvents", "chrome,titlebar,modal", currentCalendar);
+    publishEntireCalendar(ltnSelectedCalendar());
 }
 
 function ltnFinish() {
@@ -234,17 +230,6 @@ var ltnPrefObserver =
    rootPrefBranch: null,
    observe: function(aSubject, aTopic, aPrefName)
    {
-       switch (aPrefName) {
-           case "calendar.view.defaultstarthour":
-           case "calendar.view.defaultendhour":
-               var sHour = this.rootPrefBranch.getIntPref
-                               ("calendar.view.defaultstarthour");
-               var eHour = this.rootPrefBranch.getIntPref
-                                ("calendar.view.defaultendhour");
-               document.getElementById("calendar-multiday-view")
-                       .setStartEndMinutes(sHour*60, eHour*60);
-               break;
-       }
    }
 }
 

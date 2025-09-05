@@ -74,6 +74,10 @@ ifeq ($(OS_ARCH),Darwin)
 PLATFORM = mac
 endif
 
+ifeq ($(OS_ARCH),BeOS)
+PLATFORM = beos
+endif
+
 REQUIRES	= xpcom \
 		  string \
 		  gfx \
@@ -87,7 +91,7 @@ CPPSRCS		= \
 		nsIconProtocolHandler.cpp \
 		$(NULL)
 
-ifeq (,$(filter-out Darwin OS2,$(OS_ARCH)))
+ifeq (,$(filter-out Darwin OS2 BeOS,$(OS_ARCH)))
 CPPSRCS	+= nsIconDecoder.cpp
 endif
 

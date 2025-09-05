@@ -44,9 +44,11 @@ VPATH=@srcdir@
 include $(DEPTH)/config/autoconf.mk
 
 MODULE = satchel
-LIBRARY_NAME = satchel_s
-FORCE_STATIC_LIB = 1
+LIBRARY_NAME = satchel
+MODULE_NAME = satchel
+IS_COMPONENT = 1
 LIBXUL_LIBRARY = 1
+EXPORT_LIBRARY = 1
 
 REQUIRES =	\
 		xpcom \
@@ -62,16 +64,49 @@ REQUIRES =	\
 		content \
 		view \
 		locale \
-		mork \
 		unicharutil \
 		intl \
 		pref \
+		windowwatcher \
+		toolkitcomps \
 		$(NULL)
 
 CPPSRCS = nsFormFillController.cpp \
-          nsFormHistory.cpp \
           $(NULL)
 
-LOCAL_INCLUDES = -I$(srcdir)/../../passwordmgr/base
+ifdef MOZ_STORAGE
+REQUIRES += storage
+CPPSRCS += nsStorageFormHistory.cpp
+ifdef MOZ_MORKREADER
+REQUIRES += morkreader
+endif
+else # MOZ_STORAGE
+ifdef MOZ_MORK
+REQUIRES += mork
+CPPSRCS += nsFormHistory.cpp
+endif
+endif # MOZ_STORAGE
+
+LOCAL_INCLUDES = \
+	-I$(srcdir)/../../passwordmgr/base \
+	-I$(srcdir)/../../build \
+	$(NULL)
+
+SHARED_LIBRARY_LIBS = \
+	$(DIST)/lib/$(LIB_PREFIX)passwordmgr_s.$(LIB_SUFFIX) \
+	$(NULL)
+
+EXTRA_DSO_LIBS	= gkgfx
 
 include $(topsrcdir)/config/rules.mk
+
+EXTRA_DSO_LDOPTS += \
+	$(EXTRA_DSO_LIBS) \
+	$(MOZ_UNICHARUTIL_LIBS) \
+	$(MOZ_COMPONENT_LIBS) \
+	$(NULL)
+
+ifdef MOZ_MORKREADER
+EXTRA_DSO_LDOPTS += $(DIST)/lib/$(LIB_PREFIX)morkreader_s.$(LIB_SUFFIX)
+endif
+

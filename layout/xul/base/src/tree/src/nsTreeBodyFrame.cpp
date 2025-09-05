@@ -99,6 +99,7 @@
 #include "nsContentUtils.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
+#include "nsDisplayList.h"
 
 #ifdef IBMBIDI
 #include "nsBidiPresUtils.h"
@@ -109,18 +110,12 @@
 static NS_DEFINE_CID(kWidgetCID, NS_CHILD_CID);
 
 // Enumeration function that cancels all the image requests in our cache
-PR_STATIC_CALLBACK(PRBool)
-CancelImageRequest(nsHashKey* aKey, void* aData, void* aClosure)
+PR_STATIC_CALLBACK(PLDHashOperator)
+CancelImageRequest(const nsAString& aKey,
+                   nsTreeImageCacheEntry aEntry, void* aData)
 {
-  nsISupports* supports = NS_STATIC_CAST(nsISupports*, aData);
-  nsCOMPtr<imgIRequest> request = do_QueryInterface(supports);
-  nsCOMPtr<imgIDecoderObserver> observer;
-  request->GetDecoderObserver(getter_AddRefs(observer));
-  NS_ASSERTION(observer, "No observer?  We're leaking!");
-  request->Cancel(NS_ERROR_FAILURE);
-  imgIDecoderObserver* observer2 = observer;
-  NS_RELEASE(observer2);  // Balance out the addref from GetImage()
-  return PR_TRUE;
+  aEntry.request->Cancel(NS_BINDING_ABORTED);
+  return PL_DHASH_NEXT;
 }
 
 //
@@ -149,7 +144,7 @@ NS_INTERFACE_MAP_END_INHERITING(nsLeafBoxFrame)
 
 // Constructor
 nsTreeBodyFrame::nsTreeBodyFrame(nsIPresShell* aPresShell)
-:nsLeafBoxFrame(aPresShell), mTreeBoxObject(nsnull), mImageCache(nsnull),
+:nsLeafBoxFrame(aPresShell),
  mScrollbar(nsnull), mHorzScrollbar(nsnull), mColScrollContent(nsnull), mColScrollView(nsnull), 
  mHorzPosition(0), mHorzWidth(0), mRowHeight(0), mIndentation(0), mStringWidth(-1),
  mTopRowIndex(0), mFocused(PR_FALSE), mHasFixedRowCount(PR_FALSE), 
@@ -163,10 +158,7 @@ nsTreeBodyFrame::nsTreeBodyFrame(nsIPresShell* aPresShell)
 // Destructor
 nsTreeBodyFrame::~nsTreeBodyFrame()
 {
-  if (mImageCache) {
-    mImageCache->Enumerate(CancelImageRequest);
-    delete mImageCache;
-  }
+  mImageCache.EnumerateRead(CancelImageRequest, nsnull);
   delete mSlots;
 }
 
@@ -250,6 +242,7 @@ nsTreeBodyFrame::Init(nsPresContext* aPresContext, nsIContent* aContent,
   mIndentation = GetIndentation();
   mRowHeight = GetRowHeight();
 
+  NS_ENSURE_TRUE(mImageCache.Init(16), NS_ERROR_OUT_OF_MEMORY);
   return rv;
 }
 
@@ -362,8 +355,7 @@ nsTreeBodyFrame::Destroy(nsPresContext* aPresContext)
     }
 
     // Always null out the cached tree body frame.
-    nsAutoString treeBody(NS_LITERAL_STRING("treebody"));
-    box->RemoveProperty(treeBody.get());
+    mTreeBoxObject->ClearCachedTreeBody();
 
     mTreeBoxObject = nsnull; // Drop our ref here.
   }
@@ -409,12 +401,14 @@ nsTreeBodyFrame::EnsureView()
     nsCOMPtr<nsIBoxObject> box = do_QueryInterface(mTreeBoxObject);
     if (box) {
       nsCOMPtr<nsISupports> suppView;
-      box->GetPropertyAsSupports(NS_LITERAL_STRING("view").get(), getter_AddRefs(suppView));
+      box->GetPropertyAsSupports(NS_LITERAL_STRING("view").get(),
+                                 getter_AddRefs(suppView));
       nsCOMPtr<nsITreeView> treeView(do_QueryInterface(suppView));
 
       if (treeView) {
         nsXPIDLString rowStr;
-        box->GetProperty(NS_LITERAL_STRING("topRow").get(), getter_Copies(rowStr));
+        box->GetProperty(NS_LITERAL_STRING("topRow").get(),
+                         getter_Copies(rowStr));
         nsAutoString rowStr2(rowStr);
         PRInt32 error;
         PRInt32 rowIndex = rowStr2.ToInteger(&error);
@@ -531,7 +525,7 @@ NS_IMETHODIMP nsTreeBodyFrame::SetView(nsITreeView * aView)
   EnsureBoxObject();
   nsCOMPtr<nsIBoxObject> box = do_QueryInterface(mTreeBoxObject);
   
-  nsAutoString view(NS_LITERAL_STRING("view"));
+  NS_NAMED_LITERAL_STRING(view, "view");
   
   if (mView) {
     nsCOMPtr<nsITreeSelection> sel;
@@ -1741,29 +1735,27 @@ nsTreeBodyFrame::GetImage(PRInt32 aRowIndex, nsTreeColumn* aCol, PRBool aUseCont
     uri->GetSpec(spec);
     CopyUTF8toUTF16(spec, imageSrc);
   }
-  nsStringKey key(imageSrc);
 
-  if (mImageCache) {
-    // Look the image up in our cache.
-    nsCOMPtr<imgIRequest> imgReq = getter_AddRefs(NS_STATIC_CAST(imgIRequest*, mImageCache->Get(&key)));
-    if (imgReq) {
-      // Find out if the image has loaded.
-      PRUint32 status;
-      imgReq->GetImageStatus(&status);
-      imgReq->GetImage(aResult); // We hand back the image here.  The GetImage call addrefs *aResult.
-      PRUint32 numFrames = 1;
-      if (*aResult)
-        (*aResult)->GetNumFrames(&numFrames);
+  // Look the image up in our cache.
+  nsTreeImageCacheEntry entry;
+  if (mImageCache.Get(imageSrc, &entry)) {
+    // Find out if the image has loaded.
+    PRUint32 status;
+    imgIRequest *imgReq = entry.request;
+    imgReq->GetImageStatus(&status);
+    imgReq->GetImage(aResult); // We hand back the image here.  The GetImage call addrefs *aResult.
+    PRUint32 numFrames = 1;
+    if (*aResult)
+      (*aResult)->GetNumFrames(&numFrames);
 
-      if ((!(status & imgIRequest::STATUS_LOAD_COMPLETE)) || numFrames > 1) {
-        // We either aren't done loading, or we're animating. Add our row as a listener for invalidations.
-        nsCOMPtr<imgIDecoderObserver> obs;
-        imgReq->GetDecoderObserver(getter_AddRefs(obs));
-        nsCOMPtr<nsITreeImageListener> listener(do_QueryInterface(obs));
-        if (listener)
-          listener->AddCell(aRowIndex, aCol);
-        return NS_OK;
-      }
+    if ((!(status & imgIRequest::STATUS_LOAD_COMPLETE)) || numFrames > 1) {
+      // We either aren't done loading, or we're animating. Add our row as a listener for invalidations.
+      nsCOMPtr<imgIDecoderObserver> obs;
+      imgReq->GetDecoderObserver(getter_AddRefs(obs));
+      nsCOMPtr<nsITreeImageListener> listener(do_QueryInterface(obs));
+      if (listener)
+        listener->AddCell(aRowIndex, aCol);
+      return NS_OK;
     }
   }
 
@@ -1814,15 +1806,8 @@ nsTreeBodyFrame::GetImage(PRInt32 aRowIndex, nsTreeColumn* aCol, PRBool aUseCont
 
     // In a case it was already cached.
     imageRequest->GetImage(aResult);
-
-    if (!mImageCache) {
-      mImageCache = new nsSupportsHashtable(16);
-      if (!mImageCache)
-        return NS_ERROR_OUT_OF_MEMORY;
-    }
-    mImageCache->Put(&key, imageRequest);
-    imgIDecoderObserver* decoderObserverPtr = imgDecoderObserver;
-    NS_ADDREF(decoderObserverPtr);  // Will get released when we remove the cache entry.
+    nsTreeImageCacheEntry cacheEntry(imageRequest, imgDecoderObserver);
+    mImageCache.Put(imageSrc, cacheEntry);
   }
   return NS_OK;
 }
@@ -2204,102 +2189,112 @@ nsLineStyle nsTreeBodyFrame::ConvertBorderStyleToLineStyle(PRUint8 aBorderStyle)
   }
 }
 
+static void
+PaintTreeBody(nsIFrame* aFrame, nsIRenderingContext* aCtx,
+              const nsRect& aDirtyRect, nsPoint aPt)
+{
+  NS_STATIC_CAST(nsTreeBodyFrame*, aFrame)->PaintTreeBody(*aCtx, aDirtyRect, aPt);
+}
+
 // Painting routines
 NS_IMETHODIMP
-nsTreeBodyFrame::Paint(nsPresContext*      aPresContext,
-                       nsIRenderingContext& aRenderingContext,
-                       const nsRect&        aDirtyRect,
-                       nsFramePaintLayer    aWhichLayer,
-                       PRUint32             aFlags)
+nsTreeBodyFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                  const nsRect&           aDirtyRect,
+                                  const nsDisplayListSet& aLists)
 {
-  if (aWhichLayer != NS_FRAME_PAINT_LAYER_BACKGROUND &&
-      aWhichLayer != NS_FRAME_PAINT_LAYER_FOREGROUND)
-    return NS_OK;
-
-  if (!GetStyleVisibility()->IsVisibleOrCollapsed())
+  // REVIEW: why did we paint if we were collapsed? that makes no sense!
+  if (!IsVisibleForPainting(aBuilder))
     return NS_OK; // We're invisible.  Don't paint.
 
   // Handles painting our background, border, and outline.
-  nsresult rv = nsLeafFrame::Paint(aPresContext, aRenderingContext, aDirtyRect, aWhichLayer);
-  if (NS_FAILED(rv)) return rv;
+  nsresult rv = nsLeafBoxFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  if (aWhichLayer == NS_FRAME_PAINT_LAYER_FOREGROUND) {
-    if (!mView)
-      return NS_OK;
+  if (!mView)
+    return NS_OK;
 
-    // Update our available height and our page count.
-    CalcInnerBox();
-    PRInt32 oldPageCount = mPageLength;
-    if (!mHasFixedRowCount)
-      mPageLength = mInnerBox.height/mRowHeight;
+  return aLists.Content()->AppendNewToTop(new (aBuilder)
+      nsDisplayGeneric(this, ::PaintTreeBody, "XULTreeBody"));
+}
 
-    if (oldPageCount != mPageLength || mHorzWidth != CalcHorzWidth()) {
-      // Schedule a ResizeReflow that will update our info properly.
-      nsBoxLayoutState state(GetPresContext());
-      MarkDirty(state);
-    }
+void
+nsTreeBodyFrame::PaintTreeBody(nsIRenderingContext& aRenderingContext,
+                               const nsRect& aDirtyRect, nsPoint aPt)
+{
+  // Update our available height and our page count.
+  CalcInnerBox();
+  PRInt32 oldPageCount = mPageLength;
+  if (!mHasFixedRowCount)
+    mPageLength = mInnerBox.height/mRowHeight;
 
-#ifdef DEBUG
-    PRInt32 rowCount = mRowCount;
-    mView->GetRowCount(&mRowCount);
-    NS_ASSERTION(mRowCount == rowCount, "row count changed unexpectedly");
-#endif
+  if (oldPageCount != mPageLength || mHorzWidth != CalcHorzWidth()) {
+    // Schedule a ResizeReflow that will update our info properly.
+    nsBoxLayoutState state(GetPresContext());
+    MarkDirty(state);
+  }
+  #ifdef DEBUG
+  PRInt32 rowCount = mRowCount;
+  mView->GetRowCount(&mRowCount);
+  NS_ASSERTION(mRowCount == rowCount, "row count changed unexpectedly");
+  #endif
 
-    // Loop through our columns and paint them (e.g., for sorting).  This is only
-    // relevant when painting backgrounds, since columns contain no content.  Content
-    // is contained in the rows.
-    for (nsTreeColumn* currCol = mColumns->GetFirstColumn(); currCol; 
-         currCol = currCol->GetNext()) {
-      // Don't paint hidden columns.
-      if (currCol->GetWidth()) {
-        nsRect colRect;
-        CalcColumnRect(colRect, currCol, mInnerBox.y, mInnerBox.height);
-        if (OffsetForHorzScroll(colRect, PR_FALSE)) {
-          nsRect dirtyRect;
-          if (dirtyRect.IntersectRect(aDirtyRect, colRect)) {
-            PaintColumn(currCol, colRect, aPresContext, aRenderingContext, aDirtyRect); 
-          }
+  // Loop through our columns and paint them (e.g., for sorting).  This is only
+  // relevant when painting backgrounds, since columns contain no content.  Content
+  // is contained in the rows.
+  for (nsTreeColumn* currCol = mColumns->GetFirstColumn(); currCol;
+       currCol = currCol->GetNext()) {
+    // Don't paint hidden columns.
+    if (currCol->GetWidth()) {
+      nsRect colRect;
+      CalcColumnRect(colRect, currCol, mInnerBox.y, mInnerBox.height);
+      if (OffsetForHorzScroll(colRect, PR_FALSE)) {
+        nsRect dirtyRect;
+        colRect += aPt;
+        if (dirtyRect.IntersectRect(aDirtyRect, colRect)) {
+          PaintColumn(currCol, colRect, GetPresContext(), aRenderingContext, aDirtyRect);
         }
-      }
-    }
-    // Loop through our on-screen rows.
-    for (PRInt32 i = mTopRowIndex; i < mRowCount && i <= mTopRowIndex+mPageLength; i++) {
-      nsRect rowRect(mInnerBox.x, mInnerBox.y+mRowHeight*(i-mTopRowIndex), mInnerBox.width, mRowHeight);
-      nsRect dirtyRect;
-      if (dirtyRect.IntersectRect(aDirtyRect, rowRect) && rowRect.y < (mInnerBox.y+mInnerBox.height)) {
-        PRBool clip = (rowRect.y + rowRect.height > mInnerBox.y + mInnerBox.height);
-        if (clip) {
-          // We need to clip the last row, since it extends outside our inner box. Push
-          // a clip rect down.
-          PRInt32 overflow = (rowRect.y+rowRect.height) - (mInnerBox.y+mInnerBox.height);
-          nsRect clipRect(rowRect.x, rowRect.y, mInnerBox.width, mRowHeight-overflow);
-          aRenderingContext.PushState();
-          aRenderingContext.SetClipRect(clipRect, nsClipCombine_kReplace);
-        }
-
-        PaintRow(i, rowRect, aPresContext, aRenderingContext, aDirtyRect);
-
-        if (clip)
-          aRenderingContext.PopState();
-      }
-    }
-
-    if (mSlots && mSlots->mDropAllowed && (mSlots->mDropOrient == nsITreeView::DROP_BEFORE ||
-        mSlots->mDropOrient == nsITreeView::DROP_AFTER)) {
-      nscoord yPos = mInnerBox.y + mRowHeight * (mSlots->mDropRow - mTopRowIndex) - mRowHeight / 2;
-      nsRect feedbackRect(mInnerBox.x, yPos, mInnerBox.width, mRowHeight);
-      if (mSlots->mDropOrient == nsITreeView::DROP_AFTER)
-        feedbackRect.y += mRowHeight;
-
-      nsRect dirtyRect;
-      if (dirtyRect.IntersectRect(aDirtyRect, feedbackRect)) {
-        PaintDropFeedback(feedbackRect, aPresContext, aRenderingContext, aDirtyRect);
       }
     }
   }
+  // Loop through our on-screen rows.
+  for (PRInt32 i = mTopRowIndex; i < mRowCount && i <= mTopRowIndex+mPageLength; i++) {
+    nsRect rowRect(mInnerBox.x, mInnerBox.y+mRowHeight*(i-mTopRowIndex), mInnerBox.width, mRowHeight);
+    nsRect dirtyRect;
+    if (dirtyRect.IntersectRect(aDirtyRect, rowRect + aPt) &&
+        rowRect.y < (mInnerBox.y+mInnerBox.height)) {
+      PRBool clip = (rowRect.y + rowRect.height > mInnerBox.y + mInnerBox.height);
+      if (clip) {
+        // We need to clip the last row, since it extends outside our inner box. Push
+        // a clip rect down.
+        PRInt32 overflow = (rowRect.y+rowRect.height) - (mInnerBox.y+mInnerBox.height);
+        nsRect clipRect(rowRect.x, rowRect.y, mInnerBox.width, mRowHeight-overflow);
+        aRenderingContext.PushState();
+        aRenderingContext.SetClipRect(clipRect + aPt, nsClipCombine_kReplace);
+      }
 
-  return NS_OK;
+      PaintRow(i, rowRect + aPt, GetPresContext(), aRenderingContext, aDirtyRect, aPt);
+
+      if (clip)
+        aRenderingContext.PopState();
+    }
+  }
+
+  if (mSlots && mSlots->mDropAllowed && (mSlots->mDropOrient == nsITreeView::DROP_BEFORE ||
+      mSlots->mDropOrient == nsITreeView::DROP_AFTER)) {
+    nscoord yPos = mInnerBox.y + mRowHeight * (mSlots->mDropRow - mTopRowIndex) - mRowHeight / 2;
+    nsRect feedbackRect(mInnerBox.x, yPos, mInnerBox.width, mRowHeight);
+    if (mSlots->mDropOrient == nsITreeView::DROP_AFTER)
+      feedbackRect.y += mRowHeight;
+
+    nsRect dirtyRect;
+    feedbackRect += aPt;
+    if (dirtyRect.IntersectRect(aDirtyRect, feedbackRect)) {
+      PaintDropFeedback(feedbackRect, GetPresContext(), aRenderingContext, aDirtyRect);
+    }
+  }
 }
+
+
 
 void
 nsTreeBodyFrame::PaintColumn(nsTreeColumn*        aColumn,
@@ -2329,9 +2324,10 @@ nsTreeBodyFrame::PaintColumn(nsTreeColumn*        aColumn,
 void
 nsTreeBodyFrame::PaintRow(PRInt32              aRowIndex,
                           const nsRect&        aRowRect,
-                          nsPresContext*      aPresContext,
+                          nsPresContext*       aPresContext,
                           nsIRenderingContext& aRenderingContext,
-                          const nsRect&        aDirtyRect)
+                          const nsRect&        aDirtyRect,
+                          nsPoint              aPt)
 {
   // We have been given a rect for our row.  We treat this row like a full-blown
   // frame, meaning that it can have borders, margins, padding, and a background.
@@ -2372,11 +2368,14 @@ nsTreeBodyFrame::PaintRow(PRInt32              aRowIndex,
   mView->GetSelection(getter_AddRefs(selection));
   if (selection) 
     selection->IsSelected(aRowIndex, &isSelected);
-  if (useTheme && !isSelected)
+  if (useTheme && !isSelected) {
+    nsRect dirty;
+    dirty.IntersectRect(rowRect, aDirtyRect);
     theme->DrawWidgetBackground(&aRenderingContext, this, 
-                                displayData->mAppearance, rowRect, aDirtyRect);
-  else
+                                displayData->mAppearance, rowRect, dirty);
+  } else {
     PaintBackgroundLayer(rowContext, aPresContext, aRenderingContext, rowRect, aDirtyRect);
+  }
   
   // Adjust the rect for its border and padding.
   AdjustForBorderPadding(rowContext, rowRect);
@@ -2393,16 +2392,19 @@ nsTreeBodyFrame::PaintRow(PRInt32              aRowIndex,
       nsRect cellRect;
       CalcColumnRect(cellRect, primaryCol, rowRect.y, rowRect.height);
       if (OffsetForHorzScroll(cellRect, PR_FALSE)) {
+        cellRect.x += aPt.x;
         nsRect dirtyRect;
         if (dirtyRect.IntersectRect(aDirtyRect, cellRect))
-          PaintCell(aRowIndex, primaryCol, cellRect, aPresContext, aRenderingContext, aDirtyRect, primaryX);
+          PaintCell(aRowIndex, primaryCol, cellRect, aPresContext,
+                    aRenderingContext, aDirtyRect, primaryX, aPt);
       }
 
       // Paint the left side of the separator.
       nscoord currX;
       nsTreeColumn* previousCol = primaryCol->GetPrevious();
       if (previousCol)
-        currX = (previousCol->GetX() - mHorzPosition) + previousCol->GetWidth();
+        currX = (previousCol->GetX() - mHorzPosition) + previousCol->GetWidth()
+            + aPt.x;
       else
         currX = rowRect.x;
 
@@ -2435,10 +2437,13 @@ nsTreeBodyFrame::PaintRow(PRInt32              aRowIndex,
         nsRect cellRect;
         CalcColumnRect(cellRect, currCol, rowRect.y, rowRect.height);
         if (OffsetForHorzScroll(cellRect, PR_FALSE)) {
+          cellRect.x += aPt.x;
+          
           nsRect dirtyRect;
           nscoord dummy;
           if (dirtyRect.IntersectRect(aDirtyRect, cellRect))
-            PaintCell(aRowIndex, currCol, cellRect, aPresContext, aRenderingContext, aDirtyRect, dummy); 
+            PaintCell(aRowIndex, currCol, cellRect, aPresContext,
+                      aRenderingContext, aDirtyRect, dummy, aPt);
         }
       }
     }
@@ -2465,8 +2470,10 @@ nsTreeBodyFrame::PaintSeparator(PRInt32              aRowIndex,
 
   // use -moz-appearance if provided.
   if (useTheme) {
+    nsRect dirty;
+    dirty.IntersectRect(aSeparatorRect, aDirtyRect);
     theme->DrawWidgetBackground(&aRenderingContext, this,
-                                displayData->mAppearance, aSeparatorRect, aDirtyRect); 
+                                displayData->mAppearance, aSeparatorRect, dirty); 
   }
   else {
     const nsStylePosition* stylePosition = separatorContext->GetStylePosition();
@@ -2499,10 +2506,11 @@ void
 nsTreeBodyFrame::PaintCell(PRInt32              aRowIndex,
                            nsTreeColumn*        aColumn,
                            const nsRect&        aCellRect,
-                           nsPresContext*      aPresContext,
+                           nsPresContext*       aPresContext,
                            nsIRenderingContext& aRenderingContext,
                            const nsRect&        aDirtyRect,
-                           nscoord&             aCurrX)
+                           nscoord&             aCurrX,
+                           nsPoint              aPt)
 {
   // Now obtain the properties for our cell.
   // XXX Automatically fill in the following props: open, closed, container, leaf, selected, focused, and the col ID.
@@ -2575,7 +2583,7 @@ nsTreeBodyFrame::PaintCell(PRInt32              aRowIndex,
       aRenderingContext.SetLineStyle(ConvertBorderStyleToLineStyle(style));
 
       nscoord lineX = currX;
-      nscoord lineY = (aRowIndex - mTopRowIndex) * mRowHeight;
+      nscoord lineY = (aRowIndex - mTopRowIndex) * mRowHeight + aPt.y;
 
       // Compute the maximal level to paint.
       PRInt32 maxLevel = level;
@@ -2749,8 +2757,10 @@ nsTreeBodyFrame::PaintTwisty(PRInt32              aRowIndex,
       // yeah, I know it says we're drawing a background, but a twisty is really a fg
       // object since it doesn't have anything that gecko would want to draw over it. Besides,
       // we have to prevent imagelib from drawing it.
+      nsRect dirty;
+      dirty.IntersectRect(twistyRect, aDirtyRect);
       theme->DrawWidgetBackground(&aRenderingContext, this, 
-                                  twistyDisplayData->mAppearance, twistyRect, aDirtyRect);
+                                  twistyDisplayData->mAppearance, twistyRect, dirty);
     }
     else {
       // Time to paint the twisty.
@@ -3656,11 +3666,8 @@ NS_IMETHODIMP
 nsTreeBodyFrame::ClearStyleAndImageCaches()
 {
   mStyleCache.Clear();
-  if (mImageCache) {
-    mImageCache->Enumerate(CancelImageRequest);
-    delete mImageCache;
-  }
-  mImageCache = nsnull;
+  mImageCache.EnumerateRead(CancelImageRequest, nsnull);
+  mImageCache.Clear();
   mScrollbar = nsnull;
   return NS_OK;
 }

@@ -637,7 +637,7 @@ JS_GetTypeName(JSContext *cx, JSType type)
 {
     if ((uintN)type >= (uintN)JSTYPE_LIMIT)
         return NULL;
-    return js_type_str[type];
+    return js_type_strs[type];
 }
 
 /************************************************************************/
@@ -1684,6 +1684,13 @@ JS_LeaveLocalRootScope(JSContext *cx)
 {
     CHECK_REQUEST(cx);
     js_LeaveLocalRootScope(cx);
+}
+
+JS_PUBLIC_API(void)
+JS_LeaveLocalRootScopeWithResult(JSContext *cx, jsval rval)
+{
+    CHECK_REQUEST(cx);
+    js_LeaveLocalRootScopeWithResult(cx, rval);
 }
 
 JS_PUBLIC_API(void)
@@ -3647,7 +3654,7 @@ JS_CompileUCScript(JSContext *cx, JSObject *obj,
 #if JS_HAS_EXCEPTIONS
 # define LAST_FRAME_EXCEPTION_CHECK(cx,result)                                \
     JS_BEGIN_MACRO                                                            \
-        if (!(result))                                                        \
+        if (!(result) && !((cx)->options & JSOPTION_DONT_REPORT_UNCAUGHT))    \
             js_ReportUncaughtException(cx);                                   \
     JS_END_MACRO
 #else

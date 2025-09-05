@@ -54,7 +54,7 @@ REQUIRES = xpcom \
            docshell \
            rdf \
            dom \
-           mork \
+           morkreader \
            pref \
            necko \
            intl \
@@ -72,6 +72,7 @@ REQUIRES = xpcom \
            xpconnect \
            js \
            nkcache \
+           widget \
            $(NULL)
 
 LOCAL_INCLUDES = -I$(srcdir)/../../build
@@ -89,6 +90,7 @@ CPPSRCS = \
           nsLivemarkService.cpp \
           nsBookmarksFeedHandler.cpp \
           nsMaybeWeakPtr.cpp \
+          nsMorkHistoryImporter.cpp \
           $(NULL)
 
 include $(topsrcdir)/config/rules.mk

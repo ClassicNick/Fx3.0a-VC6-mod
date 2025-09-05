@@ -484,7 +484,7 @@ nsMathMLmtableOuterFrame::Reflow(nsPresContext*          aPresContext,
   // XXX should we also check <mstyle> ?
   PRInt32 rowIndex = 0;
   eAlign tableAlign = eAlign_axis;
-  GetAttribute(mContent, nsnull, nsMathMLAtoms::align_, value);
+  GetAttribute(mContent, nsnull, nsMathMLAtoms::align, value);
   if (!value.IsEmpty()) {
     ParseAlignAttribute(value, tableAlign, rowIndex);
   }
@@ -571,6 +571,12 @@ nsMathMLmtableOuterFrame::Reflow(nsPresContext*          aPresContext,
   return rv;
 }
 
+PRBool
+nsMathMLmtableOuterFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~nsIFrame::eMathML);
+}
+
 // --------
 // implementation of nsMathMLmtdFrame
 
@@ -597,7 +603,7 @@ nsMathMLmtdFrame::GetRowSpan()
 {
   PRInt32 rowspan = 1;
   nsAutoString value;
-  mContent->GetAttr(kNameSpaceID_None, nsMathMLAtoms::rowspan_, value);
+  mContent->GetAttr(kNameSpaceID_None, nsMathMLAtoms::rowspan, value);
   if (!value.IsEmpty()) {
     PRInt32 error;
     rowspan = value.ToInteger(&error);
@@ -620,6 +626,12 @@ nsMathMLmtdFrame::GetColSpan()
       colspan = 1;
   }
   return colspan;
+}
+
+PRBool
+nsMathMLmtdFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~nsIFrame::eMathML);
 }
 
 // --------
@@ -676,3 +688,10 @@ nsMathMLmtdInnerFrame::Reflow(nsPresContext*          aPresContext,
   // ...
   return rv;
 }
+
+PRBool
+nsMathMLmtdInnerFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~nsIFrame::eMathML);
+}
+

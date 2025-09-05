@@ -123,18 +123,13 @@ public:
   NS_IMETHOD GetAccessible(nsIAccessible** aAccessible);
 #endif
 
-  /** @see nsIFrame::Paint */
-  NS_IMETHOD Paint(nsPresContext*      aPresContext,
-                   nsIRenderingContext& aRenderingContext,
-                   const nsRect&        aDirtyRect,
-                   nsFramePaintLayer    aWhichLayer,
-                   PRUint32             aFlags = 0);
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists);
 
-  // the outer table does not paint its entire background if it has margins and/or captions
-  virtual PRBool CanPaintBackground() { return PR_FALSE; }
-
-  virtual nsIFrame* GetFrameForPoint(const nsPoint&    aPoint,
-                                     nsFramePaintLayer aWhichLayer);
+  nsresult BuildDisplayListForInnerTable(nsDisplayListBuilder*   aBuilder,
+                                         const nsRect&           aDirtyRect,
+                                         const nsDisplayListSet& aLists);
 
   /** process a reflow command for the table.
     * This involves reflowing the caption and the inner table.
@@ -320,8 +315,7 @@ protected:
                                nscoord&        aInnerWidth,
                                nscoord&        aCaptionWidth);
 
-  NS_IMETHOD GetCaptionOrigin(nsPresContext*  aPresContext,
-                              PRUint32         aCaptionSide,
+  NS_IMETHOD GetCaptionOrigin(PRUint32         aCaptionSide,
                               const nsSize&    aContainBlockSize,
                               const nsSize&    aInnerSize, 
                               const nsMargin&  aInnerMargin,
@@ -329,8 +323,7 @@ protected:
                               nsMargin&        aCaptionMargin,
                               nsPoint&         aOrigin);
 
-  NS_IMETHOD GetInnerOrigin(nsPresContext*  aPresContext,
-                            PRUint32         aCaptionSide,
+  NS_IMETHOD GetInnerOrigin(PRUint32         aCaptionSide,
                             const nsSize&    aContainBlockSize,
                             const nsSize&    aCaptionSize, 
                             const nsMargin&  aCaptionMargin,

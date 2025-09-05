@@ -779,9 +779,12 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
 #endif
 
 #ifdef MOZ_CAIRO_GFX
+  gfxContext *ctx = (gfxContext*)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+
+  ctx->CurrentSurface()->Flush();
+
 #if 0
-  gfxContext *c = (gfxContext*)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
-  gfxMatrix m = c->CurrentMatrix();
+  gfxMatrix m = ctx->CurrentMatrix();
   XFORM xform;
   double dm[6];
   m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
@@ -854,6 +857,10 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
   }
 
   RestoreDC(hdc, -1);
+
+#ifdef MOZ_CAIRO_GFX
+  ctx->CurrentSurface()->MarkDirty();
+#endif
 
   return NS_OK;
 }
@@ -1788,6 +1795,11 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
 	nsRect tr(aRect);
 	transformMatrix->TransformCoord(&tr.x,&tr.y,&tr.width,&tr.height);
 #ifdef MOZ_CAIRO_GFX
+  gfxContext *ctx = (gfxContext*)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+
+  // flush the surface to make sure things are set up right
+  ctx->CurrentSurface()->Flush();
+
   tr.x = NSToCoordRound(tr.x * T2P);
   tr.y = NSToCoordRound(tr.y * T2P);
   tr.width  = NSToCoordRound(tr.width * T2P);
@@ -2087,6 +2099,11 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       break;
   }
   RestoreDC(hdc, -1);
+
+#ifdef MOZ_CAIRO_GFX
+  ctx->CurrentSurface()->MarkDirty();
+#endif
+
   return rv;
 }
 

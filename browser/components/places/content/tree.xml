@@ -30,7 +30,7 @@
         <body><![CDATA[ 
           this.supportedDropTypes = viewConfig.dropTypes;
           this.supportedDropOnTypes = viewConfig.dropOnTypes;
-          this.filterOptions = viewConfig.filterOptions;
+          this.excludeItems = viewConfig.excludeItems;
           this.firstDropIndex = viewConfig.firstDropIndex;
         ]]></body>
       </method>
@@ -128,12 +128,12 @@
       <property name="queryString">
         <getter><![CDATA[
           var result = this.getResult();
-          var queries = result.getQueries({ });
-          var options = result.queryOptions;
+          var queries = result.root.getQueries({ });
+          var options = result.root.queryOptions;
 
           const NH = Ci.nsINavHistoryService;
           return this._places.queriesToQueryString(queries, queries.length,
-                                                  options);
+                                                   options);
         ]]></getter>
         <setter><![CDATA[
           var queries = { }, options = { };
@@ -150,11 +150,11 @@
         <body><![CDATA[ 
           var query = this._places.getNewQuery();
           query.setFolders([folderId], 1);
-          query.itemTypes = this.filterOptions;
-          
+
           var options = this._places.getNewQueryOptions();
           options.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
-          // options.setExpandPlaces(); ???
+          options.excludeItems = this.excludeItems;
+          options.expandQueries = false;
           var result = this._places.executeQuery(query, options);
           result.QueryInterface(Ci.nsITreeView);
           this.view = result;
@@ -166,6 +166,9 @@
         <parameter name="queries"/>
         <parameter name="options"/>
         <body><![CDATA[ 
+          // override with our local options
+          options.excludeItems = this.excludeItems;
+          options.expandQueries = false;
           var result = this._places.executeQueries(queries, queries.length, 
                                                    options);
           result.QueryInterface(Ci.nsITreeView);
@@ -176,7 +179,7 @@
       
       <property name="isBookmarks">
         <getter><![CDATA[ 
-          return PlacesController.nodeIsFolder(this.getResult());
+          return PlacesController.nodeIsFolder(this.getResult().root);
         ]]></getter>
       </property>
     
@@ -236,7 +239,7 @@
       </property>
       
       <!-- AVI Method -->
-      <property name="selectedURLNode">
+      <property name="selectedURINode">
         <getter><![CDATA[
           var view = this.view;
           var selection = view.selection;
@@ -245,12 +248,12 @@
             return null;
           var min = { }, max = { };
           selection.getRangeAt(0, min, max);
-          
-          // Cannot load containers
-          if (view.isContainer(min.value) || view.isSeparator(min.value))
-            return null;
-            
-          return this.getResult().nodeForTreeIndex(min.value);
+
+          // only URI nodes should be returned
+          var node = this.getResult().nodeForTreeIndex(min.value);
+          if (PlacesController.nodeIsURI(node))
+            return node.QueryInterface(Ci.nsINavHistoryURIResultNode);
+          return null;
         ]]></getter>
       </property>
       
@@ -278,7 +281,7 @@
         <body><![CDATA[ 
           const NHRVO = Ci.nsINavHistoryResultViewObserver;
           var result = this.getResult();
-          var container = result;
+          var container = result.root;
           // When there's no selection, assume the container is the container
           // the view is populated from (i.e. the result's folderId).
           if (index != -1) {
@@ -299,7 +302,8 @@
               index = orientation == NHRVO.DROP_BEFORE ? lsi : lsi + 1;
             }
           }
-          return new InsertionPoint(container.folderId, index, orientation);
+          var folder = container.QueryInterface(Ci.nsINavHistoryFolderResultNode);
+          return new InsertionPoint(folder.folderId, index, orientation);
         ]]></body>
       </method>
       
@@ -316,7 +320,7 @@
       <field name="supportedDropOnTypes">null</field>
       
       <!-- AVI Method -->
-      <field name="filterOptions">null</field>
+      <field name="excludeQueries">null</field>
 
       <!-- AVI Method -->
       <field name="dropOnFilterOptions">null</field>
@@ -364,25 +368,25 @@
       <method name="getSupportedFlavours">
         <body><![CDATA[
           var flavorSet = new FlavourSet();
-          for (var i = 0; i < this._self.supportedDropTypes.length; ++i)
-            flavorSet.appendFlavour(this._self.supportedDropTypes[i]);
+          for (var i = 0; i < this.supportedDropTypes.length; ++i)
+            flavorSet.appendFlavour(this.supportedDropTypes[i]);
           return flavorSet;
         ]]></body>
       </method>
       
       <method name="_getInsertionNode">
         <parameter name="insertionPoint"/>
-        <parameter name="filterOptions"/>
+        <parameter name="excludeItems"/>
         <body><![CDATA[ 
           var result = 
-            PlacesController.getFolderContents(insertionPoint.folderId, 
-                                               filterOptions);
+            PlacesController.getFolderContents(insertionPoint.folderId,
+                                               excludeItems, false);
           var index = insertionPoint.index;
           if (insertionPoint.index == 0) 
             index = 0;
-          else if (insertionPoint.index == -1)
-            index = result.childCount - 1;
-          return index > -1 ? result.getChild(index) : null;
+          else if (insertionPoint.index == -1 || insertionPoint.index >= result.root.childCount)
+            index = result.root.childCount - 1;
+          return index > -1 ? result.root.getChild(index) : null;
         ]]></body>
       </method>
       
@@ -391,12 +395,12 @@
         <body><![CDATA[
           const NHRVO = Ci.nsINavHistoryResultViewObserver;
           // Insert index of insertion and number of rows to insert
-          var filterOptions = this.filterOptions;
+          var excludeItems = this.excludeItems;
           // This is a bit of a hack. Assume any container you drop into is 
           // itself showing all item types, not just folders or items. 
           if (insertionPoint.orientation == NHRVO.DROP_ON)
-            filterOptions = ViewConfig.GENERIC_FILTER_OPTIONS;
-          var node = this._getInsertionNode(insertionPoint, filterOptions);
+            excludeItems = false;
+          var node = this._getInsertionNode(insertionPoint, excludeItems);
           // This is the insertion index of the pivot. 
           return this.getResult().treeIndexForNode(node);
         ]]></body>
@@ -410,7 +414,6 @@
           var node = index != -1 ? root.nodeForTreeIndex(index) : root;
           const DROP_ON = Ci.nsINavHistoryResultViewObserver.DROP_ON;
           // Cannot drop before fixed items in the list. 
-          LOG("FDI: " + this._self.firstDropIndex + ", GIN: " + PlacesController.getIndexOfNode(node));
           if (node.parent == root && 
               PlacesController.getIndexOfNode(node) < this._self.firstDropIndex &&
               orientation != DROP_ON)
@@ -486,23 +489,7 @@
                                             visibleInsertCount);
         },
         
-        onToggleOpenState: function VO_onToggleOpenState(index) {
-          // Alert containers about the toggle
-          var result = this._self.getResult();
-          var node = result.nodeForTreeIndex(index);
-          if (PlacesController.nodeIsContainer(node)) {
-            var serv = Cc[node.folderType].getService(Ci.nsIBookmarksContainer);
-            // This notification happens before the container is actually
-            // opened or closed, so the open state is the opposite of what
-            // we're notifying.
-            if (this._self.view.isContainerOpen(index)) {
-              serv.onContainerClosed(node.folderId);
-            } else {
-              if (serv.onContainerOpening(node.folderId))
-                this._self.loadFolder(node.folderId);
-            }            
-          }
-        },
+        onToggleOpenState: function VO_onToggleOpenState(index) { },
         onSelectionChanged: function VO_onSelectionChanged() { },
         onCycleHeader: function VO_onCycleHeader(column) { },
         onCycleCell: function VO_onCycleCell(row, column) { },
@@ -511,8 +498,31 @@
         onPerformActionOnCell: function VO_onPerformActionOnCell(action, row, column) { },      
       })]]></field>
       
-      <field name="suppressSelection">false</field>
-      <field name="_selection">null</field>
+      <field name="_nextSelection">-1</field>
+      <method name="saveSelection">
+        <body><![CDATA[ 
+          var s = this.view.selection;
+          var rc = s.getRangeCount();
+          var min = { }, max = { };
+          s.getRangeAt(rc - 1, min, max);
+          var rowCount = this.view.rowCount;
+          if (max.value == (rowCount - 1) || 
+              this.view.getLevel(max.value + 1) != this.view.getLevel(max.value))
+            this._nextSelection = max.value - s.count;
+          else
+            this._nextSelection = max.value - s.count + 1;
+          LOG("NS = " + this._nextSelection);
+        ]]></body>
+      </method>
+
+      <method name="restoreSelection">
+        <body><![CDATA[
+          LOG("RNS = " + this._nextSelection);
+          if (this._nextSelection != -1)
+            this.view.selection.select(this._nextSelection);
+        ]]></body>
+      </method>
+      
     </implementation>
     <handlers>
       <handler event="focus"><![CDATA[

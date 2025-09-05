@@ -1392,7 +1392,7 @@ nsXULTemplateBuilder::ComputeContainmentProperties()
 PRBool
 nsXULTemplateBuilder::IsTemplateElement(nsIContent* aContent)
 {
-    return aContent->NodeInfo()->Equals(nsXULAtoms::Template,
+    return aContent->NodeInfo()->Equals(nsXULAtoms::_template,
                                         kNameSpaceID_XUL);
 }
 
@@ -1440,7 +1440,7 @@ nsXULTemplateBuilder::GetTemplateRoot(nsIContent** aResult)
     //   </window>
     //
     nsAutoString templateID;
-    mRoot->GetAttr(kNameSpaceID_None, nsXULAtoms::templateAtom, templateID);
+    mRoot->GetAttr(kNameSpaceID_None, nsXULAtoms::_template, templateID);
 
     if (!templateID.IsEmpty()) {
         nsCOMPtr<nsIDOMDocument> domDoc = do_QueryInterface(mRoot->GetDocument());

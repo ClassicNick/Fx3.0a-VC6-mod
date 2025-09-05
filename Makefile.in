@@ -53,19 +53,25 @@ ifeq (,$(filter-out all,$(BUILD_MODULES))$(MOZ_XSLT_STANDALONE))
 SUPPRESS_DEFAULT_RULES = 1
 
 # Make sure that the existing rulesets work
-DIRS = \
-	$(tier_0_dirs) \
+
+DIRS += $(tier_0_dirs)
+
+ifndef LIBXUL_SDK
+# only build gecko if --with-libxul-sdk isn't passed
+DIRS += \
 	$(tier_1_dirs) \
 	$(tier_2_dirs) \
 	$(tier_9_dirs) \
 	$(tier_50_dirs) \
 	$(NULL)
 
+endif # LIBXUL_SDK
+
 ifdef GC_LEAK_DETECTOR
 DIRS += gc/boehm
 endif
 
-DIRS	+= $(tier_99_dirs)
+DIRS += $(tier_99_dirs)
 
 #
 # tier 0 - base build config dirs
@@ -147,11 +153,17 @@ tier_9_dirs	+= \
 		modules/libutil \
 		netwerk \
 		modules/libjar \
+		$(NULL)
+
+ifdef MOZ_XUL
+tier_9_dirs += rdf
+endif
+
+tier_9_dirs	+= \
 		uriloader \
 		modules/libpref \
 		modules/libimg \
 		caps \
-		rdf \
 		parser/expat \
 		parser/htmlparser \
 		gfx \
@@ -201,14 +213,14 @@ endif
 # tier 50 - xpfe & toolkit
 #
 
-ifdef MOZ_XUL
 ifdef MOZ_XUL_APP
 tier_50_dirs += chrome
 else
+ifdef MOZ_XUL
 tier_50_dirs += rdf/chrome
-endif
 else
 tier_50_dirs += embedding/minimo/chromelite
+endif
 endif
 
 tier_50_dirs += profile
@@ -260,6 +272,14 @@ endif
 
 ifdef MOZ_JAVAXPCOM
 tier_50_dirs += extensions/java
+endif
+
+ifndef BUILD_STATIC_LIBS
+ifdef MOZ_XUL_APP
+ifneq (,$(MOZ_ENABLE_GTK)$(MOZ_ENABLE_GTK2))
+tier_50_dirs += embedding/browser/gtk
+endif
+endif
 endif
 
 ifdef MOZ_XUL_APP
@@ -383,10 +403,6 @@ endif
 endif
 endif
 
-ifneq (,$(MOZ_ENABLE_GTK)$(MOZ_ENABLE_GTK2))
-tier_99_dirs	+= embedding/browser/gtk
-endif
-
 # viewer
 ifneq (,$(ENABLE_TESTS))
 ifndef MOZ_ENABLE_LIBXUL
@@ -415,17 +431,26 @@ tier_99_dirs += \
 	$(NULL)
 endif
 
+# test harnesses 
+ifdef ENABLE_TESTS
+tier_99_dirs	+= tools/test-harness
+endif
+
 default alldep all:: $(SUBMAKEFILES)
 	$(RM) -rf $(DIST)/sdk
 	$(RM) -rf $(DIST)/include
 	$(MAKE) -C config export
+ifndef LIBXUL_SDK
 	$(MAKE) nspr
+endif
 	$(MAKE) ldap
 	$(MAKE) tier_0
+ifndef LIBXUL_SDK
 	$(MAKE) tier_1
 	$(MAKE) tier_2
 	$(MAKE) tier_9
 	$(MAKE) tier_50
+endif
 	$(MAKE) tier_99
 
 include $(topsrcdir)/config/config.mk
@@ -532,7 +557,6 @@ tools_tier_%:
 	  $(MAKE) -C $$d tools; \
 	done
 
-ifdef MOZ_ENABLE_LIBXUL
 tier_50:
 	@echo "$@: $($@_dirs)"
 	$(MAKE) export_tier_50
@@ -540,7 +564,6 @@ tier_50:
 	$(MAKE) tools_tier_2
 	$(MAKE) tools_tier_9
 	$(MAKE) tools_tier_50
-endif
 
 tier_%:
 	@echo "$@: $(if $($@_dirs),$($@_dirs),$(error Tier $* not present.))"

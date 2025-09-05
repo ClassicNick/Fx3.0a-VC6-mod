@@ -65,24 +65,14 @@ public:
     return sInstance;
   }
 
-  // Creates a new result node for the given folder.
-  // The query and options are cloned, and the folder's id is set on the
-  // new node's query.
-  nsresult ResultNodeForFolder(PRInt64 aFolder,
-                               nsINavHistoryQuery *aQuery,
-                               nsINavHistoryQueryOptions *aOptions,
+  nsresult ResultNodeForFolder(PRInt64 aID, nsNavHistoryQueryOptions *aOptions,
                                nsNavHistoryResultNode **aNode);
-
-  // Fills in a ResultNode for the given folder.
-  // The node's type and queries must already be set.
-  nsresult FillFolderNode(PRInt64 aID,
-                          nsNavHistoryQueryNode *aNode);
 
   // Find all the children of a folder, using the given query and options.
   // For each child, a ResultNode is created and added to |children|.
   // The results are ordered by folder position.
-  nsresult QueryFolderChildren(nsINavHistoryQuery *aQuery,
-                               nsINavHistoryQueryOptions *aOptions,
+  nsresult QueryFolderChildren(PRInt64 aFolderId,
+                               nsNavHistoryQueryOptions *aOptions,
                                nsCOMArray<nsNavHistoryResultNode> *children);
 
   // Returns a statement to get information about a folder id
@@ -106,7 +96,7 @@ private:
                          PRInt32 aStartIndex, PRInt32 aEndIndex,
                          PRInt32 aDelta);
   PRInt32 FolderCount(PRInt64 aFolder);
-  nsresult GetFolderType(PRInt64 aFolder, nsAString &aType);
+  nsresult GetFolderType(PRInt64 aFolder, nsACString &aType);
 
   // remove me when there is better query initialization
   nsNavHistory* History() { return nsNavHistory::GetHistoryService(); }
@@ -125,7 +115,6 @@ private:
   nsCOMPtr<mozIStorageStatement> mDBGetFolderInfo;    // kGetFolderInfoIndex_* results
 
   nsCOMPtr<mozIStorageStatement> mDBGetChildren;       // kGetInfoIndex_* results + kGetChildrenIndex_* results
-  nsCOMPtr<mozIStorageStatement> mDBGetFolderChildren;
   static const PRInt32 kGetChildrenIndex_Position;
   static const PRInt32 kGetChildrenIndex_ItemChild;
   static const PRInt32 kGetChildrenIndex_FolderChild;
@@ -146,7 +135,8 @@ private:
 
   // in nsBookmarksHTML
   nsresult ImportBookmarksHTMLInternal(nsIURI* aURL,
-                                       PRBool aAllowRootChanges);
+                                       PRBool aAllowRootChanges,
+                                       PRInt64 aFolder);
 };
 
 #endif // nsNavBookmarks_h_

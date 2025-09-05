@@ -410,12 +410,32 @@ nsSVGLibartCanvas::PopSurface()
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
+NS_IMETHODIMP
+nsSVGLibartCanvas::GetSurfaceSize(PRUint32 *aWidth, PRUint32 *aHeight)
+{
+  // XXX
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
 /** Implements  void compositeSurface(in nsISVGRendererSurface surface,
                                       in unsigned long x, in unsigned long y,
                                       in float opacity); */
 NS_IMETHODIMP
 nsSVGLibartCanvas::CompositeSurface(nsISVGRendererSurface *aSurface,
                                     PRUint32 aX, PRUint32 aY, float aOpacity)
+{
+  // XXX
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+/** Implements void compositeSurfaceWithMask(in nsISVGRendererSurface surface,
+                                             in unsigned long x,
+                                             in unsigned long y,
+                                             in nsISVGRendererSurface mask); */
+NS_IMETHODIMP
+nsSVGLibartCanvas::CompositeSurfaceWithMask(nsISVGRendererSurface *aSurface,
+                                            PRUint32 aX, PRUint32 aY,
+                                            nsISVGRendererSurface *aMask)
 {
   // XXX
   return NS_ERROR_NOT_IMPLEMENTED;

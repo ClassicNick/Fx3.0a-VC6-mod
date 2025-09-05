@@ -151,7 +151,6 @@ function initCommands()
          ["print",             cmdPrint,                           CMD_CONSOLE],
          ["query",             cmdQuery,            CMD_NEED_SRV | CMD_CONSOLE],
          ["quit",              cmdQuit,                            CMD_CONSOLE],
-         ["quit-mozilla",      cmdQuitMozilla,                     CMD_CONSOLE],
          ["quote",             cmdQuote,            CMD_NEED_SRV | CMD_CONSOLE],
          ["reload-plugin",     cmdReload,                          CMD_CONSOLE],
          ["rlist",             cmdRlist,            CMD_NEED_SRV | CMD_CONSOLE],
@@ -202,7 +201,6 @@ function initCommands()
          /* aliases */
          ["css",              "motif",                             CMD_CONSOLE],
          ["exit",             "quit",                              CMD_CONSOLE],
-         ["exit-mozilla",     "quit-mozilla",                      CMD_CONSOLE],
          ["j",                "join",                              CMD_CONSOLE],
          ["part",             "leave",                             CMD_CONSOLE],
          ["raw",              "quote",                             CMD_CONSOLE],
@@ -242,7 +240,10 @@ function initCommands()
          ["ltr",              "text-direction ltr",                CMD_CONSOLE],
          ["toggle-text-dir",  "text-direction toggle",                       0],
          ["irtl",             "input-text-direction rtl",          CMD_CONSOLE],
-         ["iltr",             "input-text-direction ltr",          CMD_CONSOLE]
+         ["iltr",             "input-text-direction ltr",          CMD_CONSOLE],
+         // Instrumentation aliases
+         ["allow-inst1",      "pref instrumentation.inst1 1",                0],
+         ["deny-inst1",       "pref instrumentation.inst1 2",                0]
         ];
 
     // set the stringbundle associated with these commands.
@@ -1224,24 +1225,32 @@ function cmdStatus(e)
     display(MSG_END_STATUS, MT_STATUS);
 }
 
-function cmdHelp (e)
+function cmdHelp(e)
 {
-    var ary;
-    ary = client.commandManager.list (e.pattern, CMD_CONSOLE);
+    if (!e.pattern)
+    {
+        if ("hello" in e)
+            display(MSG_HELP_INTRO, "HELLO");
+        else
+            display(MSG_HELP_INTRO);
+        return;
+    }
+
+    var ary = client.commandManager.list(e.pattern, CMD_CONSOLE);
 
     if (ary.length == 0)
     {
-        display (getMsg(MSG_ERR_NO_COMMAND, e.pattern), MT_ERROR);
-        return false;
+        display(getMsg(MSG_ERR_NO_COMMAND, e.pattern), MT_ERROR);
+        return;
     }
 
     for (var i in ary)
     {
-        display (getMsg(MSG_FMT_USAGE, [ary[i].name, ary[i].usage]), MT_USAGE);
-        display (ary[i].help, MT_HELP);
+        display(getMsg(MSG_FMT_USAGE, [ary[i].name, ary[i].usage]), MT_USAGE);
+        display(ary[i].help, MT_HELP);
     }
 
-    return true;
+    return;
 }
 
 function cmdTestDisplay(e)
@@ -1440,14 +1449,7 @@ function cmdSSLServer(e)
 
 function cmdQuit(e)
 {
-    client.quit(e.reason);
-    window.close();
-}
-
-function cmdQuitMozilla(e)
-{
-    client.quit(e.reason);
-    goQuitApplication();
+    client.wantToQuit(e.reason);
 }
 
 function cmdDisconnect(e)
@@ -1487,6 +1489,12 @@ function cmdDeleteView(e)
 {
     if (!e.view)
         e.view = e.sourceObject;
+
+    if (("lockView" in e.view) && e.view.lockView)
+    {
+        setTabState(e.view, "attention");
+        return;
+    }
 
     if (e.view.TYPE == "IRCChannel" && e.view.active)
     {
@@ -2082,7 +2090,7 @@ function cmdGotoURL(e)
     {
         var ary = e.url.match(/^x-cz-command:(.*)$/i);
         e.sourceObject.frame.contentWindow.location.href = 
-            "javascript:void(view.dispatch('" + decodeURI(ary[1]) + "'))";
+            "javascript:void(view.dispatch('" + decodeURI(ary[1]) + "', null, true))";
         return;
     }
 
@@ -2176,7 +2184,8 @@ function cmdJoin(e)
     if (!e.hasOwnProperty("channelName") || !e.channelName)
     {
         window.openDialog("chrome://chatzilla/content/channels.xul", "",
-                          "modal,resizable=yes", { client: client })
+                          "modal,resizable=yes",
+                          { client: client, network: e.network })
         return null;
     }
 
@@ -3516,6 +3525,9 @@ function cmdTimestampFormat(e)
 
 function cmdSetCurrentView(e)
 {
+    if ("lockView" in e.view)
+        delete e.view.lockView;
+
     setCurrentObject(e.view);
 }
 

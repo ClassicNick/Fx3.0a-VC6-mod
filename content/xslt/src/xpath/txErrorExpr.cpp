@@ -57,6 +57,16 @@ txErrorExpr::evaluate(txIEvalContext* aContext, txAExprResult** aResult)
     return NS_ERROR_XPATH_INVALID_EXPRESSION_EVALUATED;
 }
 
+TX_IMPL_EXPR_STUBS_0(txErrorExpr, ANY_RESULT)
+
+PRBool
+txErrorExpr::isSensitiveTo(ContextSensitivity aContext)
+{
+    // It doesn't really matter what we return here, but it might
+    // be a good idea to try to keep this as unoptimizable as possible
+    return PR_TRUE;
+}
+
 #ifdef TX_TO_STRING
 void
 txErrorExpr::toString(nsAString& aStr)

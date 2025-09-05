@@ -1865,7 +1865,7 @@ nsTextControlFrame::CreateAnonymousContent(nsPresContext* aPresContext,
 
   // Set the necessary style attributes on the text control.
 
-  rv = divContent->SetAttr(kNameSpaceID_None, nsHTMLAtoms::kClass,
+  rv = divContent->SetAttr(kNameSpaceID_None, nsHTMLAtoms::_class,
                            NS_LITERAL_STRING("anonymous-div"), PR_FALSE);
 
   if (!IsSingleLineTextControl()) {
@@ -2109,49 +2109,6 @@ nsTextControlFrame::Reflow(nsPresContext*   aPresContext,
     }
   }
   return rv;
-}
-
-NS_IMETHODIMP
-nsTextControlFrame::Paint(nsPresContext*      aPresContext,
-                              nsIRenderingContext& aRenderingContext,
-                              const nsRect&        aDirtyRect,
-                              nsFramePaintLayer    aWhichLayer,
-                              PRUint32             aFlags)
-{
-  PRBool isVisible;
-  if (NS_SUCCEEDED(IsVisibleForPainting(aPresContext, aRenderingContext, PR_TRUE, &isVisible)) && !isVisible) {
-    return NS_OK;
-  }
-  nsresult rv = NS_OK;
-  if (aWhichLayer == NS_FRAME_PAINT_LAYER_FOREGROUND) {
-    rv = nsStackFrame::Paint(aPresContext, aRenderingContext, aDirtyRect, NS_FRAME_PAINT_LAYER_BACKGROUND);
-    if (NS_FAILED(rv)) return rv;
-    rv = nsStackFrame::Paint(aPresContext, aRenderingContext, aDirtyRect, NS_FRAME_PAINT_LAYER_FLOATS);
-    if (NS_FAILED(rv)) return rv;
-    rv = nsStackFrame::Paint(aPresContext, aRenderingContext, aDirtyRect, NS_FRAME_PAINT_LAYER_FOREGROUND);
-  }
-  DO_GLOBAL_REFLOW_COUNT_DSP("nsTextControlFrame", &aRenderingContext);
-  return rv;
-}
-
-nsIFrame*
-nsTextControlFrame::GetFrameForPoint(const nsPoint& aPoint,
-                                     nsFramePaintLayer aWhichLayer)
-{
-  nsIFrame* frame = nsnull;
-  if (aWhichLayer == NS_FRAME_PAINT_LAYER_FOREGROUND) {
-    frame = nsStackFrame::GetFrameForPoint(aPoint,
-                                           NS_FRAME_PAINT_LAYER_FOREGROUND);
-    if (frame)
-      return frame;
-    frame = nsStackFrame::GetFrameForPoint(aPoint,
-                                           NS_FRAME_PAINT_LAYER_FLOATS);
-    if (frame)
-      return frame;
-    frame = nsStackFrame::GetFrameForPoint(aPoint,
-                                           NS_FRAME_PAINT_LAYER_BACKGROUND);
-  }
-  return frame;
 }
 
 NS_IMETHODIMP

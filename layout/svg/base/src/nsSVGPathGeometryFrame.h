@@ -54,7 +54,7 @@
 class nsPresContext;
 class nsIDOMSVGMatrix;
 class nsISVGRendererRegion;
-class nsSVGMarkerFrame;
+class nsISVGMarkerFrame;
 class nsISVGFilterFrame;
 
 typedef nsFrame nsSVGPathGeometryFrameBase;
@@ -95,6 +95,7 @@ public:
    * @see nsLayoutAtoms::svgPathGeometryFrame
    */
   virtual nsIAtom* GetType() const;
+  virtual PRBool IsFrameOfType(PRUint32 aFlags) const;
 
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const
@@ -162,9 +163,9 @@ private:
   nsCOMPtr<nsISVGPattern>      mFillPattern;
   nsCOMPtr<nsISVGPattern>      mStrokePattern;
 
-  void GetMarkerFrames(nsSVGMarkerFrame **markerStart,
-                       nsSVGMarkerFrame **markerMid,
-                       nsSVGMarkerFrame **markerEnd);
+  void GetMarkerFrames(nsISVGMarkerFrame **markerStart,
+                       nsISVGMarkerFrame **markerMid,
+                       nsISVGMarkerFrame **markerEnd);
 };
 
 #endif // __NS_SVGPATHGEOMETRYFRAME_H__

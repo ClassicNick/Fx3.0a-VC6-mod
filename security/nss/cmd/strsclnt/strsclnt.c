@@ -446,8 +446,8 @@ launch_thread(
     void *	b,
     int         tid)
 {
+    PRUint32 i;
     perThread * slot;
-    int         i;
 
     PR_Lock(threadLock);
 
@@ -457,6 +457,7 @@ launch_thread(
         return SECFailure;
     }
 
+    i = numUsed;
     slot = &threads[numUsed++];
     slot->a = a;
     slot->b = b;
@@ -820,7 +821,7 @@ retry:
 	goto done;
     } else {
         if (ThrottleUp) {
-            PRTime now;
+            PRTime now = PR_Now();
             PR_Lock(threadLock);
             lastConnectSuccess = PR_MAX(now, lastConnectSuccess);
             PR_Unlock(threadLock);

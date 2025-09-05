@@ -12,7 +12,7 @@
 #
 # The Initial Developer of the Original Code is
 # the Mozilla Corporation.
-# Portions created by the Initial Developer are Copyright (C) 2005
+# Portions created by the Initial Developer are Copyright (C) 2006
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
@@ -20,6 +20,10 @@
 #   Zach Lipton <zach@zachlipton.com>
 
 # Litmus database schema
+
+# IMPORTANT: Any changes (other than new tables) made here must also be made 
+# by adding --TABLE-- upgrading code to populatedb.pl to handle upgrades from 
+# previous versions of the schema.
 
 our $table;
 
@@ -107,7 +111,7 @@ $table{test_groups} =
 	 product_id tinyint not null,
 	 name varchar(64) not null,
 	 expiration_days smallint not null,
-	 obsolete tinyint default \'1\',
+	 obsolete tinyint(4) default "0",
 	 testrunner_plan_id int,
 	 
 	 index(product_id),
@@ -146,14 +150,15 @@ $table{test_result_logs} =
 	 test_result_id int not null,
 	 last_updated datetime not null,
 	 submission_time datetime not null,
-	 log_path varchar(255),
+         log_text longtext,
 	 log_type_id tinyint not null default \'1\',
 	 
 	 index(test_result_id),
 	 index(last_updated),
 	 index(submission_time),
-	 index(log_path),
-	 index(log_type_id)';
+	 index(log_type_id),
+         index(log_text(255))';
+
 	 
 $table{test_result_status_lookup} = 
 	'result_status_id smallint not null primary key auto_increment,
@@ -181,10 +186,14 @@ $table{test_results} =
 	 machine_name varchar(64),
 	 exit_status_id tinyint not null default \'1\',
 	 duration_ms int unsigned,
-	 talkback_id int unsigned,
-	 validity_id tinyint not null default \'1\',
-	 vetting_status_id tinyint not null default \'1\',
+	 talkback_id int unsigned,         
 	 locale_abbrev varchar(16) not null default \'en-US\',
+         valid tinyint(1) not null default \'1\',
+         vetted tinyint(1) not null default \'0\',
+         validated_by_user_id int(11) default \'0\',
+         vetted_by_user_id int(11) default \'0\',
+         validated_timestamp datetime,
+         vetted_timestamp datetime,
 	 
 	 index(test_id),
 	 index(last_updated),
@@ -200,9 +209,14 @@ $table{test_results} =
 	 index(exit_status_id),
 	 index(duration_ms),
 	 index(talkback_id),
-	 index(validity_id),
-	 index(vetting_status_id),
-	 index(locale_abbrev)';
+	 index(locale_abbrev),
+         index(valid),
+         index(vetted),
+         index(validated_by_user_id),
+         index(vetted_by_user_id),
+         index(validated_timestamp),
+         index(vetted_timestamp)';
+
 	 
 $table{test_status_lookup} = 
 	'test_status_id tinyint not null primary key auto_increment,
@@ -247,11 +261,14 @@ $table{users} =
 	 email varchar(255),
 	 password varchar(255),
 	 realname varchar(255),
+	 irc_nickname varchar(32),
 	 disabled mediumtext,
 	 is_admin tinyint(1),
 	 
 	 index(bugzilla_uid),
-	 index(email),
+	 unique index(email),
+         index(realname),
+         unique index(irc_nickname),
 	 index(is_admin)';
 	 
 $table{sessions} =
@@ -263,15 +280,3 @@ $table{sessions} =
 	 index(user_id),
 	 index(sessioncookie),
 	 index(expires)';
-	 
-$table{validity_lookup} = 
-	'validity_id tinyint not null primary key auto_increment,
-	 name varchar(64) not null,
-	
-	 index(name)';
-	
-$table{vetting_status_lookup} = 
-	'vetting_status_id tinyint not null primary key auto_increment,
-	name varchar(64) not null,
-	
-	index(name)';

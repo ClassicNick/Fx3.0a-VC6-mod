@@ -6,9 +6,6 @@
  */
 class AMO_Object
 {
-    var $cats;
-    var $apps;
-    var $platforms;
     var $db;
     var $tpl;
 
@@ -59,16 +56,25 @@ class AMO_Object
 
     /**
      * Get all category names.
+     *
+     * @return array
      */
-    function getCats()
+    function getCats($type=null)
     {
+        if (!empty($type)) {
+            $typesql = " WHERE cattype='{$type}' ";
+        } else {
+            $typesql = '';
+        }
+
         // Gather categories.
         $this->db->query("
-            SELECT
+            SELECT DISTINCT
                 CategoryID,
                 CatName
             FROM
                 categories
+            {$typesql}
             GROUP BY
                 CatName
             ORDER BY
@@ -76,12 +82,16 @@ class AMO_Object
         ", SQL_INIT, SQL_ASSOC);
 
         do {
-            $this->Cats[$this->db->record['CategoryID']] = $this->db->record['CatName'];
+            $retval[$this->db->record['CategoryID']] = $this->db->record['CatName'];
         } while ($this->db->next(SQL_ASSOC));
+
+        return $retval;
     }
     
     /**
      * Get all operating system names (platforms).  Used to populate forms.
+     *
+     * @return array
      */
     function getPlatforms()
     {
@@ -97,9 +107,10 @@ class AMO_Object
         ", SQL_INIT, SQL_ASSOC);
 
         do { 
-            $this->Platforms[$this->db->record['OSID']] = $this->db->record['OSName'];
+            $retval[$this->db->record['OSID']] = $this->db->record['OSName'];
         } while ($this->db->next(SQL_ASSOC));
 
+        return $retval;
     }
 
     /**
@@ -121,8 +132,182 @@ class AMO_Object
         ", SQL_INIT, SQL_ASSOC);
 
         do {
-            $this->Apps[$this->db->record['AppID']] = $this->db->record['AppName'];
+            $retval[$this->db->record['AppID']] = $this->db->record['AppName'];
         } while ($this->db->next(SQL_ASSOC));
+
+        return $retval;
     }
+
+    /**
+     * Get newest addons.
+     *
+     * @param string $app
+     * @param string $type
+     * @param int $limit
+     * @return array
+     */
+    function getNewestAddons($app='firefox',$type='E',$limit=10) {
+
+        // Get most popular extensions based on application.
+        $this->db->query("
+            SELECT DISTINCT
+                m.ID ID, 
+                m.Name name, 
+                m.downloadcount dc,
+                v.DateUpdated as dateupdated
+            FROM
+                main m
+            INNER JOIN version v ON m.ID = v.ID
+            INNER JOIN applications TA ON v.AppID = TA.AppID
+            INNER JOIN os o ON v.OSID = o.OSID
+            WHERE
+                AppName = '{$app}' AND 
+                downloadcount > '0' AND
+                approved = 'YES' AND
+                Type = '{$type}'
+            GROUP BY
+                m.ID
+            ORDER BY
+                v.dateupdated DESC , downloadcount DESC, rating DESC
+            LIMIT 
+                {$limit}
+        ", SQL_ALL, SQL_ASSOC);
+
+        return $this->db->record;
+    }
+
+    /**
+     * Get most popular addons.
+     *
+     * @param string $app
+     * @param string $type
+     * @param int $limit
+     * @return array
+     */
+     function getPopularAddons($app='firefox',$type='E', $limit=10) {
+
+        // Return most popular addons.
+        $this->db->query("
+            SELECT DISTINCT
+                m.ID ID, 
+                m.Name name, 
+                m.downloadcount dc,
+                v.DateUpdated as dateupdated
+            FROM
+                main m
+            INNER JOIN version v ON m.ID = v.ID
+            INNER JOIN applications TA ON v.AppID = TA.AppID
+            INNER JOIN os o ON v.OSID = o.OSID
+            WHERE
+                AppName = '{$app}' AND 
+                downloadcount > '0' AND
+                approved = 'YES' AND
+                Type = '{$type}'
+            GROUP BY
+                m.ID
+            ORDER BY
+                downloadcount DESC, rating DESC, v.dateupdated DESC 
+            LIMIT 
+                {$limit}
+        ", SQL_ALL, SQL_ASSOC);
+
+        return $this->db->record;
+     }
+
+    /**
+     * Get recommended addons.
+     *
+     * @param string $app
+     * @param string $type
+     * @param int $limit
+     * @return array
+     */
+     function getRecommendedAddons($app='firefox',$type='E', $limit=10) {
+
+        // Return most popular addons.
+        $this->db->query("
+            SELECT DISTINCT
+                m.id, 
+                m.name, 
+                m.downloadcount,
+                v.dateupdated,
+                v.uri,
+                r.body,
+                r.title,
+                v.size,
+                v.version,
+                p.previewuri
+            FROM
+                main m
+            INNER JOIN version v ON m.ID = v.ID
+            INNER JOIN applications TA ON v.AppID = TA.AppID
+            INNER JOIN os o ON v.OSID = o.OSID
+            INNER JOIN reviews r ON m.ID = r.ID
+            INNER JOIN previews p ON p.ID = m.ID
+            WHERE
+                AppName = '{$app}' AND 
+                downloadcount > '0' AND
+                approved = 'YES' AND
+                Type = '{$type}' AND
+                r.featured = 'YES' AND
+                p.preview = 'YES'
+            GROUP BY
+                m.ID
+            ORDER BY
+                m.Name
+            LIMIT 
+                {$limit}
+        ", SQL_ALL, SQL_ASSOC);
+
+        return $this->db->record;
+     }
+
+    /**
+     * Get feature for front page.
+     *
+     * @param string $app
+     * @param string $type
+     * @return array
+     */
+     function getFeature($app='firefox',$type='E') {
+
+        // Return a random feature.
+        // Yes, rand(now()) is a random (hehe) way to do it.
+        // I'm open to suggestions.
+        $this->db->query("
+            SELECT DISTINCT
+                m.id, 
+                m.name, 
+                m.downloadcount,
+                v.dateupdated,
+                v.uri,
+                r.body,
+                r.title,
+                v.size,
+                v.version,
+                p.previewuri
+            FROM
+                main m
+            INNER JOIN version v ON m.ID = v.ID
+            INNER JOIN applications TA ON v.AppID = TA.AppID
+            INNER JOIN os o ON v.OSID = o.OSID
+            INNER JOIN reviews r ON m.ID = r.ID
+            INNER JOIN previews p ON p.ID = m.ID
+            WHERE
+                AppName = '{$app}' AND 
+                downloadcount > '0' AND
+                approved = 'YES' AND
+                Type = '{$type}' AND
+                r.featured = 'YES' AND
+                p.preview = 'YES'
+            GROUP BY
+                m.ID
+            ORDER BY
+                rand(now())
+            LIMIT 1
+        ", SQL_INIT, SQL_ASSOC);
+
+        return $this->db->record;
+     }
 }
 ?>

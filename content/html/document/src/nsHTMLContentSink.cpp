@@ -375,6 +375,10 @@ protected:
   // yet.  We want to make sure to only do this once.
   PRPackedBool mNotifiedRootInsertion;
 
+  // Boolean indicating whether we've seen a <head> tag that might have had
+  // attributes once already.
+  PRPackedBool mHaveSeenHead;
+
   nsCOMPtr<nsIObserverEntry> mObservers;
 
   void StartLayout();
@@ -411,7 +415,7 @@ protected:
 
   // nsContentSink overrides
   virtual void PreEvaluateScript();
-  virtual void PostEvaluateScript();
+  virtual void PostEvaluateScript(nsIScriptElement *aElement);
 
   void UpdateAllContexts();
   void NotifyAppend(nsIContent* aContent,
@@ -796,9 +800,26 @@ HTMLContentSink::AddAttributes(const nsIParserNode& aNode,
   // attributes backwards; this ensures that the first attribute in the set
   // wins.  This does mean that we do some extra work in the case when the same
   // attribute is set multiple times, but we save a HasAttr call in the much
-  // more common case of reasonable HTML.
+  // more common case of reasonable HTML.  Note that if aCheckIfPresent is set
+  // then we actually want to loop _forwards_ to preserve the "first attribute
+  // wins" behavior.  That does mean that when aCheckIfPresent is set the order
+  // of attributes will get "reversed" from the point of view of the
+  // serializer.  But aCheckIfPresent is only true for malformed documents with
+  // multiple <html>, <head>, or <body> tags, so we're doing fixup anyway at
+  // that point.
+
+  PRInt32 i, limit, step;
+  if (aCheckIfPresent) {
+    i = 0;
+    limit = ac;
+    step = 1;
+  } else {
+    i = ac - 1;
+    limit = -1;
+    step = -1;
+  }
   
-  for (PRInt32 i = ac - 1; i >= 0; i--) {
+  for (; i != limit; i += step) {
     // Get lower-cased key
     const nsAString& key = aNode.GetKeyAt(i);
     // Copy up-front to avoid shared-buffer overhead (and convert to UTF-8
@@ -2113,7 +2134,9 @@ HTMLContentSink::Init(nsIDocument* aDoc,
     }
     NS_ADDREF(mRoot);
 
-    rv = mDocument->SetRootContent(mRoot);
+    NS_ASSERTION(mDocument->GetChildCount() == 0,
+                 "Document should have no kids here!");
+    rv = mDocument->AppendChildTo(mRoot, PR_FALSE);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -2552,6 +2575,8 @@ HTMLContentSink::CloseHTML()
       mContextStack.RemoveElementAt(numContexts);
     }
 
+    NS_ASSERTION(mHeadContext->mTextLength == 0, "Losing text");
+
     mHeadContext->End();
 
     delete mHeadContext;
@@ -2871,7 +2896,8 @@ HTMLContentSink::OpenContainer(const nsIParserNode& aNode)
     case eHTMLTag_head:
       rv = OpenHeadContext();
       if (NS_SUCCEEDED(rv)) {
-        rv = AddAttributes(aNode, mHead, PR_FALSE, PR_TRUE);
+        rv = AddAttributes(aNode, mHead, PR_FALSE, mHaveSeenHead);
+        mHaveSeenHead = PR_TRUE;
       }
       break;
     case eHTMLTag_body:
@@ -2879,7 +2905,9 @@ HTMLContentSink::OpenContainer(const nsIParserNode& aNode)
       break;
     case eHTMLTag_html:
       if (mRoot) {
-        AddAttributes(aNode, mRoot, PR_TRUE, PR_TRUE);
+        // If we've already hit this code once, need to check for
+        // already-present attributes on the root.
+        AddAttributes(aNode, mRoot, PR_TRUE, mNotifiedRootInsertion);
         if (!mNotifiedRootInsertion) {
           NS_ASSERTION(!mLayoutStarted,
                        "How did we start layout without notifying on root?");
@@ -3050,12 +3078,6 @@ HTMLContentSink::AddDocTypeDecl(const nsIParserNode& aNode)
 {
   MOZ_TIMER_DEBUGLOG(("Start: nsHTMLContentSink::AddDocTypeDecl()\n"));
   MOZ_TIMER_START(mWatch);
-
-  nsCOMPtr<nsIDOMDocument> doc(do_QueryInterface(mHTMLDocument));
-
-  if (!doc) {
-    return NS_OK;
-  }
 
   nsAutoString docTypeStr(aNode.GetText());
   nsresult rv = NS_OK;
@@ -3239,6 +3261,7 @@ HTMLContentSink::AddDocTypeDecl(const nsIParserNode& aNode)
     nsCOMPtr<nsIDOMDocumentType> oldDocType;
     nsCOMPtr<nsIDOMDocumentType> docType;
 
+    nsCOMPtr<nsIDOMDocument> doc(do_QueryInterface(mHTMLDocument));
     doc->GetDoctype(getter_AddRefs(oldDocType));
 
     nsCOMPtr<nsIDOMDOMImplementation> domImpl;
@@ -3259,25 +3282,19 @@ HTMLContentSink::AddDocTypeDecl(const nsIParserNode& aNode)
     if (NS_FAILED(rv) || !docType) {
       return rv;
     }
-    nsCOMPtr<nsIDOMNode> tmpNode;
 
     if (oldDocType) {
       // If we already have a doctype we replace the old one.
-
+      nsCOMPtr<nsIDOMNode> tmpNode;
       rv = doc->ReplaceChild(oldDocType, docType, getter_AddRefs(tmpNode));
     } else {
       // If we don't already have one we insert it as the first child,
       // this might not be 100% correct but since this is called from
       // the content sink we assume that this is what we want.
-      nsCOMPtr<nsIDOMNode> firstChild;
-
-      doc->GetFirstChild(getter_AddRefs(firstChild));
-
-      // If the above fails it must be because we don't have any child
-      // nodes, then firstChild will be 0 and InsertBefore() will
-      // append
-
-      rv = doc->InsertBefore(docType, firstChild, getter_AddRefs(tmpNode));
+      nsCOMPtr<nsIContent> content = do_QueryInterface(docType);
+      NS_ASSERTION(content, "Doctype isn't content?");
+      
+      mDocument->InsertChildAt(content, 0, PR_TRUE);
     }
   }
 
@@ -3533,9 +3550,15 @@ HTMLContentSink::OpenHeadContext()
 void
 HTMLContentSink::CloseHeadContext()
 {
-  if (mCurrentContext && !mCurrentContext->IsCurrentContainer(eHTMLTag_head))
-    return;
+  if (mCurrentContext) {
+    if (!mCurrentContext->IsCurrentContainer(eHTMLTag_head))
+      return;
 
+    mCurrentContext->FlushTextAndRelease();
+  }
+
+  NS_ASSERTION(mContextStack.Count() > 0, "Stack should not be empty");
+  
   PRInt32 n = mContextStack.Count() - 1;
   mCurrentContext = (SinkContext*) mContextStack.ElementAt(n);
   mContextStack.RemoveElementAt(n);
@@ -3819,8 +3842,9 @@ HTMLContentSink::PreEvaluateScript()
 }
 
 void
-HTMLContentSink::PostEvaluateScript()
+HTMLContentSink::PostEvaluateScript(nsIScriptElement *aElement)
 {
+  mHTMLDocument->ScriptExecuted(aElement);
 }
 
 nsresult
@@ -3860,6 +3884,9 @@ HTMLContentSink::ProcessSCRIPTEndTag(nsGenericHTMLElement *content,
 
     mScriptElements.AppendObject(sele);
   }
+
+  // Notify our document that we're loading this script.
+  mHTMLDocument->ScriptLoading(sele);
 
   // Now tell the script that it's ready to go. This will execute the script
   // and call our ScriptAvailable method.

@@ -729,7 +729,7 @@ nsPresContext::Init(nsIDeviceContext* aDeviceContext)
   mInitialized = PR_TRUE;
 #endif
 
-  float pixelsToTwips = PixelsToTwips();
+  float pixelsToTwips = ScaledPixelsToTwips();
   mBorderWidthTable[NS_STYLE_BORDER_WIDTH_THIN] = NSIntPixelsToTwips(1, pixelsToTwips);
   mBorderWidthTable[NS_STYLE_BORDER_WIDTH_MEDIUM] = NSIntPixelsToTwips(3, pixelsToTwips);
   mBorderWidthTable[NS_STYLE_BORDER_WIDTH_THICK] = NSIntPixelsToTwips(5, pixelsToTwips);
@@ -1347,16 +1347,6 @@ nsPresContext::CountReflows(const char * aName,
 {
   if (mShell) {
     mShell->CountReflows(aName, aType, aFrame);
-  }
-}
-
-void
-nsPresContext::PaintCount(const char * aName,
-                           nsIRenderingContext* aRenderingContext,
-                           nsIFrame * aFrame, PRUint32 aColor)
-{
-  if (mShell) {
-    mShell->PaintCount(aName, aRenderingContext, this, aFrame, aColor);
   }
 }
 #endif

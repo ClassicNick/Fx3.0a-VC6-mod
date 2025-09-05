@@ -69,6 +69,7 @@ $QATest                   = 0;
 $XULWindowOpenTest        = 0;  # Txul
 $StartupPerformanceTest   = 0;  # Ts
 $NeckoUnitTest            = 0;
+$RenderPerformanceTest    = 0;  # Tgfx
 @CompareLocaleDirs        = (); # Run compare-locales test on these directories
 # ("network","dom","toolkit","security/manager");
 $CompareLocalesAviary     = 0;  # Should the compare-locales commands use the
@@ -110,7 +111,7 @@ $LayoutPerformanceTestPageTimeout = 30000; # each page, ms
 $StartupPerformanceTestTimeout    = 15;    # seconds
 $NeckoUnitTestTimeout             = 30;    # seconds
 $XULWindowOpenTestTimeout	      = 150;   # seconds
-
+$RenderTestTimeout                = 1800;  # seconds
 
 $MozConfigFileName = 'mozconfig';
 
@@ -174,7 +175,7 @@ $BinaryName = 'mozilla-bin';
 #
 # For embedding app, use:
 $EmbedBinaryName = 'TestGtkEmbed';
-$EmbedDistDir    = 'dist/bin'
+$EmbedDistDir    = 'dist/bin';
 
 
 $ShellOverride = ''; # Only used if the default shell is too stupid
@@ -217,6 +218,7 @@ $update_package = 0;
 #$update_filehost = "ftp.mozilla.org";
 #$update_appv = "1.0+";
 #$update_extv = "1.0+";
+#$update_pushinfo = 1;
 
 # Reboot the OS at the end of build-and-test cycle. This is primarily
 # intended for Win9x, which can't last more than a few cycles before

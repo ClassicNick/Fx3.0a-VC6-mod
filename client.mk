@@ -120,7 +120,9 @@ MODULES_core :=                                 \
   mozilla/toolkit                               \
   mozilla/storage                               \
   mozilla/db/sqlite3                            \
+  mozilla/db/morkreader                         \
   mozilla/tools/cross-commit                    \
+  mozilla/tools/test-harness                    \
   $(NULL)
 
 LOCALES_core :=                                 \

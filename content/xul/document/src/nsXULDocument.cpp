@@ -1038,7 +1038,7 @@ nsXULDocument::AttributeChanged(nsIContent* aElement, PRInt32 aNameSpaceID,
                     NS_STATIC_CAST(BroadcastListener*, entry->mListeners[i]);
 
                 if ((bl->mAttribute == aAttribute) ||
-                    (bl->mAttribute == nsXULAtoms::_star)) {
+                    (bl->mAttribute == nsXULAtoms::_asterix)) {
                     nsCOMPtr<nsIContent> listener
                         = do_QueryInterface(bl->mListener);
 
@@ -2369,7 +2369,7 @@ nsXULDocument::ContextStack::IsInsideXULTemplate()
         for (nsIContent* element = mTop->mElement; element;
              element = element->GetParent()) {
 
-            if (element->NodeInfo()->Equals(nsXULAtoms::Template,
+            if (element->NodeInfo()->Equals(nsXULAtoms::_template,
                                             kNameSpaceID_XUL)) {
                 return PR_TRUE;
             }
@@ -2449,7 +2449,7 @@ nsXULDocument::PrepareToWalk()
         rv = CreateElementFromPrototype(proto, getter_AddRefs(root));
         if (NS_FAILED(rv)) return rv;
 
-        rv = SetRootContent(root);
+        rv = AppendChildTo(root, PR_FALSE);
         if (NS_FAILED(rv)) return rv;
         
         // Add the root element to the XUL document's ID-to-element map.

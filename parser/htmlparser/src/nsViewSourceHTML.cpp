@@ -92,7 +92,6 @@ Stopwatch vsTimer;
 #endif
 
 
-static NS_DEFINE_IID(kClassIID,     NS_VIEWSOURCE_HTML_IID);
 
 // Define this to dump the viewsource stuff to a file
 //#define DUMP_TO_FILE
@@ -109,61 +108,7 @@ static NS_DEFINE_IID(kClassIID,     NS_VIEWSOURCE_HTML_IID);
 static const char kBodyId[] = "viewsource";
 static const char kBodyClassWrap[] = "wrap";
 
-/**
- *  This method gets called as part of our COM-like interfaces.
- *  Its purpose is to create an interface to parser object
- *  of some type.
- *  
- *  @update   gess 4/8/98
- *  @param    nsIID  id of object to discover
- *  @param    aInstancePtr ptr to newly discovered interface
- *  @return   NS_xxx result code
- */
-nsresult CViewSourceHTML::QueryInterface(const nsIID& aIID, void** aInstancePtr)  
-{                                                                        
-  if (NULL == aInstancePtr) {                                            
-    return NS_ERROR_NULL_POINTER;                                        
-  }                                                                      
-
-  if(aIID.Equals(NS_GET_IID(nsISupports)))    {  //do IUnknown...
-    *aInstancePtr = (nsIDTD*)(this);                                        
-  }
-  else if(aIID.Equals(NS_GET_IID(nsIDTD))) {  //do IParser base class...
-    *aInstancePtr = (nsIDTD*)(this);                                        
-  }
-  else if(aIID.Equals(kClassIID)) {  //do this class...
-    *aInstancePtr = (CViewSourceHTML*)(this);                                        
-  }                 
-  else {
-    *aInstancePtr=0;
-    return NS_NOINTERFACE;
-  }
-  NS_ADDREF_THIS();
-  return NS_OK;                                                        
-}
-
-/**
- *  This method is defined in nsIParser. It is used to 
- *  cause the COM-like construction of an nsParser.
- *  
- *  @update  gess 4/8/98
- *  @param   nsIParser** ptr to newly instantiated parser
- *  @return  NS_xxx error result
- */
-nsresult NS_NewViewSourceHTML(nsIDTD** aInstancePtrResult)
-{
-  CViewSourceHTML* it = new CViewSourceHTML();
-
-  if (it == 0) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  return it->QueryInterface(kClassIID, (void **) aInstancePtrResult);
-}
-
-
-NS_IMPL_ADDREF(CViewSourceHTML)
-NS_IMPL_RELEASE(CViewSourceHTML)
+NS_IMPL_ISUPPORTS1(CViewSourceHTML, nsIDTD)
 
 /********************************************
  ********************************************/
@@ -348,52 +293,6 @@ CViewSourceHTML::CViewSourceHTML()
 CViewSourceHTML::~CViewSourceHTML(){
   mParser=0; //just to prove we destructed...
 }
-
-/**
- * 
- * @update	gess1/8/99
- * @param 
- * @return
- */
-const nsIID& CViewSourceHTML::GetMostDerivedIID(void) const{
-  return kClassIID;
-}
-
-/**
- * Call this method if you want the DTD to construct a fresh 
- * instance of itself. 
- * @update	gess7/23/98
- * @param 
- * @return
- */
-nsresult CViewSourceHTML::CreateNewInstance(nsIDTD** aInstancePtrResult){
-  return NS_NewViewSourceHTML(aInstancePtrResult);
-}
-
-/**
- * This method is called to determine if the given DTD can parse
- * a document in a given source-type. 
- * NOTE: Parsing always assumes that the end result will involve
- *       storing the result in the main content model.
- * @update	gess6/24/98
- * @param   
- * @return  TRUE if this DTD can satisfy the request; FALSE otherwise.
- */
-NS_IMETHODIMP_(eAutoDetectResult)
-CViewSourceHTML::CanParse(CParserContext& aParserContext)
-{
-  if (eViewSource == aParserContext.mParserCommand) {
-    if (aParserContext.mDocType == ePlainText) {
-      return eValidDetect;
-    }
-
-    // We claim to parse XML... now _that_ is funny.
-    return ePrimaryDetect;
-  }
-  
-  return eUnknownDetect;
-}
-
 
 /**
   * The parser uses a code sandwich to wrap the parsing process. Before

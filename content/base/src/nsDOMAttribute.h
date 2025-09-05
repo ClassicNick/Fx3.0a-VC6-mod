@@ -46,9 +46,11 @@
 #include "nsCOMPtr.h"
 #include "nsINodeInfo.h"
 #include "nsIDOM3Node.h"
+#include "nsIDOM3Attr.h"
 #include "nsDOMAttributeMap.h"
 
 class nsDOMAttribute;
+class nsITextContent;
 
 // bogus child list for an attribute
 class nsAttributeChildList : public nsGenericDOMNodeList
@@ -68,9 +70,9 @@ protected:
 };
 
 // Attribute helper class used to wrap up an attribute with a dom
-// object that implements nsIDOMAttr and nsIDOMNode
+// object that implements nsIDOMAttr, nsIDOM3Attr, nsIDOMNode, nsIDOM3Node
 class nsDOMAttribute : public nsIDOMAttr,
-                       public nsIDOM3Node,
+                       public nsIDOM3Attr,
                        public nsIAttribute
 {
 public:
@@ -93,20 +95,22 @@ public:
   // nsIDOMAttr interface
   NS_DECL_NSIDOMATTR
 
+  // nsIDOM3Attr interface
+  NS_DECL_NSIDOM3ATTR
+
   // nsIAttribute interface
   void SetMap(nsDOMAttributeMap *aMap);
   nsIContent *GetContent() const;
   nsresult SetOwnerDocument(nsIDocument* aDocument);
 
-  // Property functions, see nsPropertyTable.h
-  virtual void* GetProperty(nsIAtom  *aPropertyName,
-                            nsresult *aStatus = nsnull);
-  virtual nsresult SetProperty(nsIAtom            *aPropertyName,
-                               void               *aValue,
-                               NSPropertyDtorFunc  aDtor);
-  virtual nsresult DeleteProperty(nsIAtom  *aPropertyName);
-  virtual void*    UnsetProperty(nsIAtom *aPropertyName,
-                                 nsresult *aStatus = nsnull);
+  // nsINode interface
+  virtual PRUint32 GetChildCount() const;
+  virtual nsIContent *GetChildAt(PRUint32 aIndex) const;
+  virtual PRInt32 IndexOf(nsIContent* aPossibleChild) const;
+  virtual nsresult InsertChildAt(nsIContent* aKid, PRUint32 aIndex,
+                                 PRBool aNotify);
+  virtual nsresult AppendChildTo(nsIContent* aKid, PRBool aNotify);
+  virtual nsresult RemoveChildAt(PRUint32 aIndex, PRBool aNotify);
   static void Initialize();
   static void Shutdown();
 
@@ -114,10 +118,12 @@ protected:
   static PRBool sInitialized;
 
 private:
+  nsresult EnsureChildState(PRBool aSetText, PRBool &aHasChild) const;
+
   nsString mValue;
   // XXX For now, there's only a single child - a text
   // element representing the value
-  nsIDOMText* mChild;
+  nsCOMPtr<nsITextContent> mChild;
   nsAttributeChildList* mChildList;
 
   nsIContent *GetContentInternal() const

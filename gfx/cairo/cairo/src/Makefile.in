@@ -95,20 +95,29 @@ CSRCS   = \
 EXPORTS = cairo.h cairo-features.h cairo-platform.h
 
 
-ifeq ($(MOZ_GFX_TOOLKIT),windows)
+ifeq ($(MOZ_WIDGET_TOOLKIT),windows)
 CSRCS   += cairo-win32-font.c \
            cairo-win32-surface.c
 EXPORTS += cairo-win32.h
 endif
 
-ifneq (,$(filter mac cocoa,$(MOZ_GFX_TOOLKIT)))
+ifeq ($(MOZ_WIDGET_TOOLKIT),os2)
+CSRCS   += cairo-os2-surface.c
+EXPORTS += cairo-os2.h cairo-os2-private.h
+endif
+
+ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
 CSRCS   += cairo-quartz-surface.c \
            cairo-atsui-font.c
 EXPORTS += cairo-quartz.h cairo-atsui.h
 endif
 
+ifeq ($(MOZ_WIDGET_TOOLKIT),beos)
+CPPSRCS += cairo-beos-surface.cpp
+EXPORTS += cairo-beos.h
+endif
 
-ifdef BUILD_CAIRO_PDF
+ifeq ($(MOZ_WIDGET_TOOLKIT),gtk2)
 CSRCS   += cairo-font-subset.c \
            cairo-pdf-surface.c \
            cairo-ps-surface.c
@@ -122,11 +131,16 @@ endif
 
 ifdef MOZ_X11
 CSRCS   += cairo-xlib-surface.c \
-	   cairo-xlib-screen.c \
-           cairo-ft-font.c
-EXPORTS += cairo-xlib.h cairo-xlib-xrender.h cairo-ft.h
-LOCAL_INCLUDES += $(FT2_CFLAGS)
+	   cairo-xlib-screen.c
+EXPORTS += cairo-xlib.h cairo-xlib-xrender.h
 endif
+
+ifdef MOZ_ENABLE_CAIRO_FT
+CSRCS   += cairo-ft-font.c
+EXPORTS += cairo-ft.h
+LOCAL_INCLUDES += $(CAIRO_FT_CFLAGS)
+endif
+
 
 ifdef MOZ_ENABLE_GLITZ
 REQUIRES += glitz

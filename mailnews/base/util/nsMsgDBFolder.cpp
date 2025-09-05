@@ -99,7 +99,6 @@ static NS_DEFINE_CID(kRDFServiceCID, NS_RDFSERVICE_CID);
 static NS_DEFINE_CID(kCollationFactoryCID, NS_COLLATIONFACTORY_CID);
 static NS_DEFINE_CID(kCMailDB, NS_MAILDB_CID);
 static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
-static NS_DEFINE_CID(kNavDTDCID, NS_CNAVDTD_CID);
 
 nsIAtom* nsMsgDBFolder::mFolderLoadedAtom=nsnull;
 nsIAtom* nsMsgDBFolder::mDeleteOrMoveMsgCompletedAtom=nsnull;
@@ -3020,6 +3019,24 @@ NS_IMETHODIMP nsMsgDBFolder::RecursiveDelete(PRBool deleteStorage, nsIMsgWindow 
   // frees memory for the subfolders but NOT for _this_
 
   nsresult status = NS_OK;
+  nsCOMPtr <nsIFileSpec> dbPath;
+  
+  // first remove the deleted folder from the folder cache;
+  nsresult result = GetFolderCacheKey(getter_AddRefs(dbPath));
+
+  nsCOMPtr<nsIMsgAccountManager> accountMgr = 
+    do_GetService(NS_MSGACCOUNTMANAGER_CONTRACTID, &result); 
+  if(NS_SUCCEEDED(result))
+  {
+    nsCOMPtr <nsIMsgFolderCache> folderCache;
+    result = accountMgr->GetFolderCache(getter_AddRefs(folderCache));
+    if (NS_SUCCEEDED(result) && folderCache)
+    {
+      nsXPIDLCString persistentPath;
+      dbPath->GetPersistentDescriptorString(getter_Copies(persistentPath));
+      folderCache->RemoveElement(persistentPath.get());
+    }
+  }
 
   PRUint32 cnt;
   nsresult rv = mSubFolders->Count(&cnt);
@@ -5192,10 +5209,7 @@ nsresult nsMsgDBFolder::GetMsgPreviewTextFromStream(nsIMsgDBHdr *msgHdr, nsIInpu
     textSink->Initialize(&bodyText, flags, 80);
 
     parser->SetContentSink(sink);
-    nsCOMPtr<nsIDTD> dtd = do_CreateInstance(kNavDTDCID,&rv);
-    NS_ENSURE_SUCCESS(rv, rv);
 
-    parser->RegisterDTD(dtd);
     nsAutoString msgBodyStr;
     // need to do an appropriate conversion here.
     msgBodyStr.AssignWithConversion(msgBody);

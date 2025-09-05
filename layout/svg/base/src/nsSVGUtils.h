@@ -37,8 +37,11 @@
 #ifndef NS_SVGUTILS_H
 #define NS_SVGUTILS_H
 
-// Need this to get nsPresContext
-#include "nsContentUtils.h"
+// include math.h to pick up definition of M_PI if the platform defines it
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+#include "nscore.h"
 
 class nsPresContext;
 class nsIContent;
@@ -53,6 +56,14 @@ class nsISVGGlyphFragmentNode;
 class nsIDOMSVGLength;
 class nsIDOMSVGMatrix;
 class nsIURI;
+class nsISVGOuterSVGFrame;
+class nsISVGRendererSurface;
+class nsIPresShell;
+class nsISVGRendererCanvas;
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 class nsSVGUtils
 {
@@ -127,6 +138,15 @@ public:
   static void
   TransformPoint(nsIDOMSVGMatrix *matrix,
                  float *x, float *y);
+
+  /* Returns the angle halfway between the two specified angles */
+  static float
+  AngleBisect(float a1, float a2);
+
+  /* Generate a new rendering surface the size of the current surface */
+  static nsresult GetSurface(nsISVGOuterSVGFrame *aOuterSVGFrame,
+                             nsISVGRendererCanvas *aCanvas,
+                             nsISVGRendererSurface **aSurface);
 
 private:
   /*

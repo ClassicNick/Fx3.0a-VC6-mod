@@ -116,6 +116,7 @@ public:
   // frametypes, particularly code looking at block and area
   // also handles foreignObject before we return our own frametype
   // virtual nsIAtom* GetType() const;
+  virtual PRBool IsFrameOfType(PRUint32 aFlags) const;
 
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const
@@ -419,6 +420,12 @@ nsSVGForeignObjectFrame::RemoveFrame(nsIAtom*        aListName,
 //   return nsLayoutAtoms::svgForeignObjectFrame;
 // }
 
+PRBool
+nsSVGForeignObjectFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~(nsIFrame::eSVG | nsIFrame::eSVGForeignObject));
+}
+
 //----------------------------------------------------------------------
 // nsISVGValueObserver methods:
 
@@ -479,56 +486,24 @@ nsSVGForeignObjectFrame::PaintSVG(nsISVGRendererCanvas* canvas,
   {
     nsIRenderingContext::AutoPushTranslation
       translate(ctx, mRect.x, mRect.y);
-  
-    nsSVGForeignObjectFrameBase::Paint(presContext,
-                                       *ctx,
-                                       dirtyRect,
-                                       NS_FRAME_PAINT_LAYER_BACKGROUND,
-                                       0);
-  
-    nsSVGForeignObjectFrameBase::Paint(presContext,
-                                       *ctx,
-                                       dirtyRect,
-                                       NS_FRAME_PAINT_LAYER_FLOATS,
-                                       0);
-    
-    nsSVGForeignObjectFrameBase::Paint(presContext,
-                                       *ctx,
-                                       dirtyRect,
-                                       NS_FRAME_PAINT_LAYER_FOREGROUND,
-                                       0);
+
+    rv = nsLayoutUtils::PaintFrame(ctx, this, nsRegion(dirtyRect));
   }
 
   ctx = nsnull;
   canvas->UnlockRenderingContext();
   
-  return NS_OK;
+  return rv;
 }
-
 
 NS_IMETHODIMP
 nsSVGForeignObjectFrame::GetFrameForPointSVG(float x, float y, nsIFrame** hit)
 {
-  *hit = nsnull;
-
   nsPoint p( (nscoord)(x*GetTwipsPerPx()),
              (nscoord)(y*GetTwipsPerPx()));
 
-  nsresult rv;
-
-  rv = nsSVGForeignObjectFrameBase::GetFrameForPoint(p,
-                                               NS_FRAME_PAINT_LAYER_FOREGROUND,
-                                               hit);
-  if (NS_SUCCEEDED(rv) && *hit) return rv;
-
-  rv = nsSVGForeignObjectFrameBase::GetFrameForPoint(p,
-                                               NS_FRAME_PAINT_LAYER_FLOATS,
-                                               hit);
-  if (NS_SUCCEEDED(rv) && *hit) return rv;
-
-  return nsSVGForeignObjectFrameBase::GetFrameForPoint(p,
-                                               NS_FRAME_PAINT_LAYER_BACKGROUND,
-                                               hit);
+  *hit = nsLayoutUtils::GetFrameForPoint(this, p);
+  return NS_OK;
 }
 
 NS_IMETHODIMP_(already_AddRefed<nsISVGRendererRegion>)

@@ -123,7 +123,10 @@ function initForm() {
 
   // Change next button to "submit report"
   reportWizard.getButton('next').label = strbundle.getString("submitReport") + ">";
-  
+  reportWizard.getButton('next').setAttribute("accesskey",
+                                              strbundle.getString("submitReport.accesskey"));
+
+
   // Set the privacy policy link href
   var url = getCharPref("privacyURL", "http://reporter.mozilla.org/privacy/");
   var privacyLink = document.getElementById("privacyPolicy");
@@ -268,8 +271,6 @@ function showDetail() {
 function getBuildConfig() {
   // bz and Biesi are my heroes for writing/debugging this chunk.
   try {
-    netscape.security.PrivilegeManager
-            .enablePrivilege("UniversalXPConnect UniversalBrowserRead UniversalBrowserWrite");
     var ioservice =
       Components.classes["@mozilla.org/network/io-service;1"]
                 .getService(Components.interfaces.nsIIOService);

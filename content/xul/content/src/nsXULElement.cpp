@@ -813,13 +813,12 @@ nsXULElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
         nsIDocument *ownerDocument = GetOwnerDoc();
         if (aDocument != ownerDocument) {
             if (ownerDocument && HasProperties()) {
-                nsISupports *thisSupports = NS_STATIC_CAST(nsIContent*, this);
-
                 // Copy UserData to the new document.
-                ownerDocument->CopyUserData(thisSupports, aDocument);
+                ownerDocument->CopyUserData(this, aDocument);
 
                 // Remove all properties.
-                ownerDocument->PropertyTable()->DeleteAllPropertiesFor(thisSupports);
+                ownerDocument->PropertyTable()->
+                  DeleteAllPropertiesFor(NS_STATIC_CAST(nsINode*, this));
             }
 
             // get a new nodeinfo
@@ -939,7 +938,7 @@ nsXULElement::UnbindFromTree(PRBool aDeep, PRBool aNullParent)
     // XXXbz why are we nuking our listener manager?  We can get events while
     // not in a document!
     if (mListenerManager) {
-        mListenerManager->SetListenerTarget(nsnull);
+        mListenerManager->Disconnect();
         mListenerManager = nsnull;
     }
 
@@ -1217,7 +1216,7 @@ nsXULElement::ParseAttribute(PRInt32 aNamespaceID,
             return PR_TRUE;
         }
 
-        if (aAttribute == nsXULAtoms::clazz) {
+        if (aAttribute == nsXULAtoms::_class) {
             aResult.ParseAtomArray(aValue);
             return PR_TRUE;
         }
@@ -1316,6 +1315,27 @@ nsXULElement::AttrValueIs(PRInt32 aNameSpaceID,
   return val && val->Equals(aValue, aCaseSensitive);
 }
 
+PRInt32
+nsXULElement::FindAttrValueIn(PRInt32 aNameSpaceID,
+                              nsIAtom* aName,
+                              AttrValuesArray* aValues,
+                              nsCaseTreatment aCaseSensitive) const
+{
+  NS_ASSERTION(aName, "Must have attr name");
+  NS_ASSERTION(aNameSpaceID != kNameSpaceID_Unknown, "Must have namespace");
+  NS_ASSERTION(aValues, "Null value array");
+  
+  const nsAttrValue* val = FindLocalOrProtoAttr(aNameSpaceID, aName);
+  if (val) {
+    for (PRInt32 i = 0; aValues[i]; ++i) {
+      if (val->Equals(*aValues[i], aCaseSensitive)) {
+        return i;
+      }
+    }
+    return ATTR_VALUE_NO_MATCH;
+  }
+  return ATTR_MISSING;
+}
 
 nsresult
 nsXULElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName, PRBool aNotify)
@@ -2081,7 +2101,7 @@ nsXULElement::GetID() const
 const nsAttrValue*
 nsXULElement::GetClasses() const
 {
-    return FindLocalOrProtoAttr(kNameSpaceID_None, nsXULAtoms::clazz);
+    return FindLocalOrProtoAttr(kNameSpaceID_None, nsXULAtoms::_class);
 }
 
 NS_IMETHODIMP
@@ -2172,7 +2192,7 @@ nsXULElement::GetIDAttributeName() const
 nsIAtom *
 nsXULElement::GetClassAttributeName() const
 {
-    return nsXULAtoms::clazz;
+    return nsXULAtoms::_class;
 }
 
 // Controllers Methods
@@ -2263,7 +2283,7 @@ nsXULElement::GetBoxObject(nsIBoxObject** aResult)
 
 
 NS_IMPL_XUL_STRING_ATTR(Id, id)
-NS_IMPL_XUL_STRING_ATTR(ClassName, clazz)
+NS_IMPL_XUL_STRING_ATTR(ClassName, _class)
 NS_IMPL_XUL_STRING_ATTR(Align, align)
 NS_IMPL_XUL_STRING_ATTR(Dir, dir)
 NS_IMPL_XUL_STRING_ATTR(Flex, flex)
@@ -2889,7 +2909,7 @@ nsXULPrototypeElement::SetAttrAt(PRUint32 aPos, const nsAString& aValue,
 
         return NS_OK;
     }
-    else if (mAttributes[aPos].mName.Equals(nsXULAtoms::clazz)) {
+    else if (mAttributes[aPos].mName.Equals(nsXULAtoms::_class)) {
         // Compute the element's class list
         mAttributes[aPos].mValue.ParseAtomArray(aValue);
         

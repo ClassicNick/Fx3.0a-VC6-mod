@@ -59,8 +59,6 @@ pref("xpinstall.dialog.progress.chrome", "chrome://mozapps/content/extensions/ex
 pref("xpinstall.dialog.progress.type.skin", "Extension:Manager-themes");
 pref("xpinstall.dialog.progress.type.chrome", "Extension:Manager-extensions");
 
-pref("extensions.getMoreExtensionsURL", "chrome://mozapps/locale/extensions/extensions.properties");
-pref("extensions.getMoreThemesURL", "chrome://mozapps/locale/extensions/extensions.properties");
 // Developers can set this to |true| if they are constantly changing files in their 
 // extensions directory so that the extension system does not constantly think that
 // their extensions are being updated and thus reregistered every time the app is
@@ -244,13 +242,15 @@ pref("browser.tabs.loadFolderAndReplace", true);
 pref("browser.tabs.opentabfor.middleclick", true);
 pref("browser.tabs.loadDivertedInBackground", false);
 pref("browser.tabs.loadBookmarksInBackground", false);
+pref("browser.tabs.tabClipWidth", 140);
+pref("browser.tabs.disableBackgroundClose", false);
 
-// Smart Browsing prefs
-pref("browser.related.enabled", true);
-pref("browser.related.autoload", 1);  // 0 = Always, 1 = After first use, 2 = Never
-pref("browser.related.provider", "http://www-rl.netscape.com/wtgn?");
-pref("browser.related.disabledForDomains", "");
-pref("browser.goBrowsing.enabled", true);
+// When tabs opened by links in other tabs via a combination of 
+// browser.link.open_newwindow being set to 3 and target="_blank" etc are
+// closed:
+// true   return to the tab that opened this tab (its owner)
+// false  return to the adjacent tab (old default)
+pref("browser.tabs.selectOwnerOnClose", true);
 
 // Default bookmark sorting
 pref("browser.bookmarks.sort.direction", "descending");

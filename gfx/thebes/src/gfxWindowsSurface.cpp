@@ -39,8 +39,8 @@
 
 THEBES_IMPL_REFCOUNTING(gfxWindowsSurface)
 
-gfxWindowsSurface::gfxWindowsSurface(HDC dc) :
-    mOwnsDC(PR_FALSE), mDC(dc), mOrigBitmap(nsnull)
+gfxWindowsSurface::gfxWindowsSurface(HDC dc, PRBool deleteDC) :
+    mOwnsDC(deleteDC), mDC(dc), mOrigBitmap(nsnull)
 {
     Init(cairo_win32_surface_create(mDC));
 }
@@ -49,6 +49,13 @@ gfxWindowsSurface::gfxWindowsSurface(HDC dc, unsigned long width, unsigned long 
     mOwnsDC(PR_TRUE), mWidth(width), mHeight(height)
 {
     mDC = CreateCompatibleDC(dc);
+    // set the clip region on it so that cairo knows the surface
+    // dimensions
+    HRGN clipRegion = CreateRectRgn(0, 0, width, height);
+    if (SelectClipRgn(mDC, clipRegion) == ERROR) {
+        NS_ERROR("gfxWindowsSurface: SelectClipRgn failed\n");
+    }
+    DeleteObject(clipRegion);
 
     // Creating with width or height of 0 will create a
     // 1x1 monotone bitmap, which isn't what we want

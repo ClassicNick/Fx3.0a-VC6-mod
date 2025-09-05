@@ -22,6 +22,7 @@
 #
 # Contributor(s):
 #  Chase Phillips <chase@mozilla.org>
+#  Benjamin Smedberg <benjamin@smedbergs.us>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -86,6 +87,9 @@ endif
 
 # Add $(DIST)/lib to VPATH so that -lfoo dependencies are followed
 VPATH += $(DIST)/lib
+ifdef LIBXUL_SDK
+VPATH += $(LIBXUL_SDK)/lib
+endif
 
 ifdef _LIBNAME_RELATIVE_PATHS
 EXPAND_LIBNAME = $(addsuffix .$(LIB_SUFFIX),$(1))
@@ -285,7 +289,7 @@ GARBAGE			+= $(SIMPLE_PROGRAMS:%=%.$(OBJ_SUFFIX))
 endif
 
 ifdef HOST_SIMPLE_PROGRAMS
-GARBAGE			+= $(addprefix host_,$(HOST_SIMPLE_PROGRAMS:%=%.$(OBJ_SUFFIX)))
+GARBAGE			+= $(HOST_SIMPLE_PROGRAMS:%=%.$(OBJ_SUFFIX))
 endif
 
 #
@@ -696,9 +700,6 @@ ifdef HOST_LIBRARY
 endif
 endif # !NO_DIST_INSTALL
 	+$(LOOP_OVER_DIRS)
-ifndef MOZ_ENABLE_LIBXUL
-	+$(LOOP_OVER_TOOL_DIRS)
-endif
 
 ##############################################
 install:: $(SUBMAKEFILES) $(MAKE_DIRS)
@@ -805,6 +806,12 @@ else
 
 ifeq (_WINNT,$(GNU_CC)_$(OS_ARCH))
 	$(LD) -NOLOGO -OUT:$@ -PDB:$(PDBFILE) $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(PROGOBJS) $(RESFILE) $(LIBS) $(EXTRA_LIBS) $(OS_LIBS)
+ifdef MSMANIFEST_TOOL
+	@if test -f $@.manifest; then \
+		mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;1; \
+		rm -f $@.manifest; \
+	fi
+endif	# MSVC with manifest tool
 else
 ifeq ($(CPP_PROG_LINK),1)
 	$(CCC) -o $@ $(CXXFLAGS) $(WRAP_MALLOC_CFLAGS) $(PROGOBJS) $(RESFILE) $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(BIN_FLAGS) $(WRAP_MALLOC_LIB) $(PROFILER_LIBS) $(EXE_DEF_FILE)
@@ -835,8 +842,14 @@ else
 ifeq (WINCE,$(OS_ARCH))
 	$(HOST_LD) -NOLOGO -OUT:$@ $(HOST_OBJS) $(WIN32_EXE_LDFLAGS) $(HOST_LIBS) $(HOST_EXTRA_LIBS)
 else
-ifeq (_WINNT,$(GNU_CC)_$(OS_ARCH))
+ifeq (_WINNT,$(GNU_CC)_$(HOST_OS_ARCH))
 	$(HOST_LD) -NOLOGO -OUT:$@ -PDB:$(PDBFILE) $(HOST_OBJS) $(WIN32_EXE_LDFLAGS) $(HOST_LIBS) $(HOST_EXTRA_LIBS)
+ifdef MSMANIFEST_TOOL
+	@if test -f $@.manifest; then \
+		mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;1; \
+		rm -f $@.manifest; \
+	fi
+endif	# MSVC with manifest tool
 else
 	$(HOST_CC) -o $@ $(HOST_CFLAGS) $(HOST_LDFLAGS) $(HOST_PROGOBJS) $(HOST_LIBS) $(HOST_EXTRA_LIBS)
 endif
@@ -860,6 +873,12 @@ ifeq ($(MOZ_OS2_TOOLS),VACPP)
 else
 ifeq (_WINNT,$(GNU_CC)_$(OS_ARCH))
 	$(LD) -nologo -out:$@ -pdb:$(PDBFILE) $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS) $(EXTRA_LIBS) $(OS_LIBS)
+ifdef MSMANIFEST_TOOL
+	@if test -f $@.manifest; then \
+		mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;1; \
+		rm -f $@.manifest; \
+	fi
+endif	# MSVC with manifest tool
 else
 ifeq ($(CPP_PROG_LINK),1)
 	$(CCC) $(WRAP_MALLOC_CFLAGS) $(CXXFLAGS) -o $@ $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(WRAP_MALLOC_LIB) $(PROFILER_LIBS) $(BIN_FLAGS)
@@ -878,10 +897,18 @@ ifdef MOZ_POST_PROGRAM_COMMAND
 endif
 
 $(HOST_SIMPLE_PROGRAMS): host_%$(HOST_BIN_SUFFIX): host_%.$(OBJ_SUFFIX) $(HOST_LIBS_DEPS) $(HOST_EXTRA_DEPS) Makefile Makefile.in
+ifeq ($(MOZ_OS2_TOOLS),VACPP)
+	$(HOST_LD) -OUT:$@ $< $(LDFLAGS) $(HOST_LIBS) $(HOST_EXTRA_LIBS) -ST:0x100000
+else
 ifeq (WINCE,$(OS_ARCH))
 	$(HOST_LD) -NOLOGO -OUT:$@ $(WIN32_EXE_LDFLAGS) $< $(HOST_LIBS) $(HOST_EXTRA_LIBS)
 else
+ifeq (WINNT_,$(HOST_OS_ARCH)_$(GNU_CC))
+	$(HOST_LD) -NOLOGO -OUT:$@ -PDB:$(PDBFILE) $< $(WIN32_EXE_LDFLAGS) $(HOST_LIBS) $(HOST_EXTRA_LIBS)
+else
 	$(HOST_CC) $(OUTOPTION)$@ $(HOST_CFLAGS) $(INCLUDES) $< $(HOST_LIBS) $(HOST_EXTRA_LIBS)
+endif
+endif
 endif
 
 #
@@ -1005,6 +1032,14 @@ ifdef SHARED_LIBRARY_LIBS
 endif # SHARED_LIBRARY_LIBS
 endif # NO_LD_ARCHIVE_FLAGS
 	$(MKSHLIB) $(SHLIB_LDSTARTFILE) $(OBJS) $(LOBJS) $(SUB_SHLOBJS) $(RESFILE) $(LDFLAGS) $(EXTRA_DSO_LDOPTS) $(OS_LIBS) $(EXTRA_LIBS) $(DEF_FILE) $(SHLIB_LDENDFILE)
+ifeq (_WINNT,$(GNU_CC)_$(OS_ARCH))
+ifdef MSMANIFEST_TOOL
+	@if test -f $@.manifest; then \
+		mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;2; \
+		rm -f $@.manifest; \
+	fi
+endif	# MSVC with manifest tool
+endif	# WINNT && !GCC
 	@rm -f foodummyfilefoo $(SUB_SHLOBJS) $(DELETE_AFTER_LINK)
 else # os2 vacpp
 	$(MKSHLIB) -O:$@ -DLL -INC:_dllentry $(LDFLAGS) $(OBJS) $(LOBJS) $(EXTRA_DSO_LDOPTS) $(OS_LIBS) $(EXTRA_LIBS) $(DEF_FILE)
@@ -1229,15 +1264,12 @@ ifneq ($(PREF_JS_EXPORTS),)
 ifdef GRE_MODULE
 PREF_DIR = greprefs
 else
-ifdef XPI_NAME
+ifneq (,$(XPI_NAME)$(LIBXUL_SDK))
 PREF_DIR = defaults/preferences
 else
 PREF_DIR = defaults/pref
 endif
 endif
-
-$(FINAL_TARGET)/$(PREF_DIR) $(DESTDIR)$(mozappdir)/$(PREF_DIR):
-	@if test ! -d $@; then echo Creating $@; rm -rf $@; $(NSINSTALL) -D $@; else true; fi
 
 # on win32, pref files need CRLF line endings... see bug 206029
 ifeq (WINNT,$(OS_ARCH))
@@ -1245,7 +1277,8 @@ PREF_PPFLAGS = --line-endings=crlf
 endif
 
 ifndef NO_DIST_INSTALL
-libs:: $(PREF_JS_EXPORTS) $(FINAL_TARGET)/$(PREF_DIR)
+libs:: $(PREF_JS_EXPORTS)
+	if test ! -d $(FINAL_TARGET)/$(PREF_DIR); then $(NSINSTALL) -D $(FINAL_TARGET)/$(PREF_DIR); fi
 	$(EXIT_ON_ERROR)  \
 	for i in $(PREF_JS_EXPORTS); \
 	do $(PERL) $(topsrcdir)/config/preprocessor.pl $(PREF_PPFLAGS) $(DEFINES) $(ACDEFINES) $$i > $(FINAL_TARGET)/$(PREF_DIR)/`basename $$i`; \
@@ -1253,7 +1286,8 @@ libs:: $(PREF_JS_EXPORTS) $(FINAL_TARGET)/$(PREF_DIR)
 endif
 
 ifndef NO_INSTALL
-install:: $(PREF_JS_EXPORTS) $(DESTDIR)$(mozappdir)/$(PREF_DIR)
+install:: $(PREF_JS_EXPORTS)
+	if test ! -d $(DESTDIR)$(mozappdir)/$(PREF_DIR); then $(NSINSTALL) -D $(DESTDIR)$(mozappdir)/$(PREF_DIR); fi
 	$(EXIT_ON_ERROR)  \
 	for i in $(PREF_JS_EXPORTS); \
 	do $(PERL) $(topsrcdir)/config/preprocessor.pl $(DEFINES) $(ACDEFINES) $$i > $(DESTDIR)$(mozappdir)/$(PREF_DIR)/`basename $$i`; \
@@ -1313,7 +1347,7 @@ $(XPIDL_GEN_DIR)/.done:
 
 $(XPIDL_GEN_DIR)/%.h: %.idl $(XPIDL_COMPILE) $(XPIDL_GEN_DIR)/.done
 	$(REPORT_BUILD)
-	$(ELOG) $(XPIDL_COMPILE) -m header -w -I$(srcdir) -I$(IDL_DIR) -o $(XPIDL_GEN_DIR)/$* $(_VPATH_SRCS)
+	$(ELOG) $(XPIDL_COMPILE) -m header -w $(XPIDL_FLAGS) -o $(XPIDL_GEN_DIR)/$* $(_VPATH_SRCS)
 	@if test -n "$(findstring $*.h, $(EXPORTS) $(SDK_HEADERS))"; \
 	  then echo "*** WARNING: file $*.h generated from $*.idl overrides $(srcdir)/$*.h"; else true; fi
 
@@ -1322,7 +1356,7 @@ ifndef NO_GEN_XPT
 # into $(XPIDL_MODULE).xpt and export it to $(FINAL_TARGET)/components.
 $(XPIDL_GEN_DIR)/%.xpt: %.idl $(XPIDL_COMPILE) $(XPIDL_GEN_DIR)/.done
 	$(REPORT_BUILD)
-	$(ELOG) $(XPIDL_COMPILE) -m typelib -w -I $(IDL_DIR) -I$(srcdir) -e $@ -d $(MDDEPDIR)/$*.pp $(_VPATH_SRCS)
+	$(ELOG) $(XPIDL_COMPILE) -m typelib -w $(XPIDL_FLAGS) -e $@ -d $(MDDEPDIR)/$*.pp $(_VPATH_SRCS)
 
 # no need to link together if XPIDLSRCS contains only XPIDL_MODULE
 ifneq ($(XPIDL_MODULE).idl,$(strip $(XPIDLSRCS)))

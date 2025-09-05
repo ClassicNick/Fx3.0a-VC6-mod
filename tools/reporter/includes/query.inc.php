@@ -4,45 +4,45 @@ require_once($config['base_path'].'/includes/contrib/adodb/adodb.inc.php');
 class query
 {
         // approved "selectable" and "queryable" fields.  In sort order
-        var $approved_selects = array('count' /*special */,
-                                      'report_file_date',
-                                      'host_hostname',
-                                      'report_url',
-                                      'report_behind_login',
-                                      'report_useragent',
-                                      'report_problem_type',
-                                      'report_platform',
-                                      'report_oscpu',
-                                      'report_gecko',
-                                      'report_product',
-                                      'report_language',
-                                      'report_id',
-                                      'report_buildconfig',
-                                      'report_description',
-    /*                                'report_email',
-                                      'report_ip',
-    */
-                                      'report_host_id',
-                                      'host_id',
-        );
-        var $approved_wheres = array('count',
-                                     'host_hostname',
-                                     'report_id',
-                                     'report_url',
-                                     'report_problem_type',
-                                     'report_description',
-                                     'report_behind_login',
-                                     'report_useragent',
-                                     'report_platform',
-                                     'report_oscpu',
-                                     'report_gecko',
-                                     'report_language',
-                                     'report_gecko',
-                                     'report_buildconfig',
-                                     'report_product',
-                                     'report_file_date'
-        );
+    var $approved_selects = array('count' /*special */,
+                                  'report_file_date',
+                                  'host_hostname',
+                                  'report_url',
+                                  'report_behind_login',
+                                  'report_useragent',
+                                  'report_problem_type',
+                                  'report_platform',
+                                  'report_oscpu',
+                                  'report_gecko',
+                                  'report_product',
+                                  'report_language',
+                                  'report_id',
+                                  'report_buildconfig',
+                                  'report_description',
+/*                                'report_email',
+                                  'report_ip',
+*/                                'report_host_id',
+                                  'host_id',
+    );
+    var $approved_wheres = array('count',
+                                 'host_hostname',
+                                 'report_id',
+                                 'report_url',
+                                 'report_problem_type',
+                                 'report_description',
+                                 'report_behind_login',
+                                 'report_useragent',
+                                 'report_platform',
+                                 'report_oscpu',
+                                 'report_gecko',
+                                 'report_language',
+                                 'report_gecko',
+                                 'report_buildconfig',
+                                 'report_product',
+                                 'report_file_date'
+    );
 
+    var $orderbyChecked = false;
 
     function query(){}
 
@@ -65,7 +65,7 @@ class query
          *******************/
         if (!isset($_GET['show']) ||
              $_GET['show'] == null ||
-             $_GET['show'] > 200)
+             $_GET['show'] > $config['max_show'])
         {
             $show = $config['show'];
         } else {
@@ -88,7 +88,7 @@ class query
          *******************/
         $count = null;
         if (isset($_GET['count'])){
-            $count = 'host_id'; // XX limitation for now
+            $count = 'report_id'; // XX limitation for now
         }
         // if nothing... it's nothing
 
@@ -111,13 +111,13 @@ class query
         } else {
             // Otherwise, we do it for  them
             $selected[] = array('field' => 'host_hostname',
-                                'title' => 'Host');
+                                'title' => $config['fields']['host_hostname']);
         }
         if(!isset($_GET['count']) &&
            $this->_searchQueryInput($selected, 'report_id') === false){
             $artificialReportID = true;
             $selected[] = array('field' => 'report_id',
-                                'title' => 'Report ID');
+                                'title' => $config['fields']['report_id']);
         }
 
       /*******************
@@ -127,7 +127,14 @@ class query
         // The first priority is those who were recently specified (such as a menu header clicked).
         if(isset($_GET['orderby']) && in_array(strtolower($_GET['orderby']), $this->approved_selects)){
             $orderby[$_GET['orderby']] = $ascdesc;
+            
+            // For continuity Params we set this to true to verify it's been checked as matching an approved val
+            $this->orderbyChecked = true;
         }
+
+      /*******************
+       * COUNT
+       *******************/
         // After, we append those who werere selected previously and order desc.
         if(!isset($_GET['count'])){
             $orderby = array_merge($orderby, $this->_calcOrderBy($selected, $orderby));
@@ -136,12 +143,12 @@ class query
         // If we are counting, we need to add A column for it
         if (isset($_GET['count'])){
             // set the count variable
-
-            $selected['count'] = 'Number';
-            unset($selected['report_id']);
+            $next =sizeof($selected)+1;
+            $selected[$next]['field'] = 'count';
+            $selected[$next]['title'] = 'Amount';
 
             // Hardcode host_id
-            $_GET['count'] = 'host_id'; // XXX we just hardcode this (just easier for now, and all people will be doing).
+            $_GET['count'] = 'report_id'; // XXX we just hardcode this (just easier for now, and all people will be doing).
             // XX NOTE:  We don't escape count below because 'host_id' != `host_id`.
 
             /*******************
@@ -183,7 +190,6 @@ class query
                 }
             }
         }
-
         return array('selected'               => $selected,
                      'where'                  => $where,
                      'orderby'                => $orderby,
@@ -204,7 +210,7 @@ class query
         foreach($select as $select_child){
             // we don't $db->quote here since unless it's in our approved array (exactly), we drop it anyway. i.e. report_id is on our list, 'report_id' is not.
             // we sanitize on our own
-            if ($select_child == 'count'){
+            if ($select_child['field'] == 'count'){
                 $sql_select .= 'COUNT( '.$count.' ) AS count';
                 if(!isset($orderby['count'])){
                     $orderby = array_merge(array('count'=> 'DESC'), $orderby);
@@ -229,6 +235,7 @@ class query
          ************/
         $sql_where = 'WHERE ';
         foreach($where as $where_child){
+            // we make sure to use quote() here to escape any evil
             $sql_where .= $where_child[0].' '.$where_child[1].' '.$db->quote($where_child[2]).' AND ';
         }
 
@@ -281,7 +288,7 @@ class query
          *******************/
         $sql_groupby = null;
         if (isset($_GET['count'])){
-            $sql_groupby = 'GROUP BY host_id DESC ';
+            $sql_groupby = 'GROUP BY host_hostname DESC ';
         }
 
         $sql = $sql_select." \r".$sql_from." \r".$sql_where." \r".$sql_groupby.$sql_orderby;
@@ -341,16 +348,28 @@ class query
                 }
             }
         }
+
         // Selected
         if(isset($query_input['selected']) && sizeof($query_input['selected']) > 0 && !in_array('selected', $omit)){
             foreach($query_input['selected'] as $selectedNode){
                 if(!($selectedNode['field'] == 'report_id' && $query_input['artificialReportID'])){
-                    $standard .= 'selected%5B%5D='.$selectedNode['field'].'&amp;';
+                    if($selectedNode['field'] != 'count' && !in_array($selectedNode['field'], $omit)){
+                        $standard .= 'selected%5B%5D='.$selectedNode['field'].'&amp;';
+                    }
                 }
             }
         }
 
+        // Ascdesc
+        if((isset($_GET['ascdesc']) && !in_array('ascdesc', $omit)) &&
+           ($_GET['ascdesc'] == 'asc' || $_GET['ascdesc'] == 'desc')){
+             $standard .= 'ascdesc='.$_GET['ascdesc'].'&amp;';
+        }
+
         // Orderby
+        if(isset($_GET['orderby']) && !in_array('orderby', $omit) && $this->orderbyChecked){
+             $standard .= 'orderby='.$_GET['orderby'].'&amp;';
+        }
 
         // Count
         if(isset($query_input['count']) && !in_array('count', $omit)){
@@ -373,10 +392,11 @@ class query
         }
 
         // lets return
+        
         return $standard;
     }
 
-    function columnHeaders($query_input, $continuityParams){
+    function columnHeaders($query_input){
         $columnCount = 0;
         $column[$columnCount]['text'] = 'Detail';
         $columnCount++;
@@ -393,8 +413,8 @@ class query
                     $o_ascdesc = 'desc';
                 }
 
-                if((isset($query_input['count']) && $title_name == 'count') || !isset($query_input['count'])){
-                    $column[$columnCount]['url'] = '?'.$continuityParams.'&amp;orderby='.$o_orderby.'&amp;ascdesc='.$o_ascdesc;
+                if((isset($query_input['count'])) || !isset($query_input['count'])){
+                    $column[$columnCount]['url'] = '?'.$this->continuityParams($query_input, array('ascdesc')).'&amp;orderby='.$o_orderby.'&amp;ascdesc='.$o_ascdesc;
                 }
                 $columnCount++;
             }
@@ -402,9 +422,10 @@ class query
         return $column;
     }
 
-    function outputHTML($result, $query_input, $continuity_params, $columnHeaders){
+    function outputHTML($result, $query_input, $columnHeaders){
         global $iolib;
 
+        $continuity_params = $this->continuityParams($query_input, array('count', 'ascdesc', 'orderby'));
         // Data
         $data = array();
         $rowNum = 0;
@@ -415,10 +436,10 @@ class query
                 // Prepend if new_front;
                 $data[$rowNum][0]['text'] = 'Detail';
                 if (isset($row['count'])){
-                    $data[$rowNum][0]['url']  = '/query/?host_hostname='.$row['host_hostname'].'&amp;selected%5B%5D=host_hostname&amp;'.$continuity_params[0];
+                    $data[$rowNum][0]['url']  = '/query/?host_hostname='.$row['host_hostname'].'&amp;'.$continuity_params.'&amp;selected%5B%5D=report_file_date';
                 }
                 else {
-                    $data[$rowNum][0]['url']  = '/report/?report_id='.$row['report_id'].'&amp;'.$continuity_params[0];
+                    $data[$rowNum][0]['url']  = '/report/?report_id='.$row['report_id'].'&amp;'.$continuity_params;
                 }
                 $colNum++;
     
@@ -458,15 +479,6 @@ class query
             }
         }
 
-/*
-        foreach($selected as $selectedChild){
-            if(in_array($selectedChild['field'], $this->approved_selects) &&
-               !array_key_exists($selectedChild['field'], $orderby))
-            {
-                $result[$selectedChild['field']] = 'desc';
-            }
-        }
-*/
         return $result;
     }
 

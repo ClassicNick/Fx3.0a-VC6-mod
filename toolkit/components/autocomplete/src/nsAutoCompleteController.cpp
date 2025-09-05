@@ -40,11 +40,12 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsAutoCompleteController.h"
+#ifdef MOZ_MORK
 #include "nsAutoCompleteMdbResult.h"
+#endif
 #include "nsAutoCompleteSimpleResult.h"
 
 #include "nsToolkitCompsCID.h"
-#include "nsIAutoCompleteResultTypes.h"
 #include "nsIServiceManager.h"
 #include "nsIDOMElement.h"
 #include "nsIAtomService.h"
@@ -411,8 +412,10 @@ nsAutoCompleteController::HandleKeyNavigation(PRUint16 aKey, PRBool *_retval)
         if (selectedIndex >= 0) {
           //  A result is selected, so fill in its value
           nsAutoString value;
-          if (NS_SUCCEEDED(GetResultValueAt(selectedIndex, PR_TRUE, value)))
-            CompleteValue(value, PR_FALSE);
+          if (NS_SUCCEEDED(GetResultValueAt(selectedIndex, PR_TRUE, value))) {
+            mInput->SetTextValue(value);
+            mInput->SelectTextRange(value.Length(), value.Length());
+          }
         } else {
           // Nothing is selected, so fill in the last typed value
           mInput->SetTextValue(mSearchString);
@@ -1166,22 +1169,12 @@ nsAutoCompleteController::CompleteDefaultIndex(PRInt32 aSearchIndex)
 nsresult
 nsAutoCompleteController::CompleteValue(nsString &aValue, PRBool selectDifference)
 {
-  nsString::const_iterator start, end, iter, skip;
+  nsString::const_iterator start, end, iter;
   PRInt32 startSelect, endSelect;
-
-  mSearchString.BeginReading(start);
-  mSearchString.EndReading(end);
-  PRBool searchScheme = FindInReadable(NS_LITERAL_STRING("://"), start, end);
 
   aValue.BeginReading(start);
   aValue.EndReading(end);
   iter = start;
-
-  // Skip "://"-suffixed scheme unless explicitly searched for (bug 202992).
-  if (!searchScheme) {
-    skip = end;
-    iter = FindInReadable(NS_LITERAL_STRING("://"), iter, skip) ? skip : start;
-  }
 
   FindInReadable(mSearchString, iter, end,
          nsCaseInsensitiveStringComparator());
@@ -1282,7 +1275,9 @@ nsAutoCompleteController::RowIndexToSearch(PRInt32 aRowIndex, PRInt32 *aSearchIn
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsAutoCompleteController)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsAutoCompleteSimpleResult)
+#ifdef MOZ_MORK
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsAutoCompleteMdbResult)
+#endif
 
 static const nsModuleComponentInfo components[] =
 {
@@ -1296,10 +1291,12 @@ static const nsModuleComponentInfo components[] =
     NS_AUTOCOMPLETESIMPLERESULT_CONTRACTID,
     nsAutoCompleteSimpleResultConstructor },
 
+#ifdef MOZ_MORK
   { "AutoComplete Mdb Result",
     NS_AUTOCOMPLETEMDBRESULT_CID, 
     NS_AUTOCOMPLETEMDBRESULT_CONTRACTID,
     nsAutoCompleteMdbResultConstructor },
+#endif
 };
 
 NS_IMPL_NSGETMODULE(tkAutoCompleteModule, components)

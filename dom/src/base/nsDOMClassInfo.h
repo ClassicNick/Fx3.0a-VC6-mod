@@ -180,6 +180,10 @@ public:
    *
    * A preservation with a given key overwrites any previous
    * preservation with that key.
+   *
+   * No strong references are held as a result of this function call, so
+   * the caller is responsible for calling |ReleaseWrapper| sometime
+   * before |aParticipant|'s destructor runs.
    */
   static nsresult PreserveWrapper(void* aKey,
                                   nsIXPConnectJSObjectHolder* (*aKeyToWrapperFunc)(void* aKey),
@@ -190,6 +194,9 @@ public:
    * Easier way to call the above just for DOM nodes (and better, since
    * we get the performance benefits of having the same identity function).
    * The call to |PreserveWrapper| is made with |aKey| == |aWrapper|.
+   *
+   * The caller need not call |ReleaseWrapper| since the node's
+   * wrapper's scriptable helper does so in its finalize callback.
    */
   static nsresult PreserveNodeWrapper(nsIXPConnectWrappedNative *aWrapper);
 
@@ -363,15 +370,39 @@ protected:
 
 typedef nsDOMClassInfo nsDOMGenericSH;
 
+// Scriptable helper for implementations of nsIDOMGCParticipant that
+// need a mark callback.
+class nsDOMGCParticipantSH : public nsDOMGenericSH
+{
+protected:
+  nsDOMGCParticipantSH(nsDOMClassInfoData* aData) : nsDOMGenericSH(aData)
+  {
+  }
+
+  virtual ~nsDOMGCParticipantSH()
+  {
+  }
+
+public:
+  NS_IMETHOD Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                      JSObject *obj);
+  NS_IMETHOD Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                  JSObject *obj, void *arg, PRUint32 *_retval);
+
+  static nsIClassInfo *doCreate(nsDOMClassInfoData* aData)
+  {
+    return new nsDOMGCParticipantSH(aData);
+  }
+};
 
 // EventProp scriptable helper, this class should be the base class of
 // all objects that should support things like
 // obj.onclick=function{...}
 
-class nsEventReceiverSH : public nsDOMGenericSH
+class nsEventReceiverSH : public nsDOMGCParticipantSH
 {
 protected:
-  nsEventReceiverSH(nsDOMClassInfoData* aData) : nsDOMGenericSH(aData)
+  nsEventReceiverSH(nsDOMClassInfoData* aData) : nsDOMGCParticipantSH(aData)
   {
   }
 
@@ -413,10 +444,6 @@ public:
                          PRBool *_retval);
   NS_IMETHOD AddProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                          JSObject *obj, jsval id, jsval *vp, PRBool *_retval);
-  NS_IMETHOD Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                      JSObject *obj);
-  NS_IMETHOD Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                  JSObject *obj, void *arg, PRUint32 *_retval);
 };
 
 

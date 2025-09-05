@@ -251,10 +251,14 @@ nsSVGCairoGlyphMetrics::Update(PRUint32 updatemask, PRBool *_retval)
     *_retval = PR_TRUE;
   }
 
-  SelectFont(mCT);
-
   nsAutoString text;
   mSource->GetCharacterData(text);
+  if (text.IsEmpty()) {
+    memset(&mExtents, 0, sizeof(cairo_text_extents_t));
+    return NS_OK;
+  }
+
+  SelectFont(mCT);
   cairo_text_extents(mCT, 
                      NS_ConvertUCS2toUTF8(text).get(),
                      &mExtents);
@@ -300,5 +304,9 @@ nsSVGCairoGlyphMetrics::SelectFont(cairo_t *ctx)
     mSource->GetPresContext(getter_AddRefs(presContext));
     float pxPerTwips;
     pxPerTwips = presContext->TwipsToPixels();
-    cairo_set_font_size(ctx, font.size*pxPerTwips);
+    // Since SVG has its own scaling, we really don't want
+    // fonts in SVG to respond to the browser's "TextZoom"
+    // (Ctrl++,Ctrl+-)
+    float textZoom = presContext->TextZoom();
+    cairo_set_font_size(ctx, font.size*pxPerTwips/textZoom);
 }

@@ -39,11 +39,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-const __cz_version   = "0.9.67+";
+const __cz_version   = "0.9.70";
 const __cz_condition = "green";
 const __cz_suffix    = "";
 const __cz_guid      = "59c81df5-4b7a-477b-912d-4e0fdf64e5f2";
-const __cz_locale    = "0.9.67.6";
+const __cz_locale    = "0.9.70.0";
 
 var warn;
 var ASSERT;
@@ -205,9 +205,10 @@ function init()
 
     client.initialized = true;
 
+    dispatch("help", { hello: true });
     dispatch("networks");
-    dispatch("commands");
 
+    initInstrumentation();
     setTimeout(processStartupURLs, 0);
 }
 
@@ -341,7 +342,7 @@ function initStatic()
 
     client.statusBar = new Object();
 
-    client.statusBar["server-nick"] = document.getElementById ("server-nick");
+    client.statusBar["server-nick"] = document.getElementById("server-nick");
 
     client.statusElement = document.getElementById("status-text");
     client.defaultStatus = MSG_DEFAULT_STATUS;
@@ -391,7 +392,7 @@ function initApplicationCompatibility()
     // This routine does nothing more than tweak the UI based on the host
     // application.
 
-    /* client.hostCompat.typeChromeBrowser indicates whether we should use 
+    /* client.hostCompat.typeChromeBrowser indicates whether we should use
      * type="chrome" <browser> elements for the output window documents.
      * Using these is necessary to work properly with xpcnativewrappers, but
      * broke selection in older builds.
@@ -461,7 +462,7 @@ function initApplicationCompatibility()
 function initNetworks()
 {
     client.addNetwork("moznet",
-                      [{name: "irc.mozilla.org", port:6667}, 
+                      [{name: "irc.mozilla.org", port:6667},
                        {name: "irc.mozilla.org", port:6697, isSecure:true}]);
     client.addNetwork("hybridnet", [{name: "irc.ssc.net", port: 6667}]);
     client.addNetwork("slashnet", [{name: "irc.slashnet.org", port:6667}]);
@@ -470,7 +471,7 @@ function initNetworks()
     client.addNetwork("webbnet", [{name: "irc.webbnet.info", port:6667}]);
     client.addNetwork("quakenet", [{name: "irc.quakenet.org", port:6667}]);
     client.addNetwork("freenode", [{name: "irc.freenode.net", port:6667}]);
-    client.addNetwork("serenia", 
+    client.addNetwork("serenia",
                       [{name: "chat.serenia.net", port:9999, isSecure:true}]);
     client.addNetwork("efnet",
                       [{name: "irc.prison.net", port: 6667},
@@ -539,6 +540,105 @@ function initIcons()
     }
 }
 
+function initInstrumentation()
+{
+    // Make sure we assign the user a random key - this is not used for
+    // anything except percentage chance of participation.
+    if (client.prefs["instrumentation.key"] == 0)
+    {
+        var rand = 1 + Math.round(Math.random() * 10000);
+        client.prefs["instrumentation.key"] = rand;
+    }
+
+    runInstrumentation("inst1");
+}
+
+function runInstrumentation(name, firstRun)
+{
+    if (!/^inst\d+$/.test(name))
+        return;
+
+    // Values:
+    //   0 = not answered question
+    //   1 = allowed inst
+    //   2 = denied inst
+
+    if (client.prefs["instrumentation." + name] == 0)
+    {
+        // We only want 1% of people to be asked here.
+        if (client.prefs["instrumentation.key"] > 100)
+            return;
+
+        // User has not seen the info about this system. Show them the info.
+        var cmdYes = "allow-" + name;
+        var cmdNo = "deny-" + name;
+        var btnYes = getMsg(MSG_INST1_COMMAND_YES, cmdYes);
+        var btnNo  = getMsg(MSG_INST1_COMMAND_NO,  cmdNo);
+        client.munger.entries[".inline-buttons"].enabled = true;
+        client.display(getMsg("msg." + name + ".msg1", [btnYes, btnNo]));
+        client.display(getMsg("msg." + name + ".msg2", [cmdYes, cmdNo]));
+        client.munger.entries[".inline-buttons"].enabled = false;
+
+        // Don't hide *client* if we're asking the user about the startup ping.
+        client.lockView = true;
+        return;
+    }
+
+    if (client.prefs["instrumentation." + name] != 1)
+        return;
+
+    if (name == "inst1")
+        runInstrumentation1(firstRun);
+}
+
+function runInstrumentation1(firstRun)
+{
+    function inst1onLoad()
+    {
+        if (/OK/.test(req.responseText))
+            client.display(MSG_INST1_MSGRPLY2);
+        else
+            client.display(getMsg(MSG_INST1_MSGRPLY1, MSG_UNKNOWN));
+    };
+
+    function inst1onError()
+    {
+        client.display(getMsg(MSG_INST1_MSGRPLY1, req.statusText));
+    };
+
+    try
+    {
+        const baseURI = "http://silver.warwickcompsoc.co.uk/" +
+                        "mozilla/chatzilla/instrumentation/startup?";
+
+        if (firstRun)
+        {
+            // Do a first-run ping here.
+            var frReq = new XMLHttpRequest();
+            frReq.open("GET", baseURI + "first-run");
+            frReq.send(null);
+        }
+
+        var data = new Array();
+        data.push("ver=" + encodeURIComponent(CIRCServer.prototype.VERSION_RPLY));
+        data.push("host=" + encodeURIComponent(client.hostPlatform));
+        data.push("chost=" + encodeURIComponent(CIRCServer.prototype.HOST_RPLY));
+        data.push("cos=" + encodeURIComponent(CIRCServer.prototype.OS_RPLY));
+
+        var url = baseURI + data.join("&");
+
+        var req = new XMLHttpRequest();
+        req.onload = inst1onLoad;
+        req.onerror = inst1onError;
+        req.open("GET", url);
+        req.send(null);
+    }
+    catch (ex)
+    {
+        client.display(getMsg(MSG_INST1_MSGRPLY1, formatException(ex)));
+    }
+}
+
 function getFindData(e)
 {
     var findData = new nsFindInstData();
@@ -548,14 +648,14 @@ function getFindData(e)
 
     /* Yay, evil hacks! findData.init doesn't care about the findService, it
      * gets option settings from webBrowserFind. As we want the wrap option *on*
-     * when we use /find foo, we set it on the findService there. However, 
-     * restoring the original value afterwards doesn't help, because init() here 
+     * when we use /find foo, we set it on the findService there. However,
+     * restoring the original value afterwards doesn't help, because init() here
      * overrides that value. Unless we make .init do something else, of course:
      */
     findData._init = findData.init;
-    findData.init = 
+    findData.init =
         function init()
-        { 
+        {
             this._init();
             const FINDSVC_ID = "@mozilla.org/find/find_service;1";
             var findService = getService(FINDSVC_ID, "nsIFindService");
@@ -1213,6 +1313,7 @@ function insertInlineButton(text, containerTag, data)
     var link = document.createElementNS("http://www.w3.org/1999/xhtml", "a");
     link.setAttribute("href", "x-cz-command:" + encodeURI(command));
     link.setAttribute("title", title);
+    link.setAttribute("class", "chatzilla-link");
     link.appendChild(document.createTextNode(label));
 
     containerTag.appendChild(document.createTextNode("["));
@@ -2282,7 +2383,7 @@ function updateSecurityIcon()
     }
 
     var securityState = o.server.connection.getSecurityState()
-    switch (securityState[0]) 
+    switch (securityState[0])
     {
         case STATE_IS_SECURE:
             securityButton.firstChild.value = o.server.hostname;
@@ -2858,7 +2959,7 @@ function reSortUserlist(node)
     if (client.prefs["sortUsersByMode"])
         sortResource = RES_PFX + "sortname";
     else
-        sortResource = RES_PFX + "nick";
+        sortResource = RES_PFX + "unicodeName";
 
     try
     {
@@ -3231,15 +3332,19 @@ function tabdnd_dstart (aEvent, aXferData, aDragAction)
 var userlistDNDObserver = new Object();
 
 userlistDNDObserver.onDragStart =
-function userlistdnd_dstart(event, transferdata, dragAction)
+function userlistdnd_dstart(event, transferData, dragAction)
 {
+    var col = new Object(), row = new Object(), cell = new Object();
     var tree = document.getElementById('user-list');
-    var index = tree.treeBoxObject.getRowAt(event.clientX, event.clientY);
-    var user = tree.contentView.getItemAtIndex(index).firstChild.firstChild;
+    tree.treeBoxObject.getCellAt(event.clientX, event.clientY, row, col, cell);
+    // Check whether we're actually on a normal row and cell
+    if (!cell.value || (row.value == -1)) 
+        return;
+    var user = tree.contentView.getItemAtIndex(row.value).firstChild.firstChild;
     var nickname = user.getAttribute("unicodeName");
 
-    transferdata.data = new TransferData();
-    transferdata.data.addDataForFlavour("text/unicode", nickname);
+    transferData.data = new TransferData();
+    transferData.data.addDataForFlavour("text/unicode", nickname);
 }
 
 function deleteTab (tb)
@@ -4118,7 +4223,7 @@ function addHistory (source, obj, mergeData)
                             inobj.getAttribute("msg-type"));
             // Is either of the messages an action? We may not want to collapse
             // depending on the collapseActions pref
-            isAction = ((inobj.getAttribute("msg-type") == "ACTION") || 
+            isAction = ((inobj.getAttribute("msg-type") == "ACTION") ||
                         (lastRow.getAttribute("msg-type") == "ACTION"));
             // Do we collapse actions?
             collapseActions = source.prefs["collapseActions"];
@@ -4260,6 +4365,10 @@ function findPreviousColumnInfo(table)
 
 function getLogPath(obj)
 {
+    // If we're logging, return the currently-used URL.
+    if (obj.logFile)
+        return getURLSpecFromFile(obj.logFile.path);
+    // If not, return the ideal URL.
     return getURLSpecFromFile(obj.prefs["logFileName"]);
 }
 
@@ -4290,6 +4399,29 @@ function cli_quit (reason)
             netReason = (netReason ? netReason : client.userAgent);
             net.quit(netReason);
         }
+    }
+}
+
+client.wantToQuit =
+function cli_wantToQuit(reason)
+{
+    
+    var close = true;
+    if (client.prefs["warnOnClose"])
+    {
+        const buttons = ["!yes", "!no"];
+        var checkState = { value: true };
+        var rv = confirmEx(MSG_CONFIRM_QUIT, buttons, 0, MSG_WARN_ON_EXIT,
+                           checkState);
+        close = (rv == 0);
+        client.prefs["warnOnClose"] = checkState.value;
+    }
+
+    if (close)
+    {
+        client.userClose = true;
+        display(MSG_CLOSING);
+        client.quit(reason);
     }
 }
 

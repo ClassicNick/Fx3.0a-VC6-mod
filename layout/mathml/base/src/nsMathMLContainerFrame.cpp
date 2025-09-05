@@ -63,6 +63,7 @@
 #include "nsMathMLContainerFrame.h"
 #include "nsAutoPtr.h"
 #include "nsStyleSet.h"
+#include "nsDisplayList.h"
 #include "nsCSSFrameConstructor.h"
 
 NS_DEFINE_CID(kInlineFrameCID, NS_INLINE_FRAME_CID);
@@ -125,32 +126,45 @@ nsMathMLContainerFrame::ReflowError(nsIRenderingContext& aRenderingContext,
   return NS_OK;
 }
 
-nsresult
-nsMathMLContainerFrame::PaintError(nsIRenderingContext& aRenderingContext,
-                                   const nsRect&        aDirtyRect,
-                                   nsFramePaintLayer    aWhichLayer)
-{
-  if (NS_FRAME_PAINT_LAYER_FOREGROUND == aWhichLayer) {
-    NS_ASSERTION(NS_MATHML_HAS_ERROR(mPresentationData.flags),
-                 "There is nothing wrong with this frame!");
-    // Set color and font ...
-    aRenderingContext.SetFont(GetStyleFont()->mFont, nsnull);
-
-    aRenderingContext.SetColor(NS_RGB(255,0,0));
-    aRenderingContext.FillRect(0, 0, mRect.width, mRect.height);
-    aRenderingContext.SetColor(NS_RGB(255,255,255));
-
-    nscoord ascent;
-    nsCOMPtr<nsIFontMetrics> fm;
-    aRenderingContext.GetFontMetrics(*getter_AddRefs(fm));
-    fm->GetMaxAscent(ascent);
-
-    nsAutoString errorMsg; errorMsg.AssignLiteral("invalid-markup");
-    aRenderingContext.DrawString(errorMsg.get(),
-                                 PRUint32(errorMsg.Length()),
-                                 0, ascent);
+MOZ_DECL_CTOR_COUNTER(nsDisplayMathMLError)
+class nsDisplayMathMLError : public nsDisplayItem {
+public:
+  nsDisplayMathMLError(nsIFrame* aFrame)
+    : mFrame(aFrame) {
+    MOZ_COUNT_CTOR(nsDisplayMathMLError);
   }
-  return NS_OK;
+#ifdef NS_BUILD_REFCNT_LOGGING
+  virtual ~nsDisplayMathMLError() {
+    MOZ_COUNT_DTOR(nsDisplayMathMLError);
+  }
+#endif
+
+  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
+  virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
+     const nsRect& aDirtyRect);
+  NS_DISPLAY_DECL_NAME("MathMLError")
+private:
+  nsIFrame* mFrame;
+};
+
+void nsDisplayMathMLError::Paint(nsDisplayListBuilder* aBuilder,
+     nsIRenderingContext* aCtx, const nsRect& aDirtyRect)
+{
+  // Set color and font ...
+  aCtx->SetFont(mFrame->GetStyleFont()->mFont, nsnull);
+
+  nsPoint pt = aBuilder->ToReferenceFrame(mFrame);
+  aCtx->SetColor(NS_RGB(255,0,0));
+  aCtx->FillRect(nsRect(pt, mFrame->GetSize()));
+  aCtx->SetColor(NS_RGB(255,255,255));
+
+  nscoord ascent;
+  nsCOMPtr<nsIFontMetrics> fm;
+  aCtx->GetFontMetrics(*getter_AddRefs(fm));
+  fm->GetMaxAscent(ascent);
+
+  nsAutoString errorMsg; errorMsg.AssignLiteral("invalid-markup");
+  aCtx->DrawString(errorMsg.get(), PRUint32(errorMsg.Length()), pt.x, pt.y+ascent);
 }
 
 /* /////////////
@@ -456,6 +470,11 @@ nsMathMLContainerFrame::FinalizeReflow(nsIRenderingContext& aRenderingContext,
                         mEmbellishData.direction == NS_STRETCH_DIRECTION_UNSUPPORTED);
   Place(aRenderingContext, placeOrigin, aDesiredSize);
 
+  // exit now if the frame was flagged as having invalid markup
+  if (NS_MATHML_HAS_ERROR(mPresentationData.flags)) {
+    return NS_OK;
+  }
+
   if (!placeOrigin) {
     // This means the rect.x and rect.y of our children were not set!!
     // Don't go without checking to see if our parent will later fire a Stretch() command
@@ -697,28 +716,23 @@ nsMathMLContainerFrame::PropagateScriptStyleFor(nsIFrame*       aFrame,
 
 
 NS_IMETHODIMP
-nsMathMLContainerFrame::Paint(nsPresContext*      aPresContext,
-                              nsIRenderingContext& aRenderingContext,
-                              const nsRect&        aDirtyRect,
-                              nsFramePaintLayer    aWhichLayer,
-                              PRUint32             aFlags)
+nsMathMLContainerFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                         const nsRect&           aDirtyRect,
+                                         const nsDisplayListSet& aLists)
 {
-  if (NS_FRAME_IS_UNFLOWABLE & mState) {
-    return NS_OK;
-  }
-
+  nsresult rv = DisplayBorderBackgroundOutline(aBuilder, aLists);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
   // report an error if something wrong was found in this frame
   if (NS_MATHML_HAS_ERROR(mPresentationData.flags)) {
-    return PaintError(aRenderingContext, aDirtyRect, aWhichLayer);
+    // XXX this has no visibility check ... dunno if that's right or not
+    // REVIEW: That is an existing issue
+    rv = aLists.Content()->AppendNewToTop(new (aBuilder) nsDisplayMathMLError(this));
+    NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  // Paint inline element backgrounds in the foreground layer (bug 36710).
-  if (NS_FRAME_PAINT_LAYER_FOREGROUND == aWhichLayer) {
-    PaintSelf(aPresContext, aRenderingContext, aDirtyRect);
-  }
-
-  PaintDecorationsAndChildren(aPresContext, aRenderingContext, aDirtyRect,
-                              aWhichLayer, PR_FALSE, aFlags);
+  rv = DisplayTextDecorationsAndChildren(aBuilder, aDirtyRect, aLists);
+  NS_ENSURE_SUCCESS(rv, rv);
 
 #if defined(NS_DEBUG) && defined(SHOW_BOUNDING_BOX)
   // for visual debug
@@ -727,21 +741,9 @@ nsMathMLContainerFrame::Paint(nsPresContext*      aPresContext,
   // your mBoundingMetrics and mReference point, and set
   // mPresentationData.flags |= NS_MATHML_SHOW_BOUNDING_METRICS
   // in the Init() of your sub-class
-
-  if (NS_FRAME_PAINT_LAYER_FOREGROUND == aWhichLayer &&
-      NS_MATHML_PAINT_BOUNDING_METRICS(mPresentationData.flags))
-  {
-    aRenderingContext.SetColor(NS_RGB(0,0,255));
-
-    nscoord x = mReference.x + mBoundingMetrics.leftBearing;
-    nscoord y = mReference.y - mBoundingMetrics.ascent;
-    nscoord w = mBoundingMetrics.rightBearing - mBoundingMetrics.leftBearing;
-    nscoord h = mBoundingMetrics.ascent + mBoundingMetrics.descent;
-
-    aRenderingContext.DrawRect(x,y,w,h);
-  }
+  rv = DisplayBoundingMetrics(aBuilder, this, mReference, mBoundingMetrics, aLists);
 #endif
-  return NS_OK;
+  return rv;
 }
 
 // This method is called in a top-down manner, as we descend the frame tree
@@ -942,12 +944,12 @@ nsMathMLContainerFrame::AttributeChanged(PRInt32         aNameSpaceID,
                                          PRInt32         aModType)
 {
   if (aAttribute == nsMathMLAtoms::mathcolor_      ||
-      aAttribute == nsMathMLAtoms::color_          ||
+      aAttribute == nsMathMLAtoms::color           ||
       aAttribute == nsMathMLAtoms::mathsize_       ||
       aAttribute == nsMathMLAtoms::fontsize_       ||
       aAttribute == nsMathMLAtoms::fontfamily_     ||
       aAttribute == nsMathMLAtoms::mathbackground_ ||
-      aAttribute == nsMathMLAtoms::background_) {
+      aAttribute == nsMathMLAtoms::background) {
     MapAttributesIntoCSS(GetPresContext(), this);
   }
 
@@ -1170,6 +1172,12 @@ nsMathMLContainerFrame::GetType() const
 
   // everything else is treated as ordinary (mapped to 'Ord' in TeX)
   return nsMathMLAtoms::ordinaryMathMLFrame;
+}
+
+PRBool
+nsMathMLContainerFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~nsIFrame::eMathML);
 }
 
 enum eMathMLFrameType {

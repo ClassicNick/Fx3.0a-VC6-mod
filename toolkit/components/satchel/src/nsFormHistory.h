@@ -47,6 +47,8 @@
 #include "nsIPrefBranch.h"
 #include "nsWeakReference.h"
 #include "mdb.h"
+#include "nsIServiceManager.h"
+#include "nsToolkitCompsCID.h"
 
 class nsFormHistory : public nsIFormHistory,
                       public nsIObserver,
@@ -65,8 +67,13 @@ public:
   virtual ~nsFormHistory();
   nsresult Init();
 
-  static nsFormHistory *GetInstance();
-  static void ReleaseInstance(void);
+  static nsFormHistory *GetInstance()
+    {
+      if (!gFormHistory) {
+        nsCOMPtr<nsIFormHistory> fh = do_GetService(NS_FORMHISTORY_CONTRACTID);
+      }
+      return gFormHistory;
+    }
 
   nsresult AutoCompleteSearch(const nsAString &aInputName, const nsAString &aInputValue,
                               nsIAutoCompleteMdbResult *aPrevResult, nsIAutoCompleteResult **aNewResult);

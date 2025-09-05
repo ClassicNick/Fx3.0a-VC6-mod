@@ -681,7 +681,7 @@
                           categoriesList[i] = categoriesList[i].replace(' ','_');
                           categoriesList[i] = categoriesList[i].toLowerCase();
                         }
-                        categorySelectorList = categoriesList.join(" ");
+                        categoriesSelectorList = categoriesList.join(" ");
                       }
                       chunkBox.setAttribute("item-category", categoriesSelectorList);
 
@@ -1182,7 +1182,7 @@
     </implementation>
 
     <handlers>
-      <handler event="dblclick"><![CDATA[
+      <handler event="dblclick" button="0"><![CDATA[
         if (this.calendarView.controller) {
             this.calendarView.controller.createNewEvent();
         }
@@ -1412,8 +1412,10 @@
             return;
         }
 
-        // start 'single click edit' timeout
-        if (this.selected) {
+        // If the middle/right button was used for click just select the item.
+        // If the left button was used and the item is already selected start
+        // the 'single click edit' timeout. Otherwise select the item too.
+        if (this.selected && (event.button == 0)) {
             var self = this;
             if (this.editingTimer) {
                 clearTimeout(this.editingTimer);
@@ -1424,7 +1426,7 @@
         }
       ]]></handler>
 
-      <handler event="dblclick"><![CDATA[
+      <handler event="dblclick" button="0"><![CDATA[
         event.stopPropagation();
 
         // stop 'single click edit' timeout (if started)
@@ -1439,7 +1441,7 @@
         }
       ]]></handler>
 
-      <handler event="mousedown"><![CDATA[
+      <handler event="mousedown" button="0"><![CDATA[
         event.preventBubble();
 
         if (this.mEditing)
@@ -1588,9 +1590,10 @@
 	       // The selection manager should be smart enough to only call this
 	       // when the selection really did change, so just do it.
                if (this.calView.mSelectedItem) {
-                   var col = this.calView.findColumnForItem(this.calView.mSelectedItem);
-                   if (col) 
+                   var cols = this.calView.findColumnsForItem(this.calView.mSelectedItem);
+                   for each (col in cols) {
                        col.column.selectOccurrence(null);
+                   }
                }
                this.calView.mSelectedItem = itemSelectionArray[0];
                if (!this.calView.mSelectedItem)
@@ -1599,9 +1602,10 @@
                    this.calView.showDate(this.calView.mSelectedItem.startDate);
                if (this.calView.mSelectedItem.entryDate)
                    this.calView.showDate(this.calView.mSelectedItem.entryDate);
-               var col = this.calView.findColumnForItem(this.calView.mSelectedItem);
-               if (col) 
+               var cols = this.calView.findColumnsForItem(this.calView.mSelectedItem);
+               for each (col in cols) {
                    col.column.selectOccurrence(this.calView.mSelectedItem);
+               }
           }
       })
       ]]></field>
@@ -2246,13 +2250,13 @@
               label.setAttribute("class", "calendar-day-label-date");
               labelbox.appendChild(label);
 
-              // XXX Localize me, get me out of here
-              var dayNames = [ "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" ];
-              var dayNamesShort = [ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" ];
+              var sbs = Components.classes["@mozilla.org/intl/stringbundle;1"]
+                                  .getService(Components.interfaces.nsIStringBundleService);
+              var props = sbs.createBundle("chrome://calendar/locale/dateFormat.properties");
 
               label = createXULElement("label");
               //label.setAttribute("flex", "1");
-              label.setAttribute("value", dayNamesShort[d.weekday]);
+              label.setAttribute("value", props.GetStringFromName("day."+ (d.weekday+1)+ ".Mmm"));
               label.setAttribute("class", "calendar-day-label-name");
               labelbox.appendChild(label);
               
@@ -2289,11 +2293,11 @@
       <method name="findColumnsForItem">
         <parameter name="aItem"/>
         <body><![CDATA[
+          var columns = new Array();
+
           // We don't support tasks here, yet
           if (!(aItem instanceof Components.interfaces.calIEvent))
-              return;
-
-          var columns = new Array();
+              return columns;
 
           // Note that these may be dates or datetimes
           var targetDate = aItem.startDate.clone();

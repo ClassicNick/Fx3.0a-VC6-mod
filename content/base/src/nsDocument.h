@@ -306,13 +306,16 @@ public:
   virtual void Reset(nsIChannel *aChannel, nsILoadGroup *aLoadGroup);
   virtual void ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup);
 
+  // StartDocumentLoad is pure virtual so that subclasses must override it.
+  // The nsDocument StartDocumentLoad does some setup, but does NOT set
+  // *aDocListener; this is the job of subclasses.
   virtual nsresult StartDocumentLoad(const char* aCommand,
                                      nsIChannel* aChannel,
                                      nsILoadGroup* aLoadGroup,
                                      nsISupports* aContainer,
                                      nsIStreamListener **aDocListener,
                                      PRBool aReset = PR_TRUE,
-                                     nsIContentSink* aContentSink = nsnull);
+                                     nsIContentSink* aContentSink = nsnull) = 0;
 
   virtual void StopDocumentLoad();
 
@@ -387,16 +390,6 @@ public:
                                      nsIDocument* aSubDoc);
   virtual nsIDocument* GetSubDocumentFor(nsIContent *aContent) const;
   virtual nsIContent* FindContentForSubDocument(nsIDocument *aDocument) const;
-
-  virtual nsresult SetRootContent(nsIContent* aRoot);
-
-  /**
-   * Get the direct children of the document - content in
-   * the prolog, the root content and content in the epilog.
-   */
-  virtual nsIContent *GetChildAt(PRUint32 aIndex) const;
-  virtual PRInt32 IndexOf(nsIContent* aPossibleChild) const;
-  virtual PRUint32 GetChildCount() const;
 
   /**
    * Get the style sheets owned by this document.
@@ -534,6 +527,15 @@ public:
   virtual void OnPageShow(PRBool aPersisted);
   virtual void OnPageHide(PRBool aPersisted);
 
+  // nsINode
+  virtual nsIContent *GetChildAt(PRUint32 aIndex) const;
+  virtual PRInt32 IndexOf(nsIContent* aPossibleChild) const;
+  virtual PRUint32 GetChildCount() const;
+  virtual nsresult InsertChildAt(nsIContent* aKid, PRUint32 aIndex,
+                                 PRBool aNotify);
+  virtual nsresult AppendChildTo(nsIContent* aKid, PRBool aNotify);
+  virtual nsresult RemoveChildAt(PRUint32 aIndex, PRBool aNotify);
+
   // nsIRadioGroupContainer
   NS_IMETHOD WalkRadioGroup(const nsAString& aName,
                             nsIRadioVisitor* aVisitor);
@@ -634,18 +636,6 @@ public:
                               PRBool aDocumentDefaultType,
                               nsIContent **aResult);
 
-  virtual NS_HIDDEN_(void*) GetProperty(nsIAtom  *aPropertyName,
-                                        nsresult *aStatus = nsnull) const;
-
-  virtual NS_HIDDEN_(nsresult) SetProperty(nsIAtom            *aPropertyName,
-                                           void               *aValue,
-                                           NSPropertyDtorFunc  aDtor = nsnull);
-
-  virtual NS_HIDDEN_(nsresult) DeleteProperty(nsIAtom *aPropertyName);
-
-  virtual NS_HIDDEN_(void*) UnsetProperty(nsIAtom  *aPropertyName,
-                                          nsresult *aStatus = nsnull);
-
   virtual NS_HIDDEN_(nsresult) Sanitize();
 
   virtual NS_HIDDEN_(void) EnumerateSubDocuments(nsSubDocEnumFunc aCallback,
@@ -662,19 +652,19 @@ public:
   virtual NS_HIDDEN_(void) ForgetLink(nsIContent* aContent);
   virtual NS_HIDDEN_(void) NotifyURIVisitednessChanged(nsIURI* aURI);
 
-  NS_HIDDEN_(nsresult) SetUserData(const nsISupports *aObject,
+  NS_HIDDEN_(nsresult) SetUserData(const nsINode *aObject,
                                    nsIAtom *aKey,
                                    nsIVariant *aData,
                                    nsIDOMUserDataHandler *aHandler,
                                    nsIVariant **aReturn);
-  NS_HIDDEN_(nsresult) GetUserData(const nsISupports *aObject,
+  NS_HIDDEN_(nsresult) GetUserData(const nsINode *aObject,
                                    nsIAtom *aKey,
                                    nsIVariant **aResult);
   NS_HIDDEN_(void) CallUserDataHandler(PRUint16 aOperation,
-                                       const nsISupports *aObject,
+                                       const nsINode *aObject,
                                        nsIDOMNode *aSource,
                                        nsIDOMNode *aDest);
-  NS_HIDDEN_(void) CopyUserData(const nsISupports *aObject,
+  NS_HIDDEN_(void) CopyUserData(const nsINode *aObject,
                                 nsIDocument *aDestination);
 
 protected:
@@ -714,6 +704,10 @@ protected:
 
   // Dispatch an event to the ScriptGlobalObject for this document
   void DispatchEventToWindow(nsEvent *aEvent);
+
+#ifdef DEBUG
+  void VerifyRootContentState();
+#endif
 
   nsDocument();
   virtual ~nsDocument();

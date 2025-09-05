@@ -70,10 +70,9 @@ nsGenericDOMDataNode::~nsGenericDOMDataNode()
   if (CouldHaveProperties()) {
     nsIDocument *document = GetOwnerDoc();
     if (document) {
-      nsISupports *thisSupports = NS_STATIC_CAST(nsIContent*, this);
       document->CallUserDataHandler(nsIDOMUserDataHandler::NODE_DELETED,
-                                    thisSupports, nsnull, nsnull);
-      document->PropertyTable()->DeleteAllPropertiesFor(thisSupports);
+                                    this, nsnull, nsnull);
+      document->PropertyTable()->DeleteAllPropertiesFor(this);
     }
   }
 
@@ -106,6 +105,7 @@ NS_INTERFACE_MAP_BEGIN(nsGenericDOMDataNode)
   NS_INTERFACE_MAP_ENTRY(nsIContent)
   // No nsITextContent since all subclasses might not want that.
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOM3Node, new nsNode3Tearoff(this))
+  NS_INTERFACE_MAP_ENTRY(nsINode)
 NS_INTERFACE_MAP_END
 
 
@@ -713,13 +713,11 @@ nsGenericDOMDataNode::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
     nsIDocument *ownerDocument = GetOwnerDoc();
     if (aDocument != ownerDocument) {
       if (ownerDocument && CouldHaveProperties()) {
-        nsISupports *thisSupports = NS_STATIC_CAST(nsIContent*, this);
-
         // Copy UserData to the new document.
-        ownerDocument->CopyUserData(thisSupports, aDocument);
+        ownerDocument->CopyUserData(this, aDocument);
 
         // Remove all properties.
-        ownerDocument->PropertyTable()->DeleteAllPropertiesFor(thisSupports);
+        ownerDocument->PropertyTable()->DeleteAllPropertiesFor(this);
       }
 
       // get a new nodeinfo
@@ -964,6 +962,19 @@ nsresult
 nsGenericDOMDataNode::RemoveChildAt(PRUint32 aIndex, PRBool aNotify)
 {
   return NS_OK;
+}
+
+nsresult
+nsGenericDOMDataNode::SetProperty(nsIAtom *aPropertyName,
+                                  void *aValue,
+                                  NSPropertyDtorFunc aDtor)
+{
+  nsresult rv = nsITextContent::SetProperty(aPropertyName, aValue, aDtor);
+
+  if (NS_SUCCEEDED(rv))
+    SetIsInAHash();
+
+  return rv;
 }
 
 // virtual

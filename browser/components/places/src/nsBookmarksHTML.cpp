@@ -114,6 +114,9 @@ static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
 #define KEY_LASTCHARSET_LOWER "last_charset"
 #define KEY_ICON_LOWER "icon"
 
+#define BOOKMARKS_MENU_ICON_URI "chrome://browser/skin/places/bookmarks_menu.png"
+#define BOOKMARKS_TOOLBAR_ICON_URI "chrome://browser/skin/places/bookmarks_toolbar.png"
+
 static const char kWhitespace[] = " \r\n\t\b";
 
 class BookmarkImportFrame
@@ -193,7 +196,8 @@ class BookmarkContentSink : public nsIHTMLContentSink
 {
 public:
   nsresult Init(PRBool aAllowRootChanges,
-                nsINavBookmarksService* bookmarkService);
+                nsINavBookmarksService* bookmarkService,
+                PRInt64 aFolder);
 
   NS_DECL_ISUPPORTS
 
@@ -208,7 +212,24 @@ public:
   virtual nsISupports *GetTarget() { return nsnull; }
 
   // nsIHTMLContentSink
+#ifdef MOZILLA_1_8_BRANCH
+  NS_IMETHOD SetTitle(const nsString& aValue) { return NS_OK; }
+  NS_IMETHOD OpenHTML(const nsIParserNode& aNode) { return NS_OK; }
+  NS_IMETHOD CloseHTML() { return NS_OK; }
+  NS_IMETHOD OpenHead(const nsIParserNode& aNode) { return NS_OK; }
+  NS_IMETHOD CloseHead() { return NS_OK; }
+  NS_IMETHOD OpenBody(const nsIParserNode& aNode) { return NS_OK; }
+  NS_IMETHOD CloseBody() { return NS_OK; }
+  NS_IMETHOD OpenForm(const nsIParserNode& aNode) { return NS_OK; }
+  NS_IMETHOD CloseForm() { return NS_OK; }
+  NS_IMETHOD OpenMap(const nsIParserNode& aNode) { return NS_OK; }
+  NS_IMETHOD CloseMap() { return NS_OK; }
+  NS_IMETHOD OpenFrameset(const nsIParserNode& aNode) { return NS_OK; }
+  NS_IMETHOD CloseFrameset() { return NS_OK; }
+  NS_IMETHOD AddHeadContent(const nsIParserNode& aNode) { return NS_OK; }
+#else
   NS_IMETHOD OpenHead() { return NS_OK; }
+#endif
   NS_IMETHOD BeginContext(PRInt32 aPosition) { return NS_OK; }
   NS_IMETHOD EndContext(PRInt32 aPosition) { return NS_OK; }
   NS_IMETHOD IsEnabled(PRInt32 aTag, PRBool* aReturn)
@@ -239,6 +260,11 @@ protected:
   // to reparent it on import.
   PRBool mAllowRootChanges;
 
+  // If a folder was specified to import into, then ignore flags to put
+  // bookmarks in the bookmarks menu or toolbar and keep them inside
+  // the folder.
+  PRBool mFolderSpecified;
+
   void HandleContainerBegin(const nsIParserNode& node);
   void HandleContainerEnd();
   void HandleHead1Begin(const nsIParserNode& node);
@@ -260,7 +286,8 @@ protected:
   nsresult NewFrame();
   nsresult PopFrame();
 
-  nsresult SetFaviconForURI(nsIURI* aURI, nsCString aData);
+  nsresult SetFaviconForURI(nsIURI* aURI, const nsCString& aData);
+  nsresult SetFaviconForFolder(PRInt64 aFolder, const nsACString& aFavicon);
 };
 
 
@@ -272,7 +299,8 @@ protected:
 
 nsresult
 BookmarkContentSink::Init(PRBool aAllowRootChanges,
-                          nsINavBookmarksService* bookmarkService)
+                          nsINavBookmarksService* bookmarkService,
+                          PRInt64 aFolder)
 {
   nsresult rv;
   mBookmarksService = bookmarkService;
@@ -287,8 +315,15 @@ BookmarkContentSink::Init(PRBool aAllowRootChanges,
 
   // initialize the root frame with the menu root
   PRInt64 menuRoot;
-  rv = mBookmarksService->GetBookmarksRoot(&menuRoot);
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (aFolder == 0) {
+    rv = mBookmarksService->GetBookmarksRoot(&menuRoot);
+    NS_ENSURE_SUCCESS(rv, rv);
+    mFolderSpecified = false;
+  }
+  else {
+    menuRoot = aFolder;
+    mFolderSpecified = true;
+  }
   if (! mFrames.AppendElement(BookmarkImportFrame(menuRoot)))
     return NS_ERROR_OUT_OF_MEMORY;
 
@@ -475,13 +510,15 @@ BookmarkContentSink::HandleHeadBegin(const nsIParserNode& node)
   // processed.
   PRInt32 attrCount = node.GetAttributeCount();
   frame.mLastContainerType = BookmarkImportFrame::Container_Normal;
-  for (PRInt32 i = 0; i < attrCount; i ++) {
-    if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_TOOLBARFOLDER_LOWER)) {
-      frame.mLastContainerType = BookmarkImportFrame::Container_Toolbar;
-      break;
-    } else if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_BOOKMARKSMENU_LOWER)) {
-      frame.mLastContainerType = BookmarkImportFrame::Container_Menu;
-      break;
+  if (!mFolderSpecified) {
+    for (PRInt32 i = 0; i < attrCount; i ++) {
+      if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_TOOLBARFOLDER_LOWER)) {
+        frame.mLastContainerType = BookmarkImportFrame::Container_Toolbar;
+        break;
+      } else if (node.GetKeyAt(i).LowerCaseEqualsLiteral(KEY_BOOKMARKSMENU_LOWER)) {
+        frame.mLastContainerType = BookmarkImportFrame::Container_Menu;
+        break;
+      }
     }
   }
   CurFrame().mPreviousText.Truncate(0);
@@ -636,15 +673,19 @@ BookmarkContentSink::NewFrame()
       // menu root
       rv = mBookmarksService->GetBookmarksRoot(&ourID);
       NS_ENSURE_SUCCESS(rv, rv);
-      if (mAllowRootChanges)
+      if (mAllowRootChanges) {
         updateFolder = PR_TRUE;
+        SetFaviconForFolder(ourID, NS_LITERAL_CSTRING(BOOKMARKS_MENU_ICON_URI));
+      }
       break;
     case BookmarkImportFrame::Container_Toolbar:
       // toolbar root
       rv = mBookmarksService->GetToolbarRoot(&ourID);
       NS_ENSURE_SUCCESS(rv, rv);
-      if (mAllowRootChanges)
+      if (mAllowRootChanges) {
         updateFolder = PR_TRUE;
+        SetFaviconForFolder(ourID, NS_LITERAL_CSTRING(BOOKMARKS_TOOLBAR_ICON_URI));
+      }
       break;
     default:
       NS_NOTREACHED("Unknown container type");
@@ -687,7 +728,7 @@ BookmarkContentSink::PopFrame()
 //    should get expired when the page no longer references it.
 
 nsresult
-BookmarkContentSink::SetFaviconForURI(nsIURI* aURI, nsCString aData)
+BookmarkContentSink::SetFaviconForURI(nsIURI* aURI, const nsCString& aData)
 {
   nsresult rv;
 
@@ -762,6 +803,33 @@ BookmarkContentSink::SetFaviconForURI(nsIURI* aURI, nsCString aData)
 }
 
 
+// BookmarkContentSink::SetFaviconForFolder
+//
+//    This sets the given favicon URI for the given folder. It is used to
+//    initialize the favicons for the bookmarks menu and toolbar. We don't
+//    actually set any data here because we assume the URI is a chrome: URI.
+//    These do not have to contain any data for them to work.
+
+nsresult
+BookmarkContentSink::SetFaviconForFolder(PRInt64 aFolder,
+                                         const nsACString& aFavicon)
+{
+  nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
+  NS_ENSURE_TRUE(faviconService, NS_ERROR_OUT_OF_MEMORY);
+
+  nsCOMPtr<nsIURI> folderURI;
+  nsresult rv = mBookmarksService->GetFolderURI(aFolder,
+                                                getter_AddRefs(folderURI));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIURI> faviconURI;
+  rv = NS_NewURI(getter_AddRefs(faviconURI), aFavicon);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return faviconService->SetFaviconUrlForPage(folderURI, faviconURI);
+}
+
+
 // SyncChannelStatus
 //
 //    If a function returns an error, we need to set the channel status to be
@@ -791,12 +859,20 @@ NS_IMETHODIMP
 nsNavBookmarks::ImportBookmarksHTML(nsIURI* aURL)
 {
   // this version is exposed on the interface and disallows changing of roots
-  return ImportBookmarksHTMLInternal(aURL, PR_FALSE);
+  return ImportBookmarksHTMLInternal(aURL, PR_FALSE, 0);
+}
+
+NS_IMETHODIMP
+nsNavBookmarks::ImportBookmarksHTMLToFolder(nsIURI* aURL, PRInt64 aFolder)
+{
+  // this version is exposed on the interface and disallows changing of roots
+  return ImportBookmarksHTMLInternal(aURL, PR_FALSE, aFolder);
 }
 
 nsresult
 nsNavBookmarks::ImportBookmarksHTMLInternal(nsIURI* aURL,
-                                            PRBool aAllowRootChanges)
+                                            PRBool aAllowRootChanges,
+                                            PRInt64 aFolder)
 {
   // wrap the import in a transaction to make it faster
   mozStorageTransaction transaction(DBConn(), PR_FALSE);
@@ -807,7 +883,7 @@ nsNavBookmarks::ImportBookmarksHTMLInternal(nsIURI* aURL,
 
   BookmarkContentSink* sink = new BookmarkContentSink;
   NS_ENSURE_TRUE(sink, NS_ERROR_OUT_OF_MEMORY);
-  rv = sink->Init(aAllowRootChanges, this);
+  rv = sink->Init(aAllowRootChanges, this, aFolder);
   NS_ENSURE_SUCCESS(rv, rv);
   parser->SetContentSink(sink);
 

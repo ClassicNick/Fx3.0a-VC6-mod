@@ -139,6 +139,8 @@ gfxPangoFontGroup::gfxPangoFontGroup (const nsAString& families,
         fixedFamilies.Append(*familyArray[i]);
         fixedFamilies.AppendLiteral(",");
     }
+    if (fixedFamilies.Length() > 0)
+      fixedFamilies.Truncate(fixedFamilies.Length() - 1); // remove final comma
 
     gfxFont *f = new gfxPangoFont(fixedFamilies, this);
     mFonts.push_back(f);
@@ -184,6 +186,21 @@ static void InitPangoLib()
     // leak lib deliberately
 }
 
+static double
+GetXftDPI(void)
+{
+  char *val = XGetDefault(GDK_DISPLAY(), "Xft", "dpi");
+  if (val) {
+    char *e;
+    double d = strtod(val, &e);
+
+    if (e != val)
+      return round(d);
+  }
+
+  return 0;
+}
+
 static void
 MOZ_pango_font_description_set_absolute_size(PangoFontDescription *desc,
                                              double size)
@@ -191,8 +208,8 @@ MOZ_pango_font_description_set_absolute_size(PangoFontDescription *desc,
     if (PTR_pango_font_description_set_absolute_size) {
         PTR_pango_font_description_set_absolute_size(desc, size);
     } else {
-        // Fake it! Assume the server DPI is 96. If it isn't, too bad
-        pango_font_description_set_size(desc, (gint)(size * 72.0/96.0));
+        pango_font_description_set_size(desc,
+                                        (gint)(size * 72.0 / GetXftDPI()));
     }
 }
 #else
@@ -550,9 +567,9 @@ DrawCairoGlyphs(gfxContext* ctx,
     cairo_font_face_t* font = cairo_ft_font_face_create_for_pattern(fcfont->font_pattern);
     cairo_set_font_face(ctx->GetCairo(), font);
 
-    int size;
-    if (FcPatternGetInteger(fcfont->font_pattern, FC_PIXEL_SIZE, 0, &size) != FcResultMatch)
-        size = 12;
+    double size;
+    if (FcPatternGetDouble(fcfont->font_pattern, FC_PIXEL_SIZE, 0, &size) != FcResultMatch)
+        size = 12.0;
 
     cairo_set_font_size(ctx->GetCairo(), size);
 

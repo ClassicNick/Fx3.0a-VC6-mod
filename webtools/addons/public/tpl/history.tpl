@@ -1,22 +1,23 @@
 <h2><strong>{$addon->Name}</strong> &raquo; Version History</h2>
 <p class="first">
-<strong><a href="./addon.php?id={$addon->ID}">{$addon->Name} {$addon->Version}</a></strong>,
-by <a href="./author.php?id={$addon->UserID}">{$addon->UserName}</a>,
+<strong><a href="{$config.webpath}/{$app}/{$addon->ID}/">{$addon->Name} {$addon->Version}</a></strong>,
+by <a href="{$config.webpath}/{$app}/{$addon->UserID}/author/">{$addon->UserName}</a>,
 released on {$addon->VersionDateAdded|date_format}
 </p>
 
+<h3>Be Careful With Old Versions</h3>
+<p>These versions are displayed for reference and testing purposes.  You should always use the latest version on an addon. </p>
+
+<h3>Version History with Changelogs</h3>
+<dl>
 {section name=version loop=$addon->History}
 <div>
-<h3><a href="addon.php?id={$addon->ID}&amp;vid=$vid">{$addon->Name} {$addon->History[version].Version}</a></h3>
-Released on {$addon->History[version].VerDateAdded|date_format:"%B %d, %Y"}<br>
+<dt><a href="{$addon->History[version].URI}">{$addon->Name} {$addon->History[version].Version}</a> ({$addon->History[version].VerDateAdded|date_format:"%B %d, %Y"})</dt>
+<dd>
 {if $addon->History[version].Notes}
     {$addon->History[version].Notes|nl2br}<br><br>
 {/if}
-
-    <div style="height: 34px">
-        <div class="iconbar"><img src="{$config.webpath}/images/download.png" height="34" width="34" title="Install {$addon->History[version].Name} (Right-Click to Download)" alt="">Install</a><br><span class="filesize">Size: {$addon->History[version].Size|escape} kb</span></div>
-        <div class="iconbar"><img src="{$config.webpath}/images/{$addon->History[version].AppName|lower}_icon.png" width="34" height="34" alt="{$addon->History[version].AppName}"> For {$addon->History[version].AppName}:<BR>&nbsp;&nbsp;{$addon->History[version].MinAppVer} - {$addon->History[version].MaxAppVer}</div>
-    </div>
+</dd>
 </div>
-<hr>
 {/section}
+</dl>

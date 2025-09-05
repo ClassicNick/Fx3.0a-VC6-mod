@@ -112,6 +112,7 @@
 #include "nsIDOMDOMException.h"
 #include "nsIDOMNode.h"
 #include "nsIDOM3Node.h"
+#include "nsIDOM3Attr.h"
 #include "nsIDOMNodeList.h"
 #include "nsIDOMNamedNodeMap.h"
 #include "nsIDOMDOMStringList.h"
@@ -230,10 +231,10 @@
 #include "nsIDOMNSHTMLDocument.h"
 #include "nsIDOMNSHTMLElement.h"
 #include "nsIDOMHTMLAnchorElement.h"
-#include "nsIDOMNSHTMLAnchorElement.h"
+#include "nsIDOMNSHTMLAnchorElement2.h"
 #include "nsIDOMHTMLAppletElement.h"
 #include "nsIDOMHTMLAreaElement.h"
-#include "nsIDOMNSHTMLAreaElement.h"
+#include "nsIDOMNSHTMLAreaElement2.h"
 #include "nsIDOMHTMLBRElement.h"
 #include "nsIDOMHTMLBaseElement.h"
 #include "nsIDOMHTMLBaseFontElement.h"
@@ -365,6 +366,7 @@
 #include "nsIDOMSVGLineElement.h"
 #include "nsIDOMSVGLocatable.h"
 #include "nsIDOMSVGMarkerElement.h"
+#include "nsIDOMSVGMaskElement.h"
 #include "nsIDOMSVGMatrix.h"
 #include "nsIDOMSVGMetadataElement.h"
 #include "nsIDOMSVGNumber.h"
@@ -414,6 +416,11 @@ static const char kDOMStringBundleURL[] =
 // NOTE: DEFAULT_SCRIPTABLE_FLAGS and DOM_DEFAULT_SCRIPTABLE_FLAGS
 //       are defined in nsIDOMClassInfo.h.
 
+#define GCPARTICIPANT_SCRIPTABLE_FLAGS                                        \
+ (DOM_DEFAULT_SCRIPTABLE_FLAGS |                                              \
+  nsIXPCScriptable::WANT_FINALIZE |                                           \
+  nsIXPCScriptable::WANT_MARK)
+
 #define WINDOW_SCRIPTABLE_FLAGS                                               \
  (nsIXPCScriptable::WANT_GETPROPERTY |                                        \
   nsIXPCScriptable::WANT_SETPROPERTY |                                        \
@@ -429,12 +436,10 @@ static const char kDOMStringBundleURL[] =
   nsIXPCScriptable::DONT_ENUM_QUERY_INTERFACE)
 
 #define NODE_SCRIPTABLE_FLAGS                                                 \
- ((DOM_DEFAULT_SCRIPTABLE_FLAGS |                                             \
+ ((GCPARTICIPANT_SCRIPTABLE_FLAGS |                                           \
    nsIXPCScriptable::WANT_PRECREATE |                                         \
    nsIXPCScriptable::WANT_ADDPROPERTY |                                       \
-   nsIXPCScriptable::WANT_SETPROPERTY |                                       \
-   nsIXPCScriptable::WANT_FINALIZE |                                          \
-   nsIXPCScriptable::WANT_MARK) &                                             \
+   nsIXPCScriptable::WANT_SETPROPERTY) &                                      \
   ~nsIXPCScriptable::USE_JSSTUB_FOR_ADDPROPERTY)
 
 // We need to let JavaScript QI elements to interfaces that are not in
@@ -815,8 +820,8 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   // DOM Traversal classes
-  NS_DEFINE_CLASSINFO_DATA(TreeWalker, nsDOMGenericSH,
-                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(TreeWalker, nsDOMGCParticipantSH,
+                           GCPARTICIPANT_SCRIPTABLE_FLAGS)
 
   // We are now trying to preserve binary compat in classinfo.  No
   // more putting things in those categories up there.  New entries
@@ -927,6 +932,8 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA(SVGLineElement, nsElementSH,
                            ELEMENT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(SVGMarkerElement, nsElementSH,
+                           ELEMENT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(SVGMaskElement, nsElementSH,
                            ELEMENT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(SVGMetadataElement, nsElementSH,
                            ELEMENT_SCRIPTABLE_FLAGS)
@@ -1800,6 +1807,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(Attr, nsIDOMAttr)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMAttr)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOM3Node)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOM3Attr)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(Text, nsIDOMText)
@@ -1919,6 +1927,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(HTMLAnchorElement, nsIDOMHTMLAnchorElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMHTMLAnchorElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLAnchorElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLAnchorElement2)
     DOM_CLASSINFO_GENERIC_HTML_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -1930,6 +1939,7 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(HTMLAreaElement, nsIDOMHTMLAreaElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMHTMLAreaElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLAreaElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNSHTMLAreaElement2)
     DOM_CLASSINFO_GENERIC_HTML_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -2614,6 +2624,12 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGMarkerElement)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGFitToViewBox)
+    DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(SVGMaskElement, nsIDOMSVGMaskElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGMaskElement)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGStylable)
     DOM_CLASSINFO_SVG_ELEMENT_MAP_ENTRIES
   DOM_CLASSINFO_MAP_END
 
@@ -5725,12 +5741,36 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
       my_cx = (JSContext *)my_context->GetNativeContext();
     }
 
+    // Resolving a standard class won't do any evil, and it's possible
+    // for caps to get the answer wrong, so disable the security check
+    // for this case.
+
     JSBool did_resolve = JS_FALSE;
+    PRBool doSecurityCheckInAddProperty = sDoSecurityCheckInAddProperty;
+    sDoSecurityCheckInAddProperty = PR_FALSE;
 
-    if (!::JS_ResolveStandardClass(my_cx, obj, id, &did_resolve)) {
+    JSBool ok = ::JS_ResolveStandardClass(my_cx, obj, id, &did_resolve);
+
+    sDoSecurityCheckInAddProperty = doSecurityCheckInAddProperty;
+
+    if (!ok) {
+      // Trust the JS engine (or the script security manager) to set
+      // the exception in the JS engine.
+
+      jsval exn;
+      if (!JS_GetPendingException(my_cx, &exn)) {
+        return NS_ERROR_UNEXPECTED;
+      }
+
+      // Return NS_OK to avoid stomping over the exception that was passed
+      // down from the ResolveStandardClass call.
+      // Note that the order of the JS_ClearPendingException and
+      // JS_SetPendingException is important in the case that my_cx == cx.
+
+      JS_ClearPendingException(my_cx);
+      JS_SetPendingException(cx, exn);
       *_retval = JS_FALSE;
-
-      return NS_ERROR_UNEXPECTED;
+      return NS_OK;
     }
 
     if (did_resolve) {
@@ -6044,10 +6084,6 @@ nsWindowSH::NewEnumerate(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
         return NS_OK;
       }
 
-#ifdef DEBUG_mrbkap
-      printf(">>> Enumerating a window!\n");
-#endif
-
       // The security check passed, let's see if we need to get the inner
       // window's JS object or if we can just start enumerating.
       nsGlobalWindow *win = nsGlobalWindow::FromWrapper(wrapper);
@@ -6081,13 +6117,6 @@ nsWindowSH::NewEnumerate(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
       }
 
       if (*idp != JSVAL_VOID) {
-#ifdef DEBUG_mrbkap
-        {
-          jsval v;
-          NS_ASSERTION(JS_IdToValue(cx, *idp, &v), "Give me my value");
-          printf("=== %s\n", JS_GetStringBytes(JS_ValueToString(cx, v)));
-        }
-#endif
         break;
       }
 
@@ -6657,8 +6686,8 @@ nsEventReceiverSH::NewResolve(nsIXPConnectWrappedNative *wrapper,
     *objp = obj;
   }
 
-  return nsDOMClassInfo::NewResolve(wrapper, cx, obj, id, flags, objp,
-                                    _retval);
+  return nsDOMGCParticipantSH::NewResolve(wrapper, cx, obj, id, flags, objp,
+                                          _retval);
 }
 
 NS_IMETHODIMP
@@ -6685,19 +6714,21 @@ nsEventReceiverSH::AddProperty(nsIXPConnectWrappedNative *wrapper,
   return nsEventReceiverSH::SetProperty(wrapper, cx, obj, id, vp, _retval);
 }
 
-NS_IMETHODIMP
-nsEventReceiverSH::Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                            JSObject *obj)
-{
-  // XXX clear event handlers in mListener...
+// XXX nsEventReceiverSH::Finalize: clear event handlers in mListener...
 
+// DOMGCParticipant helper
+
+NS_IMETHODIMP
+nsDOMGCParticipantSH::Finalize(nsIXPConnectWrappedNative *wrapper,
+                               JSContext *cx, JSObject *obj)
+{
   nsDOMClassInfo::ReleaseWrapper(wrapper);
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsEventReceiverSH::Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
-                        JSObject *obj, void *arg, PRUint32 *_retval)
+nsDOMGCParticipantSH::Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                           JSObject *obj, void *arg, PRUint32 *_retval)
 {
   nsCOMPtr<nsIDOMGCParticipant> participant(do_QueryWrappedNative(wrapper));
 

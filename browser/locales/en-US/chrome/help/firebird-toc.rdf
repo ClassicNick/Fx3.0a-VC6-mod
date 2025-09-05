@@ -108,20 +108,18 @@
   <rdf:Description about="#customize-firebird">
       <nc:subheadings>
         <rdf:Seq>
-          <rdf:li> <rdf:Description ID="customize-toolbar-can-i-customize" nc:name="Can I Customize My Toolbars?" nc:link="customization.xhtml#can_i_customize_my_toolbars"/> </rdf:li>
-          <rdf:li> <rdf:Description ID="customize-toolbar-how-do-i-customize" nc:name="How Do I Customize the Toolbars?" nc:link="customization.xhtml#how_do_i_customize_the_toolbars"/> </rdf:li>
+          <rdf:li> <rdf:Description ID="customize-toolbars" nc:name="Toolbars" nc:link="customization.xhtml#toolbars"/> </rdf:li>
           <rdf:li> <rdf:Description ID="themes" nc:name="Themes" nc:link="customization.xhtml#themes"/> </rdf:li>
           <rdf:li> <rdf:Description ID="extensions" nc:name="Extensions" nc:link="customization.xhtml#extensions"/> </rdf:li>
         </rdf:Seq>
       </nc:subheadings>
   </rdf:Description>
 
-  <rdf:Description about="#customize-toolbar-how-do-i-customize">
+  <rdf:Description about="#customize-toolbars">
       <nc:subheadings>
         <rdf:Seq>
-          <rdf:li> <rdf:Description ID="customize-toolbar-how-do-i-customize-adding" nc:name="Adding/Removing Toolbars" nc:link="customization.xhtml#adding_removing_toolbars"/> </rdf:li>
-          <rdf:li> <rdf:Description ID="customize-toolbar-how-do-i-customize-rearrange" nc:name="Rearranging Toolbar Items" nc:link="customization.xhtml#rearranging_toolbar_items"/> </rdf:li>
-          <rdf:li> <rdf:Description ID="customize-toolbar-how-do-i-customize-special" nc:name="Special Toolbar Items" nc:link="customization.xhtml#special_toolbar_items"/> </rdf:li>
+          <rdf:li> <rdf:Description ID="customize-toolbar-rearrange" nc:name="Rearranging Toolbar Items" nc:link="customization.xhtml#rearranging_toolbar_items"/> </rdf:li>
+          <rdf:li> <rdf:Description ID="customize-toolbars-adding" nc:name="Hiding, Adding, and Removing Toolbars" nc:link="customization.xhtml#adding_removing_toolbars"/> </rdf:li>
         </rdf:Seq>
       </nc:subheadings>
   </rdf:Description>
@@ -327,8 +325,6 @@
     <nc:subheadings>
       <rdf:Seq>
         <rdf:li> <rdf:Description ID="menu-tools-web-search" nc:name="Web Search" nc:link="menu_reference.xhtml#web_search"/> </rdf:li>
-        <rdf:li> <rdf:Description ID="menu-tools-read-mail" nc:name="Read Mail" nc:link="menu_reference.xhtml#read_mail"/> </rdf:li>
-        <rdf:li> <rdf:Description ID="menu-tools-new-message" nc:name="New Message..." nc:link="menu_reference.xhtml#new_message"/> </rdf:li>
         <rdf:li> <rdf:Description ID="menu-tools-downloads" nc:name="Downloads" nc:link="menu_reference.xhtml#downloads"/> </rdf:li>
         <rdf:li> <rdf:Description ID="menu-tools-extensions" nc:name="Extensions" nc:link="menu_reference.xhtml#extensions"/> </rdf:li>
         <rdf:li> <rdf:Description ID="menu-tools-themes" nc:name="Themes" nc:link="menu_reference.xhtml#themes"/> </rdf:li>

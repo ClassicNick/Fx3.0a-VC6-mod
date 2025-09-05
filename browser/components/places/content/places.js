@@ -39,9 +39,6 @@ const PREF_PLACES_GROUPING_GENERIC = "browser.places.grouping.generic";
 const PREF_PLACES_GROUPING_BOOKMARK = "browser.places.grouping.bookmark";
 
 // Default Search Queries
-const QUERY_MONTH_HISTORY = "place:&group=2&sort=1&type=1";
-const QUERY_DAY_HISTORY = "place:&beginTimeRef=1&endTimeRef=2&sort=4&type=1";
-const QUERY_BOOKMARKS_MENU = "place:&folders=3&group=3";
 const INDEX_HISTORY = 0;
 const INDEX_BOOKMARKS = 1;
 
@@ -155,6 +152,16 @@ var PlacesUIHook = {
 var PlacesPage = {
   _content: null,
   _places: null,
+  
+  // the NavHistory service
+  __hist: null,
+  get _hist() {
+    if (!this.__hist) {
+      this.__hist =
+        Cc["@mozilla.org/browser/nav-history-service;1"].getService(Ci.nsINavHistoryService);
+    }
+    return this.__hist;
+  },
 
   init: function PP_init() {
     // Attach the Command Controller to the Places Views. 
@@ -165,12 +172,11 @@ var PlacesPage = {
     
     this._places.init(new ViewConfig([TYPE_X_MOZ_PLACE_CONTAINER],
                                      ViewConfig.GENERIC_DROP_TYPES,
-                                     Ci.nsINavHistoryQuery.INCLUDE_QUERIES,
-                                     ViewConfig.GENERIC_FILTER_OPTIONS, 3));
+                                     true, false, 3));
     this._content.init(new ViewConfig(ViewConfig.GENERIC_DROP_TYPES,
                                       ViewConfig.GENERIC_DROP_TYPES,
-                                      ViewConfig.GENERIC_FILTER_OPTIONS, 0));
-                                      
+                                      false, false, 0));
+
     PlacesController.groupableView = this._content;
 
     var GroupingSerializer = {
@@ -204,36 +210,44 @@ var PlacesPage = {
     
     // Set up the search UI.
     PlacesSearchBox.init();
+    
+    // Set up the advanced query builder UI
+    PlacesQueryBuilder.init();
   },
 
   uninit: function PP_uninit() {
     PlacesUIHook.uninit();
   },
-
+  
   /**
    * A range has been selected from the calendar picker. Update the view
    * to show only those results within the selected range. 
    */
   rangeSelected: function PP_rangeSelected() {
     var result = this._content.getResult();
-    var queries = result.getQueries({ });
-    
+    var queries = this.getCurrentQueries();
+
     var calendar = document.getElementById("historyCalendar");
     var begin = calendar.beginrange.getTime();
     var end = calendar.endrange.getTime();
-    if (begin == end) {
-      const DAY_MSEC = 86400000;
-      end = begin + DAY_MSEC;
-    }    
+
+    // The calendar restuns values in terms of whole days at midnight, inclusive.
+    // The end time range therefor must be moved to the evening of the end
+    // include that day in the query.
+    const DAY_MSEC = 86400000;
+    end += DAY_MSEC;
+
     var newQueries = [];
     for (var i = 0; i < queries.length; ++i) {
       var query = queries[i].clone();
+      query.beginTimeReference = Ci.nsINavHistoryQuery.TIME_RELATIVE_EPOCH;
       query.beginTime = begin * 1000;
+      query.endTimeReference = Ci.nsINavHistoryQuery.TIME_RELATIVE_EPOCH;
       query.endTime = end * 1000;
       newQueries.push(query);
     }
     
-    this._content.load(newQueries, result.queryOptions);
+    this._content.load(newQueries, this.getCurrentOptions());
     
     return true;
   },
@@ -241,13 +255,28 @@ var PlacesPage = {
   /**
    * Fill the header with information about what view is being displayed.
    */
-  _setHeader: function(isSearch, text) {
+  _setHeader: function(type, text) {
     var bundle = document.getElementById("placeBundle");
-    var key = isSearch ? "headerTextResultsFor" : "headerTextShowing";
-    var title = bundle.getFormattedString(key, [text]);
+    var key = null;
+    var isSearch = false;
+    switch(type) {
+      case "showing":
+        key = "headerTextShowing";
+        break;
+      case "results":
+        isSearch = true;
+        key = "headerTextResultsFor";
+        break;
+      case "advanced":
+        isSearch = true;
+        key = "headerTextAdvancedSearch";
+        break;
+    }
+    var showingPrefix = document.getElementById("showingPrefix");
+    showingPrefix.setAttribute("value", bundle.getString(key));
     
-    var titlebarText = document.getElementById("titlebartext");
-    titlebarText.setAttribute("value", title);
+    var contentTitle = document.getElementById("contentTitle");
+    contentTitle.setAttribute("value", text);
     
     var searchModifiers = document.getElementById("searchModifiers");
     searchModifiers.hidden = !isSearch;
@@ -263,13 +292,13 @@ var PlacesPage = {
   search: function PP_applyFilter(filterString) {
     switch (PlacesSearchBox.filterCollection) {
     case "collection":
-      var folder = this._content.getResult().folderId;
+      var folder = this._content.getResult().root.QueryInterface(Ci.nsINavHistoryFolderResultNode).folderId;
       this._content.applyFilter(filterString, true, folder);
-      this._setHeader(true, filterString);
+      this._setHeader("results", filterString);
       break;
     case "all":
       this._content.filterString = filterString;
-      this._setHeader(true, filterString);
+      this._setHeader("results", filterString);
       break;
     }
   },
@@ -281,24 +310,27 @@ var PlacesPage = {
     var node = this._places.selectedNode;
     if (!node || this._places.suppressSelection)
       return;
+    if (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER)
+      node.QueryInterface(Ci.nsINavHistoryFolderResultNode);
+    else if (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY)
+      node.QueryInterface(Ci.nsINavHistoryQueryResultNode);
+    else
+      return; // should not get here
     var queries = node.getQueries({});
     var newQueries = [];
     for (var i = 0; i < queries.length; ++i) {
       var query = queries[i].clone();
-      query.itemTypes |= this._content.filterOptions;
       newQueries.push(query);
     }
     var newOptions = node.queryOptions.clone();
 
-    var groupings = PlacesController.groupers.generic.value;
     var isBookmark = PlacesController.nodeIsFolder(node);
     if (isBookmark)
       groupings = PlacesController.groupers.bookmark.value;
 
-    newOptions.setGroupingMode(groupings, groupings.length);
     this._content.load(newQueries, newOptions);
 
-    this._setHeader(false, node.title);
+    this._setHeader("showing", node.title);
   },
   
   /**
@@ -306,40 +338,72 @@ var PlacesPage = {
    * current result. 
    */
   _updateCalendar: function PP__updateCalendar() {
-    // Make sure that by updating the calendar widget we don't fire selection
-    // events and cause the UI to infinitely reload.
     var calendar = document.getElementById("historyCalendar");
-    calendar.suppressRangeEvents = true;
 
     var result = this._content.getResult();
-    var queries = result.getQueries({ });
-    if (!queries.length)
+    if (result.root.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY)
+      result.root.QueryInterface(Ci.nsINavHistoryQueryResultNode);
+    else if (result.root.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER)
+      result.root.QueryInterface(Ci.nsINavHistoryFolderResultNode);
+    else {
+      calendar.selectNothing = true;
       return;
-    
-    // Query values are OR'ed together, so just use the first. 
-    var query = queries[0];
-    
-    const NOW = new Date();
-    var begin = Math.floor(query.beginTime / 1000);
-    var end = Math.floor(query.endTime / 1000);
-    if (query.beginTimeReference == Ci.nsINavHistoryQuery.TIME_RELATIVE_TODAY) {
-      if (query.beginTime == 0) {
-        var d = new Date();
-        d.setFullYear(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
-        d.setHours(0, 0, 0, 0);
-        begin += d.getTime();
-      }
-      else
-        begin += NOW.getTime();
-      end += NOW.getTime();
     }
-    calendar.beginrange = new Date(begin);
-    calendar.endrange = new Date(end);
-    
-    // Allow user selection events once again. 
+    var queries = this.getCurrentQueries();
+
+    // if there is more than one query, make sure that they all specify the
+    // same date range. If there isn't a unique date range, don't display
+    // anything.
+    if (queries.length < 1) {
+      calendar.selectNothing = true;
+      return;
+    }
+    var absBegin = queries[0].absoluteBeginTime;
+    var absEnd = queries[0].absoluteEndTime;
+    for (var i = 1; i < queries.length; i ++) {
+      if (queries[i].absoluteBeginTime != absBegin ||
+          queries[i].absoluteEndTime != absEnd) {
+        calendar.selectNothing = true;
+        return;
+      }
+    }
+
+    var query = queries[0];
+
+    // Make sure that by updating the calendar widget we don't fire selection
+    // events and cause the UI to infinitely reload.
+    calendar.suppressRangeEvents = true;
+
+    // begin
+    var beginRange = null;
+    if (query.hasBeginTime)
+      beginRange = new Date(query.absoluteBeginTime / 1000);
+
+    // end
+    var endRange = null;
+    if (query.hasEndTime) {
+      endRange = new Date(query.absoluteEndTime / 1000);
+
+      // here, we have to do a little work. Normally a day query will start
+      // at midnight and end exactly 24 hours later. However, this spans two
+      // actual days, and will show up as such in the calendar. Therefore, if
+      // the end day is exactly midnight, we will bump it back a day.
+      if (endRange.getHours() == 0 && endRange.getMinutes() == 0 &&
+          endRange.getSeconds() == 0 && endRange.getMilliseconds() == 0) {
+        // Here, we have to be careful to not set the end range to before the
+        // beginning. Somebody stupid might set them to be the same, and we
+        // don't want to suddenly make an invalid range.
+        if (! beginRange ||
+            (beginRange && beginRange.getTime() != endRange.getTime()))
+          endRange.setTime(endRange.getTime() - 1);
+      }
+    }
+    calendar.setRange(beginRange, endRange, true);
+
+    // Allow user selection events once again.
     calendar.suppressRangeEvents = false;
   },
-  
+
   /**
    * Update the Places UI when the content of the right tree changes. 
    */
@@ -359,8 +423,27 @@ var PlacesPage = {
     document.getElementById("historyCalendar").setAttribute("hidden", isBookmarks);
     
     // Update the calendar with the current date range, if applicable. 
-    if (!isBookmarks)
+    if (!isBookmarks) {
       this._updateCalendar();
+    }
+  },
+
+  /**
+   * Returns the query array associated with the query currently loaded in
+   * the main places pane.
+   */
+  getCurrentQueries: function PP_getCurrentQueries() {
+    var result = this._content.getResult();
+    return result.root.QueryInterface(Ci.nsINavHistoryQueryResultNode).getQueries({});
+  },
+
+  /**
+   * Returns the options associated with the query currently loaded in the
+   * main places pane.
+   */
+  getCurrentOptions: function PP_getCurrentOptions() {
+    var result = this._content.getResult();
+    return result.root.QueryInterface(Ci.nsINavHistoryQueryResultNode).queryOptions;
   },
 };
 
@@ -426,4 +509,424 @@ var PlacesSearchBox = {
     searchFilter.focus();
   },
 
+};
+
+/**
+ * Functions and data for advanced query builder
+ */
+var PlacesQueryBuilder = {
+
+  _numRows: 1,
+  _maxRows: 4,
+  
+  _keywordSearch: {
+    advancedSearch_N_Subject: "advancedSearch_N_SubjectKeyword",
+    advancedSearch_N_HostMenulist: false,
+    advancedSearch_N_KeywordLabel: true,
+    advancedSearch_N_UriMenulist: false,
+    advancedSearch_N_TimeMenulist: false,
+    advancedSearch_N_Textbox: "",
+    advancedSearch_N_TimePicker: false,
+    advancedSearch_N_TimeMenulist2: false,
+  },
+  _hostSearch: {
+    advancedSearch_N_Subject: "advancedSearch_N_SubjectHost",
+    advancedSearch_N_HostMenulist: "advancedSearch_N_HostMenuSelected",
+    advancedSearch_N_KeywordLabel: false,
+    advancedSearch_N_UriMenulist: false,
+    advancedSearch_N_TimeMenulist: false,
+    advancedSearch_N_Textbox: "",
+    advancedSearch_N_TimePicker: false,
+    advancedSearch_N_TimeMenulist2: false,
+  },
+  _uriSearch: {
+    advancedSearch_N_Subject: "advancedSearch_N_SubjectUri",
+    advancedSearch_N_HostMenulist: false,
+    advancedSearch_N_KeywordLabel: false,
+    advancedSearch_N_UriMenulist: "advancedSearch_N_UriMenuSelected",
+    advancedSearch_N_TimeMenulist: false,
+    advancedSearch_N_Textbox: "http://",
+    advancedSearch_N_TimePicker: false,
+    advancedSearch_N_TimeMenulist2: false,
+  },
+  _timeSearch: {
+    advancedSearch_N_Subject: "advancedSearch_N_SubjectVisited",
+    advancedSearch_N_HostMenulist: false,
+    advancedSearch_N_KeywordLabel: false,
+    advancedSearch_N_UriMenulist: false,
+    advancedSearch_N_TimeMenulist: true,
+    advancedSearch_N_Textbox: false,
+    advancedSearch_N_TimePicker: "date",
+    advancedSearch_N_TimeMenulist2: false,
+  },
+  _timeInLastSearch: {
+    advancedSearch_N_Subject: "advancedSearch_N_SubjectVisited",
+    advancedSearch_N_HostMenulist: false,
+    advancedSearch_N_KeywordLabel: false,
+    advancedSearch_N_UriMenulist: false,
+    advancedSearch_N_TimeMenulist: true,
+    advancedSearch_N_Textbox: "7",
+    advancedSearch_N_TimePicker: false,
+    advancedSearch_N_TimeMenulist2: true,
+  },
+  _nextSearch: null,
+  _queryBuilders: null,
+  
+  init: function PQB_init() {
+    // Initialize advanced search
+    this._nextSearch = {
+      "keyword": this._timeSearch,
+      "visited": this._hostSearch,
+      "host": this._uriSearch,
+      "uri": this._keywordSearch,
+    };
+    
+    this._queryBuilders = {
+      "keyword": this.setKeywordQuery,
+      "visited": this.setVisitedQuery,
+      "host": this.setHostQuery,
+      "uri": this.setUriQuery,
+    };
+    
+    this._dateService = Cc["@mozilla.org/intl/scriptabledateformat;1"].
+                          getService(Ci.nsIScriptableDateFormat);
+  },
+
+  toggle: function PQB_toggle() {
+    var advancedSearch = document.getElementById("advancedSearch");
+    if (advancedSearch.collapsed) {
+      // Need to expand the advanced search box and initialize it.
+      
+      // Should have one row, containing a keyword search with
+      // the keyword from the basic search box pre-filled.
+      while (this._numRows > 1)
+        this.removeRow();
+      this.showSearch(1, this._keywordSearch);
+      var searchbox = document.getElementById("searchFilter");
+      var keywordbox = document.getElementById("advancedSearch1Textbox");
+      keywordbox.value = searchbox.value;
+      advancedSearch.collapsed = false;
+      
+      // Update the +/- button and the header.
+      var button = document.getElementById("moreCriteria");
+      var placeBundle = document.getElementById("placeBundle");
+      button.label = placeBundle.getString("lessCriteria.label");
+      PlacesPage._setHeader("advanced", "");
+    }
+    else {
+      // Need to collapse the advanced search box.
+      advancedSearch.collapsed = true;
+      
+      // Update the +/- button
+      var button = document.getElementById("moreCriteria");
+      var placeBundle = document.getElementById("placeBundle");
+      button.label = placeBundle.getString("moreCriteria.label");
+    }
+  },
+  
+  setRowId: function PQB_setRowId(element, rowId) {
+    if (element.id)
+      element.id = element.id.replace("advancedSearch1", "advancedSearch" + rowId);
+    if (element.hasAttribute('rowid'))
+      element.setAttribute('rowid', rowId);
+    for (var i = 0; i < element.childNodes.length; i++) {
+      this.setRowId(element.childNodes[i], rowId);
+    }
+  },
+  
+  updateUIForRowChange: function PQB_updateUIForRowChange() {
+    // Titlebar should show "match any/all" iff there are > 1 queries visible.
+    var matchUI = document.getElementById("titlebarMatch");
+    matchUI.hidden = (this._numRows <= 1);
+    PlacesPage._setHeader("advanced", this._numRows <= 1 ? "" : ",");
+    
+    // Disable the + buttons if there are max advanced search rows
+    // Disable the - button is there is only one advanced search row
+    for (var i = 1; i <= this._numRows; i++) {
+      var plus = document.getElementById("advancedSearch" + i + "Plus");
+      plus.disabled = (this._numRows >= this._maxRows);
+      var minus = document.getElementById("advancedSearch" + i + "Minus");
+      minus.disabled = (this._numRows == 1);
+    }
+  },
+  
+  addRow: function PQB_addRow() {
+    if (this._numRows >= this._maxRows)
+      return;
+    
+    var gridRows = document.getElementById("advancedSearchRows");
+    var newRow = gridRows.firstChild.cloneNode(true);
+
+    var searchType = this._keywordSearch;
+    var lastMenu = document.getElementById("advancedSearch" +
+                                           this._numRows +
+                                           "Subject");
+    if (lastMenu && lastMenu.selectedItem) {
+      searchType = this._nextSearch[lastMenu.selectedItem.value];
+    }
+    
+    this._numRows++;
+    this.setRowId(newRow, this._numRows);
+    this.showSearch(this._numRows, searchType);
+    gridRows.appendChild(newRow);
+    this.updateUIForRowChange();
+  },
+  
+  removeRow: function PQB_removeRow() {
+    if (this._numRows <= 1)
+      return;
+
+    var row = document.getElementById("advancedSearch" + this._numRows + "Row");
+    row.parentNode.removeChild(row);
+    this._numRows--;
+    
+    this.updateUIForRowChange();
+  },
+  
+  onDateTyped: function PQB_onDateTyped(event, row) {
+    var textbox = document.getElementById("advancedSearch" + row + "TimePicker");
+    var dateString = textbox.value;
+    var dateArr = dateString.split("-");
+    // The date can be split into a range by the '-' character, i.e.
+    // 9/5/05 - 10/2/05.  Unfortunately, dates can also be written like
+    // 9-5-05 - 10-2-05.  Try to parse the date based on how many hyphens
+    // there are.
+    var d0 = null;
+    var d1 = null;
+    // If there are an even number of elements in the date array, try to 
+    // parse it as a range of two dates.
+    if ((dateArr.length & 1) == 0) {
+      var mid = dateArr.length / 2;
+      var dateStr0 = dateArr[0];
+      var dateStr1 = dateArr[mid];
+      for (var i = 1; i < mid; i++) {
+        dateStr0 += "-" + dateArr[i];
+        dateStr1 += "-" + dateArr[i + mid];
+      }
+      d0 = new Date(dateStr0);
+      d1 = new Date(dateStr1);
+    }
+    // If that didn't work, try to parse it as a single date.
+    if (d0 == null || d0 == "Invalid Date") {
+      d0 = new Date(dateString);
+    }
+    
+    if (d0 != null && d0 != "Invalid Date") {
+      // Parsing succeeded -- update the calendar.
+      var calendar = document.getElementById("advancedSearch" + row + "Calendar");
+      if (d0.getFullYear() < 2000)
+        d0.setFullYear(2000 + (d0.getFullYear() % 100));
+      if (d1 != null && d1 != "Invalid Date") {
+        if (d1.getFullYear() < 2000)
+          d1.setFullYear(2000 + (d1.getFullYear() % 100));
+        calendar.updateSelection(d0, d1);
+      }
+      else {
+        calendar.updateSelection(d0, d0);
+      }
+      
+      // And update the search.
+      this.doSearch();
+    }
+  },
+  
+  onCalendarChanged: function PQB_onCalendarChanged(event, row) {
+    var calendar = document.getElementById("advancedSearch" + row + "Calendar");
+    var begin = calendar.beginrange;
+    var end = calendar.endrange;
+    
+    // If the calendar doesn't have a begin/end, don't change the textbox.
+    if (begin == null || end == null)
+      return true;
+      
+    // If the begin and end are the same day, only fill that into the textbox.
+    var textbox = document.getElementById("advancedSearch" + row + "TimePicker");
+    var beginDate = begin.getDate();
+    var beginMonth = begin.getMonth() + 1;
+    var beginYear = begin.getFullYear();
+    var endDate = end.getDate();
+    var endMonth = end.getMonth() + 1;
+    var endYear = end.getFullYear();
+    if (beginDate == endDate && beginMonth == endMonth && beginYear == endYear) {
+      // Just one date.
+      textbox.value = this._dateService.FormatDate("",
+                                                   this._dateService.dateFormatShort,
+                                                   beginYear,
+                                                   beginMonth,
+                                                   beginDate);
+    }
+    else
+    {
+      // Two dates.
+      var beginStr = this._dateService.FormatDate("",
+                                                   this._dateService.dateFormatShort,
+                                                   beginYear,
+                                                   beginMonth,
+                                                   beginDate);
+      var endStr = this._dateService.FormatDate("",
+                                                this._dateService.dateFormatShort,
+                                                endYear,
+                                                endMonth,
+                                                endDate);
+      textbox.value = beginStr + " - " + endStr;
+    }
+    
+    // Update the search.
+    this.doSearch();
+    
+    return true;
+  },
+  
+  handleTimePickerClick: function PQB_handleTimePickerClick(event, row) {
+    var popup = document.getElementById("advancedSearch" + row + "DatePopup");
+    if (popup.showing)
+      popup.hidePopup();
+    else {
+      var textbox = document.getElementById("advancedSearch" + row + "TimePicker");
+      popup.showPopup(textbox, -1, -1, "popup", "bottomleft", "topleft");
+    }
+  },
+  
+  showSearch: function PQB_showSearch(row, values) {
+    for (val in values) {
+      var id = val.replace("_N_", row);
+      var element = document.getElementById(id);
+      if (values[val] || typeof(values[val]) == "string") {
+        if (typeof(values[val]) == "string") {
+          if (values[val] == "date") {
+            // "date" means that the current date should be filled into the
+            // textbox, and the calendar for the row updated.
+            var d = new Date();
+            element.value = this._dateService.FormatDate("",
+                                                         this._dateService.dateFormatShort,
+                                                         d.getFullYear(),
+                                                         d.getMonth() + 1,
+                                                         d.getDate());
+            var calendar = document.getElementById("advancedSearch" + row + "Calendar");
+            calendar.updateSelection(d, d);
+          }
+          else if (element.nodeName == "textbox") {
+            // values[val] is the initial value of the textbox.
+            element.value = values[val];
+          } else {
+            // values[val] is the menuitem which should be selected.
+            var itemId = values[val].replace("_N_", row);
+            var item = document.getElementById(itemId);
+            element.selectedItem = item;
+          }
+        }
+        element.hidden = false;
+      }
+      else {
+        element.hidden = true;
+      }
+    }
+    
+    this.doSearch();
+  },
+  
+  setKeywordQuery: function PQB_setKeywordQuery(query, prefix) {
+    query.searchTerms += document.getElementById(prefix + "Textbox").value + " ";
+  },
+  
+  setUriQuery: function PQB_setUriQuery(query, prefix) {
+    var matchType = document.getElementById(prefix + "UriMenulist").selectedItem.value;
+    if (matchType == "startsWith")
+      query.uriIsPrefix = true;
+    else
+      query.uriIsPrefix = false;
+
+    var ios = Cc["@mozilla.org/network/io-service;1"].
+                getService(Ci.nsIIOService);
+    var spec = document.getElementById(prefix + "Textbox").value;
+    query.uri = ios.newURI(spec, null, null);
+  },
+  
+  setHostQuery: function PQB_setHostQuery(query, prefix) {
+    if (document.getElementById(prefix + "HostMenulist").selectedItem.value == "is")
+      query.domainIsHost = true;
+    query.domain = document.getElementById(prefix + "Textbox").value;
+  },
+  
+  setVisitedQuery: function PQB_setVisitedQuery(query, prefix) {
+    var searchType = document.getElementById(prefix + "TimeMenulist").selectedItem.value;
+    const DAY_MSEC = 86400000;
+    switch (searchType) {
+      case "on":
+        var calendar = document.getElementById(prefix + "Calendar");
+        var begin = calendar.beginrange.getTime();
+        var end = calendar.endrange.getTime();
+        if (begin == end) {
+          end = begin + DAY_MSEC;
+        }
+        query.beginTime = begin * 1000;
+        query.endTime = end * 1000;
+        break;
+      case "before":
+        var calendar = document.getElementById(prefix + "Calendar");
+        var time = calendar.beginrange.getTime();
+        query.endTime = time * 1000;
+        break;
+      case "after":
+        var calendar = document.getElementById(prefix + "Calendar");
+        var time = calendar.endrange.getTime();
+        query.beginTime = time * 1000;
+        break;
+      case "inLast":
+        var textbox = document.getElementById(prefix + "Textbox");
+        var amount = parseInt(textbox.value);
+        amount = amount * DAY_MSEC;
+        var menulist = document.getElementById(prefix + "TimeMenulist2");
+        if (menulist.selectedItem.value == "weeks")
+          amount = amount * 7;
+        else if (menulist.selectedItem.value == "months")
+          amount = amount * 30;
+        var now = new Date();
+        now = now - amount;
+        query.beginTime = now * 1000;
+        break;
+    }
+  },
+  
+  doSearch: function PQB_doSearch() {
+    // Create the individual queries.
+    var queryType = document.getElementById("advancedSearchType").selectedItem.value;
+    var queries = [];
+    if (queryType == "and")
+      queries.push(PlacesPage._hist.getNewQuery());
+    var onlyBookmarked = document.getElementById("advancedSearchOnlyBookmarked").checked;
+    for (var i = 1; i <= this._numRows; i++) {
+      var prefix = "advancedSearch" + i;
+      
+      // If the queries are being AND-ed, put all the rows in one query.
+      // If they're being OR-ed, add a separate query for each row.
+      var query;
+      if (queryType == "and")
+        query = queries[0];
+      else
+        query = PlacesPage._hist.getNewQuery();
+      query.onlyBookmarked = onlyBookmarked;
+      
+      var querySubject = document.getElementById(prefix + "Subject").value;
+      this._queryBuilders[querySubject](query, prefix);
+      
+      if (queryType == "or")
+        queries.push(query);
+    }
+    
+    // Set max results
+    var result = PlacesPage._content.getResult();
+    var options = PlacesPage.getCurrentOptions();
+    if (document.getElementById("advancedSearchHasMax").checked) {
+      var max = parseInt(document.getElementById("advancedSearchMaxResults").value);
+      if (isNaN(max))
+        max = 100;
+      options.maxResults = max;
+      dump("Max results = " + options.maxResults + "(" + max + ")\n");
+    }
+    // Make sure we're getting uri results, not visits
+    options.resultType = options.RESULT_TYPE_URI;
+
+    PlacesPage._content.load(queries, options);
+  },
 };

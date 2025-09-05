@@ -213,7 +213,6 @@ static inline PRBool IsAlphaTranslucencySupported() { return pUpdateLayeredWindo
 
 
 #ifdef WINCE
-static PRBool gSoftKeyMenuBar = PR_FALSE;
 static PRBool gUseOkayButton  = PR_FALSE;
 static PRBool gOverrideHWKeys = PR_TRUE;
 
@@ -259,37 +258,18 @@ static void MapHardwareButtons(HWND window)
         gProcUnregisterFunc = (UnregisterFunc1Proc)GetProcAddress( gCoreDll, _T("UnregisterFunc1"));
     }
     
-    if (!gProcUnregisterFunc)
-      return;
-    
-    for (int i=0; gHardwareKeys[i][0]; i++)
-    {
-      UINT mod = gHardwareKeys[i][1];
-      UINT kc = gHardwareKeys[i][0];
-      
-      gProcUnregisterFunc(mod, kc);
-      RegisterHotKey(window, kc, mod, kc);
+    if (gProcUnregisterFunc)
+    {    
+      for (int i=0; gHardwareKeys[i][0]; i++)
+      {
+        UINT mod = gHardwareKeys[i][1];
+        UINT kc = gHardwareKeys[i][0];
+        
+        gProcUnregisterFunc(mod, kc);
+        RegisterHotKey(window, kc, mod, kc);
+      }
     }
   }
-
-  HWND mb = SHFindMenuBar (window);
-  
-  if (!mb)
-    return;
-
-  SendMessage(mb, SHCMBM_OVERRIDEKEY, VK_TBACK,
-              MAKELPARAM(SHMBOF_NODEFAULT | SHMBOF_NOTIFY,
-                         SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
-  SendMessage(mb, SHCMBM_OVERRIDEKEY, VK_TSOFT1, 
-              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
-                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
-  
-  SendMessage(mb, SHCMBM_OVERRIDEKEY, VK_TSOFT2, 
-              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
-                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
 }
 
 static void UnmapHardwareButtons()
@@ -306,25 +286,42 @@ static void UnmapHardwareButtons()
   }
 }
 
-void CreateSoftKeyMenuBar(HWND wnd)
+HWND CreateSoftKeyMenuBar(HWND wnd)
 {
-  if (gSoftKeyMenuBar)
-    return;
-
-  gSoftKeyMenuBar = PR_TRUE;
+  if (!wnd)
+    return nsnull;
 
   SHMENUBARINFO mbi;
   ZeroMemory(&mbi, sizeof(SHMENUBARINFO));
   mbi.cbSize = sizeof(SHMENUBARINFO);
   mbi.hwndParent = wnd;
-  mbi.dwFlags = SHCMBF_EMPTYBAR;
-  mbi.hInstRes = GetModuleHandle(NULL);
-  
-  SHCreateMenuBar(&mbi);
 
-  HWND mb = SHFindMenuBar(wnd);
-  if (mb)
-    SetWindowPos(mb, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE);
+  //  On windows ce smartphone, events never occur if the
+  //  menubar is empty.  This doesn't work: 
+  //  mbi.dwFlags = SHCMBF_EMPTYBAR;
+
+  mbi.nToolBarId = IDC_DUMMY_CE_MENUBAR;
+  mbi.hInstRes   = GetModuleHandle(NULL);
+  
+  if (!SHCreateMenuBar(&mbi))
+    return nsnull;
+
+  SetWindowPos(mbi.hwndMB, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE);
+
+  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TBACK,
+              MAKELPARAM(SHMBOF_NODEFAULT | SHMBOF_NOTIFY,
+                         SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
+  
+  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT1, 
+              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
+                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
+  
+  
+  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT2, 
+              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
+                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
+
+  return mbi.hwndMB;
 }
 
 #endif
@@ -917,6 +914,9 @@ nsWindow::nsWindow() : nsBaseWidget()
       prefBranch->GetBoolPref("config.wince.overrideHWKeys", &gOverrideHWKeys);
     }
   }
+
+  mSoftKeyMenuBar = nsnull;
+
 #endif
 }
 
@@ -976,6 +976,10 @@ nsWindow::~nsWindow()
   }
 
   NS_IF_RELEASE(mNativeDragTarget);
+
+#ifdef WINCE
+  // XXX do we free mSoftKeyMenuBar.  MSDN isn't sure.
+#endif
 }
 
 
@@ -1588,7 +1592,8 @@ nsWindow::StandardWindowCreate(nsIWidget *aParent,
   }
 #ifdef WINCE
     if (mWindowType == eWindowType_dialog || mWindowType == eWindowType_toplevel )
-      CreateSoftKeyMenuBar(mWnd);
+      mSoftKeyMenuBar = CreateSoftKeyMenuBar(mWnd);
+
     MapHardwareButtons(mWnd);
 #endif
 
@@ -2243,9 +2248,11 @@ NS_METHOD nsWindow::SetFocus(PRBool aRaise)
     if (::IsIconic(toplevelWnd))
       ::OpenIcon(toplevelWnd);
     ::SetFocus(mWnd);
+
 #ifdef WINCE
     MapHardwareButtons(mWnd);
 #endif
+
   }
   return NS_OK;
 }
@@ -4327,7 +4334,7 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
       // fire hotkey events.  See
       // http://msdn.microsoft.com/library/default.asp?url=/library/en-us/win_ce/html/pwc_TheBackButtonandOtherInterestingButtons.asp
       
-      if (VK_TSOFT1 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam)))) 
+      if (VK_TSOFT1 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
       {
         keybd_event(VK_F23, 0, 0, 0);
         keybd_event(VK_F23, 0, KEYEVENTF_KEYUP, 0);
@@ -4335,7 +4342,7 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         break;
       }
       
-      if (VK_TSOFT2 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam)))) 
+      if (VK_TSOFT2 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
       {
         keybd_event(VK_F24, 0, 0, 0);
         keybd_event(VK_F24, 0, KEYEVENTF_KEYUP, 0);
@@ -6063,8 +6070,8 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
 
   // call the event callback
   if (nsnull != mEventCallback) {
+    MouseTrailer::GetSingleton().Disable();
     if (aEventType == NS_MOUSE_MOVE) {
-      MouseTrailer::GetSingleton().Disable();
       if (!mIsInMouseCapture) {
         MouseTrailer::GetSingleton().SetMouseTrailerWindow(mWnd);
       }
@@ -6086,7 +6093,6 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
           }
         }
       }
-      MouseTrailer::GetSingleton().Enable();
     } else if (aEventType == NS_MOUSE_EXIT) {
       if (gCurrentWindow == this) {
         gCurrentWindow = nsnull;
@@ -6094,6 +6100,8 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
     }
 
     result = DispatchWindowEvent(&event);
+
+    MouseTrailer::GetSingleton().Enable();
 
     // Release the widget with NS_IF_RELEASE() just in case
     // the context menu key code in nsEventListenerManager::HandleEvent()

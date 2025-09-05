@@ -62,6 +62,8 @@
 #include "nsIViewManager.h"
 #include "nsSVGUtils.h"
 #include "nsSVGFilterFrame.h"
+#include "nsSVGMaskFrame.h"
+#include "nsISVGRendererSurface.h"
 
 ////////////////////////////////////////////////////////////////////////
 // nsSVGPathGeometryFrame
@@ -203,14 +205,20 @@ nsSVGPathGeometryFrame::GetType() const
   return nsLayoutAtoms::svgPathGeometryFrame;
 }
 
+PRBool
+nsSVGPathGeometryFrame::IsFrameOfType(PRUint32 aFlags) const
+{
+  return !(aFlags & ~nsIFrame::eSVG);
+}
+
 //----------------------------------------------------------------------
 // nsISVGChildFrame methods
 
 // marker helper
 void
-nsSVGPathGeometryFrame::GetMarkerFrames(nsSVGMarkerFrame **markerStart,
-                                        nsSVGMarkerFrame **markerMid,
-                                        nsSVGMarkerFrame **markerEnd)
+nsSVGPathGeometryFrame::GetMarkerFrames(nsISVGMarkerFrame **markerStart,
+                                        nsISVGMarkerFrame **markerMid,
+                                        nsISVGMarkerFrame **markerEnd)
 {
   nsIURI *aURI;
 
@@ -258,25 +266,67 @@ nsSVGPathGeometryFrame::PaintSVG(nsISVGRendererCanvas* canvas,
     }
   }
 
+  nsISVGOuterSVGFrame* outerSVGFrame = GetOuterSVGFrame();
+
   /* check for a clip path */
 
-  nsSVGClipPathFrame *clip = nsnull;
+  PRBool trivialClip = PR_TRUE;
+  nsISVGClipPathFrame *clip = NULL;
+  nsCOMPtr<nsISVGRendererSurface> clipMaskSurface;
+
   aURI = GetStyleSVGReset()->mClipPath;
   if (aURI) {
     NS_GetSVGClipPathFrame(&clip, aURI, mContent);
 
     if (clip) {
-      nsCOMPtr<nsIDOMSVGMatrix> matrix;
-      GetCanvasTM(getter_AddRefs(matrix));
-      canvas->PushClip();
-      clip->ClipPaint(canvas, this, matrix);
-    }
+      clip->IsTrivial(&trivialClip);
 
-#ifdef DEBUG_tor    
-    nsCAutoString spec;
-    aURI->GetAsciiSpec(spec);
-    fprintf(stderr, "CLIPPATH %s %p\n", spec.get(), clip);
-#endif
+      if (trivialClip) {
+        canvas->PushClip();
+      } else {
+        nsSVGUtils::GetSurface(outerSVGFrame, canvas,
+                               getter_AddRefs(clipMaskSurface));
+        if (!clipMaskSurface)
+          clip = nsnull;
+      }
+
+      if (clip) {
+        nsCOMPtr<nsIDOMSVGMatrix> matrix;
+        GetCanvasTM(getter_AddRefs(matrix));
+        clip->ClipPaint(canvas, clipMaskSurface, this, matrix);
+      }
+    }
+  }
+
+  /* check for mask */
+
+  nsISVGMaskFrame *mask = nsnull;
+  nsCOMPtr<nsISVGRendererSurface> maskSurface, maskedSurface;
+
+  aURI = GetStyleSVGReset()->mMask;
+  if (aURI) {
+    NS_GetSVGMaskFrame(&mask, aURI, mContent);
+
+    if (mask) {
+      nsSVGUtils::GetSurface(outerSVGFrame, canvas,
+                             getter_AddRefs(maskSurface));
+
+      if (maskSurface) {
+        nsCOMPtr<nsIDOMSVGMatrix> matrix;
+        GetCanvasTM(getter_AddRefs(matrix));
+        if (NS_FAILED(mask->MaskPaint(canvas, maskSurface, this, matrix)))
+          maskSurface = nsnull;
+      }
+    }
+  }
+
+  if (maskSurface || clipMaskSurface) {
+    nsSVGUtils::GetSurface(outerSVGFrame, canvas,
+                           getter_AddRefs(maskedSurface));
+    if (maskedSurface) {
+      canvas->PushSurface(maskedSurface);
+    } else
+      maskSurface = nsnull;
   }
 
   /* render */
@@ -286,7 +336,7 @@ nsSVGPathGeometryFrame::PaintSVG(nsISVGRendererCanvas* canvas,
   CallQueryInterface(this, &markable);
 
   if (markable) {
-    nsSVGMarkerFrame *markerEnd, *markerMid, *markerStart;
+    nsISVGMarkerFrame *markerEnd, *markerMid, *markerStart;
     GetMarkerFrames(&markerStart, &markerMid, &markerEnd);
 
     if (markerEnd || markerMid || markerStart) {
@@ -314,7 +364,28 @@ nsSVGPathGeometryFrame::PaintSVG(nsISVGRendererCanvas* canvas,
     }
   }
 
-  if (clip)
+  if (maskedSurface)
+    canvas->PopSurface();
+
+  if (clipMaskSurface) {
+    if (!maskSurface) {
+      maskSurface = clipMaskSurface;
+    } else {
+      nsCOMPtr<nsISVGRendererSurface> clipped;
+      nsSVGUtils::GetSurface(outerSVGFrame, canvas,
+                             getter_AddRefs(clipped));
+      
+      canvas->PushSurface(clipped);
+      canvas->CompositeSurfaceWithMask(maskedSurface, 0, 0, clipMaskSurface);
+      canvas->PopSurface();
+      maskedSurface = clipped;
+    }
+  }
+
+  if (maskSurface)
+    canvas->CompositeSurfaceWithMask(maskedSurface, 0, 0, maskSurface);
+
+  if (clip && trivialClip)
     canvas->PopClip();
 
   return NS_OK;
@@ -336,7 +407,7 @@ nsSVGPathGeometryFrame::GetFrameForPointSVG(float x, float y, nsIFrame** hit)
     PRBool clipHit = PR_TRUE;;
 
     nsIURI *aURI;
-    nsSVGClipPathFrame *clip = NULL;
+    nsISVGClipPathFrame *clip = NULL;
     aURI = GetStyleSVGReset()->mClipPath;
     if (aURI)
       NS_GetSVGClipPathFrame(&clip, aURI, mContent);
@@ -367,7 +438,7 @@ nsSVGPathGeometryFrame::GetCoveredRegion()
   CallQueryInterface(this, &markable);
 
   if (markable) {
-    nsSVGMarkerFrame *markerEnd, *markerMid, *markerStart;
+    nsISVGMarkerFrame *markerEnd, *markerMid, *markerStart;
     GetMarkerFrames(&markerStart, &markerMid, &markerEnd);
 
     if (!markerEnd && !markerMid && !markerStart)
@@ -1026,7 +1097,7 @@ void nsSVGPathGeometryFrame::UpdateGraphic(PRUint32 flags,
       CallQueryInterface(this, &markable);
       
       if (markable) {
-        nsSVGMarkerFrame *markerEnd, *markerMid, *markerStart;
+        nsISVGMarkerFrame *markerEnd, *markerMid, *markerStart;
         GetMarkerFrames(&markerStart, &markerMid, &markerEnd);
 
         if (markerEnd || markerMid || markerStart) {

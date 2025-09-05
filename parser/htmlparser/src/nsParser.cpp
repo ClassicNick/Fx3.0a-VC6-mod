@@ -85,97 +85,6 @@ static NS_DEFINE_CID(kEventQueueServiceCID, NS_EVENTQUEUESERVICE_CID);
 
 nsCOMArray<nsIUnicharStreamListener> *nsParser::sParserDataListeners;
 
-class CDTDDeallocator: public nsDequeFunctor
-{
-public:
-  virtual void* operator()(void* anObject)
-  {
-    nsIDTD* aDTD = (nsIDTD*)anObject;
-    NS_RELEASE(aDTD);
-    return 0;
-  }
-};
-
-//-------------------------------------------------------------------
-
-class CDTDFinder: public nsDequeFunctor
-{
-public:
-  CDTDFinder(nsIDTD* aDTD)
-    : mTargetDTD(aDTD)
-  {
-  }
-
-  virtual ~CDTDFinder()
-  {
-  }
-
-  virtual void* operator()(void* anObject)
-  {
-    nsIDTD* theDTD = (nsIDTD*)anObject;
-    if (theDTD->GetMostDerivedIID().Equals(mTargetDTD->GetMostDerivedIID())) {
-      return anObject;
-    }
-    return 0;
-  }
-
-  nsIDTD* mTargetDTD;
-};
-
-//-------------------------------------------------------------------
-
-class CSharedParserObjects
-{
-public:
-  CSharedParserObjects()
-  : mDTDDeque(0),
-    mHasViewSourceDTD(PR_FALSE),
-    mHasXMLDTD(PR_FALSE)
-  {
-  }
-
-  ~CSharedParserObjects()
-  {
-    CDTDDeallocator theDeallocator;
-    mDTDDeque.ForEach(theDeallocator);  // Release all the DTDs
-  }
-
-  nsresult Init()
-  {
-    // Note: To cut down on startup time/overhead, we defer the construction
-    // of non-html DTD's.
-    nsIDTD* theDTD = nsnull;
-    nsresult rv = NS_NewNavHTMLDTD(&theDTD);
-
-    NS_ASSERTION(theDTD, "Failed to create DTD");
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    mDTDDeque.Push(theDTD);
-    mHasViewSourceDTD = PR_FALSE;
-    mHasXMLDTD = PR_FALSE;
-    return NS_OK;
-  }
-
-  nsresult RegisterDTD(nsIDTD* aDTD)
-  {
-    NS_ENSURE_ARG_POINTER(aDTD);
-    nsCOMPtr<nsIDTD> dtd(aDTD);
-    CDTDFinder theFinder(dtd);
-    if (!mDTDDeque.FirstThat(theFinder)) {
-      nsIDTD* theDTD;
-      nsresult rv = dtd->CreateNewInstance(&theDTD);
-      NS_ENSURE_SUCCESS(rv, rv);
-      mDTDDeque.Push(theDTD);
-    }
-    return NS_OK;
-  }
-
-  nsDeque mDTDDeque;
-  PRBool  mHasViewSourceDTD;  //this allows us to defer construction of this object.
-  PRBool  mHasXMLDTD;         //also defer XML dtd construction
-};
-
-
 //-------------- Begin ParseContinue Event Definition ------------------------
 /*
 The parser can be explicitly interrupted by passing a return value of
@@ -261,35 +170,6 @@ struct nsParserContinueEvent : public PLEvent
 
 //-------------- End ParseContinue Event Definition ------------------------
 
-
-static CSharedParserObjects* gSharedParserObjects = nsnull;
-
-
-//-------------------------------------------------------------------------
-
-static nsresult
-GetSharedObjects(CSharedParserObjects** aSharedParserObjects)
-{
-  if (!gSharedParserObjects) {
-    gSharedParserObjects = new CSharedParserObjects();
-    NS_ENSURE_TRUE(gSharedParserObjects, NS_ERROR_OUT_OF_MEMORY);
-    nsresult rv = gSharedParserObjects->Init();
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
-  *aSharedParserObjects = gSharedParserObjects;
-  return NS_OK;
-}
-
-static void
-FreeSharedObjects()
-{
-  if (gSharedParserObjects) {
-    delete gSharedParserObjects;
-    gSharedParserObjects = nsnull;
-  }
-}
-
-
 /**
  *  This gets called when the htmlparser module is initialized.
  */
@@ -350,8 +230,6 @@ nsParser::Init()
 // static
 void nsParser::Shutdown()
 {
-  FreeSharedObjects();
-
   delete sParserDataListeners;
   sParserDataListeners = nsnull;
 }
@@ -555,21 +433,6 @@ NS_IMETHODIMP_(nsIContentSink*)
 nsParser::GetContentSink()
 {
   return mSink;
-}
-
-/**
- *  Call this method when you want to
- *  register your dynamic DTD's with the parser.
- *
- *  @param   aDTD  is the object to be registered.
- */
-NS_IMETHODIMP
-nsParser::RegisterDTD(nsIDTD* aDTD)
-{
-  CSharedParserObjects* sharedObjects;
-  nsresult rv = GetSharedObjects(&sharedObjects);
-  NS_ENSURE_SUCCESS(rv, rv);
-  return sharedObjects->RegisterDTD(aDTD);
 }
 
 /**
@@ -1007,76 +870,32 @@ DetermineParseMode(const nsString& aBuffer, nsDTDMode& aParseMode,
 }
 
 static nsresult
-FindSuitableDTD(CParserContext& aParserContext, PRBool* aReturn)
+FindSuitableDTD(CParserContext& aParserContext)
 {
-  *aReturn = PR_FALSE;
-  // Let's start by trying the defaultDTD, if one exists...
-  if (aParserContext.mDTD) {
-    eAutoDetectResult canParse = aParserContext.mDTD->CanParse(aParserContext);
-    if (canParse != eUnknownDetect && canParse != eInvalidDetect) {
-      *aReturn = PR_TRUE;
+  NS_ASSERTION(!aParserContext.mDTD, "Already found a DTD");
 
-      return NS_OK;
-    }
-  }
+  // We always find a DTD.
+  aParserContext.mAutoDetectStatus = ePrimaryDetect;
 
-  CSharedParserObjects* sharedObjects;
-  nsresult rv = GetSharedObjects(&sharedObjects);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  aParserContext.mAutoDetectStatus = eUnknownDetect;
-  PRInt32 theDTDIndex = 0;
-  nsIDTD* theBestDTD  = 0;
-  nsIDTD* theDTD      = 0;
-  PRBool  thePrimaryFound = PR_FALSE;
-
-  while ((theDTDIndex <= sharedObjects->mDTDDeque.GetSize()) &&
-         (aParserContext.mAutoDetectStatus != ePrimaryDetect)){
-    theDTD = NS_STATIC_CAST(nsIDTD*, sharedObjects->mDTDDeque.ObjectAt(theDTDIndex++));
-    if (theDTD) {
-      // Store detect status in temp ( theResult ) to avoid bugs such as
-      // 36233, 36754, 36491, 36323. Basically, we should avoid calling DTD's
-      // WillBuildModel() multiple times, i.e., we shouldn't leave auto-detect-status
-      // unknown.
-      eAutoDetectResult theResult = theDTD->CanParse(aParserContext);
-      if (eValidDetect == theResult){
-        aParserContext.mAutoDetectStatus = eValidDetect;
-        theBestDTD = theDTD;
-      } else if (ePrimaryDetect == theResult) {
-        theBestDTD = theDTD;
-        thePrimaryFound = PR_TRUE;
-        aParserContext.mAutoDetectStatus = ePrimaryDetect;
-      }
-    }
-
-    if (theDTDIndex == sharedObjects->mDTDDeque.GetSize() && !thePrimaryFound) {
-      if (!sharedObjects->mHasXMLDTD) {
-        rv = NS_NewExpatDriver(&theDTD); // Do this to view XML files...
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        sharedObjects->mDTDDeque.Push(theDTD);
-        sharedObjects->mHasXMLDTD = PR_TRUE;
-      }
 #ifdef MOZ_VIEW_SOURCE
-      else if (!sharedObjects->mHasViewSourceDTD) {
-        rv = NS_NewViewSourceHTML(&theDTD);
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        sharedObjects->mDTDDeque.Push(theDTD);
-        sharedObjects->mHasViewSourceDTD = PR_TRUE;
-      }
+  // Quick check for view source.
+  if (aParserContext.mParserCommand == eViewSource) {
+    aParserContext.mDTD = new CViewSourceHTML();
+    return aParserContext.mDTD ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
+  }
 #endif
-    }
+
+  // Now see if we're parsing HTML (which, as far as we're concerned, simply
+  // means "not XML").
+  if (aParserContext.mDocType != eXML) {
+    aParserContext.mDTD = new CNavDTD();
+    return aParserContext.mDTD ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
   }
 
-  if (theBestDTD) {
-    rv = theBestDTD->CreateNewInstance(getter_AddRefs(aParserContext.mDTD));
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    *aReturn = PR_TRUE;
-  }
-
-  return rv;
+  // If we're here, then we'd better be parsing XML.
+  NS_ASSERTION(aParserContext.mDocType == eXML, "What are you trying to send me, here?");
+  aParserContext.mDTD = new nsExpatDriver();
+  return aParserContext.mDTD ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
 }
 
 NS_IMETHODIMP
@@ -1125,12 +944,8 @@ nsParser::WillBuildModel(nsString& aFilename)
                        mParserContext->mDocType, mParserContext->mMimeType);
   }
 
-  PRBool found;
-  nsresult rv = FindSuitableDTD(*mParserContext, &found);
+  nsresult rv = FindSuitableDTD(*mParserContext);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  if (!found)
-    return rv;
 
   nsITokenizer* tokenizer;
   rv = mParserContext->GetTokenizer(mParserContext->mDTD->GetType(), mSink, tokenizer);
@@ -1220,6 +1035,21 @@ void
 nsParser::SetUnusedInput(nsString& aBuffer)
 {
   mUnusedInput = aBuffer;
+}
+
+NS_IMETHODIMP_(void *)
+nsParser::GetRootContextKey()
+{
+  CParserContext* pc = mParserContext;
+  if (!pc) {
+    return nsnull;
+  }
+
+  while (pc->mPrevContext) {
+    pc = pc->mPrevContext;
+  }
+
+  return pc->mKey;
 }
 
 /**
@@ -1516,7 +1346,6 @@ nsParser::Parse(nsIInputStream* aStream,
  * In particular, this method should be called by the DOM when it has an HTML
  * string to feed to the parser in real-time.
  *
- * @update	gess5/11/98
  * @param   aSourceBuffer contains a string-full of real content
  * @param   aMimeType tells us what type of content to expect in the given string
  */
@@ -1555,9 +1384,16 @@ nsParser::Parse(const nsAString& aSourceBuffer,
       mFlags &= ~NS_PARSER_FLAG_DTD_VERIFICATION;
     }
 
-    CParserContext* pc = nsnull;
+    // Note: The following code will always find the parser context associated
+    // with the given key, even if that context has been suspended (e.g., for
+    // another document.write call). This doesn't appear to be exactly what IE
+    // does in the case where this happens, but this makes more sense.
+    CParserContext* pc = mParserContext;
+    while (pc && pc->mKey != aKey) {
+      pc = pc->mPrevContext;
+    }
 
-    if (!mParserContext || mParserContext->mKey != aKey) {
+    if (!pc) {
       // Only make a new context if we don't have one, OR if we do, but has a
       // different context key.
       nsScanner* theScanner = new nsScanner(mUnusedInput, mCharset, mCharsetSource);
@@ -1620,15 +1456,21 @@ nsParser::Parse(const nsAString& aSourceBuffer,
       // Do not interrupt document.write() - bug 95487
       result = ResumeParse(PR_FALSE, PR_FALSE, PR_FALSE);
     } else {
-      mParserContext->mScanner->Append(aSourceBuffer);
-      if (!mParserContext->mPrevContext) {
+      pc->mScanner->Append(aSourceBuffer);
+      if (!pc->mPrevContext) {
         // Set stream listener state to eOnStop, on the final context - Fix 68160,
         // to guarantee DidBuildModel() call - Fix 36148
         if (aLastCall) {
-          mParserContext->mStreamListenerState = eOnStop;
-          mParserContext->mScanner->SetIncremental(PR_FALSE);
+          pc->mStreamListenerState = eOnStop;
+          pc->mScanner->SetIncremental(PR_FALSE);
         }
-        ResumeParse(PR_FALSE, PR_FALSE, PR_FALSE);
+
+        if (pc == mParserContext) {
+          // If pc is not mParserContext, then this call to ResumeParse would
+          // do the wrong thing and try to continue parsing using
+          // mParserContext. We need to wait to actually resume parsing on pc.
+          ResumeParse(PR_FALSE, PR_FALSE, PR_FALSE);
+        }
       }
     }
   }

@@ -51,10 +51,10 @@
 #include "nsINavHistoryService.h"
 #include "nsIAutoCompleteSearch.h"
 #include "nsIAutoCompleteResult.h"
-#include "nsIAutoCompleteResultTypes.h"
 #include "nsIAutoCompleteSimpleResult.h"
 #include "nsIBrowserHistory.h"
 #include "nsICollation.h"
+#include "nsIDateTimeFormat.h"
 #include "nsIGlobalHistory.h"
 #include "nsIPrefService.h"
 #include "nsIPrefBranch.h"
@@ -81,12 +81,16 @@
 // Size of visit count boost to give to urls which are sites or paths
 #define AUTOCOMPLETE_NONPAGE_VISIT_COUNT_BOOST 5
 
+#define QUERYUPDATE_TIME 0
+#define QUERYUPDATE_SIMPLE 1
+#define QUERYUPDATE_COMPLEX 2
+#define QUERYUPDATE_COMPLEX_WITH_BOOKMARKS 3
+
 class AutoCompleteIntermediateResultSet;
 class mozIAnnotationService;
 class nsNavHistory;
 class nsNavBookmarks;
 class QueryKeyValuePair;
-
 
 // nsNavHistory
 
@@ -145,8 +149,20 @@ public:
     return mDBConn;
   }
 
-  // remember tree state
+  /**
+   * These functions return non-owning references to the locale-specific
+   * objects for places components. Guaranteed to return non-NULL.
+   */
+  nsIStringBundle* GetBundle()
+    { return mBundle; }
+  nsILocale* GetLocale()
+    { return mLocale; }
+  nsICollation* GetCollation()
+    { return mCollation; }
+  nsIDateTimeFormat* GetDateFormatter()
+    { return mDateFormatter; }
 
+  // remember tree state
   void SaveExpandItem(const nsAString& aTitle);
   void SaveCollapseItem(const nsAString& aTitle);
 
@@ -182,27 +198,28 @@ public:
   static nsIAtom* sSessionStartAtom;
   static nsIAtom* sSessionContinueAtom;
 
+  // this actually executes a query and gives you results, it is used by
+  // nsNavHistoryQueryResultNode
+  nsresult GetQueryResults(const nsCOMArray<nsNavHistoryQuery>& aQueries,
+                           nsNavHistoryQueryOptions *aOptions,
+                           nsCOMArray<nsNavHistoryResultNode>* aResults);
+
   // Take a row of kGetInfoIndex_* columns and construct a ResultNode.
   // The row must contain the full set of columns.
   nsresult RowToResult(mozIStorageValueArray* aRow,
                        nsNavHistoryQueryOptions* aOptions,
                        nsNavHistoryResultNode** aResult);
+  nsresult QueryRowToResult(const nsACString& aURI, const nsACString& aTitle,
+                            PRUint32 aAccessCount, PRTime aTime,
+                            const nsACString& aFavicon,
+                            nsNavHistoryResultNode** aNode);
 
-  // Take a row of kGetInfoIndex_* columns and fill in an existing ResultNode.
-  // The node's type must already be set, and the row must contain the full
-  // set of columns.
-  nsresult FillURLResult(mozIStorageValueArray* aRow,
-                         nsNavHistoryQueryOptions* aOptions,
-                         nsNavHistoryResultNode *aNode);
-
-  // Construct a new HistoryResult object. You can give it null query/options.
-  nsNavHistoryResult* NewHistoryResult(nsINavHistoryQuery** aQueries,
-                                       PRUint32 aQueryCount,
-                                       nsNavHistoryQueryOptions* aOptions)
-  {
-    return new nsNavHistoryResult(this, mBundle, aQueries, aQueryCount,
-                                  aOptions);
-  }
+  nsresult VisitIdToResultNode(PRInt64 visitId,
+                               nsNavHistoryQueryOptions* aOptions,
+                               nsNavHistoryResultNode** aResult);
+  nsresult UriToResultNode(nsIURI* aUri,
+                           nsNavHistoryQueryOptions* aOptions,
+                           nsNavHistoryResultNode** aResult);
 
   // used by other places components to send history notifications (for example,
   // when the favicon has changed)
@@ -218,6 +235,28 @@ public:
 
   // well-known annotations used by the history and bookmarks systems
   static const char kAnnotationPreviousEncoding[];
+
+  // used by query result nodes to update: see comment on body of CanLiveUpdateQuery
+  static PRUint32 GetUpdateRequirements(const nsCOMArray<nsNavHistoryQuery>& aQueries,
+                                        nsNavHistoryQueryOptions* aOptions,
+                                        PRBool* aHasSearchTerms);
+  PRBool EvaluateQueryForNode(const nsCOMArray<nsNavHistoryQuery>& aQueries,
+                              nsNavHistoryQueryOptions* aOptions,
+                              nsNavHistoryURIResultNode* aNode);
+
+  static nsresult AsciiHostNameFromHostString(const nsACString& aHostName,
+                                              nsACString& aAscii);
+  static void DomainNameFromHostName(const nsCString& aHostName,
+                                     nsACString& aDomainName);
+  static PRTime NormalizeTime(PRUint32 aRelative, PRTime aOffset);
+  nsresult RecursiveGroup(const nsCOMArray<nsNavHistoryResultNode>& aSource,
+                          const PRUint32* aGroupingMode, PRUint32 aGroupCount,
+                          nsCOMArray<nsNavHistoryResultNode>* aDest);
+
+  // better alternative to QueryStringToQueries (in nsNavHistoryQuery.cpp)
+  nsresult QueryStringToQueryArray(const nsACString& aQueryString,
+                                   nsCOMArray<nsNavHistoryQuery>* aQueries,
+                                   nsNavHistoryQueryOptions** aOptions);
 
 private:
   ~nsNavHistory();
@@ -255,6 +294,11 @@ protected:
   nsCOMPtr<mozIStorageStatement> mDBRecentVisitOfURL; // converts URL into most recent visit ID/session ID
   nsCOMPtr<mozIStorageStatement> mDBInsertVisit; // used by AddVisit
 
+  // these are used by VisitIdToResultNode for making new result nodes from IDs
+  nsCOMPtr<mozIStorageStatement> mDBVisitToURLResult; // kGetInfoIndex_* results
+  nsCOMPtr<mozIStorageStatement> mDBVisitToVisitResult; // kGetInfoIndex_* results
+  nsCOMPtr<mozIStorageStatement> mDBUrlToUrlResult; // kGetInfoIndex_* results
+
   nsresult InitDB();
 
   // this is the cache DB in memory used for storing visited URLs
@@ -283,38 +327,28 @@ protected:
   PRBool mNowValid;
   nsCOMPtr<nsITimer> mExpireNowTimer;
   static void expireNowTimerCallback(nsITimer* aTimer, void* aClosure);
-  PRTime NormalizeTime(PRUint32 aRelative, PRTime aOffset);
 
-  nsresult QueryToSelectClause(nsINavHistoryQuery* aQuery,
+  nsresult QueryToSelectClause(nsNavHistoryQuery* aQuery,
                                PRInt32 aStartParameter,
                                nsCString* aClause,
-                               PRInt32* aParamCount);
+                               PRInt32* aParamCount,
+                               const nsACString& aCommonConditions);
   nsresult BindQueryClauseParameters(mozIStorageStatement* statement,
                                      PRInt32 aStartParameter,
-                                     nsINavHistoryQuery* aQuery,
+                                     nsNavHistoryQuery* aQuery,
                                      PRInt32* aParamCount);
 
-  nsresult FillSimpleBookmarksQuery(nsINavHistoryQuery** aQueries,
-                                    PRUint32 aQueryCount,
-                                    nsNavHistoryQueryOptions* aOptions,
-                                    nsINavHistoryResult** _retval);
   nsresult ResultsAsList(mozIStorageStatement* statement,
                          nsNavHistoryQueryOptions* aOptions,
                          nsCOMArray<nsNavHistoryResultNode>* aResults);
 
-  void TitleForDomain(const nsString& domain, nsAString& aTitle);
+  void TitleForDomain(const nsCString& domain, nsACString& aTitle);
   nsresult SetPageTitleInternal(nsIURI* aURI, PRBool aIsUserTitle,
                                 const nsAString& aTitle);
 
-  nsresult RecursiveGroup(const nsCOMArray<nsNavHistoryResultNode>& aSource,
-                          const PRUint32* aGroupingMode, PRUint32 aGroupCount,
-                          nsCOMArray<nsNavHistoryResultNode>* aDest);
-  nsresult GroupByDay(const nsCOMArray<nsNavHistoryResultNode>& aSource,
-                      nsCOMArray<nsNavHistoryResultNode>* aDest);
   nsresult GroupByHost(const nsCOMArray<nsNavHistoryResultNode>& aSource,
-                       nsCOMArray<nsNavHistoryResultNode>* aDest);
-  nsresult GroupByDomain(const nsCOMArray<nsNavHistoryResultNode>& aSource,
-                         nsCOMArray<nsNavHistoryResultNode>* aDest);
+                       nsCOMArray<nsNavHistoryResultNode>* aDest,
+                       PRBool aIsDomain);
 
   nsresult FilterResultSet(const nsCOMArray<nsNavHistoryResultNode>& aSet,
                            nsCOMArray<nsNavHistoryResultNode>* aFiltered,
@@ -324,8 +358,11 @@ protected:
   nsMaybeWeakPtrArray<nsINavHistoryObserver> mObservers;
   PRInt32 mBatchesInProgress;
 
-  // string bundles
+  // localization
   nsCOMPtr<nsIStringBundle> mBundle;
+  nsCOMPtr<nsILocale> mLocale;
+  nsCOMPtr<nsICollation> mCollation;
+  nsCOMPtr<nsIDateTimeFormat> mDateFormatter;
 
   // annotation service : MAY BE NULL!
   //nsCOMPtr<mozIAnnotationService> mAnnotationService;
@@ -383,10 +420,8 @@ protected:
 
   // in nsNavHistoryQuery.cpp
   nsresult TokensToQueries(const nsTArray<QueryKeyValuePair>& aTokens,
-                           nsCOMArray<nsINavHistoryQuery>* aQueries,
+                           nsCOMArray<nsNavHistoryQuery>* aQueries,
                            nsNavHistoryQueryOptions* aOptions);
-
-  nsresult ImportFromMork();
 
   // Transaction Manager
   nsCOMPtr<nsITransactionManager> mTransactionManager;

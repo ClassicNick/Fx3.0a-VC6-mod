@@ -803,7 +803,9 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
         nsCOMPtr<nsIDocument> document = GetDocumentFromWindow(focusedWindow);
 
         if (document) {
-          nsIPresShell *shell = document->GetShellAt(0);
+          // Use a strong ref to make sure that the shell is alive still
+          // when calling FrameSelection().
+          nsCOMPtr<nsIPresShell> shell = document->GetShellAt(0);
           NS_ASSERTION(shell, "Focus events should not be getting thru when this is null!");
           if (shell) {
             if (focusedElement) {
@@ -1153,9 +1155,8 @@ nsEventStateManager::CreateClickHoldTimer(nsPresContext* inPresContext,
   // since we'll end up conflicting and both will show.
   if (mGestureDownContent) {
     // check for the |popup| attribute
-    nsAutoString popup;
-    mGestureDownContent->GetAttr(kNameSpaceID_None, nsXULAtoms::popup, popup);
-    if (!popup.IsEmpty())
+    if (nsContentUtils::HasNonEmptyAttr(mGestureDownContent, kNameSpaceID_None,
+                                        nsXULAtoms::popup))
       return;
     
     // check for a <menubutton> like bookmarks
@@ -1263,19 +1264,17 @@ nsEventStateManager::FireContextClick()
         else if (tag == nsXULAtoms::toolbarbutton) {
           // a <toolbarbutton> that has the container attribute set
           // will already have its own dropdown.
-          nsAutoString container;
-          mGestureDownContent->GetAttr(kNameSpaceID_None, nsXULAtoms::container,
-                               container);
-          if (!container.IsEmpty())
+          if (nsContentUtils::HasNonEmptyAttr(mGestureDownContent,
+                  kNameSpaceID_None, nsXULAtoms::container)) {
             allowedToDispatch = PR_FALSE;
-
-          // If the toolbar button has an open menu, don't attempt to open
-          // a second menu
-          nsAutoString openAttr;
-          mGestureDownContent->GetAttr(kNameSpaceID_None, nsXULAtoms::open,
-                                       openAttr);
-          if (openAttr.EqualsLiteral("true"))
-            allowedToDispatch = PR_FALSE;
+          } else {
+            // If the toolbar button has an open menu, don't attempt to open
+            // a second menu
+            if (mGestureDownContent->AttrValueIs(kNameSpaceID_None, nsXULAtoms::open,
+                                                 nsXULAtoms::_true, eCaseMatters)) {
+              allowedToDispatch = PR_FALSE;
+            }
+          }
         }
       }
       else if (mGestureDownContent->IsContentOfType(nsIContent::eHTML)) {
@@ -4913,14 +4912,11 @@ nsEventStateManager::MoveFocusToCaret(PRBool aCanFocusDoc,
       *aIsSelectionWithFocus = PR_TRUE;
     }
     else {
-      *aIsSelectionWithFocus = testContent->HasAttr(kNameSpaceID_XLink, nsHTMLAtoms::href);
-      if (*aIsSelectionWithFocus) {
-        nsAutoString xlinkType;
-        testContent->GetAttr(kNameSpaceID_XLink, nsHTMLAtoms::type, xlinkType);
-        if (!xlinkType.EqualsLiteral("simple")) {
-          *aIsSelectionWithFocus = PR_FALSE;  // Xlink must be type="simple"
-        }
-      }
+      // Xlink must be type="simple"
+      *aIsSelectionWithFocus =
+        testContent->HasAttr(kNameSpaceID_XLink, nsHTMLAtoms::href) &&
+        testContent->AttrValueIs(kNameSpaceID_XLink, nsHTMLAtoms::type,
+                                 nsHTMLAtoms::simple, eCaseMatters);
     }
 
     if (*aIsSelectionWithFocus) {

@@ -1900,7 +1900,8 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
   }
   else if (eCSSUnit_Percent == aFontData.mSize.GetUnit()) {
     aInherited = PR_TRUE;
-    aFont->mSize = (nscoord)((float)(aParentFont->mSize) * aFontData.mSize.GetPercentValue());
+    aFont->mSize = NSToCoordRound(float(aParentFont->mSize) *
+                                  aFontData.mSize.GetPercentValue());
     zoom = PR_FALSE;
   }
   else if (eCSSUnit_Inherit == aFontData.mSize.GetUnit()) {
@@ -5010,6 +5011,16 @@ nsRuleNode::ComputeSVGResetData(nsStyleStruct* aStartStruct,
   } else if (eCSSUnit_Inherit == SVGData.mFilter.GetUnit()) {
     inherited = PR_TRUE;
     svgReset->mFilter = parentSVGReset->mFilter;
+  }
+
+  // mask: url, none, inherit
+  if (eCSSUnit_URL == SVGData.mMask.GetUnit()) {
+    svgReset->mMask = SVGData.mMask.GetURLValue();
+  } else if (eCSSUnit_None == SVGData.mMask.GetUnit()) {
+    svgReset->mMask = nsnull;
+  } else if (eCSSUnit_Inherit == SVGData.mMask.GetUnit()) {
+    inherited = PR_TRUE;
+    svgReset->mMask = parentSVGReset->mMask;
   }
   
   if (inherited)

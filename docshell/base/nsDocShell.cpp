@@ -3095,6 +3095,15 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI *aURI,
     } 
     else
     {
+        // The prompter reqires that our private window has a document (or it
+        // asserts). Satisfy that assertion now since GetDocument will force
+        // creation of one if it hasn't already been created.
+        nsCOMPtr<nsPIDOMWindow> pwin(do_QueryInterface(mScriptGlobal));
+        if (pwin) {
+            nsCOMPtr<nsIDOMDocument> doc;
+            pwin->GetDocument(getter_AddRefs(doc));
+        }
+
         // Display a message box
         prompter->Alert(nsnull, messageStr.get());
     }
@@ -3811,12 +3820,12 @@ nsDocShell::SetVisibility(PRBool aVisibility)
     if (!mContentViewer)
         return NS_OK;
     if (aVisibility) {
-        NS_ENSURE_SUCCESS(EnsureContentViewer(), NS_ERROR_FAILURE);
         mContentViewer->Show();
     }
-    else if (mContentViewer)
+    else {
         mContentViewer->Hide();
-
+    }
+    
     return NS_OK;
 }
 

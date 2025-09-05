@@ -1695,7 +1695,7 @@ js_StrictlyEqual(jsval lval, jsval rval)
         if (ltag == JSVAL_STRING) {
             JSString *lstr = JSVAL_TO_STRING(lval),
                      *rstr = JSVAL_TO_STRING(rval);
-            return js_CompareStrings(lstr, rstr) == 0;
+            return js_EqualStrings(lstr, rstr);
         }
         if (ltag == JSVAL_DOUBLE) {
             ld = *JSVAL_TO_DOUBLE(lval);
@@ -2921,7 +2921,7 @@ interrupt:
             if (ltmp == JSVAL_STRING) {                                       \
                 str  = JSVAL_TO_STRING(lval);                                 \
                 str2 = JSVAL_TO_STRING(rval);                                 \
-                cond = js_CompareStrings(str, str2) OP 0;                     \
+                cond = js_EqualStrings(str, str2) OP JS_TRUE;                 \
             } else if (ltmp == JSVAL_DOUBLE) {                                \
                 d  = *JSVAL_TO_DOUBLE(lval);                                  \
                 d2 = *JSVAL_TO_DOUBLE(rval);                                  \
@@ -2949,7 +2949,7 @@ interrupt:
                 if (ltmp == JSVAL_STRING && rtmp == JSVAL_STRING) {           \
                     str  = JSVAL_TO_STRING(lval);                             \
                     str2 = JSVAL_TO_STRING(rval);                             \
-                    cond = js_CompareStrings(str, str2) OP 0;                 \
+                    cond = js_EqualStrings(str, str2) OP JS_TRUE;             \
                 } else {                                                      \
                     VALUE_TO_NUMBER(cx, lval, d);                             \
                     VALUE_TO_NUMBER(cx, rval, d2);                            \
@@ -4198,7 +4198,7 @@ interrupt:
                 SEARCH_PAIRS(
                     match = (JSVAL_IS_STRING(rval) &&
                              ((str2 = JSVAL_TO_STRING(rval)) == str ||
-                              !js_CompareStrings(str2, str)));
+                              js_EqualStrings(str2, str)));
                 )
             } else if (JSVAL_IS_DOUBLE(lval)) {
                 d = *JSVAL_TO_DOUBLE(lval);
@@ -4281,7 +4281,7 @@ interrupt:
                 SEARCH_EXTENDED_PAIRS(
                     match = (JSVAL_IS_STRING(rval) &&
                              ((str2 = JSVAL_TO_STRING(rval)) == str ||
-                              !js_CompareStrings(str2, str)));
+                              js_EqualStrings(str2, str)));
                 )
             } else if (JSVAL_IS_DOUBLE(lval)) {
                 d = *JSVAL_TO_DOUBLE(lval);
