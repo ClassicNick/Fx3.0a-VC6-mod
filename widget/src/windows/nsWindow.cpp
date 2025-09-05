@@ -77,6 +77,8 @@
 #include <windows.h>
 #include <process.h>
 
+static PRBool dummy = nsToolkit::InitVersionInfo();
+
 #ifdef WINCE
 
 #define NS_VK_APP1  0x0201
@@ -5940,8 +5942,8 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
     gLastMouseMovePoint.y = mpScreen.y;
   }
 
-  PRBool insideMovementThreshold = (abs(gLastMousePoint.x - mpScreen.x) < (short)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
-                                   (abs(gLastMousePoint.y - mpScreen.y) < (short)::GetSystemMetrics(SM_CYDOUBLECLK));
+  PRBool insideMovementThreshold = (abs(gLastMousePoint.x - eventPoint.x) < (short)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
+                                   (abs(gLastMousePoint.y - eventPoint.y) < (short)::GetSystemMetrics(SM_CYDOUBLECLK));
 
   BYTE eventButton;
   switch (aEventType) {
@@ -6061,8 +6063,6 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
 
   // call the event callback
   if (nsnull != mEventCallback) {
-    result = DispatchWindowEvent(&event);
-
     if (aEventType == NS_MOUSE_MOVE) {
       MouseTrailer::GetSingleton().Disable();
       if (!mIsInMouseCapture) {
@@ -6092,6 +6092,8 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
         gCurrentWindow = nsnull;
       }
     }
+
+    result = DispatchWindowEvent(&event);
 
     // Release the widget with NS_IF_RELEASE() just in case
     // the context menu key code in nsEventListenerManager::HandleEvent()

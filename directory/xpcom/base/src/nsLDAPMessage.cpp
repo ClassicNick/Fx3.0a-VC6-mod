@@ -46,7 +46,7 @@
 #include "nsReadableUtils.h"
 #include "nsISupportsUtils.h"
 #include "nsLDAPBERValue.h"
-
+#include "nsILDAPErrors.h"
 
 NS_IMPL_THREADSAFE_ADDREF(nsLDAPMessage)
 NS_IMPL_THREADSAFE_RELEASE(nsLDAPMessage)
@@ -467,6 +467,9 @@ NS_IMETHODIMP nsLDAPMessage::GetDn(nsACString& aDn)
         }
     }
 
+    PR_LOG(gLDAPLogModule, PR_LOG_DEBUG,
+           ("nsLDAPMessage::GetDn(): dn = '%s'", rawDn));
+
     aDn.Assign(rawDn);
     ldap_memfree(rawDn);
 
@@ -481,8 +484,11 @@ nsLDAPMessage::GetValues(const char *aAttr, PRUint32 *aCount,
 {
     char **values;
     
+#if defined(DEBUG)
+    // We only want this being logged for debug builds so as not to affect performance too much.
     PR_LOG(gLDAPLogModule, PR_LOG_DEBUG,
            ("nsLDAPMessage::GetValues(): called with aAttr = '%s'", aAttr));
+#endif
 
     values = ldap_get_values(mConnectionHandle, mMsgHandle, aAttr);
 
@@ -556,9 +562,12 @@ nsLDAPMessage::GetBinaryValues(const char *aAttr, PRUint32 *aCount,
 {
     struct berval **values;
 
+#if defined(DEBUG)
+    // We only want this being logged for debug builds so as not to affect performance too much.
     PR_LOG(gLDAPLogModule, PR_LOG_DEBUG,
            ("nsLDAPMessage::GetBinaryValues(): called with aAttr = '%s'", 
             aAttr));
+#endif
 
     values = ldap_get_values_len(mConnectionHandle, mMsgHandle, aAttr);
 

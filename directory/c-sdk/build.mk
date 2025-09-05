@@ -45,7 +45,7 @@ COMPVERSIONDIR = $(DEPTH)/directory/c-sdk
 endif
 
 DEFAULT_VENDOR_NAME=mozilla.org
-DEFAULT_VENDOR_VERSION=516
+DEFAULT_VENDOR_VERSION=517
 
 ifndef VENDOR_NAME
 VENDOR_NAME	= $(DEFAULT_VENDOR_NAME)
@@ -120,6 +120,10 @@ ifeq ($(NSS_DYNAMIC_SOFTOKN),1)
 SOFTOKN_LIBNAME	= softokn$(NSSVERS)
 endif
 SSL_LIBNAME	= ssl$(NSSVERS)
+
+DYNAMICNSS = $(addprefix -l,$(SSL_LIBNAME) $(NSS_LIBNAME) $(SOFTOKN_LIBNAME))
+NSSLINK = $(NSS_LIBS) $(DYNAMICNSS)
+
 HYBRID_LIBNAME	= freebl_hybrid_$(NSSVERS)
 PURE32_LIBNAME	= freebl_pure32_$(NSSVERS)
 
@@ -130,7 +134,9 @@ COPYFREEBL      = 1
 endif
 endif
 ifeq ($(OS_ARCH), HP-UX)
+ifneq ($(OS_TEST),ia64)
 COPYFREEBL      = 1
+endif
 endif
 endif
 
@@ -143,25 +149,31 @@ SVRCORE_LIBNAME	= svrcore$(SVRCOREVERS)
 # NSPR library
 #
 
-ifeq ($(OS_TARGET), WIN95)
-PLC_BASENAME=plc$(NSPR_LIBVERSION)
-PLDS_BASENAME=plds$(NSPR_LIBVERSION)
-NSPR_BASENAME=nspr$(NSPR_LIBVERSION)
-else
-PLC_BASENAME=libplc$(NSPR_LIBVERSION)
-PLDS_BASENAME=libplds$(NSPR_LIBVERSION)
-NSPR_BASENAME=libnspr$(NSPR_LIBVERSION)
-endif
-
 PLCBASE=plc$(NSPR_LIBVERSION)
 PLDSBASE=plds$(NSPR_LIBVERSION)
 NSPRBASE=nspr$(NSPR_LIBVERSION)
 
-DYNAMICNSPR = -l$(PLCBASE) -l$(PLDSBASE) -l$(NSPRBASE)
+ifeq ($(OS_TARGET), WIN95)
+PLC_BASENAME=$(PLCBASE)
+PLDS_BASENAME=$(PLDSBASE)
+NSPR_BASENAME=$(NSPRBASE)
+else
+PLC_BASENAME=lib$(PLCBASE)
+PLDS_BASENAME=lib$(PLDSBASE)
+NSPR_BASENAME=lib$(NSPRBASE)
+endif
 
-PLC_LIBNAME=plc$(NSPR_LIBVERSION)
-PLDS_LIBNAME=plds$(NSPR_LIBVERSION)
-NSPR_LIBNAME=nspr$(NSPR_LIBVERSION)
+DYNAMICNSPR = -l$(PLCBASE) -l$(PLDSBASE) -l$(NSPRBASE)
+# use the NSPRLINK macro in other makefiles to define the linker command line
+NSPRLINK = $(NSPR_LIBS) $(DYNAMICNSPR)
+
+# why the redundant definitions?  apparently, all of these basename/libname macros are so that
+# the ldapsdk can create a package containing all of the nspr shared libs/dlls - I don't think
+# we should do this anymore, we should just depend on the user installing nspr first - then we
+# can get rid of all of this junk
+PLC_LIBNAME=$(PLCBASE)
+PLDS_LIBNAME=$(PLDSBASE)
+NSPR_LIBNAME=$(NSPRBASE)
 
 #
 # NLS library
@@ -362,6 +374,11 @@ ifeq ($(OS_ARCH), HP-UX)
 # Use the C++ compiler to link
 USE_CCC_TO_LINK=1
 
+# include $ORIGIN in run time library path (works on HP-UX 11.23 and later)
+ifeq ($(OS_TEST),ia64)
+RPATHFLAG := \$$ORIGIN/../lib:\$$ORIGIN/../../lib:$(RPATHFLAG)
+endif
+
 # flag to pass to cc when linking to set runtime shared library search path
 # this is used like this, for example:   $(RPATHFLAG_PREFIX)../..
 RPATHFLAG_PREFIX=-Wl,+s,+b,
@@ -408,7 +425,8 @@ endif
 ifeq ($(OS_ARCH), WINNT)
 
 ifdef NS_USE_GCC
-LINK_EXE	= $(CC_FOR_LINK) -o $@ $(LDFLAGS) $(LCFLAGS) $(DEPLIBS) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+LINK_EXE	= $(CC_FOR_LINK) -o $@ $(LDFLAGS) $(LCFLAGS) $(DEPLIBS) \
+	$(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
 LINK_LIB	= $(AR) cr $@ $(OBJS)
 LINK_DLL	= $(CC_FOR_LINK) -shared -Wl,--export-all-symbols -Wl,--out-implib -Wl,$(@:.$(DLL_SUFFIX)=.$(LIB_SUFFIX)) $(LLFLAGS) $(DLL_LDFLAGS) -o $@ $(OBJS) $(EXTRA_LIBS) $(EXTRA_DLL_LIBS)
 else
@@ -428,7 +446,7 @@ endif
 LINK_EXE        = $(CYGWIN_WRAPPER) link $(DEBUG_LINK_OPT) -OUT:"$@" -MAP $(ALDFLAGS) $(LDFLAGS) $(ML_DEBUG) \
     $(LCFLAGS) -NOLOGO $(DEBUG_FLAGS) -INCREMENTAL:NO \
     -NODEFAULTLIB:MSVCRTD -SUBSYSTEM:$(SUBSYSTEM) $(DEPLIBS) \
-    $(EXTRA_LIBS) $(PLATFORMLIBS) $(OBJS)
+    $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
 LINK_LIB        = $(CYGWIN_WRAPPER) lib -OUT:"$@"  $(OBJS)
 LINK_DLL        = $(CYGWIN_WRAPPER) link $(DEBUG_LINK_OPT) -nologo -MAP -DLL $(DEBUG_FLAGS) \
         $(ML_DEBUG) -SUBSYSTEM:$(SUBSYSTEM) $(LLFLAGS) $(DLL_LDFLAGS) \
@@ -479,10 +497,14 @@ ifeq ($(OS_ARCH), HP-UX)
 #    needs this).
 # 2) Add a "-Wl,-E" option so the linker gets a "-E" flag.  This makes symbols
 #    in an executable visible to shared libraries loaded at runtime.
-LINK_EXE        = $(CC_FOR_LINK) -Wl,-E $(ALDFLAGS) $(LDFLAGS) $(RPATHFLAG_PREFIX)$(RPATHFLAG) -o $@ $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+LINK_EXE        = $(CC_FOR_LINK) -Wl,-E $(ALDFLAGS) $(LDFLAGS) $(RPATHFLAG_PREFIX)$(RPATHFLAG) -o $@ $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
 
 ifeq ($(USE_64), 1)
-LINK_EXE        = $(CC_FOR_LINK) -DHPUX_ACC -D__STDC_EXT__ -D_POSIX_C_SOURCE=199506L  +DA2.0W +DS2.0 -Wl,-E $(ALDFLAGS) $(LDFLAGS) $(RPATHFLAG_PREFIX)$(RPATHFLAG) -o $@ $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+ifeq ($(OS_RELEASE), B.11.23)
+LINK_EXE        = $(CC_FOR_LINK) -DHPUX_ACC -D__STDC_EXT__ -D_POSIX_C_SOURCE=199506L  +DD64 +DSblended -Wl,-E $(ALDFLAGS) $(LDFLAGS) $(RPATHFLAG_PREFIX)$(RPATHFLAG) -o $@ $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+else
+LINK_EXE        = $(CC_FOR_LINK) -DHPUX_ACC -D__STDC_EXT__ -D_POSIX_C_SOURCE=199506L  +DA2.0W +DS2.0 -Wl,-E $(ALDFLAGS) $(LDFLAGS) $(RPATHFLAG_PREFIX)$(RPATHFLAG) -o $@ $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+endif
 endif
 
 else # HP-UX
@@ -493,12 +515,12 @@ ifdef USE_LD_RUN_PATH
 #see ns/netsite/ldap/clients/tools/Makefile for an example
 export LD_RUN_PATH=$(RPATHFLAG)
 LINK_EXE        = $(CC_FOR_LINK) $(ALDFLAGS) $(LDFLAGS) \
-                        -o $@ $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+                        -o $@ $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
 LINK_EXE_NOLIBSOBJS     =  $(CC_FOR_LINK) $(ALDFLAGS) $(LDFLAGS) -o $@
 else # USE_LD_RUN_PATH
 LINK_EXE        = $(CC_FOR_LINK) $(ALDFLAGS) $(LDFLAGS) \
                         $(RPATHFLAG_PREFIX)$(RPATHFLAG)$(RPATHFLAG_EXTRAS) \
-                        -o $@ $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
+                        -o $@ $(filter %.$(OBJ_SUFFIX),$^) $(OBJS) $(EXTRA_LIBS) $(PLATFORMLIBS)
 LINK_EXE_NOLIBSOBJS     = $(CC_FOR_LINK) $(ALDFLAGS) $(LDFLAGS) \
                         $(RPATHFLAG_PREFIX)$(RPATHFLAG)$(RPATHFLAG_EXTRAS) -o $@
 endif # USE_LD_RUN_PATH

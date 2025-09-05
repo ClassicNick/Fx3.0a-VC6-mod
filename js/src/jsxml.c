@@ -951,13 +951,6 @@ out:
 }
 
 static JSBool
-AnyName(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
-{
-    /* Return the one true AnyName instance. */
-    return js_GetAnyName(cx, rval);
-}
-
-static JSBool
 AttributeName(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
               jsval *rval)
 {
@@ -3063,7 +3056,7 @@ construct:
 out:
     qn = (JSXMLQName *) JS_GetPrivate(cx, obj);
     atom = cx->runtime->atomState.lazy.functionNamespaceURIAtom;
-    if (atom &&
+    if (qn->uri && atom &&
         (qn->uri == ATOM_TO_STRING(atom) ||
          !js_CompareStrings(qn->uri, ATOM_TO_STRING(atom)))) {
         if (!JS_ValueToId(cx, STRING_TO_JSVAL(qn->localName), funidp))
@@ -3888,8 +3881,8 @@ GetFunction(JSContext *cx, JSObject *obj, JSXML *xml, jsid id, jsval *vp)
         if (JSVAL_IS_FUNCTION(cx, fval)) {
             if (xml && OBJECT_IS_XML(cx, obj)) {
                 fun = (JSFunction *) JS_GetPrivate(cx, JSVAL_TO_OBJECT(fval));
-                if (fun->spare &&
-                    (fun->spare & CLASS_TO_MASK(xml->xml_class)) == 0) {
+                if (!fun->interpreted && fun->u.n.spare &&
+                    (fun->u.n.spare & CLASS_TO_MASK(xml->xml_class)) == 0) {
                     /* XML method called on XMLList or vice versa. */
                     fval = JSVAL_VOID;
                 }
@@ -4867,12 +4860,26 @@ xml_mark_vector(JSContext *cx, JSXML **vec, uint32 len, void *arg)
         elt = vec[i];
         {
 #ifdef GC_MARK_DEBUG
-            char buf[100];
-            JSXMLQName *qn = elt->name;
+            char buf[120];
 
-            JS_snprintf(buf, sizeof buf, "%s::%s",
-                        qn->uri ? JS_GetStringBytes(qn->uri) : "*",
-                        JS_GetStringBytes(qn->localName));
+            if (elt->xml_class == JSXML_CLASS_LIST) {
+                strcpy(buf, js_XMLList_str);
+            } else if (JSXML_HAS_NAME(elt)) {
+                JSXMLQName *qn = elt->name;
+
+                JS_snprintf(buf, sizeof buf, "%s::%s",
+                            qn->uri ? JS_GetStringBytes(qn->uri) : "*",
+                            JS_GetStringBytes(qn->localName));
+            } else {
+                JSString *str = elt->xml_value;
+                size_t srclen = JSSTRING_LENGTH(str);
+                size_t dstlen = sizeof buf;
+
+                if (srclen >= sizeof buf / 6)
+                    srclen = sizeof buf / 6 - 1;
+                js_DeflateStringToBuffer(cx, JSSTRING_CHARS(str), srclen,
+                                         buf, &dstlen);
+            }
 #else
             const char *buf = NULL;
 #endif
@@ -7431,8 +7438,11 @@ js_InitAttributeNameClass(JSContext *cx, JSObject *obj)
 JSObject *
 js_InitAnyNameClass(JSContext *cx, JSObject *obj)
 {
-    return JS_InitClass(cx, obj, NULL, &js_AnyNameClass, AnyName, 0,
-                        qname_props, qname_methods, NULL, NULL);
+    jsval v;
+
+    if (!js_GetAnyName(cx, &v))
+        return NULL;
+    return JSVAL_TO_OBJECT(v);
 }
 
 JSObject *
@@ -7469,8 +7479,8 @@ js_InitXMLClass(JSContext *cx, JSObject *obj)
                                 fs->flags);
         if (!fun)
             return NULL;
-        fun->extra = 0;
-        fun->spare = fs->extra;
+        fun->u.n.extra = 0;
+        fun->u.n.spare = fs->extra;
     }
 
     xml = js_NewXML(cx, JSXML_CLASS_TEXT);
@@ -7557,6 +7567,14 @@ js_GetFunctionNamespace(JSContext *cx, jsval *vp)
         if (!obj)
             return JS_FALSE;
 
+        /*
+         * Avoid entraining any in-scope Object.prototype.  The loss of
+         * Namespace.prototype is not detectable, as there is no way to
+         * refer to this instance in scripts.  When used to qualify method
+         * names, its prefix and uri references are copied to the QName.
+         */
+        OBJ_SET_PROTO(cx, obj, NULL);
+        OBJ_SET_PARENT(cx, obj, NULL);
         rt->functionNamespaceObject = obj;
     }
     *vp = OBJECT_TO_JSVAL(obj);
@@ -7724,6 +7742,14 @@ js_ValueToXMLString(JSContext *cx, jsval v)
     return ToXMLString(cx, v);
 }
 
+static JSBool
+anyname_toString(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
+                 jsval *rval)
+{
+    *rval = ATOM_KEY(cx->runtime->atomState.starAtom);
+    return JS_TRUE;
+}
+
 JSBool
 js_GetAnyName(JSContext *cx, jsval *vp)
 {
@@ -7748,6 +7774,17 @@ js_GetAnyName(JSContext *cx, jsval *vp)
         METER(xml_stats.qnameobj);
         METER(xml_stats.liveqnameobj);
 
+        /*
+         * Avoid entraining any in-scope Object.prototype.  This loses the
+         * default toString inheritance, but no big deal: we want a better
+         * custom one for clearer diagnostics.
+         */
+        if (!JS_DefineFunction(cx, obj, js_toString_str, anyname_toString,
+                               0, 0)) {
+            return JS_FALSE;
+        }
+        OBJ_SET_PROTO(cx, obj, NULL);
+        JS_ASSERT(!OBJ_GET_PARENT(cx, obj));
         rt->anynameObject = obj;
     }
     *vp = OBJECT_TO_JSVAL(obj);

@@ -30,6 +30,7 @@
 use strict;
 use Getopt::Long;
 use Litmus::Config;
+use DBI;
 $|++;
 
 my $reset_db;
@@ -59,7 +60,7 @@ our \$sysconfig_cookiename = "litmustestingconfiguration";
 our \$bugzilla_db = "bugzilla";
 our \$bugzilla_host = "localhost";
 our \$bugzilla_user = "litmus";
-out \$bugzilla_pass = "litmus";
+our \$bugzilla_pass = "litmus";
 EOT
         close(OUT);
         print "Go edit 'localconfig' with your configuration and \n";
@@ -67,31 +68,82 @@ EOT
         exit;
 } 
 
-if ($reset_db) {
-  my $schema_file = "createdb.sql";
-  my $data_file = "populatedb.sql";
- 
-  print "Creating tables...";
-  my $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass $Litmus::Config::db_name < $schema_file";
-  my $rv = system($cmd);
-  if ($rv) {
-    die "Error creating database $Litmus::Config::db_name";
-  }
-  print "done.\n";
+# Create database tables, in large part borrowed from the old-school
+# --TABLE-- code in checksetup.pl:
+print "\nChecking for missing/new database tables...\n";
+our %table;
+do 'schema.pl'; # import the schema (%table)
+my $dbh = DBI->connect("dbi:mysql:;$Litmus::Config::db_host", 
+	$Litmus::Config::db_user,
+	$Litmus::Config::db_pass) || 
+		die "Could not connect to mysql database $Litmus::Config::db_host";
 
-  print "Populating tables...";
-  $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass $Litmus::Config::db_name < $data_file";
-  $rv = system($cmd);
+my @databases = $dbh->func('_ListDBs');
+    unless (grep($_ eq $Litmus::Config::db_name, @databases)) {
+       print "Creating database $Litmus::Config::db_name ...\n";
+       if (!$dbh->func('createdb', $Litmus::Config::db_name, 'admin')) {
+            my $error = $dbh->errstr;
+            die "Could not create database $Litmus::Config::db_name: $error\n";
+	}
+}
+$dbh->disconnect if $dbh;
+
+$dbh = DBI->connect(
+	"dbi:mysql:$Litmus::Config::db_name:$Litmus::Config::db_host",
+	$Litmus::Config::db_user,
+	$Litmus::Config::db_pass);
+
+
+# Get a list of the existing tables (if any) in the database
+my $sth = $dbh->table_info(undef, undef, undef, "TABLE");
+my @tables = @{$dbh->selectcol_arrayref($sth, { Columns => [3] })};
+
+# go throught our %table hash and create missing tables
+while (my ($tabname, $fielddef) = each %table) {
+    next if grep($_ eq $tabname, @tables);
+    print "Creating table $tabname ...\n";
+
+    $dbh->do("CREATE TABLE $tabname (\n$fielddef\n) TYPE = MYISAM")
+        or die "Could not create table '$tabname'. Please check your database access.\n";
+}
+
+# populate the database with the default data in populatedb.sql:
+if ($reset_db) {
+  my $data_file = "populatedb.sql";
+
+  print "Populating tables with default data...";
+  my $cmd = "mysql --user=$Litmus::Config::db_user --password=$Litmus::Config::db_pass $Litmus::Config::db_name < $data_file";
+  my $rv = system($cmd);
   if ($rv) {
     die "Error populating database $Litmus::Config::db_name";
   }
   print "done.\n";
 }
 
-# javascript cache                  
+# UPGRADE THE SCHEMA
+# Now we need to deal with upgrading old installations by adding new fields and 
+# indicies to the schema. To do this, we use the helpful Litmus::DBTools module
+# Note that anything changed here should also be added to schema.pl for new 
+# installations 
+use Litmus::DBTools;
+my $dbtool = Litmus::DBTools->new($dbh);
+
+# ZLL: Authentication System fields
+$dbtool->DropField("users", "is_trusted");
+$dbtool->AddField("users", "bugzilla_uid", "int default '1'");
+$dbtool->AddField("users", "password", "varchar(255)");
+$dbtool->AddField("users", "realname", "varchar(255)");
+$dbtool->AddField("users", "disabled", "mediumtext");
+$dbtool->AddField("users", "is_admin", "tinyint(1) default '0'");
+
+# replace enums with more portable and flexible formats:
+$dbtool->ChangeFieldType("products", "enabled", 'tinyint default \'1\'');
+$dbtool->ChangeFieldType("test_groups", "obsolete", 'tinyint default \'0\'');
+
+# javascript cache
 print "Rebuilding JS cache...";
-use Litmus::Cache;
-rebuildCache(); 
+require Litmus::Cache;
+Litmus::Cache::rebuildCache(); 
 print "done.\n";
 
 exit;

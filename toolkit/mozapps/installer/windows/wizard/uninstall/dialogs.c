@@ -267,12 +267,12 @@ void ParseAllUninstallLogs()
     lstrcat(szKey, ugUninstall.szUninstallKeyDescription);
     RegDeleteKey(HKEY_LOCAL_MACHINE, szKey);
 
-    /* update Wininit.ini to remove itself at reboot */
-    RemoveUninstaller(ugUninstall.szUninstallFilename);
-
     // Calling SHChangeNotify() will update the file association icons
     // in case they had been reset.
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+
+    // Note completion of the uninstall process.
+    gbUninstallCompleted = TRUE;
   }
 
   /* Broadcast message only if the windows registry keys exist

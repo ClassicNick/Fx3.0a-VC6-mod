@@ -53,7 +53,6 @@
 #include "nsIMsgAccountManager.h"
 #include "nsXPIDLString.h"
 #include "nsEscape.h"
-#include "nsLocalFolderSummarySpec.h"
 #include "nsMsgI18N.h"
 #include "nsIFileStream.h"
 #include "nsIChannel.h"
@@ -396,6 +395,12 @@ NS_IMETHODIMP nsMsgDBFolder::SetHasNewMessages(PRBool curNewMessages)
 {
   if (curNewMessages != mNewMessages) 
   {
+    // Only change mru time if we're going from doesn't have new to has new.
+    // technically, we should probably update mru time for every new message
+    // but we would pay a performance penalty for that. If the user
+    // opens the folder, the mrutime will get updated anyway.
+    if (curNewMessages) 
+      SetMRUTime();
     /** @params
      * nsIAtom* property, PRBool oldValue, PRBool newValue
      */
@@ -1111,11 +1116,10 @@ nsresult nsMsgDBFolder::GetFolderCacheKey(nsIFileSpec **aFileSpec)
     // if it's a server, we don't need the .msf appended to the name
     if (!isServer)
     {
-      nsFileSpec		folderName;
-      dbPath->GetFileSpec(&folderName);
-      nsLocalFolderSummarySpec summarySpec(folderName);
+      nsFileSpec summaryName;
+      rv = GetSummaryFileLocation(dbPath, &summaryName);
       
-      dbPath->SetFromFileSpec(summarySpec);
+      dbPath->SetFromFileSpec(summaryName);
       
       // create the .msf file
       // see bug #244217 for details
@@ -3292,10 +3296,11 @@ NS_IMETHODIMP nsMsgDBFolder::Rename(const PRUnichar *aNewName, nsIMsgWindow *msg
   if (NS_FAILED(rv)) 
     return rv;
   nsCOMPtr<nsISupports> parentSupport = do_QueryInterface(parentFolder);
-  
-  nsFileSpec fileSpec;
-  oldPathSpec->GetFileSpec(&fileSpec);
-  nsLocalFolderSummarySpec oldSummarySpec(fileSpec);
+
+  nsFileSpec oldSummarySpec;
+  rv = GetSummaryFileLocation(oldPathSpec, &oldSummarySpec);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   nsFileSpec dirSpec;
   
   PRUint32 cnt = 0;
@@ -5199,5 +5204,14 @@ nsresult nsMsgDBFolder::GetMsgPreviewTextFromStream(nsIMsgDBHdr *msgHdr, nsIInpu
   }
   msgHdr->SetStringProperty("preview", msgBody.get());
   return rv;
+}
+
+void nsMsgDBFolder::SetMRUTime()
+{
+  PRUint32 seconds;
+  PRTime2Seconds(PR_Now(), &seconds);
+  nsCAutoString nowStr;
+  nowStr.AppendInt(seconds);
+  SetStringProperty(MRU_TIME_PROPERTY, nowStr.get());
 }
 

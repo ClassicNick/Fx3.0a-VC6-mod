@@ -988,7 +988,7 @@ var gExtensionsViewController = {
         try {
           var prefs = Components.classes["@mozilla.org/preferences-service;1"]
                                  .getService(Components.interfaces.nsIPrefBranch);
-          instantApply = prefs.getBoolPref("browser.preferences.instantApply");
+          var instantApply = prefs.getBoolPref("browser.preferences.instantApply");
           features = "chrome,titlebar,toolbar,centerscreen" + (instantApply ? ",dialog=no" : ",modal");
         }
         catch (e) {
@@ -1018,9 +1018,9 @@ var gExtensionsViewController = {
       if (!aSelectedItem) return;
       var aboutURL = aSelectedItem.getAttribute("aboutURL");
       if (aboutURL != "")
-        openDialog(aboutURL, "", "chrome,modal");
+        openDialog(aboutURL, "", "chrome,centerscreen,modal");
       else
-        openDialog("chrome://mozapps/content/extensions/about.xul", "", "chrome,modal", aSelectedItem.id, gExtensionsView.database);
+        openDialog("chrome://mozapps/content/extensions/about.xul", "", "chrome,centerscreen,modal", aSelectedItem.id, gExtensionsView.database);
     },  
     
     cmd_movetop: function (aSelectedItem)

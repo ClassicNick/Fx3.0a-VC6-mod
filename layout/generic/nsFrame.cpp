@@ -618,15 +618,6 @@ nsFrame::RemoveFrame(nsIAtom*        aListName,
 }
 
 NS_IMETHODIMP
-nsFrame::ReplaceFrame(nsIAtom*        aListName,
-                      nsIFrame*       aOldFrame,
-                      nsIFrame*       aNewFrame)
-{
-  NS_PRECONDITION(PR_FALSE, "not a container");
-  return NS_ERROR_UNEXPECTED;
-}
-
-NS_IMETHODIMP
 nsFrame::Destroy(nsPresContext* aPresContext)
 {
   // Get the view pointer now before the frame properties disappear
@@ -3612,8 +3603,9 @@ FindBlockFrameOrBR(nsIFrame* aFrame, nsDirection aDirection)
       aFrame->GetType() == nsLayoutAtoms::brFrame) {
     nsIContent* content = aFrame->GetContent();
     result.mContent = content->GetParent();
-    result.mOffset = result.mContent->IndexOf(content) + 
-      (aDirection == eDirPrevious ? 1 : 0);
+    if (result.mContent)
+      result.mOffset = result.mContent->IndexOf(content) + 
+        (aDirection == eDirPrevious ? 1 : 0);
     return result;
   }
 

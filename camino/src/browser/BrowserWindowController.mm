@@ -754,7 +754,7 @@ enum BWCOpenDest {
       IconPopUpCell* iconCell = [[[IconPopUpCell alloc] initWithImage:[NSImage imageNamed:@"popup-blocked"]] autorelease];
       [mPopupBlocked setCell:iconCell];
       [iconCell setFont:savedFont];
-      [mPopupBlocked setToolTip:NSLocalizedString(@"A web popup was blocked", "Web Popup Toolitp")]; 
+      [mPopupBlocked setToolTip:NSLocalizedString(@"PopupBlockTooltip", @"")]; 
 //      [iconCell setPreferredEdge:NSMaxYEdge];
       [iconCell setMenu:savedMenu];
       [iconCell setBordered:NO];
@@ -841,7 +841,7 @@ enum BWCOpenDest {
       mPendingURL = mPendingReferrer = nil;
     }
     
-    [mPersonalToolbar buildButtonList];
+    [mPersonalToolbar rebuildButtonList];
 
     BOOL chromeHidesToolbar = (mChromeMask != 0) && !(mChromeMask & nsIWebBrowserChrome::CHROME_PERSONAL_TOOLBAR);
     if (chromeHidesToolbar || ![self shouldShowBookmarkToolbar])

@@ -163,6 +163,7 @@
 #include "nsIURI.h"
 #include "nsIEventQueue.h"
 #include "nsIEventQueueService.h"
+#include "nsEventQueueUtils.h"
 #include "nsIScrollableFrame.h"
 #include "prtime.h"
 #include "prlong.h"
@@ -1879,10 +1880,11 @@ PresShell::Destroy()
   // Revoke pending events
   mReflowEventQueue = nsnull;
   nsCOMPtr<nsIEventQueue> eventQueue;
-  nsContentUtils::EventQueueService()->
-    GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
-                         getter_AddRefs(eventQueue));
-  eventQueue->RevokeEvents(this);
+  nsresult rv = NS_GetCurrentEventQ(getter_AddRefs(eventQueue),
+                                    nsContentUtils::EventQueueService());
+  if (NS_SUCCEEDED(rv)) {
+    eventQueue->RevokeEvents(this);
+  }
 
   CancelAllReflowCommands();
 
@@ -5183,14 +5185,6 @@ PresShell::ContentRemoved(nsIDocument *aDocument,
   mFrameConstructor->ContentRemoved(aContainer, aChild,
                                     aIndexInContainer, PR_FALSE);
 
-  // If we have no root content node at this point, be sure to reset
-  // mDidInitialReflow to PR_FALSE, this will allow InitialReflow()
-  // to be called again should a new root node be inserted for this
-  // presShell. (Bug 167355)
-
-  if (mDocument && !mDocument->GetRootContent())
-    mDidInitialReflow = PR_FALSE;
-
   VERIFY_STYLE_TREE;
   DidCauseReflow();
 }
@@ -6229,7 +6223,9 @@ static void
 StartPluginInstance(PresShell *aShell, nsIContent *aContent)
 {
   nsCOMPtr<nsIObjectLoadingContent> objlc(do_QueryInterface(aContent));
-  NS_ASSERTION(objlc, "Object nodes must implement nsIObjectLoadingContent");
+  if (!objlc)
+    return;
+
   nsCOMPtr<nsIPluginInstance> inst;
   objlc->EnsureInstantiation(getter_AddRefs(inst));
 }

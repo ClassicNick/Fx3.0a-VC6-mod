@@ -67,14 +67,13 @@
 #include "nsIDOMProcessingInstruction.h"
 #include "nsIDOMParser.h"
 #include "nsComponentManagerUtils.h"
+#include "nsStringStream.h"
 #include "nsIDocShell.h"
-#include "nsIStringStream.h"
 #include "nsIInputStream.h"
 #include "nsIStorageStream.h"
 #include "nsIMultiplexInputStream.h"
 #include "nsIMIMEInputStream.h"
 #include "nsINameSpaceManager.h"
-#include "nsIDocument.h"
 #include "nsIContent.h"
 #include "nsIFileURL.h"
 #include "nsIMIMEService.h"
@@ -94,6 +93,8 @@
 #include "nsIPrefBranch.h"
 #include "nsIPrefService.h"
 #include "nsIMIMEHeaderParam.h"
+#include "nsIExternalProtocolService.h"
+#include "nsEscape.h"
 
 // namespace literals
 #define kXMLNSNameSpaceURI \
@@ -379,7 +380,7 @@ nsXFormsSubmissionElement::OnChannelRedirect(nsIChannel *aOldChannel,
   nsCOMPtr<nsIDocument> doc(do_QueryInterface(domDoc));
   NS_ENSURE_STATE(doc);
 
-  if (!CheckSameOrigin(doc->GetDocumentURI(), newURI)) {
+  if (!CheckSameOrigin(doc, newURI)) {
     nsXFormsUtils::ReportError(NS_LITERAL_STRING("submitSendOrigin"),
                                mElement);
     return NS_ERROR_ABORT;
@@ -945,7 +946,7 @@ nsXFormsSubmissionElement::SerializeDataXML(nsIDOMNode *data,
 }
 
 PRBool
-nsXFormsSubmissionElement::CheckSameOrigin(nsIURI *aBaseURI, nsIURI *aTestURI)
+nsXFormsSubmissionElement::CheckSameOrigin(nsIDocument *aBaseDocument, nsIURI *aTestURI)
 {
   // we default to true to allow regular posts to work like html forms.
   PRBool allowSubmission = PR_TRUE;
@@ -964,25 +965,22 @@ nsXFormsSubmissionElement::CheckSameOrigin(nsIURI *aBaseURI, nsIURI *aTestURI)
 
     // if same origin is required, default to false
     allowSubmission = PR_FALSE;
+    nsIURI *baseURI = aBaseDocument->GetDocumentURI();
 
-    // if we don't replace the instance, we allow file:// and chrome://
-    // to submit data anywhere
+    // if we don't replace the instance, we allow file:// to submit data anywhere
     if (!mIsReplaceInstance) {
-      aBaseURI->SchemeIs("file", &allowSubmission);
-      if (!allowSubmission) {
-        aBaseURI->SchemeIs("chrome", &allowSubmission);
-      }
+      baseURI->SchemeIs("file", &allowSubmission);
     }
 
     // let's check the permission manager
     if (!allowSubmission) {
-      allowSubmission = CheckPermissionManager(aBaseURI);
+      allowSubmission = CheckPermissionManager(baseURI);
     }
 
     // if none of the above checks have allowed the submission, we do a
     // same origin check.
     if (!allowSubmission) {
-      allowSubmission = nsXFormsUtils::CheckSameOrigin(aBaseURI, aTestURI);
+      allowSubmission = nsXFormsUtils::CheckSameOrigin(aBaseDocument, aTestURI);
     }
   }
 
@@ -1830,7 +1828,94 @@ nsXFormsSubmissionElement::SendData(const nsCString &uriSpec,
 
   nsresult rv;
 
-  if (!CheckSameOrigin(doc->GetDocumentURI(), uri)) {
+  // handle mailto: submission
+  if (!mIsReplaceInstance) {
+    PRBool isMailto;
+    rv = uri->SchemeIs("mailto", &isMailto);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    if (isMailto) {
+      nsCOMPtr<nsIExternalProtocolService> extProtService =
+        do_GetService("@mozilla.org/uriloader/external-protocol-service;1");
+      NS_ENSURE_STATE(extProtService);
+
+      PRBool hasExposedMailClient;
+      rv = extProtService->ExternalProtocolHandlerExists("mailto",
+                                                         &hasExposedMailClient);
+      NS_ENSURE_SUCCESS(rv, rv);
+
+      if (hasExposedMailClient) {
+        nsCAutoString mailtoUrl(uriSpec);
+
+        // A mailto url looks like this: mailto:foo@bar.com, which can be followed
+        // by parameters (subject and body).  The first parameter has to have an
+        // "?" before it, and an additional one needs to have an "&".
+        // So if "?" already exists in the string, we use "&".
+
+        if (mailtoUrl.Find("&body=") != kNotFound ||
+            mailtoUrl.Find("?body=") != kNotFound) {
+          // body parameter already exists, so report a warning
+          nsXFormsUtils::ReportError(NS_LITERAL_STRING("warnMailtoBodyParam"),
+                                     mElement, nsIScriptError::warningFlag);
+        }
+
+        if (mailtoUrl.FindChar('?') != kNotFound)
+          mailtoUrl.AppendLiteral("&body=");
+        else
+          mailtoUrl.AppendLiteral("?body=");
+
+        // get the stream contents
+        PRUint32 len, read, numReadIn = 1;
+        rv = stream->Available(&len);
+        NS_ENSURE_SUCCESS(rv, rv);
+
+        char *buf = new char[len+1];
+        if (buf == NULL) {
+          return NS_ERROR_OUT_OF_MEMORY;
+        }
+        memset(buf, 0, len+1);
+
+        // Read returns 0 if eos
+        while (numReadIn != 0) {
+          numReadIn = stream->Read(buf, len, &read);
+          NS_EscapeURL(buf, esc_AlwaysCopy, read, mailtoUrl);
+        }
+
+        delete [] buf;
+
+        // create an nsIUri out of the string
+        nsCOMPtr<nsIURI> mailUri;
+        ios->NewURI(mailtoUrl,
+                    nsnull,
+                    nsnull,
+                    getter_AddRefs(mailUri));
+        NS_ENSURE_STATE(mailUri);
+
+        // let the OS handle the uri
+        rv = extProtService->LoadURI(mailUri, nsnull);
+
+        if (NS_FAILED(rv)) {
+          // opening an mail client failed.
+          nsXFormsUtils::ReportError(NS_LITERAL_STRING("submitMailtoFailed"),
+                                     mElement);
+          EndSubmit(PR_FALSE);
+        } else {
+          // the protocol service succeeded
+          EndSubmit(PR_TRUE);
+        }
+
+      } else {
+        // no system mail client found
+        nsXFormsUtils::ReportError(NS_LITERAL_STRING("submitMailtoInit"),
+                                   mElement);
+        EndSubmit(PR_FALSE);
+      }
+
+      return NS_OK;
+    }
+  }
+
+  if (!CheckSameOrigin(doc, uri)) {
     nsXFormsUtils::ReportError(NS_LITERAL_STRING("submitSendOrigin"),
                                mElement);
     return NS_ERROR_ABORT;

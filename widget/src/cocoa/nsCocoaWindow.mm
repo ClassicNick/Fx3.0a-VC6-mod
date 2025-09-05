@@ -19,7 +19,8 @@
  * Portions created by the Initial Developer are Copyright (C) 1998
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): Josh Aas <josh@mozilla.com>
+ * Contributor(s):
+ *   Josh Aas <josh@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -120,8 +121,8 @@ nsresult nsCocoaWindow::StandardCreate(nsIWidget *aParent,
                         nsWidgetInitData *aInitData,
                         nsNativeWidget aNativeParent)
 {
-  Inherited::BaseCreate ( aParent, aRect, aHandleEventFunction, aContext, aAppShell,
-                            aToolkit, aInitData );
+  Inherited::BaseCreate(aParent, aRect, aHandleEventFunction, aContext, aAppShell,
+                        aToolkit, aInitData);
                             
   if (!aNativeParent || (aInitData && aInitData->mWindowType == eWindowType_popup)) {
     mOffsetParent = aParent;
@@ -148,8 +149,10 @@ nsresult nsCocoaWindow::StandardCreate(nsIWidget *aParent,
     if (mWindowType == eWindowType_popup || mWindowType == eWindowType_invisible)
       features = 0;
 
+#ifdef MOZ_MACBROWSER
     if (mWindowType == eWindowType_popup)
       return NS_OK;
+#endif
 
     mWindow = [[NSWindow alloc] initWithContentRect:rect styleMask:features 
                                 backing:NSBackingStoreBuffered defer:NO];

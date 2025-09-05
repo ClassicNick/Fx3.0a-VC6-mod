@@ -88,8 +88,6 @@ var gLastValidURLStr = "";
 var gLastValidURL = null;
 var gHaveUpdatedToolbarState = false;
 var gClickSelectsAll = false;
-var gIgnoreFocus = false;
-var gIgnoreClick = false;
 var gMustLoadSidebar = false;
 var gProgressMeterPanel = null;
 var gProgressCollapseTimer = null;
@@ -892,7 +890,7 @@ function delayedStartup()
   gURLBarAutoFillPrefListener = new URLBarAutoFillPrefListener();
   pbi.addObserver(gURLBarAutoFillPrefListener.domain, gURLBarAutoFillPrefListener, false);
 
-  // Enable/Disbale auto-hide tabbar
+  // Enable/Disable auto-hide tabbar
   gAutoHideTabbarPrefListener = new AutoHideTabbarPrefListener();
   pbi.addObserver(gAutoHideTabbarPrefListener.domain, gAutoHideTabbarPrefListener, false);
 
@@ -900,6 +898,8 @@ function delayedStartup()
   gHomeButton.updateTooltip();
 
   gClickSelectsAll = gPrefService.getBoolPref("browser.urlbar.clickSelectsAll");
+  if (gURLBar)
+    gURLBar.clickSelectsAll = gClickSelectsAll;
 
 #ifdef HAVE_SHELL_SERVICE
   // Perform default browser checking (after window opens).
@@ -928,11 +928,6 @@ function delayedStartup()
         shell.setDefaultBrowser(true, false);
       shell.shouldCheckDefaultBrowser = checkEveryTime.value;
     }
-  } else {
-    // We couldn't get the shell service; go hide the mail toolbar button.
-    var mailbutton = document.getElementById("mail-button");
-    if (mailbutton)
-      mailbutton.hidden = true;
   }
 #endif
 
@@ -1248,8 +1243,21 @@ function ctrlNumberTabSelection(event)
 #endif
     return;
 
-  var index = event.charCode - 49;
-  if (index < 0 || index > 8)
+  // \d in a RegExp will find any Unicode character with the "decimal digit"
+  // property (Nd)
+  var regExp = /\d/;
+  if (!regExp.test(String.fromCharCode(event.charCode)))
+    return;
+
+  // Some Unicode decimal digits are in the range U+xxx0 - U+xxx9 and some are
+  // in the range U+xxx6 - U+xxxF. Find the digit 1 corresponding to our
+  // character.
+  var digit1 = (event.charCode & 0xFFF0) | 1;
+  if (!regExp.exec(String.fromCharCode(digit1)))
+    digit1 += 6;
+
+  var index = event.charCode - digit1;
+  if (index < 0)
     return;
 
   if (index >= gBrowser.tabContainer.childNodes.length)
@@ -1889,9 +1897,9 @@ function normalizePostData(aStringData)
 function getPostDataStream(aStringData, aKeyword, aEncKeyword, aType)
 {
   var dataStream = Components.classes["@mozilla.org/io/string-input-stream;1"]
-                            .createInstance(Components.interfaces.nsIStringInputStream);
+                            .createInstance(Components.interfaces.nsIStringInputStream2);
   aStringData = aStringData.replace(/%s/g, aEncKeyword).replace(/%S/g, aKeyword);
-  dataStream.setData(aStringData, aStringData.length);
+  dataStream.data = aStringData;
 
   var mimeStream = Components.classes["@mozilla.org/network/mime-input-stream;1"]
                               .createInstance(Components.interfaces.nsIMIMEInputStream);
@@ -2061,32 +2069,6 @@ function checkForDirectoryListing()
     content.wrappedJSObject.defaultCharacterset =
       getMarkupDocumentViewer().defaultCharacterSet;
   }
-}
-
-function URLBarFocusHandler(aEvent, aElt)
-{
-  if (gIgnoreFocus)
-    gIgnoreFocus = false;
-  else if (gClickSelectsAll)
-    aElt.select();
-}
-
-function URLBarMouseDownHandler(aEvent, aElt)
-{
-  if (aElt.hasAttribute("focused") ||
-      aEvent.target.id == "lock-icon" || aEvent.target.id == "feed-button") {
-    gIgnoreClick = true;
-  } else {
-    gIgnoreFocus = true;
-    gIgnoreClick = false;
-    aElt.setSelectionRange(0, 0);
-  }
-}
-
-function URLBarClickHandler(aEvent, aElt)
-{
-  if (!gIgnoreClick && gClickSelectsAll && aElt.selectionStart == aElt.selectionEnd)
-    aElt.select();
 }
 
 // If "ESC" is pressed in the url bar, we replace the urlbar's value with the url of the page
@@ -3009,7 +2991,7 @@ function toOpenDialogByTypeAndUrl(inType, relatedUrl, windowUri, features, extra
   // Check for windows matching the url
   while (windows.hasMoreElements()) {
     var currentWindow = windows.getNext();
-    if (currentWindow.document.firstChild.getAttribute("relatedUrl") == relatedUrl) {
+    if (currentWindow.document.documentElement.getAttribute("relatedUrl") == relatedUrl) {
     	currentWindow.focus();
     	return;
     }
@@ -3028,7 +3010,7 @@ function OpenBrowserWindow()
   var handler = Components.classes["@mozilla.org/browser/clh;1"]
                           .getService(Components.interfaces.nsIBrowserHandler);
   var defaultArgs = handler.defaultArgs;
-  var wintype = document.firstChild.getAttribute('windowtype');
+  var wintype = document.documentElement.getAttribute('windowtype');
 
   // if and only if the current window is a browser window and it has a document with a character
   // set, then extract the current charset menu setting from the current document and use it to
@@ -3069,6 +3051,8 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   // Update global UI elements that may have been added or removed
   if (aToolboxChanged) {
     gURLBar = document.getElementById("urlbar");
+    if (gURLBar)
+      gURLBar.clickSelectsAll = gClickSelectsAll;
     gProxyButton = document.getElementById("page-proxy-button");
     gProxyFavIcon = document.getElementById("page-proxy-favicon");
     gProxyDeck = document.getElementById("page-proxy-deck");
@@ -4426,9 +4410,25 @@ nsContextMenu.prototype = {
                     // Target is a link or a descendant of a link.
                     this.onLink = true;
                     this.onMetaDataItem = true;
+
+                    // xxxmpc: this is kind of a hack to work around a Gecko bug (see bug 266932)
+                    // we're going to walk up the DOM looking for a parent link node,
+                    // this shouldn't be necessary, but we're matching the existing behaviour for left click
+                    var realLink = elem;
+                    var parent = elem.parentNode;
+                    while (parent) {
+                      try {
+                        if ( (parent instanceof HTMLAnchorElement && elem.href) ||
+                             parent instanceof HTMLAreaElement ||
+                             parent instanceof HTMLLinkElement ||
+                             parent.getAttributeNS( "http://www.w3.org/1999/xlink", "type") == "simple")
+                          realLink = parent;
+                      } catch (e) {}
+                      parent = parent.parentNode;
+                    }
                     
                     // Remember corresponding element.
-                    this.link = elem;
+                    this.link = realLink;
                     this.linkURL = this.getLinkURL();
                     this.linkURI = this.getLinkURI();
                     this.linkProtocol = this.getLinkProtocol();
@@ -4989,6 +4989,20 @@ function asyncOpenWebPanel(event)
        target instanceof HTMLLinkElement) {
      if (target.hasAttribute("href"))
        linkNode = target;
+
+     // xxxmpc: this is kind of a hack to work around a Gecko bug (see bug 266932)
+     // we're going to walk up the DOM looking for a parent link node,
+     // this shouldn't be necessary, but we're matching the existing behaviour for left click
+     var parent = target.parentNode;
+     while (parent) {
+       if (parent instanceof HTMLAnchorElement ||
+           parent instanceof HTMLAreaElement ||
+           parent instanceof HTMLLinkElement) {
+           if (parent.hasAttribute("href"))
+             linkNode = parent;
+       }
+       parent = parent.parentNode;
+     }
    }
    else {
      linkNode = event.originalTarget;
@@ -5080,14 +5094,15 @@ function asyncOpenWebPanel(event)
      return true;
    } else {
      // Try simple XLink
-     var href;
+     var href, realHref;
      linkNode = target;
      while (linkNode) {
        if (linkNode.nodeType == Node.ELEMENT_NODE) {
          wrapper = linkNode;
 
-         href = wrapper.getAttributeNS("http://www.w3.org/1999/xlink", "href");
-         break;
+         realHref = wrapper.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+         if (realHref)
+           href = realHref;
        }
        linkNode = linkNode.parentNode;
      }
@@ -5210,7 +5225,7 @@ var contentAreaDNDObserver = {
 
       getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
 
-      switch (document.firstChild.getAttribute('windowtype')) {
+      switch (document.documentElement.getAttribute('windowtype')) {
         case "navigator:browser":
           var postData = { };
           var uri = getShortcutOrURI(url, postData);
@@ -5654,67 +5669,37 @@ function WindowIsClosing()
 }
 
 var MailIntegration = {
-  sendLinkForContent: function ()
-  {
+  sendLinkForContent: function () {
     this.sendMessage(window.content.location.href,
                      window.content.document.title);
   },
 
-  sendMessage: function (aBody, aSubject)
-  {
+  sendMessage: function (aBody, aSubject) {
     // generate a mailto url based on the url and the url's title
-    var mailtoUrl = aBody ? "mailto:?body=" + encodeURIComponent(aBody) + "&subject=" + encodeURIComponent(aSubject) : "mailto:";
+    var mailtoUrl = "mailto:";
+    if (aBody) {
+      mailtoUrl += "?body=" + encodeURIComponent(aBody);
+      mailtoUrl += "&subject=" + encodeURIComponent(aSubject);
+    }
 
-    var ioService = Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService);
+    var ioService = Components.classes["@mozilla.org/network/io-service;1"]
+                              .getService(Components.interfaces.nsIIOService);
     var uri = ioService.newURI(mailtoUrl, null, null);
 
-    // now pass this url to the operating system
+    // now pass this uri to the operating system
     this._launchExternalUrl(uri);
   },
 
-  // a generic method which can be used to pass arbitrary urls to the operating system.
+  // a generic method which can be used to pass arbitrary urls to the operating
+  // system.
   // aURL --> a nsIURI which represents the url to launch
-  _launchExternalUrl: function(aURL)
-  {
-    var extProtocolSvc = Components.classes["@mozilla.org/uriloader/external-protocol-service;1"].getService(Components.interfaces.nsIExternalProtocolService);
+  _launchExternalUrl: function (aURL) {
+    var extProtocolSvc =
+       Components.classes["@mozilla.org/uriloader/external-protocol-service;1"]
+                 .getService(Components.interfaces.nsIExternalProtocolService);
     if (extProtocolSvc)
       extProtocolSvc.loadUrl(aURL);
-#ifdef HAVE_SHELL_SERVICE
-  },
-
-  readMail: function ()
-  {
-    var shell = getShellService();
-    if (shell)
-      shell.openApplication(Components.interfaces.nsIShellService.APPLICATION_MAIL);
-  },
-
-  readNews: function ()
-  {
-    var shell = getShellService();
-    if (shell)
-      shell.openApplication(Components.interfaces.nsIShellService.APPLICATION_NEWS);
-  },
-
-  updateUnreadCount: function ()
-  {
-#ifdef XP_WIN
-    var shell = Components.classes["@mozilla.org/browser/shell-service;1"]
-                          .getService(Components.interfaces.nsIWindowsShellService);
-    var unreadCount = shell.unreadMailCount;
-    var message = gNavigatorBundle.getFormattedString("mailUnreadTooltip", [unreadCount]);
-    var element = document.getElementById("mail-button");
-    if (element)
-      element.setAttribute("tooltiptext", message);
-
-    message = gNavigatorBundle.getFormattedString("mailUnreadMenuitem", [unreadCount]);
-    element = document.getElementById("Browser:ReadMail");
-    element.setAttribute("label", message);
-#endif
   }
-#else
-  }
-#endif
 };
 
 function BrowserOpenExtensions(aOpenMode)

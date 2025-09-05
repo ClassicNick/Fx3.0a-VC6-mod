@@ -114,7 +114,9 @@
 
 #include "nsINIParser.h"
 
+#ifdef MOZ_XPINSTALL
 #include "InstallCleanupDefines.h"
+#endif
 
 #include <stdlib.h>
 
@@ -832,6 +834,7 @@ DumpHelp()
   DumpArbitraryHelp();
 }
 
+#ifdef MOZ_XPINSTALL
 // don't modify aAppDir directly... clone it first
 static int
 VerifyInstallation(nsIFile* aAppDir)
@@ -892,6 +895,7 @@ VerifyInstallation(nsIFile* aAppDir)
 
   return 0;
 }
+#endif
 
 #ifdef DEBUG_warren
 #ifdef XP_WIN
@@ -2019,6 +2023,7 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
     return 1;
   }
 
+#ifdef MOZ_XPINSTALL
   //----------------------------------------------------------------
   // We need to check if a previous installation occured and
   // if so, make sure it finished and cleaned up correctly.
@@ -2041,6 +2046,7 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
       return VerifyInstallation(dirProvider.GetAppDir());
     }
   }
+#endif
 
 #ifdef MOZ_ENABLE_XREMOTE
   // handle -remote now that xpcom is fired up
@@ -2114,10 +2120,9 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
   }
   else if (versionOK) {
     if (ComponentsListChanged(profD)) {
-      // Remove compreg.dat and xpti.dat, forcing component re-registration,
-      // with the new list of additional components directories specified
-      // in "components.ini" which we have just discovered changed since the
-      // last time the application was run. 
+      // Remove compreg.dat and xpti.dat, forcing component re-registration.
+      // The new list of additional components directories is derived from
+      // information in "extensions.ini".
       RemoveComponentRegistries(profD, profLD, PR_FALSE);
     }
     // Nothing need be done for the normal startup case.
@@ -2129,8 +2134,8 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
     RemoveComponentRegistries(profD, profLD, PR_TRUE);
 
     // Tell the Extension Manager it should check for incompatible 
-    // Extensions and re-write the Components manifest ("components.ini")
-    // with a list of XPCOM components for compatible extensions
+    // Extensions and re-write the "extensions.ini" file with a list of 
+    // directories for compatible extensions
     upgraded = PR_TRUE;
 
     // Write out version
@@ -2174,6 +2179,24 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
       nsCOMPtr<nsIAppStartup> appStartup
         (do_GetService(NS_APPSTARTUP_CONTRACTID));
       NS_ENSURE_TRUE(appStartup, 1);
+
+      if (gDoMigration) {
+        nsCOMPtr<nsIFile> file;
+        profD->Clone(getter_AddRefs(file));
+        file->AppendNative(NS_LITERAL_CSTRING("override.ini"));
+        nsINIParser parser;
+        nsCOMPtr<nsILocalFile> localFile(do_QueryInterface(file));
+        nsresult rv = parser.Init(localFile);
+        if (NS_SUCCEEDED(rv)) {
+          nsCAutoString buf;
+          rv = parser.GetString("XRE", "EnableProfileMigrator", buf);
+          if (NS_SUCCEEDED(rv)) {
+            if (buf[0] == '0' || buf[0] == 'f' || buf[0] == 'F') {
+              gDoMigration = PR_FALSE;
+            }
+          }
+        }
+      }
 
       // Profile Migration
       if (gAppData->flags & NS_XRE_ENABLE_PROFILE_MIGRATOR && gDoMigration) {

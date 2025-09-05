@@ -142,11 +142,6 @@ public:
   RemoveFrame(nsIAtom*        aListName,
               nsIFrame*       aOldFrame);
 
-  NS_IMETHOD
-  ReplaceFrame(nsIAtom*        aListName,
-               nsIFrame*       aOldFrame,
-               nsIFrame*       aNewFrame);
-
   NS_IMETHODIMP
   ReflowDirtyChild(nsIPresShell* aPresShell, 
                    nsIFrame*     aChild);
@@ -204,11 +199,6 @@ public:
   virtual nsresult
   ChildListChanged(PRInt32 aModType);
 
-  // helper to wrap non-MathML frames so that foreign elements (e.g., html:img)
-  // can mix better with other surrounding MathML markups
-  virtual nsresult
-  WrapForeignFrames();
-
   // helper to get the preferred size that a container frame should use to fire
   // the stretch on its stretchy child frames.
   virtual void
@@ -235,11 +225,14 @@ public:
               nsPresContext*          aPresContext,
               nsHTMLReflowMetrics&     aDesiredSize,
               const nsHTMLReflowState& aReflowState,
-              nsReflowStatus&          aStatus)
-  {
-    return nsHTMLContainerFrame::ReflowChild(aKidFrame, aPresContext, aDesiredSize, aReflowState,
-                                             0, 0, NS_FRAME_NO_MOVE_FRAME, aStatus);
-  }
+              nsReflowStatus&          aStatus);
+
+  nsresult 
+  ReflowForeignChild(nsIFrame*                aKidFrame,
+                     nsPresContext*           aPresContext,
+                     nsHTMLReflowMetrics&     aDesiredSize,
+                     const nsHTMLReflowState& aReflowState,
+                     nsReflowStatus&          aStatus);
 
   // helper to add the inter-spacing when <math> is the immediate parent.
   // Since we don't (yet) handle the root <math> element ourselves, we need to
@@ -380,17 +373,6 @@ public:
   }
 
   NS_IMETHOD
-  ReplaceFrame(nsIAtom*        aListName,
-               nsIFrame*       aOldFrame,
-               nsIFrame*       aNewFrame)
-  {
-    NS_ASSERTION(!aListName, "internal error");
-    nsresult rv = nsBlockFrame::ReplaceFrame(aListName, aOldFrame, aNewFrame);
-    nsMathMLContainerFrame::ReLayoutChildren(this);
-    return rv;
-  }
-
-  NS_IMETHOD
   RemoveFrame(nsIAtom*        aListName,
               nsIFrame*       aOldFrame)
   {
@@ -462,17 +444,6 @@ public:
   {
     NS_ASSERTION(!aListName, "internal error");
     nsresult rv = nsInlineFrame::InsertFrames(aListName, aPrevFrame, aFrameList);
-    nsMathMLContainerFrame::ReLayoutChildren(this);
-    return rv;
-  }
-
-  NS_IMETHOD
-  ReplaceFrame(nsIAtom*        aListName,
-               nsIFrame*       aOldFrame,
-               nsIFrame*       aNewFrame)
-  {
-    NS_ASSERTION(!aListName, "internal error");
-    nsresult rv = nsInlineFrame::ReplaceFrame(aListName, aOldFrame, aNewFrame);
     nsMathMLContainerFrame::ReLayoutChildren(this);
     return rv;
   }

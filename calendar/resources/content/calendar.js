@@ -187,8 +187,13 @@ function calendarFinish()
 
 function launchPreferences()
 {
-    var applicationName = navigator.vendor;
-    if (applicationName == "Mozilla" || applicationName == "Firebird" || applicationName == "")
+    var applicationName="";
+    if (Components.classes["@mozilla.org/xre/app-info;1"]) {
+        var appInfo = Components.classes["@mozilla.org/xre/app-info;1"]
+                      .getService(Components.interfaces.nsIXULAppInfo);
+        applicationName = appInfo.name;
+    }
+    if (applicationName == "SeaMonkey" || applicationName == "")
         goPreferences( "calendarPanel", "chrome://calendar/content/pref/calendarPref.xul", "calendarPanel" );
     else
         window.openDialog("chrome://calendar/content/pref/prefBird.xul", "PrefWindow", "chrome,titlebar,resizable,modal");
@@ -893,4 +898,36 @@ calTransaction.prototype = {
         // No support for merging
         return false;
     }
+}
+
+function openLocalCalendar() {
+
+    const nsIFilePicker = Components.interfaces.nsIFilePicker;
+    var fp = Components.classes["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
+    fp.init(window, gCalendarBundle.getString("Open"), nsIFilePicker.modeOpen);
+    fp.appendFilter(gCalendarBundle.getString("filterCalendar"), "*.ics");
+    fp.appendFilters(nsIFilePicker.filterAll);
+ 
+    if (fp.show() != nsIFilePicker.returnOK) {
+        return;
+    }	
+    
+    var url = fp.fileURL.spec;
+    var calMgr = getCalendarManager();
+    var composite = getDisplayComposite();
+    var openCalendar = calMgr.createCalendar("ics", makeURL(url));
+    calMgr.registerCalendar(openCalendar);
+     
+    // Strip ".ics" from filename for use as calendar name, taken from calendarCreation.js
+    var fullPathRegex = new RegExp("([^/:]+)[.]ics$");
+    var prettyName = url.match(fullPathRegex);
+    var name;
+        
+    if (prettyName && prettyName.length >= 1) {
+        name = prettyName[1];
+    } else {
+        name = gCalendarBundle.getString("untitledCalendarName");
+    }
+        
+    openCalendar.name = name;
 }

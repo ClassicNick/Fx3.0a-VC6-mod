@@ -202,7 +202,8 @@ protected:
                            nsIParser** aResult);
 
     nsresult 
-    LoadOverlayInternal(nsIURI* aURI, PRBool aIsDynamic, PRBool* aShouldReturn);
+    LoadOverlayInternal(nsIURI* aURI, PRBool aIsDynamic, PRBool* aShouldReturn,
+                        PRBool* aFailureFromContent);
 
     nsresult ApplyPersistentAttributes();
     nsresult ApplyPersistentAttributesToElements(nsIRDFResource* aResource,
@@ -263,6 +264,7 @@ protected:
     PRPackedBool               mIsFastLoad;
     PRPackedBool               mApplyingPersistedAttrs;
     PRPackedBool               mIsWritingFastLoad;
+    PRPackedBool               mDocumentLoaded;
     nsCOMPtr<nsIDOMXULCommandDispatcher>     mCommandDispatcher; // [OWNER] of the focus tracker
 
     // Maintains the template builders that have been attached to

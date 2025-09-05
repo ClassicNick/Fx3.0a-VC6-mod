@@ -88,7 +88,8 @@ static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
 
 /* nsNSSCertificate */
 
-NS_IMPL_THREADSAFE_ISUPPORTS2(nsNSSCertificate, nsIX509Cert,
+NS_IMPL_THREADSAFE_ISUPPORTS3(nsNSSCertificate, nsIX509Cert,
+                                                nsIX509Cert2,
                                                 nsISMimeCert)
 
 nsNSSCertificate*
@@ -166,15 +167,11 @@ void nsNSSCertificate::destructorSafeDestroyNSSReference()
 }
 
 nsresult
-nsNSSCertificate::SetCertType(PRUint32 aCertType)
-{
-  mCertType = aCertType;
-  return NS_OK;
-}
-
-nsresult
 nsNSSCertificate::GetCertType(PRUint32 *aCertType)
 {
+  if (mCertType == nsIX509Cert::UNKNOWN_CERT) {
+     mCertType = getCertType(mCert);
+  }
   *aCertType = mCertType;
   return NS_OK;
 }
@@ -589,6 +586,8 @@ nsNSSCertificate::GetIssuerOrganization(nsAString &aOrganization)
     if (organization) {
       aOrganization = NS_ConvertUTF8toUCS2(organization);
       PORT_Free(organization);
+    } else {
+      return GetIssuerCommonName(aOrganization);
     }
   }
   return NS_OK;
@@ -904,56 +903,56 @@ nsNSSCertificate::VerifyForUsage(PRUint32 usage, PRUint32 *verificationResult)
 
   NS_ENSURE_ARG(verificationResult);
 
-  SECCertUsage nss_usage;
+  SECCertificateUsage nss_usage;
   
   switch (usage)
   {
     case CERT_USAGE_SSLClient:
-      nss_usage = certUsageSSLClient;
+      nss_usage = certificateUsageSSLClient;
       break;
 
     case CERT_USAGE_SSLServer:
-      nss_usage = certUsageSSLServer;
+      nss_usage = certificateUsageSSLServer;
       break;
 
     case CERT_USAGE_SSLServerWithStepUp:
-      nss_usage = certUsageSSLServerWithStepUp;
+      nss_usage = certificateUsageSSLServerWithStepUp;
       break;
 
     case CERT_USAGE_SSLCA:
-      nss_usage = certUsageSSLCA;
+      nss_usage = certificateUsageSSLCA;
       break;
 
     case CERT_USAGE_EmailSigner:
-      nss_usage = certUsageEmailSigner;
+      nss_usage = certificateUsageEmailSigner;
       break;
 
     case CERT_USAGE_EmailRecipient:
-      nss_usage = certUsageEmailRecipient;
+      nss_usage = certificateUsageEmailRecipient;
       break;
 
     case CERT_USAGE_ObjectSigner:
-      nss_usage = certUsageObjectSigner;
+      nss_usage = certificateUsageObjectSigner;
       break;
 
     case CERT_USAGE_UserCertImport:
-      nss_usage = certUsageUserCertImport;
+      nss_usage = certificateUsageUserCertImport;
       break;
 
     case CERT_USAGE_VerifyCA:
-      nss_usage = certUsageVerifyCA;
+      nss_usage = certificateUsageVerifyCA;
       break;
 
     case CERT_USAGE_ProtectedObjectSigner:
-      nss_usage = certUsageProtectedObjectSigner;
+      nss_usage = certificateUsageProtectedObjectSigner;
       break;
 
     case CERT_USAGE_StatusResponder:
-      nss_usage = certUsageStatusResponder;
+      nss_usage = certificateUsageStatusResponder;
       break;
 
     case CERT_USAGE_AnyCA:
-      nss_usage = certUsageAnyCA;
+      nss_usage = certificateUsageAnyCA;
       break;
 
     default:
@@ -962,8 +961,8 @@ nsNSSCertificate::VerifyForUsage(PRUint32 usage, PRUint32 *verificationResult)
 
   CERTCertDBHandle *defaultcertdb = CERT_GetDefaultCertDB();
 
-  if (CERT_VerifyCertNow(defaultcertdb, mCert, PR_TRUE, 
-                         nss_usage, NULL) == SECSuccess)
+  if (CERT_VerifyCertificateNow(defaultcertdb, mCert, PR_TRUE, 
+                         nss_usage, NULL, NULL) == SECSuccess)
   {
     *verificationResult = VERIFIED_OK;
   }
@@ -1149,11 +1148,15 @@ nsNSSCertificate::Equals(nsIX509Cert *other, PRBool *result)
   NS_ENSURE_ARG(other);
   NS_ENSURE_ARG(result);
 
-  nsNSSCertificate *other2 = NS_STATIC_CAST(nsNSSCertificate*, other);
+  nsCOMPtr<nsIX509Cert2> other2 = do_QueryInterface(other);
   if (!other2)
     return NS_ERROR_FAILURE;
-  
-  *result = (mCert == other2->mCert);
+ 
+  CERTCertificate *cert = other2->GetCert();
+  *result = (mCert == cert);
+  if (cert) {
+    CERT_DestroyCertificate(cert);
+  }
   return NS_OK;
 }
 
@@ -1208,3 +1211,166 @@ char* nsNSSCertificate::defaultServerNickname(CERTCertificate* cert)
   return nickname;
 }
 
+NS_IMPL_THREADSAFE_ISUPPORTS1(nsNSSCertList, nsIX509CertList)
+
+nsNSSCertList::nsNSSCertList(CERTCertList *certList, PRBool adopt)
+{
+  if (certList) {
+    if (adopt) {
+      mCertList = certList;
+    } else {
+      mCertList = DupCertList(certList);
+    }
+  } else {
+    mCertList = CERT_NewCertList();
+  }
+}
+
+nsNSSCertList::~nsNSSCertList()
+{
+  if (mCertList) {
+    CERT_DestroyCertList(mCertList);
+  }
+}
+
+/* void addCert (in nsIX509Cert cert); */
+NS_IMETHODIMP
+nsNSSCertList::AddCert(nsIX509Cert *aCert) 
+{
+  /* This should be a query interface, but currently this his how the
+   * rest of PSM is working */
+  nsCOMPtr<nsIX509Cert2> nssCert = do_QueryInterface(aCert);
+  CERTCertificate *cert;
+
+  cert = nssCert->GetCert();
+  if (cert == nsnull) {
+    NS_ASSERTION(0,"Somehow got nsnull for mCertificate in nsNSSCertificate.");
+    return NS_ERROR_FAILURE;
+  }
+
+  if (mCertList == nsnull) {
+    NS_ASSERTION(0,"Somehow got nsnull for mCertList in nsNSSCertList.");
+    return NS_ERROR_FAILURE;
+  }
+  CERT_AddCertToListTail(mCertList,cert);
+  return NS_OK;
+}
+
+/* void deleteCert (in nsIX509Cert cert); */
+NS_IMETHODIMP
+nsNSSCertList::DeleteCert(nsIX509Cert *aCert)
+{
+  /* This should be a query interface, but currently this his how the
+   * rest of PSM is working */
+  nsCOMPtr<nsIX509Cert2> nssCert = do_QueryInterface(aCert);
+  CERTCertificate *cert = nssCert->GetCert();
+  CERTCertListNode *node;
+
+  if (cert == nsnull) {
+    NS_ASSERTION(0,"Somehow got nsnull for mCertificate in nsNSSCertificate.");
+    return NS_ERROR_FAILURE;
+  }
+
+  if (mCertList == nsnull) {
+    NS_ASSERTION(0,"Somehow got nsnull for mCertList in nsNSSCertList.");
+    return NS_ERROR_FAILURE;
+  }
+
+  for (node = CERT_LIST_HEAD(mCertList); !CERT_LIST_END(node,mCertList);
+                                             node = CERT_LIST_NEXT(node)) {
+    if (node->cert == cert) {
+	CERT_RemoveCertListNode(node);
+        return NS_OK;
+    }
+  }
+  return NS_OK; /* should we fail if we couldn't find it? */
+}
+
+CERTCertList *
+nsNSSCertList::DupCertList(CERTCertList *aCertList)
+{
+  if (!aCertList)
+    return nsnull;
+
+  CERTCertList *newList = CERT_NewCertList();
+
+  if (newList == nsnull) {
+    return nsnull;
+  }
+
+  CERTCertListNode *node;
+  for (node = CERT_LIST_HEAD(aCertList); !CERT_LIST_END(node, aCertList);
+                                              node = CERT_LIST_NEXT(node)) {
+    CERTCertificate *cert = CERT_DupCertificate(node->cert);
+    CERT_AddCertToListTail(newList, cert);
+  }
+  return newList;
+}
+
+void *
+nsNSSCertList::GetRawCertList()
+{
+  return mCertList;
+}
+
+/* nsISimpleEnumerator getEnumerator (); */
+NS_IMETHODIMP
+nsNSSCertList::GetEnumerator(nsISimpleEnumerator **_retval) 
+{
+  nsCOMPtr<nsISimpleEnumerator> enumerator = new nsNSSCertListEnumerator(mCertList);
+  if (!enumerator) { 
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  *_retval = enumerator;
+  NS_ADDREF(*_retval);
+  return NS_OK;
+}
+
+NS_IMPL_THREADSAFE_ISUPPORTS1(nsNSSCertListEnumerator, 
+                              nsISimpleEnumerator)
+
+nsNSSCertListEnumerator::nsNSSCertListEnumerator(CERTCertList *certList)
+{
+  mCertList = nsNSSCertList::DupCertList(certList);
+}
+
+nsNSSCertListEnumerator::~nsNSSCertListEnumerator()
+{
+  if (mCertList) {
+    CERT_DestroyCertList(mCertList);
+  }
+}
+
+/* boolean hasMoreElements (); */
+NS_IMETHODIMP
+nsNSSCertListEnumerator::HasMoreElements(PRBool *_retval)
+{ 
+  NS_ENSURE_TRUE(mCertList, NS_ERROR_FAILURE);
+
+  *_retval = !CERT_LIST_EMPTY(mCertList);
+  return NS_OK;
+}
+
+/* nsISupports getNext(); */
+NS_IMETHODIMP
+nsNSSCertListEnumerator::GetNext(nsISupports **_retval) 
+{
+  NS_ENSURE_TRUE(mCertList, NS_ERROR_FAILURE);
+
+  CERTCertListNode *node = CERT_LIST_HEAD(mCertList);
+  if (CERT_LIST_END(node, mCertList)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsIX509Cert> nssCert = new nsNSSCertificate(node->cert);
+  if (!nssCert) { 
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  *_retval = nssCert;
+  NS_ADDREF(*_retval);
+
+  CERT_RemoveCertListNode(node);
+  return NS_OK;
+}

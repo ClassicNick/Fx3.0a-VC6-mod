@@ -463,13 +463,6 @@ nsNode3Tearoff::LookupPrefix(const nsAString& aNamespaceURI,
 
   // XXX Waiting for DOM spec to list error codes.
 
-  // Get the namespace id for the URI
-  PRInt32 namespaceId =
-    nsContentUtils::NameSpaceManager()->GetNameSpaceID(aNamespaceURI);
-  if (namespaceId == kNameSpaceID_Unknown) {
-    return NS_OK;
-  }
-
   // Trace up the content parent chain looking for the namespace
   // declaration that defines the aNamespaceURI namespace. Once found,
   // return the prefix (i.e. the attribute localName).
@@ -483,7 +476,11 @@ nsNode3Tearoff::LookupPrefix(const nsAString& aNamespaceURI,
       if (name->NamespaceEquals(kNameSpaceID_XMLNS) &&
           content->AttrValueIs(kNameSpaceID_XMLNS, name->LocalName(),
                                aNamespaceURI, eCaseMatters)) {
-        name->LocalName()->ToString(aPrefix);
+        // If the localName is "xmlns", the prefix we output should be
+        // null.
+        if (name->LocalName() != nsLayoutAtoms::xmlnsNameSpace) {
+          name->LocalName()->ToString(aPrefix);
+        }
 
         return NS_OK;
       }
@@ -3028,6 +3025,13 @@ nsGenericElement::ReplaceChild(nsIDOMNode* aNewChild, nsIDOMNode* aOldChild,
                         mAttrsAndChildren, aReturn);
 }
 
+NS_IMETHODIMP
+nsGenericElement::RemoveChild(nsIDOMNode *aOldChild, nsIDOMNode **aReturn)
+{
+  return doRemoveChild(aOldChild, this, GetCurrentDoc(),
+                       mAttrsAndChildren, aReturn);
+}
+
 // When replacing, aRefContent is the content being replaced; when
 // inserting it's the content before which we're inserting.  In the
 // latter case it may be null.
@@ -3691,42 +3695,35 @@ nsGenericElement::doReplaceChild(nsIDOMNode* aNewChild, nsIDOMNode* aOldChild,
   return CallQueryInterface(replacedChild, aReturn);
 }
 
-NS_IMETHODIMP
-nsGenericElement::RemoveChild(nsIDOMNode *aOldChild, nsIDOMNode **aReturn)
+/* static */
+nsresult
+nsGenericElement::doRemoveChild(nsIDOMNode* aOldChild,
+                                nsIContent* aParent, nsIDocument* aDocument,
+                                nsAttrAndChildArray& aChildArray,
+                                nsIDOMNode** aReturn)
 {
+  NS_PRECONDITION(aParent || aDocument, "Must have document if no parent!");
+  NS_PRECONDITION(!aParent || aParent->GetCurrentDoc() == aDocument,
+                  "Incorrect aDocument");
+
   *aReturn = nsnull;
+  NS_ENSURE_TRUE(aOldChild, NS_ERROR_NULL_POINTER);
 
-  if (!aOldChild) {
-    return NS_ERROR_NULL_POINTER;
-  }
-
-  nsresult res;
-
-  nsCOMPtr<nsIContent> content(do_QueryInterface(aOldChild, &res));
-
-  if (NS_FAILED(res)) {
-    /*
-     * If we're asked to remove something that doesn't support nsIContent
-     * it can not be one of our children, i.e. we return NOT_FOUND_ERR.
-     */
+  nsCOMPtr<nsIContent> content = do_QueryInterface(aOldChild);
+  // fix children to be a passed argument
+  PRInt32 index = aChildArray.IndexOfChild(content);
+  if (index == -1) {
+    // aOldChild isn't one of our children.
     return NS_ERROR_DOM_NOT_FOUND_ERR;
   }
 
-  PRInt32 pos = IndexOf(content);
-
-  if (pos < 0) {
-    /*
-     * aOldChild isn't one of our children.
-     */
-    return NS_ERROR_DOM_NOT_FOUND_ERR;
-  }
-
-  res = RemoveChildAt(pos, PR_TRUE);
+  nsContentOrDocument container(aParent, aDocument);
+  nsresult rv = container.RemoveChildAt(index, PR_TRUE, aChildArray);
 
   *aReturn = aOldChild;
   NS_ADDREF(aOldChild);
 
-  return res;
+  return rv;
 }
 
 //----------------------------------------------------------------------

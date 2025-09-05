@@ -76,8 +76,7 @@ struct JSRuntime {
     JSRuntimeState      state;
 
     /* Garbage collector state, used by jsgc.c. */
-    JSArenaPool         gcArenaPool[GC_NUM_FREELISTS];
-    JSGCThing           *gcFreeList[GC_NUM_FREELISTS];
+    JSGCArenaList       gcArenaList[GC_NUM_FREELISTS];
     JSDHashTable        gcRootsHash;
     JSDHashTable        *gcLocksHash;
     jsrefcount          gcKeepAtoms;
@@ -244,7 +243,13 @@ struct JSRuntime {
     const char          *decimalSeparator;
     const char          *numGrouping;
 
-    /* Weak references to lazily-created, well-known XML singletons. */
+    /*
+     * Weak references to lazily-created, well-known XML singletons.
+     *
+     * NB: Singleton objects must be carefully disconnected from the rest of
+     * the object graph usually associated with a JSContext's global object,
+     * including the set of standard class objects.  See jsxml.c for details.
+     */
     JSObject            *anynameObject;
     JSObject            *functionNamespaceObject;
 

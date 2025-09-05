@@ -1,4 +1,4 @@
-#!/usr/bonsaitools/bin/perl -w
+#!/usr/bin/perl -w
 # -*- Mode: perl; indent-tabs-mode: nil -*-
 #
 # The contents of this file are subject to the Mozilla Public
@@ -47,6 +47,9 @@ sub sillyness {
     $zz = $F::newsgroups;
 }
 
+my $emailregexp = q/^[^"'@|&, ]*@[^"'@|&, ]*\.[^"'@|&, ]*$/;
+my $partregexp = q/^[-&:\.\w\d ]+$/;
+my $partidregexp = q/^\d+$/;
 
 use CGI::Carp qw(fatalsToBrowser);
 
@@ -77,11 +80,15 @@ if ($::disabled) {
     exit;
 }
 
+# handle bad commandline based testing
+my $server_name = defined $ENV{'SERVER_NAME'} ? $ENV{'SERVER_NAME'} : 'localhost';
+my $script_name = defined $ENV{'SCRIPT_NAME'} ? $ENV{'SCRIPT_NAME'} : 'despot.cgi';
+my $is_https = (exists $ENV{"HTTPS"} && (lc($ENV{"HTTPS"}) eq "on")) ? 1 : 0;
 if (!param()) {
     PrintHeader();
     print h1("Despot -- access control for mozilla.org.");
-    if (!exists $ENV{"HTTPS"} || lc($ENV{"HTTPS"}) ne "on") {
-        my $fixedurl = "https://$ENV{'SERVER_NAME'}$ENV{'SCRIPT_NAME'}";
+    unless ($is_https) {
+        my $fixedurl = "https://$server_name$script_name";
         print b("<font color=red>If possible, please use the " .
                 a({href=>$fixedurl}, "secure version of this form") .
                 ".</font>");
@@ -96,67 +103,22 @@ if (!param()) {
 
 import_names("F");              # Makes all form values available as F::.
 
-# $F::debug = 1;
+use DBI;
 
-use Mysql;
-
-$::db = Mysql->Connect("localhost", "mozusers", "despot")
+use vars qw( $db_host $db_name $db_user $db_pass );
+do "config.pl" || die "Couldn't load config file";
+my $dsn = "DBI:mysql:host=$db_host;database=$db_name";
+$::db = DBI->connect($dsn, $db_user, $db_pass)
     || die "Can't connect to database server";
 
+my ($query, @row);
 
 $::skiptrailer = 0;
 
-if (defined $F::command) {
-    my $cmd = $F::command;
-    Authenticate() unless grep($cmd eq $_, qw(FindPartition));
-    param("command", "");
-    PrintHeader() if $cmd eq "MainMenu";
-    eval "$cmd()";
-    if ($@ ne "") {
-        die "Error executing $cmd -- $@";
-    }
-} else {
-    Authenticate();
-    PrintHeader();
-    MainMenu();
-}
-
-
-if (!$::skiptrailer) {
-    print hr();
-    print MyForm("MainMenu") . submit("Main menu") . end_form();
-}
-
-
-my $query = Query("select needed from syncneeded where needed=1");
-my @row = $query->fetchrow();
-if ($row[0]) {
-    print hr();
-    print p("Updating external machines...");
-    print "<PRE>";
-    if (!open(DOSYNC, "./syncit.pl -user $F::loginname|")) {
-        print p("Can't do sync (error $?).  Please send mail to " .
-                a({href=>$despotOwnerMailTo}, $despotOwner) . ".");
-    } else {
-        while (<DOSYNC>) {
-            if ($::despot) {
-                s/\&/\&amp;/g;
-                s/</\&lt;/g;
-                s/>/\&gt;/g;
-                print $_;
-            }
-        }
-        close(DOSYNC);
-    }
-    print "</PRE>";
-    print p("... update completed.");
-}
-
-
-
 sub Authenticate {
-    my $query = Query("select passwd,despot,neednewpassword,id,disabled from users where email = '$F::loginname'");
-    my @row = $query->fetchrow();
+    my $query = $::db->prepare("SELECT passwd, despot, neednewpassword, id, disabled FROM users WHERE email = ?");
+    $query->execute($F::loginname);
+    my @row = $query->fetchrow_array();
     if (!@row || !checkpassword($F::loginpassword, $row[0])) {
         PrintHeader();
         print h1("Authentication Failed");
@@ -244,7 +206,7 @@ sub PrintLoginForm {
     print end_form();
 }
 
-sub MainMenu() {
+sub MainMenu {
     print h1("Despot -- main menu");
     print table({-width=>"100%"},
                 Tr(td(h3("What would you like to do?")) .
@@ -258,9 +220,15 @@ sub MainMenu() {
                    submit("Change your password") . end_form()));
     push(@list, li(MyForm("ListPartitions") .
                    submit("List all the partitions") .end_form()));
-#     my $query = Query("select partitionid,partitions.name,repositories.name,repositories.id from members,partitions,repositories where userid=$::loginid and class != 'Member' and partitions.id=members.partitionid and repositories.id=partitions.repositoryid");
+#     my $query = $::db->prepare("SELECT partitionid, partitions.name, repositories.name, repositories.id " .
+#                                "FROM members, partitions, repositories " .
+#                                "WHERE userid = ? " .
+#                                  "AND class != 'Member' " .
+#                                  "AND partitions.id = members.partitionid " .
+#                                  "AND repositories.id = partitions.repositoryid");
+#     $query->execute($::loginid);
 #     my @row;
-#     while (@row = $query->fetchrow()) {
+#     while (@row = $query->fetchrow_array()) {
 #         my ($partid,$partname,$repname,$repid) = (@row);
 #         my $title = "Edit partition '$partname' ($repname)";
 #         param("partitionid", $partid);
@@ -269,10 +237,11 @@ sub MainMenu() {
 #                 hidden(-name=>"partitionid") . end_form()));
 #     }
 
-    my $query = Query("select id,name from repositories order by name");
+    my $query = $::db->prepare("SELECT id, name FROM repositories ORDER BY name");
+    $query->execute();
     my @vals = ();
     my %labels;
-    while (my @row = $query->fetchrow()) {
+    while (my @row = $query->fetchrow_array()) {
         my $v = $row[0];
         push(@vals, $v);
         $labels{$v} = $row[1];
@@ -343,13 +312,13 @@ sub AddUser() {
     my $email = $F::email;
     my $query;
     my @row;
-    if ($email !~ /^[^@, ]*@[^@, ]*\.[^@, ]*$/) {
-        Punt("Email addresses must contain exactly one '\@', and at least one '.' after the \@, and may not contain any commas or spaces.");
+    if ($email !~ /$emailregexp/) {
+        Punt("Email addresses must contain exactly one '\@', and at least one '.' after the \@, and may not contain any pipes, ampersands, commas or spaces.");
     }
 
-    my $q = SqlQuote($email);
-    $query = Query("select count(*) from users where email='$q'");
-    @row = $query->fetchrow();
+    $query = $::db->prepare("SELECT COUNT(*) FROM users WHERE email=?");
+    $query->execute($email);
+    @row = $query->fetchrow_array();
 
     if ($row[0] < 1) {
         my $p = "";
@@ -358,9 +327,8 @@ sub AddUser() {
         $p = cryptit($plain);
         my $feedback = "'" . tt($plain) . "'";
         my $mailwords = "of '$plain'";
-        $p = $::db->quote($p);
-        $realname = $::db->quote($realname);
-        Query("insert into users (email,passwd,neednewpassword,realname) values ('$q',$p,'Yes',$realname)");
+        my $sth = $::db->do("INSERT INTO users (email, passwd, neednewpassword, realname) VALUES (?,?,?,?)",
+            undef, $email, $p, 'Yes', $realname);
         PrintHeader();
         print p("New account created.  Password initialized to $feedback; " .
                 "please " .
@@ -377,17 +345,18 @@ sub EditUser() {
     EnsureDespot();
     PrintHeader();
     print h1("Edit a user");
-    my $q = SqlQuote($F::email);
-    my $query = Query("select * from users where email='$q'");
+    my $query = $::db->prepare("SELECT * FROM users WHERE email=?");
+    $query->execute($F::email);
     my @row;
-    @row = $query->fetchrow();
-    my $query2 = Query("show columns from users");
+    @row = $query->fetchrow_array();
+    my $query2 = $::db->prepare("SHOW COLUMNS FROM users");
+    $query2->execute();
     my @list;
     my @desc;
     for (my $i=0 ; $i<@row ; $i++) {
-        @desc = $query2->fetchrow();
+        @desc = $query2->fetchrow_array();
         my $line = th({-align=>"right"}, "$desc[0]:");
-        if ($desc[0] ne ($query->name)[$i]) {
+        if ($desc[0] ne $query->{NAME}->[$i]) {
             die "show columns in different order than select???";
         }
         $_ = $desc[1];
@@ -395,7 +364,7 @@ sub EditUser() {
             if ($desc[0] eq "voucher") {
                 $row[$i] = IdToEmail($row[$i]);
             }
-            $line .= td(textfield(-name=>($query->name)[$i],
+            $line .= td(textfield(-name=>$query->{NAME}->[$i],
                                   -default=>$row[$i],
                                   -size=>50,
                                   -override=>1));
@@ -436,9 +405,8 @@ sub EditUser() {
 # See bugzilla.mozilla.org bug 17589
 # 
 #sub DeleteUser() {
-#    my $q = SqlQuote($F::email);
-#    Query("delete from users where email = '$q'");
-#    Query("insert into syncneeded (needed) values (1)");
+#    $::db->do("DELETE FROM users WHERE email = ?", undef, $F::email);
+#    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
 #    PrintHeader();
 #    print h1("OK, $F::email is gone.");
 #    print hr();
@@ -449,10 +417,11 @@ sub ChangeUser() {
     foreach my $field ("email") {
         my $value = param($field);
         if ($value ne param("orig_$field")) {
-            my $query = Query("select count(*) from users where $field = '" .
-                              SqlQuote($value) . "'");
+            # XXX: we need to sanitize $field before using it
+            my $query = $::db->prepare("SELECT COUNT(*) FROM users WHERE $field = ?");
+            $query->execute($value);
             my @row;
-            @row = $query->fetchrow();
+            @row = $query->fetchrow_array();
             if ($row[0] > 0) {
                 Punt("Can't change $field to '$value'; already used.");
             }
@@ -460,10 +429,12 @@ sub ChangeUser() {
     }
 
 
-    my $query = Query("show columns from users");
+    my $query = $::db->prepare("SHOW COLUMNS FROM users");
+    $query->execute();
     my @list;
+    my @values;
     my @row;
-    while (@row = $query->fetchrow()) {
+    while (@row = $query->fetchrow_array()) {
         my $old = param("orig_$row[0]");
         my $new = param($row[0]);
         if ($old ne $new) {
@@ -471,30 +442,31 @@ sub ChangeUser() {
                 $old = EmailToId($old);
                 $new = EmailToId($new);
             }
-            Query("insert into changes (email,field,oldvalue,newvalue,who) values (" .
-                  $::db->quote($F::orig_email) . ",'$row[0]'," .
-                  $::db->quote($old) . "," .
-                  $::db->quote($new) . ",'" .
-                  $F::loginname . "')");
+            $::db->do("INSERT INTO CHANGES (email, field, oldvalue, newvalue, who) VALUES (?,?,?,?,?)",
+                undef, $F::orig_email, $row[0], $old, $new, $F::loginname);
         }
-        push(@list, "$row[0] = '" . SqlQuote($new) . "'");
+        push(@list, "$row[0] = ?");
+        push(@values, $new);
     }
-    my $qstr = "update users set " . join(",", @list) . " where email='" .
-        SqlQuote($F::orig_email) . "'";
-    Query($qstr);
+    my $qstr = "UPDATE users SET " . join(",", @list) . " WHERE email = ?";
+    $::db->do($qstr, undef, @values, $F::orig_email);
     PrintHeader();
     print h1("OK, record for $F::email has been updated.");
     print hr();
     MainMenu();
-    Query("insert into syncneeded (needed) values (1)");
+    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
 }
 
 sub GeneratePassword {
     my $email = $F::email;
+    Punt("Email address is too scary for this web application") unless $email =~ /$emailregexp/;
+    my $query = $::db->prepare("SELECT id FROM users WHERE email = ?");
+    $query->execute($email);
+    Punt("$email is not an email address in the database.") unless ($query->fetchrow_array());
     my $plain = pickrandompassword();
     my $p = cryptit($plain);
-    Query("update users set passwd = " . $::db->quote($p) . ", neednewpassword='Yes' where email=" .
-          $::db->quote($email));
+    $::db->do("UPDATE users SET passwd = ?, neednewpassword='Yes' WHERE email = ?",
+        undef, $p, $email);
     PrintHeader();
     print h1("OK, new password generated.");
     print "$email now has a new password of '" . tt($plain) . "'.  ";
@@ -502,7 +474,7 @@ sub GeneratePassword {
         a({href=>"mailto:$email?subject=Change your mozilla.org password&body=Your mozilla.org account now has a password of '$plain'.  Please go to%0ahttp://despot.mozilla.org/despot.cgi and change your password as soon as%0apossible.  You won't actually be able to use your mozilla.org account%0afor anything until you do."},
           "send mail") .
               " to have the user change the password!";
-    Query("insert into syncneeded (needed) values (1)");
+    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
 }
     
 
@@ -530,7 +502,9 @@ sub ListUsers() {
     # ListSomething("users", "email", "ListUsers", "EditUser", "email", "email,realname,gila_group,cvs_group", "users as u2", {"voucher"=>"u2.email,u2.id=users.voucher"});
     my $wherepart = "";
     if ($F::match ne "") {
-        $wherepart = "email $F::matchtype " . $::db->quote($F::match);
+        # very very narrow whitelist for matchtype.
+        my $matchtype = $F::matchtype eq 'not regexp' ? 'not regexp' : 'regexp';
+        $wherepart = "email $matchtype " . $::db->quote($F::match);
     }
     ListSomething("users", "email", "ListUsers", "EditUser", "email", "email,realname,gila_group,cvs_group", "users as u2", {"voucher"=>["if(users.voucher=0,'NONE',u2.email)", "u2.id=if(users.voucher=0,users.id,users.voucher)", "u2"]}, $wherepart);
 }
@@ -553,18 +527,31 @@ sub ListSomething {
         }
     }
         
-
     print h1("List of $tablename");
+    my $query = $::db->prepare("SHOW COLUMNS FROM $tablename");
+    $query->execute();
+    my @allcols = ();
+    my @cols = ();
+    while (@row = $query->fetchrow_array()) {
+        push(@allcols, $row[0]);
+    }
+
     my $sortorder = $defaultsortorder;
     if (defined $F::sortorder) {
         $sortorder = $F::sortorder;
-    }
-
-    my $query = Query("show columns from $tablename");
-    my @allcols = ();
-    my @cols = ();
-    while (@row = $query->fetchrow()) {
-        push(@allcols, $row[0]);
+        my @sortorder = ();
+        my @passedsortorder = split(",",$sortorder);
+        foreach my $column (@passedsortorder) {
+            my $dir = "";
+            if ($column =~ m/(\S+)( ASC| DESC)$/i) {
+                ($column, $dir) = ($1, $2);
+            }
+            if (!grep {$column eq $_} @allcols) {
+                die "Invalid sort order passed";
+            }
+            push @sortorder, $column.$dir;
+        }
+        $sortorder = join(",",@sortorder);
     }
 
     my $hiddencols = "";
@@ -617,7 +604,7 @@ sub ListSomething {
     my %usedtables;
     my $wherepart = "";
     if (defined $extrawhere && $extrawhere ne "") {
-        $wherepart = " where " . $extrawhere;
+        $wherepart = " WHERE " . $extrawhere;
     }
     foreach my $c (@cols) {
         my $t = $columnremap{$c};
@@ -625,9 +612,9 @@ sub ListSomething {
         $usedtables{$columntable{$c}} = 1;
         if (defined $columnwhere{$c}) {
             if ($wherepart eq "") {
-                $wherepart = " where ";
+                $wherepart = " WHERE ";
             } else {
-                $wherepart .= " and ";
+                $wherepart .= " AND ";
             }
             $wherepart .= $columnwhere{$c};
         }
@@ -650,8 +637,12 @@ sub ListSomething {
         # simpler.
         $orderby = "$tablename.$sortorder";
     }
-    $query = Query("select $tablename.$idcolumn," . join(",", @mungedcols) . " from " . join(",", keys(%usedtables)) . $wherepart . " order by $orderby");
-    while (@row = $query->fetchrow()) {
+    # XXX: need to verify where the callers are getting the values they pass in here.
+    # no clue if it's been sanitized or not, and we can't use placeholders because of
+    # the way it's been passed in.
+    $query = $::db->prepare("SELECT $tablename.$idcolumn," . join(",", @mungedcols) . " FROM " . join(",", keys(%usedtables)) . $wherepart . " ORDER BY $orderby");
+    $query->execute();
+    while (@row = $query->fetchrow_array()) {
         my $i;
         for ($i=1 ; $i<@row ; $i++) {
             if (!defined $row[$i]) {
@@ -686,17 +677,19 @@ sub ListSomething {
 
 
 sub ViewAccount {
-    my $query = Query("select * from users where email='$F::loginname'");
+    my $query = $::db->prepare("SELECT * FROM users WHERE email = ?");
+    $query->execute($F::loginname);
     my @row;
-    @row = $query->fetchrow();
-    my $query2 = Query("show columns from users");
+    @row = $query->fetchrow_array();
+    my $query2 = $::db->prepare("SHOW COLUMNS FROM users");
+    $query2->execute();
     my @list;
     my @desc;
     my $userid;
     for (my $i=0 ; $i<@row ; $i++) {
-        @desc = $query2->fetchrow();
+        @desc = $query2->fetchrow_array();
         my $line = th({-align=>"right"}, "$desc[0]:");
-        if ($desc[0] ne ($query->name)[$i]) {
+        if ($desc[0] ne $query->{NAME}->[$i]) {
             die "show columns in different order than select???";
         }
         if ($desc[0] eq "voucher") {
@@ -707,8 +700,14 @@ sub ViewAccount {
     }
     PrintHeader();
     print table(@list);
-    $query = Query("select partitions.id,repositories.name,partitions.name,class from members,repositories,partitions where members.userid=$::loginid and partitions.id=members.partitionid and repositories.id=partitions.repositoryid order by class");
-    while (@row = $query->fetchrow()) {
+    $query = $::db->prepare("SELECT partitions.id, repositories.name, partitions.name, class " .
+                            "FROM members, repositories, partitions " .
+                            "WHERE members.userid = ? " .
+                              "AND partitions.id = members.partitionid " .
+                              "AND repositories.id = partitions.repositoryid " .
+                            "ORDER BY class");
+    $query->execute($::loginid);
+    while (@row = $query->fetchrow_array()) {
         my ($partid, $repname,$partname,$class) = (@row);
         param("partitionid", $partid);
         print MyForm("EditPartition") . hidden("partitionid") .
@@ -731,9 +730,15 @@ sub FindPartition {
     my $repid = $F::repid;
     my $file = $F::file;
     # Excludes the mozilla-toplevel module which would otherwise always match.
-    my $query = Query("select files.pattern,partitions.name,partitions.id from files,partitions where partitions.id=files.partitionid and partitions.repositoryid=$repid and files.pattern != 'mozilla/%'");
+    # XXX: installation-specific stuff hardcoded here! (fix eventually)
+    my $query = $::db->prepare("SELECT files.pattern, partitions.name, partitions.id " .
+                               "FROM files, partitions " .
+                               "WHERE partitions.id = files.partitionid " .
+                                 "AND partitions.repositoryid = ? " .
+                                 "AND files.pattern != 'mozilla/%'");
+    $query->execute($repid);
     my @matches = ();
-    while (@row = $query->fetchrow()) {
+    while (@row = $query->fetchrow_array()) {
         my ($pattern,$name,$id) = (@row);
         if (FileMatches($file, $pattern) || FileMatches($pattern, $file)) {
             push(@matches, { 'name' => $name, 'id' => $id, 'pattern' => $pattern });
@@ -799,17 +804,22 @@ sub AddPartition {
     if ($partition eq "") {
         Punt("You must enter a partition name.");
     }
+    Punt("Partition may only contain letters, numbers, spaces, dashes, ampersands, and colons") unless $partition =~ /$partregexp/;
     my $repid = $F::repid;
     my $query;
     my @row;
 
-    $query = Query("select id from partitions where repositoryid=$repid and name = '$partition'");
+    $query = $::db->prepare("SELECT id FROM partitions WHERE repositoryid = ? AND name = ?");
+    $query->execute($repid, $partition);
 
-    if (!(@row = $query->fetchrow())) {
-        Query("insert into partitions (name,repositoryid,state,branchid) values ('$partition',$repid,'Open',1)");
+    if (!(@row = $query->fetchrow_array())) {
+        $::db->do("INSERT INTO partitions (name, repositoryid, state, branchid) VALUES (?,?,?,?)",
+             undef, $partition, $repid, 'Open', 1);
         PrintHeader();
         print p("New partition created.") . hr();
-        @row = Query("select LAST_INSERT_ID()")->fetchrow();
+        my $query2 = $::db->prepare("SELECT LAST_INSERT_ID()");
+        $query2->execute();
+        @row = $query2->fetchrow_array();
     }
 
     $F::partitionid = $row[0];
@@ -824,11 +834,17 @@ sub EditPartition() {
         $partitionid = $F::id;
     }
     my $canchange = CanChangePartition($partitionid);
-    my $query = Query("select partitions.name,partitions.description,state,repositories.name,repositories.id,branches.name,newsgroups,doclinks from partitions,repositories,branches where partitions.id = $partitionid and repositories.id = repositoryid and branches.id = branchid");
-    @row = $query->fetchrow();
+    my $query = $::db->prepare("SELECT partitions.name, partitions.description, state, " .
+                                      "repositories.name, repositories.id, branches.name, " .
+                                      "newsgroups, doclinks " .
+                               "FROM partitions, repositories, branches " .
+                               "WHERE partitions.id = ? " .
+                                 "AND repositories.id = repositoryid " .
+                                 "AND branches.id = branchid");
+    $query->execute($partitionid);
 
     my ($partname,$partdesc,$state,$repname,$repid,$branchname,$newsgroups,
-        $doclinks) = (@row);
+        $doclinks) = $query->fetchrow_array();
     PrintHeader();
     print h1(($canchange ? "Edit" : "View") . " partition -- $partname");
     if (!$canchange) {
@@ -877,14 +893,20 @@ sub EditPartition() {
                          -size=>30,
                          -override=>1))));
 
-    $query = Query("select pattern from files where partitionid=$partitionid order by pattern");
+    $query = $::db->prepare("SELECT pattern FROM files WHERE partitionid = " .
+        $::db->quote($partitionid) . " ORDER BY pattern");
     push(@list, CreateListRow("files", $query));
     foreach my $class ("Owner", "Peer", "Member") {
-        $query = Query("select users.email,users.disabled from members,users where members.partitionid = $partitionid and members.class = '$class' and users.id = members.userid order by users.email");
+        $query = $::db->prepare("SELECT users.email, users.disabled " .
+                                "FROM members, users " .
+                                "WHERE members.partitionid = " . $::db->quote($partitionid) .
+                                 " AND members.class = " . $::db->quote($class) .
+                                 " AND users.id = members.userid " .
+                                "ORDER BY users.email");
         push(@list, CreateListRow($class, $query));
     }
-                                                   
-         
+
+
     param("partitionid", $partitionid);
     param("repid", $repid);
     param("repname", $repname);
@@ -910,20 +932,23 @@ sub ChangePartition {
     my @row;
 
     EnsureCanChangePartition($F::partitionid);
+    my $partitionid = $F::partitionid;
 
-    Query("lock tables partitions write,branches write,files write,members write,users read");
+    $::db->do("LOCK TABLES partitions WRITE, branches WRITE, files WRITE, members WRITE, users READ");
 
     # Sanity checking first...
 
     my @files = split(/\n/, $F::files);
 
-    my $q = SqlQuote($F::branchname);
-    $query = Query("select files.pattern,partitions.name from " .
-                   "files,partitions,branches where files.partitionid != " . 
-                   "$F::partitionid and partitions.id=files.partitionid " .
-                   "and partitions.repositoryid=$F::repid and branches.id=" .
-                   "partitions.branchid and branches.name='$q'");
-    while (@row = $query->fetchrow()) {
+    $query = $::db->prepare("SELECT files.pattern, partitions.name " .
+                            "FROM files, partitions, branches " .
+                            "WHERE files.partitionid != ? " .
+                              "AND partitions.id = files.partitionid " .
+                              "AND partitions.repositoryid = ? " .
+                              "AND branches.id = partitions.branchid " .
+                              "AND branches.name = ?");
+    $query->execute($F::partitionid, $F::repid, $F::branchname);
+    while (@row = $query->fetchrow_array()) {
         my $f1 = $row[0];
         foreach my $f2 (@files) {
             $f2 = trim($f2);
@@ -945,8 +970,10 @@ sub ChangePartition {
             if ($n eq "") {
                 next;
             }
-            $query = Query("select id,${F::repname}_group from users where email = " . $::db->quote($n));
-            if (!(@row = $query->fetchrow())) {
+            # XXX: need to sanitize $F::repname
+            $query = $::db->prepare("SELECT id, ${F::repname}_group FROM users WHERE email = ?");
+            $query->execute($n);
+            if (!(@row = $query->fetchrow_array())) {
                 Punt("$n is not an email address in the database.");
             }
             my ($userid,$group) = (@row);
@@ -966,33 +993,35 @@ sub ChangePartition {
 
     # And now actually update things.
 
-    $query = Query("select id from branches where name = " .
-                   $::db->quote($F::branchname));
-    if (!(@row = $query->fetchrow())) {
-        Query("insert into branches (name) values (" .
-              $::db->quote($F::branchname) . ")");
-        $query = Query("select LAST_INSERT_ID()");
-        @row = $query->fetchrow();
+    $query = $::db->prepare("SELECT id FROM branches WHERE name = ?");
+    $query->execute($F::branchname);
+    if (!(@row = $query->fetchrow_array())) {
+        $::db->do("INSERT INTO branches (name) VALUES (?)",
+             undef, $F::branchname);
+        $query = $::db->prepare("SELECT LAST_INSERT_ID()");
+        $query->execute();
+        @row = $query->fetchrow_array();
     }
     my $branchid = $row[0];
-    Query("update partitions set description=" .
-          $::db->quote($F::description) .
-          ", branchid=$branchid, state='$F::state', newsgroups=" .
-          $::db->quote($F::newsgroups) .
-          ", doclinks=" .
-          $::db->quote($F::doclinks) .
-          " where id=$F::partitionid");
+    $::db->do("UPDATE partitions SET description = ?, " .
+                                    "branchid = ?, " .
+                                    "state = ?, " .
+                                    "newsgroups = ?, " .
+                                    "doclinks = ?, " .
+              "WHERE id = ?",
+        undef, $F::description, $branchid, $F::state, $F::newsgroups, $F::doclinks, $F::partitionid);
 
-    Query("delete from files where partitionid=$F::partitionid");
+    $::db->do("DELETE FROM files WHERE partitionid = ?", undef, $F::partitionid);
     foreach my $f2 (@files) {
         $f2 = trim($f2);
         if ($f2 eq "") {
             next;
         }
-        Query("insert into files (partitionid,pattern) values ($F::partitionid," . $::db->quote($f2) . ")");
+        $::db->do("INSERT INTO files (partitionid, pattern) VALUES (?, ?)",
+            undef, $F::partitionid, $f2);
     }
 
-    Query("delete from members where partitionid=$F::partitionid");
+    $::db->do("DELETE FROM members WHERE partitionid = ?", undef, $F::partitionid);
     foreach my $class ("Owner", "Peer", "Member") {
         my @names = split(/\n/, param($class));
         foreach my $n (@names) {
@@ -1001,27 +1030,29 @@ sub ChangePartition {
             if ($n eq "") {
                 next;
             }
-            Query("insert into members(userid,partitionid,class) values ($idhash{$n},$F::partitionid,'$class')");
+            $::db->do("INSERT INTO members (userid, partitionid, class) VALUES (?, ?, ?)",
+                undef, $idhash{$n}, $F::partitionid, $class);
         }
     }
 
     PrintHeader();
     print h1("OK, the partition has been updated.");
     print hr();
-    Query("unlock tables");
+    $::db->do("UNLOCK TABLES");
     MainMenu();
 
-    Query("insert into syncneeded (needed) values (1)");
+    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
 }
 
 
 sub DeletePartition() {
     EnsureCanChangePartition($F::partitionid);
+    my $partitionid = $F::partitionid;
 
-    Query("delete from partitions where id = '$F::partitionid'");
-    Query("delete from files where partitionid = '$F::partitionid'");
-    Query("delete from members where partitionid = '$F::partitionid'");
-    Query("insert into syncneeded (needed) values (1)");
+    $::db->do("DELETE FROM partitions WHERE id = ?", undef, $F::partitionid);
+    $::db->do("DELETE FROM files WHERE partitionid = ?", undef, $F::partitionid);
+    $::db->do("DELETE FROM members WHERE partitionid = ?", undef, $F::partitionid);
+    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
     PrintHeader();
     print h1("OK, the partition is gone.");
     print hr();
@@ -1047,7 +1078,8 @@ sub CreateListRow {
     my ($title, $query) = (@_);
     my $result = "";
     my @row;
-    while (my @row = $query->fetchrow()) {
+    $query->execute();
+    while (my @row = $query->fetchrow_array()) {
         my $v = $row[0];
         if (defined $row[1] && $row[1] eq "Yes") {
             $v .= " (disabled)";
@@ -1097,11 +1129,11 @@ sub SetNewPassword {
     my $salt = "";
     my $pass = cryptit($F::newpassword1, $salt);
 
-    my $qpass = $::db->quote($pass);
-    Query("update users set passwd = $qpass, neednewpassword = 'No' where email='$F::loginname'");
+    $::db->do("UPDATE users SET passwd = ?, neednewpassword = 'No' WHERE email = ?",
+        undef, $pass, $F::loginname);
     PrintHeader();
     print h1("Password has been updated.");
-    Query("insert into syncneeded (needed) values (1)");
+    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
     if ($::despot) {
         param("loginpassword", $F::newpassword1);
         print hr();
@@ -1142,6 +1174,7 @@ sub EnsureDespot {
 
 sub EnsureCanChangePartition {
     my ($id) = (@_);
+    Punt("Invalid partitionid.") unless $id =~ /$partidregexp/;
     if (!CanChangePartition($id)) {
         Punt("You must be an Owner or Peer of the partition to do this.");
     }
@@ -1153,9 +1186,10 @@ sub CanChangePartition {
     if ($::despot) {
         return 1;
     }
-    my $query = Query("select class from members where userid=$::loginid and partitionid=$id");
+    my $query = $::db->prepare("SELECT class FROM members WHERE userid = ? AND partitionid = ?");
+    $query->execute($::loginid, $id);
     my @row;
-    if (@row = $query->fetchrow()) {
+    if (@row = $query->fetchrow_array()) {
         if ($row[0] ne "Member") {
             return 1;
         }
@@ -1179,9 +1213,10 @@ sub IdToEmail {
         return "(none)";
     } else {
         my $query3 =
-            Query("select email,disabled from users where id = $id");
+            $::db->prepare("SELECT email, disabled FROM users WHERE id = ?");
+        $query3->execute($id);
         my @row3;
-        if (@row3 = $query3->fetchrow()) {
+        if (@row3 = $query3->fetchrow_array()) {
             if ($row3[1] eq "Yes") {
                 $row3[0] .= " (Disabled)";
             }
@@ -1198,10 +1233,10 @@ sub EmailToId {
     $email =~ s/\(.*\)//g;
     $email = trim($email);
 
-    my $query = Query("select id from users where email = " .
-                      $::db->quote($email));
+    my $query = $::db->prepare("SELECT id FROM users WHERE email = ?");
+    $query->execute($email);
     my @row;
-    if (@row = $query->fetchrow()) {
+    if (@row = $query->fetchrow_array()) {
         return $row[0];
     }
     if ($forcevalid || $email ne "") {
@@ -1209,4 +1244,59 @@ sub EmailToId {
     }
     return 0;
 }
-    
+
+{
+    my $EnableDeleteUser = 0;
+    for ( defined $F::command ? $F::command : 'MainMenu')
+    {
+        /^FindPartition$/ || do { Authenticate(); };
+        param("command", "");
+        /^AddPartition$/ && do { AddPartition(); last; };
+        /^AddUser$/ && do { AddUser(); last; };
+        /^ChangePartition$/ && do { ChangePartition(); last; };
+        /^ChangePassword$/ && do { ChangePassword(); last; };
+        /^ChangeUser$/ && do { ChangeUser(); last; };
+        /^DeletePartition$/ && do { DeletePartition(); last; };
+        /^DeleteUser$/ && $EnableDeleteUser && do { DeleteUser(); last; };
+        /^EditPartition$/ && do { EditPartition(); last; };
+        /^EditUser$/ && do { EditUser(); last; };
+        /^FindPartition$/ && do { FindPartition(); last; };
+        /^GeneratePassword$/ && do { GeneratePassword(); last; };
+        /^ListPartitions$/ && do { ListPartitions(); last; };
+        /^ListUsers$/ && do { ListUsers(); last; };
+        /^SetNewPassword$/ && do { SetNewPassword(); last; };
+        /^ViewAccount$/ && do { ViewAccount(); last; };
+        /^MainMenu$|/ && do { PrintHeader(), MainMenu(); last; };
+    }
+}
+
+
+if (!$::skiptrailer) {
+    print hr();
+    print MyForm("MainMenu") . submit("Main menu") . end_form();
+}
+
+$query = $::db->prepare("SELECT needed FROM syncneeded WHERE needed = 1");
+$query->execute();
+@row = $query->fetchrow_array();
+if ($row[0]) {
+    print hr();
+    print p("Updating external machines...");
+    print "<PRE>";
+    if (!open(DOSYNC, "./syncit.pl -user $F::loginname|")) {
+        print p("Can't do sync (error $?).  Please send mail to " .
+                a({href=>$despotOwnerMailTo}, $despotOwner) . ".");
+    } else {
+        while (<DOSYNC>) {
+            if ($::despot) {
+                s/\&/\&amp;/g;
+                s/</\&lt;/g;
+                s/>/\&gt;/g;
+                print $_;
+            }
+        }
+        close(DOSYNC);
+    }
+    print "</PRE>";
+    print p("... update completed.");
+}

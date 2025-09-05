@@ -55,10 +55,10 @@ const PRInt32 nsNavBookmarks::kGetFolderInfoIndex_Title = 1;
 const PRInt32 nsNavBookmarks::kGetFolderInfoIndex_Type = 2;
 
 // These columns sit to the right of the kGetInfoIndex_* columns.
-const PRInt32 nsNavBookmarks::kGetChildrenIndex_Position = 8;
-const PRInt32 nsNavBookmarks::kGetChildrenIndex_ItemChild = 9;
-const PRInt32 nsNavBookmarks::kGetChildrenIndex_FolderChild = 10;
-const PRInt32 nsNavBookmarks::kGetChildrenIndex_FolderTitle = 11;
+const PRInt32 nsNavBookmarks::kGetChildrenIndex_Position = 9;
+const PRInt32 nsNavBookmarks::kGetChildrenIndex_ItemChild = 10;
+const PRInt32 nsNavBookmarks::kGetChildrenIndex_FolderChild = 11;
+const PRInt32 nsNavBookmarks::kGetChildrenIndex_FolderTitle = 12;
 
 nsNavBookmarks* nsNavBookmarks::sInstance = nsnull;
 
@@ -168,10 +168,11 @@ nsNavBookmarks::Init()
   // mDBGetURLPageInfo, and additionally contains columns for position,
   // item_child, and folder_child from moz_bookmarks.  This selects only
   // _item_ children which are in moz_history.
+  // Results are kGetInfoIndex_*
   NS_NAMED_LITERAL_CSTRING(selectItemChildren,
     "SELECT h.id, h.url, h.title, h.user_title, h.rev_host, h.visit_count, "
       "(SELECT MAX(visit_date) FROM moz_historyvisit WHERE page_id = h.id), "
-      "f.url, a.position, a.item_child, a.folder_child, null "
+      "f.url, null, a.position, a.item_child, a.folder_child, null "
     "FROM moz_bookmarks a "
     "JOIN moz_history h ON a.item_child = h.id "
     "LEFT OUTER JOIN moz_favicon f ON h.favicon = f.id "
@@ -181,9 +182,9 @@ nsNavBookmarks::Init()
   // of mDBGetVisitPageInfo, containing additional columns for position,
   // item_child, and folder_child from moz_bookmarks, and name from
   // moz_bookmarks_folders.  This selects only _folder_ children which are
-  // in moz_bookmarks_folders.
+  // in moz_bookmarks_folders. Results are kGetInfoIndex_* kGetChildrenIndex_*
   NS_NAMED_LITERAL_CSTRING(selectFolderChildren,
-    "SELECT null, null, null, null, null, null, null, null, a.position, a.item_child, a.folder_child, c.name "
+    "SELECT null, null, null, null, null, null, null, null, null, a.position, a.item_child, a.folder_child, c.name "
     "FROM moz_bookmarks a "
     "JOIN moz_bookmarks_folders c ON c.id = a.folder_child "
     "WHERE a.parent = ?1 AND a.position >= ?2 AND a.position <= ?3");
@@ -395,27 +396,6 @@ nsNavBookmarks::AdjustIndices(PRInt64 aFolder,
   nsresult rv = DBConn()->ExecuteSimpleSQL(buffer);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // If we have any observers that want all details, we'll need to notify them
-  // about the renumbering.
-  nsCOMArray<nsINavBookmarkObserver> detailObservers;
-  PRUint32 i;
-  for (i = 0; i < mObservers.Length(); ++i) {
-    const nsCOMPtr<nsINavBookmarkObserver> &obs = mObservers[i];
-    if (obs) {
-      PRBool wantDetails;
-      rv = obs->GetWantAllDetails(&wantDetails);
-      if (NS_SUCCEEDED(rv) && wantDetails) {
-        if (!detailObservers.AppendObject(nsCOMPtr<nsINavBookmarkObserver>(mObservers[i]))) {
-          return NS_ERROR_OUT_OF_MEMORY;
-        }
-      }
-    }
-  }
-
-  if (detailObservers.Count() == 0) {
-    return transaction.Commit();
-  }
-
   RenumberItemsArray itemsArray;
   nsVoidArray *items = &itemsArray.items;
   {
@@ -458,18 +438,22 @@ nsNavBookmarks::AdjustIndices(PRInt64 aFolder,
 
   UpdateBatcher batch;
 
-  for (PRInt32 j = 0; j < detailObservers.Count(); ++j) {
+  for (PRUint32 j = 0; j < mObservers.Length(); ++j) {
+    const nsCOMPtr<nsINavBookmarkObserver> &obs = mObservers[j];
+    if (!obs) {
+      continue;
+    }
+
     for (PRInt32 k = 0; k < items->Count(); ++k) {
       RenumberItem *item = NS_STATIC_CAST(RenumberItem*, (*items)[k]);
       PRInt32 newPosition = item->position;
       PRInt32 oldPosition = newPosition - aDelta;
       if (item->itemURI) {
         nsIURI *uri = item->itemURI;
-        detailObservers[j]->OnItemMoved(uri, aFolder, oldPosition, newPosition);
+        obs->OnItemMoved(uri, aFolder, oldPosition, newPosition);
       } else {
-        detailObservers[j]->OnFolderMoved(item->folderChild,
-                                          aFolder, oldPosition,
-                                          aFolder, newPosition);
+        obs->OnFolderMoved(item->folderChild, aFolder, oldPosition,
+                           aFolder, newPosition);
       }
     }
   }
@@ -712,10 +696,6 @@ nsNavBookmarks::CreateContainer(PRInt64 aParent, const nsAString &aName,
   nsresult rv = CreateFolder(aParent, aName, aIndex, aNewFolder);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // Make sure the container is read-only
-  rv = SetFolderReadonly(*aNewFolder, PR_TRUE);
-  NS_ENSURE_SUCCESS(rv, rv);
-
   // Set the type.
   nsCOMPtr<mozIStorageStatement> statement;
   rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING("UPDATE moz_bookmarks_folders SET type = ?2 WHERE id = ?1"),
@@ -848,18 +828,16 @@ nsNavBookmarks::MoveFolder(PRInt64 aFolder, PRInt64 aNewParent, PRInt32 aIndex)
   mozIStorageConnection *dbConn = DBConn();
   mozStorageTransaction transaction(dbConn, PR_FALSE);
 
-  nsCAutoString buffer;
-  buffer.AssignLiteral("SELECT parent, position FROM moz_bookmarks WHERE folder_child = ");
-  buffer.AppendInt(aFolder);
+  nsCOMPtr<mozIStorageStatement> statement;
+  nsresult rv = dbConn->CreateStatement(NS_LITERAL_CSTRING("SELECT parent, position FROM moz_bookmarks WHERE folder_child = ?1"),
+                                        getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  nsresult rv;
   PRInt64 parent;
-
   PRInt32 oldIndex;
-
   {
-    nsCOMPtr<mozIStorageStatement> statement;
-    rv = dbConn->CreateStatement(buffer, getter_AddRefs(statement));
+    mozStorageStatementScoper scope(statement);
+    rv = statement->BindInt64Parameter(0, aFolder);
     NS_ENSURE_SUCCESS(rv, rv);
 
     PRBool results;
@@ -871,6 +849,26 @@ nsNavBookmarks::MoveFolder(PRInt64 aFolder, PRInt64 aNewParent, PRInt32 aIndex)
 
     parent = statement->AsInt64(0);
     oldIndex = statement->AsInt32(1);
+  }
+
+  // Make sure aNewParent is not aFolder or a subfolder of aFolder
+  {
+    mozStorageStatementScoper scope(statement);
+    PRInt64 p = aNewParent;
+
+    while (p) {
+      if (p == aFolder) {
+        return NS_ERROR_INVALID_ARG;
+      }
+
+      rv = statement->BindInt64Parameter(0, p);
+      NS_ENSURE_SUCCESS(rv, rv);
+
+      PRBool results;
+      rv = statement->ExecuteStep(&results);
+      NS_ENSURE_SUCCESS(rv, rv);
+      p = results ? statement->AsInt64(0) : 0;
+    }
   }
 
   PRInt32 newIndex;
@@ -898,6 +896,7 @@ nsNavBookmarks::MoveFolder(PRInt64 aFolder, PRInt64 aNewParent, PRInt32 aIndex)
   }
 
   // First we remove the item from its old position.
+  nsCAutoString buffer;
   buffer.AssignLiteral("DELETE FROM moz_bookmarks WHERE folder_child = ");
   buffer.AppendInt(aFolder);
   rv = dbConn->ExecuteSimpleSQL(buffer);
@@ -1085,7 +1084,7 @@ nsNavBookmarks::GetFolderURI(PRInt64 aFolder, nsIURI **aURI)
   nsCOMPtr<nsINavHistoryQueryOptions> queryOptions;
   rv = history->GetNewQueryOptions(getter_AddRefs(queryOptions));
   NS_ENSURE_SUCCESS(rv, rv);
-  PRInt32 groupByFolder = nsINavHistoryQueryOptions::GROUP_BY_FOLDER;
+  PRUint32 groupByFolder = nsINavHistoryQueryOptions::GROUP_BY_FOLDER;
   rv = queryOptions->SetGroupingMode(&groupByFolder, 1);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1106,59 +1105,22 @@ nsNavBookmarks::GetFolderURI(PRInt64 aFolder, nsIURI **aURI)
 NS_IMETHODIMP
 nsNavBookmarks::GetFolderReadonly(PRInt64 aFolder, PRBool *aResult)
 {
-  // We store readonly-ness as an annotation on the place: URI of the folder
-  nsresult rv;
-  nsCOMPtr<nsIAnnotationService> anno =
-    do_GetService(NS_ANNOTATIONSERVICE_CONTRACTID, &rv);
+  // Ask the folder's nsIBookmarksContainer for the readonly property.
+  *aResult = PR_FALSE;
+  nsAutoString type;
+  nsresult rv = GetFolderType(aFolder, type);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // For efficiency, we construct the URI here rather than going through
-  // query object construction.
-  nsCAutoString spec;
-  spec.AssignLiteral("place:folder=");
-  spec.AppendInt(aFolder);
-  spec.AppendLiteral("&group=3");
-  nsCOMPtr<nsIURI> uri;
-  rv = NS_NewURI(getter_AddRefs(uri), spec);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  PRInt32 readonly;
-  rv = anno->GetAnnotationInt32(uri,
-                                NS_LITERAL_CSTRING(ANNO_FOLDER_READONLY),
-                                &readonly);
-  *aResult = (NS_SUCCEEDED(rv) && readonly);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsNavBookmarks::SetFolderReadonly(PRInt64 aFolder, PRBool aReadonly)
-{
-  // We store readonly-ness as an annotation on the place: URI of the folder
-  nsresult rv;
-  nsCOMPtr<nsIAnnotationService> anno =
-    do_GetService(NS_ANNOTATIONSERVICE_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // For efficiency, we construct the URI here rather than going through
-  // query object construction.
-  nsCAutoString spec;
-  spec.AssignLiteral("place:folder=");
-  spec.AppendInt(aFolder);
-  spec.AppendLiteral("&group=3");
-  nsCOMPtr<nsIURI> uri;
-  rv = NS_NewURI(getter_AddRefs(uri), spec);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  if (aReadonly) {
-    rv = anno->SetAnnotationInt32(uri,
-                                  NS_LITERAL_CSTRING(ANNO_FOLDER_READONLY), 1,
-                                  0, nsIAnnotationService::EXPIRE_NEVER);
-  } else {
-    rv = anno->RemoveAnnotation(uri,
-                                NS_LITERAL_CSTRING(ANNO_FOLDER_READONLY));
+  if (!type.IsEmpty()) {
+    nsCOMPtr<nsIBookmarksContainer> container =
+      do_GetService(NS_ConvertUTF16toUTF8(type).get(), &rv);
+    if (NS_SUCCEEDED(rv)) {
+      rv = container->GetChildrenReadOnly(aResult);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
   }
 
-  return rv;
+  return NS_OK;
 }
 
 nsresult

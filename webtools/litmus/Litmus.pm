@@ -30,8 +30,7 @@
 
 =cut
 
-# Persistant object store for various objects used by 
-# different modules within Litmus
+# Global object store and function library for Litmus
 
 package Litmus;
 
@@ -39,20 +38,40 @@ use strict;
 
 use Litmus::Template;
 use Litmus::Config;
-use CGI;
+use Litmus::Auth;
+use Litmus::CGI;
 
-if ($Litmus::Config::disabled) {
-    my $c = new CGI();
-    print $c->header();
-    print "Litmus has been shutdown by the administrator. Please try again later.";
-    exit;
+BEGIN {
+	if ($Litmus::Config::disabled) {
+  	  	my $c = new CGI();
+    	print $c->header();
+    	print "Litmus has been shutdown by the administrator. Please try again later.";
+    	exit;
+	}
 }
 
+# Global Template object
 my $_template;
 sub template() {
     my $class = shift;
     $_template ||= Litmus::Template->create();
     return $_template;
+}
+
+# Global CGI object
+my $_cgi;
+sub cgi() {
+    my $class = shift;
+    $_cgi ||= Litmus::CGI->new();
+    return $_cgi;
+}
+
+# hook to handle a login in progress for any CGI script:
+BEGIN {
+	my $c = cgi();
+	if ($c->param("login_type")) {
+		Litmus::Auth::processLoginForm();
+	}
 }
 
 1;

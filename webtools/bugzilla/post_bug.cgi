@@ -108,8 +108,11 @@ my $component_id = get_component_id($product_id,
                                     scalar($cgi->param('component')));
 $component_id || ThrowUserError("require_component");
 
+# Set the parameter to itself, but cleaned up
+$cgi->param('short_desc', clean_text($cgi->param('short_desc')));
+
 if (!defined $cgi->param('short_desc')
-    || trim($cgi->param('short_desc')) eq "") {
+    || $cgi->param('short_desc') eq "") {
     ThrowUserError("require_summary");
 }
 
@@ -254,6 +257,28 @@ if ($cgi->param('keywords') && UserInGroup("editbugs")) {
             push(@keywordlist, $i);
             $keywordseen{$i} = 1;
         }
+    }
+}
+
+if (Param("strict_isolation")) {
+    my @blocked_users = ();
+    my %related_users = %ccids;
+    $related_users{$cgi->param('assigned_to')} = 1;
+    if (Param('useqacontact') && $cgi->param('qa_contact')) {
+        $related_users{$cgi->param('qa_contact')} = 1;
+    }
+    foreach my $pid (keys %related_users) {
+        my $related_user = Bugzilla::User->new($pid);
+        if (!$related_user->can_edit_product($product_id)) {
+            push (@blocked_users, $related_user->login);
+        }
+    }
+    if (scalar(@blocked_users)) {
+        ThrowUserError("invalid_user_group", 
+            {'users' => \@blocked_users,
+             'new' => 1,
+             'product' => $product
+            });
     }
 }
 

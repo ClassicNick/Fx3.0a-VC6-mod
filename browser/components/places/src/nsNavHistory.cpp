@@ -167,6 +167,7 @@ const PRInt32 nsNavHistory::kGetInfoIndex_RevHost = 4;
 const PRInt32 nsNavHistory::kGetInfoIndex_VisitCount = 5;
 const PRInt32 nsNavHistory::kGetInfoIndex_VisitDate = 6;
 const PRInt32 nsNavHistory::kGetInfoIndex_FaviconURL = 7;
+const PRInt32 nsNavHistory::kGetInfoIndex_SessionId = 8;
 
 const PRInt32 nsNavHistory::kAutoCompleteIndex_URL = 0;
 const PRInt32 nsNavHistory::kAutoCompleteIndex_Title = 1;
@@ -181,6 +182,8 @@ const char nsNavHistory::kAnnotationPreviousEncoding[] = "history/encoding";
 
 nsIAtom* nsNavHistory::sMenuRootAtom = nsnull;
 nsIAtom* nsNavHistory::sToolbarRootAtom = nsnull;
+nsIAtom* nsNavHistory::sSessionStartAtom = nsnull;
+nsIAtom* nsNavHistory::sSessionContinueAtom = nsnull;
 
 nsNavHistory* nsNavHistory::gHistoryService;
 
@@ -195,6 +198,8 @@ nsNavHistory::nsNavHistory() : mNowValid(PR_FALSE),
 
   sMenuRootAtom = NS_NewAtom("menu-root");
   sToolbarRootAtom = NS_NewAtom("toolbar-root");
+  sSessionStartAtom = NS_NewAtom("session-start");
+  sSessionContinueAtom = NS_NewAtom("session-continue");
 }
 
 
@@ -213,6 +218,8 @@ nsNavHistory::~nsNavHistory()
 
   NS_IF_RELEASE(sMenuRootAtom);
   NS_IF_RELEASE(sToolbarRootAtom);
+  NS_IF_RELEASE(sSessionStartAtom);
+  NS_IF_RELEASE(sSessionContinueAtom);
 }
 
 
@@ -1329,7 +1336,8 @@ nsNavHistory::ExecuteQueries(nsINavHistoryQuery** aQueries, PRUint32 aQueryCount
     // if we want visits, this is easy, just combine all possible matches
     // between the history and visits table and do our query.
     queryString = NS_LITERAL_CSTRING(
-      "SELECT h.id, h.url, h.title, h.user_title, h.rev_host, h.visit_count, v.visit_date, f.url "
+      "SELECT h.id, h.url, h.title, h.user_title, h.rev_host, h.visit_count, "
+             "v.visit_date, f.url, v.session "
       "FROM moz_history h "
       "JOIN moz_historyvisit v ON h.id = v.page_id "
       "LEFT OUTER JOIN moz_favicon f ON h.favicon = f.id "
@@ -1337,11 +1345,12 @@ nsNavHistory::ExecuteQueries(nsINavHistoryQuery** aQueries, PRUint32 aQueryCount
   } else {
     // For URLs, it is more complicated, because we want each URL once. The
     // GROUP BY clause gives us this. To get the max visit time, we populate
-    // one column by using a nested SELECT on the visit table.
+    // one column by using a nested SELECT on the visit table. Also, ignore
+    // session information.
     queryString = NS_LITERAL_CSTRING(
       "SELECT h.id, h.url, h.title, h.user_title, h.rev_host, h.visit_count, "
         "(SELECT MAX(visit_date) FROM moz_historyvisit WHERE page_id = h.id), "
-        "f.url "
+        "f.url, null "
       "FROM moz_history h "
       "JOIN moz_historyvisit v ON h.id = v.page_id "
       "LEFT OUTER JOIN moz_favicon f ON h.favicon = f.id "
@@ -1458,7 +1467,7 @@ nsNavHistory::ExecuteQueries(nsINavHistoryQuery** aQueries, PRUint32 aQueryCount
   NS_ENSURE_SUCCESS(rv, rv);
 
   PRUint32 groupCount;
-  const PRInt32 *groupings = options->GroupingMode(&groupCount);
+  const PRUint32 *groupings = options->GroupingMode(&groupCount);
 
   if (groupCount == 0 && ! hasSearchTerms) {
     // optimize the case where we just want a list with no grouping: this
@@ -2171,6 +2180,7 @@ nsNavHistory::QueryToSelectClause(nsINavHistoryQuery* aQuery, // const
     if (domainIsHost) {
       parameterString(aStartParameter + *aParamCount, paramString);
       *aClause += NS_LITERAL_CSTRING("h.rev_host = ") + paramString;
+      aClause->Append(' ');
       (*aParamCount) ++;
     } else {
       // see domain setting in BindQueryClauseParameters for why we do this
@@ -2180,9 +2190,40 @@ nsNavHistory::QueryToSelectClause(nsINavHistoryQuery* aQuery, // const
 
       parameterString(aStartParameter + *aParamCount, paramString);
       *aClause += NS_LITERAL_CSTRING(" AND h.rev_host < ") + paramString;
+      aClause->Append(' ');
       (*aParamCount) ++;
     }
   }
+
+  // URI
+  //
+  // Performance improvement: Selecting URI by prefixes this way is slow because
+  // sqlite will not use indices when you use substring. Currently, there is
+  // not really any use for URI queries, so this isn't worth optimizing a lot.
+  // In the future, we could do a >=,<= thing like we do for domain names to
+  // make it use the index.
+  if (NS_SUCCEEDED(aQuery->GetHasUri(&hasIt)) && hasIt) {
+    if (! aClause->IsEmpty())
+      *aClause += NS_LITERAL_CSTRING(" AND ");
+
+    PRBool uriIsPrefix;
+    aQuery->GetUriIsPrefix(&uriIsPrefix);
+
+    nsCAutoString paramString;
+    parameterString(aStartParameter + *aParamCount, paramString);
+    (*aParamCount) ++;
+
+    nsCAutoString match;
+    if (uriIsPrefix) {
+      // Prefix: want something of the form SUBSTR(h.url, 0, length(?1)) = ?1
+      *aClause += NS_LITERAL_CSTRING("SUBSTR(h.url, 0, LENGTH(") +
+        paramString + NS_LITERAL_CSTRING(")) = ") + paramString;
+    } else {
+      *aClause += NS_LITERAL_CSTRING("h.url = ") + paramString;
+    }
+    aClause->Append(' ');
+  }
+
   return NS_OK;
 }
 
@@ -2232,10 +2273,10 @@ nsNavHistory::BindQueryClauseParameters(mozIStorageStatement* statement,
 
   // domain (see GetReversedHostname for more info on reversed host names)
   if (NS_SUCCEEDED(aQuery->GetHasDomain(&hasIt)) && hasIt) {
-    nsAutoString domain;
+    nsCAutoString domain;
     aQuery->GetDomain(domain);
     nsString revDomain;
-    GetReversedHostname(domain, revDomain);
+    GetReversedHostname(NS_ConvertUTF8toUTF16(domain), revDomain);
 
     PRBool domainIsHost = PR_FALSE;
     aQuery->GetDomainIsHost(&domainIsHost);
@@ -2258,6 +2299,17 @@ nsNavHistory::BindQueryClauseParameters(mozIStorageStatement* statement,
       (*aParamCount) ++;
     }
   }
+
+  // URI
+  if (NS_SUCCEEDED(aQuery->GetHasUri(&hasIt)) && hasIt) {
+    nsCOMPtr<nsIURI> uri;
+    rv = aQuery->GetUri(getter_AddRefs(uri));
+    NS_ENSURE_SUCCESS(rv, rv);
+    NS_ENSURE_TRUE(uri, NS_ERROR_FAILURE); // if (hasUri) then it should be valid
+    BindStatementURI(statement, aStartParameter + *aParamCount, uri);
+    (*aParamCount) ++;
+  }
+
   return NS_OK;
 }
 
@@ -2322,7 +2374,7 @@ nsNavHistory::ResultsAsList(mozIStorageStatement* statement,
 
 nsresult
 nsNavHistory::RecursiveGroup(const nsCOMArray<nsNavHistoryResultNode>& aSource,
-                             const PRInt32* aGroupingMode, PRUint32 aGroupCount,
+                             const PRUint32* aGroupingMode, PRUint32 aGroupCount,
                              nsCOMArray<nsNavHistoryResultNode>* aDest)
 {
   NS_ASSERTION(aGroupCount > 0, "Invalid group count");
@@ -2607,6 +2659,7 @@ nsNavHistory::RowToResult(mozIStorageValueArray* aRow,
                           nsNavHistoryResultNode** aResult)
 {
   *aResult = nsnull;
+  NS_ASSERTION(aRow && aOptions && aResult, "Null pointer in RowToResult");
 
   nsCAutoString spec;
   nsresult rv = aRow->GetUTF8String(kGetInfoIndex_URL, spec);
@@ -2684,7 +2737,11 @@ nsNavHistory::FillURLResult(mozIStorageValueArray *aRow,
   NS_ENSURE_SUCCESS(rv, rv);
 
   // favicon
-  aRow->GetUTF8String(kGetInfoIndex_FaviconURL, aNode->mFaviconURL);
+  rv = aRow->GetUTF8String(kGetInfoIndex_FaviconURL, aNode->mFaviconURL);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // session
+  rv = aRow->GetInt64(kGetInfoIndex_SessionId, &aNode->mSessionID);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;

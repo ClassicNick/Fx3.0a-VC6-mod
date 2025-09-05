@@ -84,6 +84,9 @@ pref("browser.underline_anchors",           true);
 pref("browser.blink_allowed",               true);
 pref("browser.enable_automatic_image_resizing", false);
 
+// See http://whatwg.org/specs/web-apps/current-work/#ping
+pref("browser.send_pings", true);
+
 pref("browser.display.use_focus_colors",    false);
 pref("browser.display.focus_background_color", "#117722");
 pref("browser.display.focus_text_color",     "#ffffff");
@@ -329,6 +332,7 @@ pref("capability.policy.mailnews.Window.screenY.set", "noAccess");
 pref("capability.policy.mailnews.Window.sizeToContent", "noAccess");
 pref("capability.policy.mailnews.document.load", "noAccess");
 pref("capability.policy.mailnews.XMLHttpRequest.channel", "noAccess");
+pref("capability.policy.mailnews.XMLHttpRequest.getInterface", "noAccess");
 pref("capability.policy.mailnews.XMLHttpRequest.responseXML", "noAccess");
 pref("capability.policy.mailnews.XMLHttpRequest.responseText", "noAccess");
 pref("capability.policy.mailnews.XMLHttpRequest.status", "noAccess");
@@ -396,6 +400,7 @@ pref("capability.policy.mailnews.WebServiceProxyFactory.onError", "noAccess");
 
 // XMLExtras
 pref("capability.policy.default.XMLHttpRequest.channel", "noAccess");
+pref("capability.policy.default.XMLHttpRequest.getInterface", "noAccess");
 pref("capability.policy.default.DOMParser.parseFromStream", "noAccess");
 
 // Clipboard
@@ -586,6 +591,7 @@ pref("network.IDN.whitelist.fi", true);
 pref("network.IDN.whitelist.gr", true);
 pref("network.IDN.whitelist.hu", true);
 pref("network.IDN.whitelist.io", true);
+pref("network.IDN.whitelist.is", true);
 pref("network.IDN.whitelist.jp", true);
 pref("network.IDN.whitelist.kr", true);
 pref("network.IDN.whitelist.li", true);

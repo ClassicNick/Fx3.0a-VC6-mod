@@ -67,8 +67,8 @@ pref("browser.tabs.loadOnNewTab", 0);
 pref("browser.windows.loadOnNewWindow", 1);
 
 pref("browser.link.open_newwindow", 3);
-pref("browser.link.open_external", 3)
-pref("browser.link.open_newwindow.restriction", 2);
+pref("browser.link.open_external", 3);
+pref("browser.link.open_newwindow.restriction", 0);
 
 // dispatch left clicks only to content in browser (still allows clicks to chrome/xul)
 pref("nglayout.events.dispatchLeftClickOnly", true);
@@ -282,11 +282,11 @@ pref("network.http.redirection-limit", 20);
 // NOTE: support for "compress" has been disabled per bug 196406.
 pref("network.http.accept-encoding" ,"gzip,deflate");
 
-pref("network.http.pipelining"      , false);
+pref("network.http.pipelining"      , true);
 pref("network.http.proxy.pipelining", false);
 
 // Max number of requests in the pipeline
-pref("network.http.pipelining.maxrequests" , 4);
+pref("network.http.pipelining.maxrequests" , 12);
 
 // </http>
 
@@ -640,7 +640,6 @@ pref("network.autodial-helper.enabled", true);
 pref("config.wince.overrideHWKeys", false);
 
 pref("ssr.enabled", true);
-pref("ssr.site.enabled", true);
 
 pref("skey.enabled", true);
 
@@ -650,11 +649,14 @@ pref("browser.display.zoomui",10);
 pref("browser.display.zoomcontent",10);
 
 pref("snav.enabled", true);
+pref("accessibility.tabfocus", 7);
+pref("accessibility.tabfocus_applies_to_xul", false);
 
 pref("browser.formfill.enable", true);
 
 
 /* These are opts. for slower devices */
+
 pref("content.max.tokenizing.time", 2250000);
 pref("content.notify.interval", 750000);
 pref("content.switch.threshold", 750000);

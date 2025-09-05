@@ -328,7 +328,8 @@ my $modules = [
         version => '3.01'
     },
     {
-        name => 'MIME::Parser',
+        # MIME::Parser is packaged as MIME::Tools on ActiveState Perl
+        name => $^O =~ /MSWin32/i ? 'MIME::Tools' : 'MIME::Parser',
         version => '5.406'
     },
     {
@@ -352,7 +353,7 @@ my %ppm_modules = (
     'GD::Text::Align'   => 'GDTextUtil',
     'Mail::Mailer'      => 'MailTools',
     'Mail::Base64'      => 'MIME-Base64',
-    'MIME::Parser'      => 'MIME-Tools',
+    'MIME::Tools'       => 'MIME-Tools',
 );
 
 sub install_command {
@@ -378,7 +379,7 @@ foreach my $module (@{$modules}) {
 print "\nThe following Perl modules are optional:\n" unless $silent;
 my $gd          = have_vers("GD","1.20");
 my $chartbase   = have_vers("Chart::Base","1.0");
-my $xmlparser   = have_vers("XML::Parser",0);
+my $xmlparser   = have_vers("XML::Twig",0);
 my $gdgraph     = have_vers("GD::Graph",0);
 my $gdtextalign = have_vers("GD::Text::Align",0);
 my $patchreader = have_vers("PatchReader","0.9.4");
@@ -404,8 +405,8 @@ if ((!$gd || !$chartbase) && !$silent) {
 if (!$xmlparser && !$silent) {
     print "If you want to use the bug import/export feature to move bugs to\n",
           "or from other bugzilla installations, you will need to install\n ",
-          "the XML::Parser module by running (as $::root):\n\n",
-    "   " . install_command("XML::Parser") . "\n\n";
+          "the XML::Twig module by running (as $::root):\n\n",
+    "   " . install_command("XML::Twig") . "\n\n";
 }
 if (!$imagemagick && !$silent) {
     print "If you want to convert BMP image attachments to PNG to conserve\n",
@@ -4232,6 +4233,35 @@ $dbh->bz_add_column('namedqueries', 'query_type',
 $dbh->bz_alter_column('groups', 'userregexp', 
                       {TYPE => 'TINYTEXT', NOTNULL => 1, DEFAULT => "''"});
 
+# 2005-09-26 - olav@bkor.dhs.org - Bug 119524
+# Convert logincookies into a varchar
+# this allows to store a random token instead of a guessable auto_increment
+$dbh->bz_alter_column('logincookies', 'cookie',
+                      {TYPE => 'varchar(16)', PRIMARYKEY => 1, NOTNULL => 1});
+
+# Fixup for Bug 101380
+# "Newlines, nulls, leading/trailing spaces are getting into summaries"
+
+my $controlchar_bugs =
+    $dbh->selectall_arrayref("SELECT short_desc, bug_id FROM bugs WHERE " .
+                             $dbh->sql_regexp('short_desc', "'[[:cntrl:]]'"));
+if (scalar(@$controlchar_bugs))
+{
+    my $msg = 'Cleaning control characters from bug summaries...';
+    my $found = 0;
+    foreach (@$controlchar_bugs) {
+        my ($short_desc, $bug_id) = @$_;
+        my $clean_short_desc = clean_text($short_desc);
+        if ($clean_short_desc ne $short_desc) {
+            print $msg if !$found;
+            $found = 1;
+            print " $bug_id...";
+            $dbh->do("UPDATE bugs SET short_desc = ? WHERE bug_id = ?",
+                      undef, $clean_short_desc, $bug_id);
+        }
+    }
+    print " done.\n" if $found;
+}
 
 # If you had to change the --TABLE-- definition in any way, then add your
 # differential change code *** A B O V E *** this comment.

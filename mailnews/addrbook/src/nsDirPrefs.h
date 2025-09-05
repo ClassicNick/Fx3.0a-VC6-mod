@@ -47,22 +47,6 @@ class nsVoidArray;
 #define PREF_LDAP_VERSION_NAME     "ldap_2.version"
 #define PREF_LDAP_SERVER_TREE_NAME "ldap_2.servers"
 
-/* RDF roor for all types of address books */
-/* use this to get all directories, create new directory*/
-#define kAllDirectoryRoot          "moz-abdirectory://" 
-
-#define kMDBDirectoryRoot          "moz-abmdbdirectory://"
-#define kMDBDirectoryRootLen       21
-
-#define kLDAPDirectoryRoot         "moz-abldapdirectory://"
-#define kLDAPDirectoryRootLen      22
-
-#define kPersonalAddressbook       "abook.mab"
-#define kPersonalAddressbookUri    "moz-abmdbdirectory://abook.mab"
-#define kCollectedAddressbook      "history.mab"
-#define kCollectedAddressbookUri   "moz-abmdbdirectory://history.mab"
-
-
 #define kABFileName_PreviousSuffix ".na2" /* final v2 address book format */
 #define kABFileName_PreviousSuffixLen 4
 #define kABFileName_CurrentSuffix ".mab"  /* v3 address book extension */
@@ -80,47 +64,9 @@ typedef enum
 
 typedef enum
 {
-	cn,
-	givenname,
-	sn,
-	mail,
-	telephonenumber,   /* work */
-	o,
-	ou,
-	l,
-	street,
-	auth,
-	/* mscott: I've added these extra DIR_AttributeIDs because the new address book can handle these */
-	carlicense,
-	businesscategory,
-	departmentnumber,
-	description,
-	employeetype,
-	facsimiletelephonenumber,
-	/* jpegPhoto */
-	manager,
-	objectclass,
-	postaladdress,
-	postalcode,
-	secretary,
-	title,
-	custom1,
-	custom2,
-	custom3,
-	custom4,
-	custom5, 
-	nickname, /* only valid on address book directories as LDAP does not have a nick name field */
-	mobiletelephonenumber,  /* cell phone */
-	pager,
-	homephone
-} DIR_AttributeId;
-
-typedef enum
-{
 	idNone = 0,					/* Special value                          */ 
 	idPrefName,
 	idPosition, 
-	idRefCount,
 	idDescription,
 	idServerName,
 	idSearchBase,
@@ -128,7 +74,6 @@ typedef enum
 	idPort,
 	idMaxHits,
 	idUri,
-	idLastSearchString,
 	idType,	
 	idCSID,
 	idLocale,
@@ -139,18 +84,8 @@ typedef enum
 	idVLVDisabled,
 	idEnableAuth,
 	idSavePassword,
-	idCustomAttributes,
 	idAutoCompleteNever,
 	idAutoCompleteEnabled,
-	idTokenSeps,
-	idDnAttributes,
-    idDnAttributesCount,
-	idSuppressedAttributes,
-	idSuppressedAttributesCount,
-	idUriAttributes,
-	idUriAttributesCount,
-	idBasicSearchAttributes,
-	idBasicSearchAttributesCount,
 	idAuthDn,
 	idPassword,
 	idReplNever,
@@ -161,8 +96,6 @@ typedef enum
 	idReplLastChangeNumber,
 	idReplDataVersion,
 	idReplSyncURL,
-	idReplExcludedAttributes,
-	idReplExcludedAttributesCount,
 	idPalmCategory,
         idPalmSyncTimeStamp,
   idProtocolVersion,
@@ -180,8 +113,6 @@ typedef struct _DIR_ReplicationInfo
 	char *syncURL;               /* Points to the server to use for replication          */
 	char *dataVersion;           /* LDAP server's scoping of the lastChangeNumber        */
 	                             /* Changes when the server's DB gets reloaded from LDIF */
-	char **excludedAttributes;   /* List of attributes we shouldn't replicate            */
-	PRInt32 excludedAttributesCount; /* Number of attributes we shouldn't replicat           */
 } DIR_ReplicationInfo;
 
 #define DIR_Server_typedef 1     /* this quiets a redeclare warning in libaddr */
@@ -191,7 +122,6 @@ typedef struct DIR_Server
 	/* Housekeeping fields */
 	char   *prefName;			/* preference name, this server's subtree */
 	PRInt32  position;			/* relative position in server list       */
-	PRUint32  refCount;         /* Use count for server                   */
 
 	/* General purpose fields */
 	char   *description;		/* human readable name                    */
@@ -200,7 +130,6 @@ typedef struct DIR_Server
 	char   *fileName;			/* XP path name of local DB               */
 	PRInt32 port;				/* network port number                    */
 	PRInt32 maxHits;			/* maximum number of hits to return       */
-	char   *lastSearchString;	/* required if saving results             */
 	DirectoryType dirType;	
 	PRInt16   csid;				/* LDAP entries' codeset (normally UTF-8) */
 	char    *locale;			/* the locale associated with the address book or directory */
@@ -213,26 +142,6 @@ typedef struct DIR_Server
 	PRPackedBool isSecure;           /* use SSL?                               */
 	PRPackedBool enableAuth;			/* AUTH: Use DN/password when binding?    */
 	PRPackedBool savePassword;		/* AUTH: Remember DN and password?        */
-
-	/* site-configurable attributes */
-	nsVoidArray *customAttributes;
-	char *tokenSeps;
-
-	/* site-configurable list of attributes whose values are DNs */
-	char **dnAttributes;
-    PRInt32 dnAttributesCount;
-
-	/* site-configurable list of attributes we shouldn't display in HTML */
-	char **suppressedAttributes;
-	PRInt32 suppressedAttributesCount;
-
-	/* site-configurable list of attributes that contain URLs */
-	char **uriAttributes;
-	PRInt32 uriAttributesCount;
-
-	/* site-configurable list of attributes for the Basic Search dialog */
-	DIR_AttributeId *basicSearchAttributes;
-	PRInt32 basicSearchAttributesCount;
 
 	/* authentication fields */
 	char *authDn;				/* DN to give to authenticate as			*/
@@ -258,9 +167,6 @@ nsresult DIR_ShutDown(void);  /* FEs should call this when the app is shutting d
 nsresult DIR_AddNewAddressBook(const PRUnichar *dirName, const char *fileName, PRBool migrating, const char * uri, int maxHits, const char * authDn, DirectoryType dirType, DIR_Server** pServer);
 nsresult DIR_ContainsServer(DIR_Server* pServer, PRBool *hasDir);
 
-nsresult DIR_DecrementServerRefCount (DIR_Server *);
-nsresult DIR_IncrementServerRefCount (DIR_Server *);
-
 /* Since the strings in DIR_Server are allocated, we have bottleneck
  * routines to help with memory mgmt
  */
@@ -269,9 +175,8 @@ nsresult DIR_InitServerWithType(DIR_Server * server, DirectoryType dirType);
 nsresult DIR_InitServer (DIR_Server *);
 nsresult DIR_CopyServer (DIR_Server *in, DIR_Server **out);
 
-nsresult DIR_DeleteServer (DIR_Server *);
+void DIR_DeleteServer (DIR_Server *);
 nsresult DIR_DeleteServerFromList (DIR_Server *);
-nsresult DIR_DeleteServerList(nsVoidArray *wholeList);
 
 #define DIR_POS_APPEND                     0x80000000
 #define DIR_POS_DELETE                     0x80000001
@@ -287,17 +192,6 @@ void    DIR_SavePrefsForOneServer(DIR_Server *server);
 
 char   *DIR_CreateServerPrefName (DIR_Server *server, char *name);
 void	DIR_SetServerFileName(DIR_Server* pServer, const char* leafName);
-
-/* APIs for site-configurability of LDAP attribute names and 
- * search filter behavior.
- *
- * Strings are NOT allocated, and arrays are NULL-terminated
- */
-const char  *DIR_GetAttributeName (DIR_Server *server, DIR_AttributeId id);
-const char **DIR_GetAttributeStrings (DIR_Server *server, DIR_AttributeId id);
-const char  *DIR_GetFirstAttributeString (DIR_Server *server, DIR_AttributeId id);
-
-nsresult DIR_AttributeNameToId (DIR_Server *server, const char *attrName, DIR_AttributeId *id);
 
 DIR_PrefId  DIR_AtomizePrefName(const char *prefname);
 

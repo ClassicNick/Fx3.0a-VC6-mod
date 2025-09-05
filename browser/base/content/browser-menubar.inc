@@ -350,7 +350,12 @@
                           key="goHome"/>
                 <menuseparator id="startHistorySeparator"/>
                 <menuseparator hidden="true" id="endHistorySeparator"/>
+#ifndef MOZ_PLACES
                 <menuitem observes="viewHistorySidebar" key="key_gotoHistory"/>
+#else
+                <menuitem label="&historyButton.label;" 
+                          command="Browser:ShowPlaces" key="key_gotoHistory"/>
+#endif
               </menupopup>
             </menu>
 
@@ -393,30 +398,16 @@
       <menuitem label="&addCurPageAsCmd.label;" 
                 command="Browser:AddBookmarkAs" key="addBookmarkAsKb"/>
       <menuitem label="&manBookmarksCmd.label;" 
-                command="Browser:ShowPlaces" key="manBookmarkKb"/>
+                command="Browser:ShowBookmarks" key="manBookmarkKb"/>
       <menuseparator builder="start"/>
     </menupopup>
   </menu>
 #endif
         
             <menu id="tools-menu" label="&toolsMenu.label;" accesskey="&toolsMenu.accesskey;">
-              <menupopup id="menu_ToolsPopup"
-#ifdef XP_WIN
-                       onpopupshowing="MailIntegration.updateUnreadCount();"
-#endif
-            >
+              <menupopup id="menu_ToolsPopup">
               <menuitem label="&search.label;" accesskey="&search.accesskey;" 
                         key="key_search" command="Tools:Search"/>
-#ifdef HAVE_SHELL_SERVICE
-              <menuseparator/>
-              <menuitem label="&mailButton.readMail.label;" 
-                        accesskey="&mailButton.readMail.accesskey;"
-                        command="Browser:ReadMail"/>
-              <menuitem label="&mailButton.newMessage.label;" 
-                        accesskey="&mailButton.newMessage.accesskey;"
-                        key="key_newMessage" command="Browser:NewMessage"/>
-
-#endif
               <menuseparator/>
               <menuitem label="&downloads.label;" accesskey="&downloads.accesskey;"
                         key="key_openDownloads" command="Tools:Downloads"/>

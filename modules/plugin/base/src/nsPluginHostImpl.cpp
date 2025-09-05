@@ -22,7 +22,7 @@
  * Contributor(s):
  *   Sean Echevarria <sean@beatnik.com>
  *   Håkan Waara <hwaara@chello.se>
- *   Josh Aas <josh@mozillafoundation.org>
+ *   Josh Aas <josh@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -4092,10 +4092,11 @@ static int CompareExtensions(const char *aExtensionList, const char *aExtension)
   if(pComma == nsnull)
     return PL_strcasecmp(pExt, aExtension);
 
+  int extlen = strlen(aExtension);
   while(pComma != nsnull)
   {
     int length = pComma - pExt;
-    if(0 == PL_strncasecmp(aExtension, pExt, length))
+    if(length == extlen && 0 == PL_strncasecmp(aExtension, pExt, length))
       return 0;
 
     pComma++;

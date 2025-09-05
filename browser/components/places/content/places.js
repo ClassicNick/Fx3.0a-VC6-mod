@@ -38,6 +38,13 @@
 const PREF_PLACES_GROUPING_GENERIC = "browser.places.grouping.generic";
 const PREF_PLACES_GROUPING_BOOKMARK = "browser.places.grouping.bookmark";
 
+// Default Search Queries
+const QUERY_MONTH_HISTORY = "place:&group=2&sort=1&type=1";
+const QUERY_DAY_HISTORY = "place:&beginTimeRef=1&endTimeRef=2&sort=4&type=1";
+const QUERY_BOOKMARKS_MENU = "place:&folders=3&group=3";
+const INDEX_HISTORY = 0;
+const INDEX_BOOKMARKS = 1;
+
 var PlacesUIHook = {
   _tabbrowser: null,
   _topWindow: null,
@@ -79,7 +86,8 @@ var PlacesUIHook = {
               "Browser:Reload", "viewTextZoomMenu", "pageStyleMenu", 
               "charsetMenu", "View:PageSource", "View:FullScreen", 
               "documentDirection-swap", "Browser:AddBookmarkAs", 
-              "Browser:ShowPlaces", "View:PageInfo", "cmd_toggleTaskbar"],
+              "Browser:ShowBookmarks", "Browser:ShowHistory", "View:PageInfo", 
+              "cmd_toggleTaskbar"],
   
   /**
    * Disable commands that are not relevant to the Places page, so that all 
@@ -107,7 +115,8 @@ var PlacesUIHook = {
 
   onTabSelect: function PP_onTabSelect(event) {
     var tabURI = this._tabbrowser.selectedBrowser.currentURI.spec;
-    (tabURI == this._placesURI) ? this._showPlacesUI() : this._hidePlacesUI();
+    var isPlaces = tabURI.substr(0, this._placesURI.length) == this._placesURI;
+    isPlaces ? this._showPlacesUI() : this._hidePlacesUI();
   },
   
   _topElement: function PUIH__topElement(id) {
@@ -157,7 +166,7 @@ var PlacesPage = {
     this._places.init(new ViewConfig([TYPE_X_MOZ_PLACE_CONTAINER],
                                      ViewConfig.GENERIC_DROP_TYPES,
                                      Ci.nsINavHistoryQuery.INCLUDE_QUERIES,
-                                     ViewConfig.GENERIC_FILTER_OPTIONS, 4));
+                                     ViewConfig.GENERIC_FILTER_OPTIONS, 3));
     this._content.init(new ViewConfig(ViewConfig.GENERIC_DROP_TYPES,
                                       ViewConfig.GENERIC_DROP_TYPES,
                                       ViewConfig.GENERIC_FILTER_OPTIONS, 0));
@@ -182,28 +191,25 @@ var PlacesPage = {
     // Hook the browser UI
     PlacesUIHook.init(this._content);
 
-    // Attach the History model to the Content View
-    this._content.queryString = "";
-
     // Attach the Places model to the Place View
     // XXXben - move this to an attribute/property on the tree view
     var bms = PlacesController._bms;
     this._places.loadFolder(bms.placesRoot);
+    
+    // Now load the appropriate folder in the Content View, and select the 
+    // corresponding entry in the Places View. This is a little fragile. 
+    var params = window.location.search;
+    var index = params == "?history" ? INDEX_HISTORY : INDEX_BOOKMARKS;
+    this._places.view.selection.select(index);
+    
+    // Set up the search UI.
+    PlacesSearchBox.init();
   },
 
   uninit: function PP_uninit() {
     PlacesUIHook.uninit();
   },
 
-  showAdvancedOptions: function PP_showAdvancedOptions() {
-    alert("Show advanced query builder.");
-  },
-  
-  setFilterCollection: function PP_setFilterCollection(collectionName) {
-    var searchFilter = document.getElementById("searchFilter");
-    searchFilter.setAttribute("collection", collectionName);
-  },
-  
   /**
    * A range has been selected from the calendar picker. Update the view
    * to show only those results within the selected range. 
@@ -232,22 +238,38 @@ var PlacesPage = {
     return true;
   },
 
-  applyFilter: function PP_applyFilter(filterString) {
-    var searchFilter = document.getElementById("searchFilter");
-    var collectionName = searchFilter.getAttribute("collection");
-    switch (collectionName) {
+  /**
+   * Fill the header with information about what view is being displayed.
+   */
+  _setHeader: function(isSearch, text) {
+    var bundle = document.getElementById("placeBundle");
+    var key = isSearch ? "headerTextResultsFor" : "headerTextShowing";
+    var title = bundle.getFormattedString(key, [text]);
+    
+    var titlebarText = document.getElementById("titlebartext");
+    titlebarText.setAttribute("value", title);
+    
+    var searchModifiers = document.getElementById("searchModifiers");
+    searchModifiers.hidden = !isSearch;
+  },  
+  
+  /**
+   * Run a search for the specified text, over the collection specified by
+   * the dropdown arrow. The default is all bookmarks and history, but can be
+   * localized to the active collection. 
+   * @param   filterString
+   *          The text to search for. 
+   */
+  search: function PP_applyFilter(filterString) {
+    switch (PlacesSearchBox.filterCollection) {
     case "collection":
       var folder = this._content.getResult().folderId;
       this._content.applyFilter(filterString, true, folder);
-      break;
-    case "bookmarks":
-      this._content.applyFilter(filterString, true, 0);
-      break;
-    case "history":
-      this._content.applyFilter(filterString, false, 0);
+      this._setHeader(true, filterString);
       break;
     case "all":
       this._content.filterString = filterString;
+      this._setHeader(true, filterString);
       break;
     }
   },
@@ -275,6 +297,8 @@ var PlacesPage = {
 
     newOptions.setGroupingMode(groupings, groupings.length);
     this._content.load(newQueries, newOptions);
+
+    this._setHeader(false, node.title);
   },
   
   /**
@@ -330,8 +354,6 @@ var PlacesPage = {
     }
     var commandBar = document.getElementById("commandBar");
     commandBar.selectedPanel = document.getElementById(panelID);
-    var filterCollectionDeck = document.getElementById("filterCollectionDeck");
-    filterCollectionDeck.selectedPanel = document.getElementById(filterButtonID);
 
     // Hide the Calendar for Bookmark queries. 
     document.getElementById("historyCalendar").setAttribute("hidden", isBookmarks);
@@ -342,3 +364,66 @@ var PlacesPage = {
   },
 };
 
+/**
+ * A set of utilities relating to search within Bookmarks and History. 
+ */
+var PlacesSearchBox = {
+  /**
+   * Gets/sets the active collection from the dropdown menu.
+   */
+  get filterCollection() {
+    var searchFilter = document.getElementById("searchFilter");
+    return searchFilter.getAttribute("collection");
+  },
+  set filterCollection(collectionName) {
+    LOG("SET COLN: " + collectionName);
+    var searchFilter = document.getElementById("searchFilter");
+    searchFilter.setAttribute("collection", collectionName);
+    return collectionName;
+  },
+  
+  /**
+   * When the field is activated, if the contents are the gray text, clear
+   * the field, otherwise select the contents. 
+   */
+  onFocus: function PS_onFocus() {
+    var searchFilter = document.getElementById("searchFilter");
+    var placeBundle = document.getElementById("placeBundle");
+    
+    var searchDefault = placeBundle.getString("searchDefault");
+    if (searchFilter.value == searchDefault) {
+      searchFilter.removeAttribute("empty");
+      searchFilter.value = "";
+    }
+    else
+      searchFilter.select();
+  },
+  
+  /**
+   * When the field is deactivated, reset the gray text if the value is
+   * empty or has the gray text value. 
+   */
+  onBlur: function PS_onBlur() {
+    var placeBundle = document.getElementById("placeBundle");
+    var searchDefault = placeBundle.getString("searchDefault");
+    var searchFilter = document.getElementById("searchFilter");
+    
+    if (searchFilter.value == searchDefault || !searchFilter.value) {
+      searchFilter.setAttribute("empty", "true");
+      searchFilter.value = searchDefault;
+    }    
+  },
+  
+  /** 
+   * Set up the gray text in the search bar as the Places View loads. 
+   */
+  init: function PS_init() {
+    var placeBundle = document.getElementById("placeBundle");
+    var searchDefault = placeBundle.getString("searchDefault");
+    var searchFilter = document.getElementById("searchFilter");
+    searchFilter.value = searchDefault;
+    searchFilter.setAttribute("empty", "true");
+    searchFilter.focus();
+  },
+
+};

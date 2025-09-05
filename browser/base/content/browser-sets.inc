@@ -91,11 +91,6 @@
     <command id="Browser:SaveFrame" oncommand="saveFrameDocument();"/>
 
     <command id="Browser:SendLink" oncommand="MailIntegration.sendLinkForContent();"/>
-    <command id="Browser:NewMessage" oncommand="MailIntegration.sendMessage('', '');"/>
-#ifdef HAVE_SHELL_SERVICE
-    <command id="Browser:ReadMail" oncommand="MailIntegration.readMail();" label="&mailButton.readMail.label;"/>
-    <command id="Browser:ReadNews" oncommand="MailIntegration.readNews();"/>
-#endif
 
     <command id="cmd_pageSetup" oncommand="PrintUtils.showPageSetup();"/>
     <command id="cmd_print" oncommand="PrintUtils.print();"/>
@@ -169,6 +164,7 @@
   </commandset>
 
   <broadcasterset id="mainBroadcasterSet">
+#ifndef MOZ_PLACES
     <broadcaster id="viewBookmarksSidebar" autoCheck="false" label="&bookmarksButton.label;"
                  type="checkbox" group="sidebar" sidebarurl="chrome://browser/content/bookmarks/bookmarksPanel.xul"
                  oncommand="toggleSidebar('viewBookmarksSidebar');"/>
@@ -180,6 +176,7 @@
     <broadcaster id="viewWebPanelsSidebar" autoCheck="false" 
                  type="checkbox" group="sidebar" sidebarurl="chrome://browser/content/web-panels.xul"
                  oncommand="toggleSidebar('viewWebPanelsSidebar');"/>
+#endif
 
     <!-- popup blocking menu items -->
     <broadcaster id="blockedPopupAllowSite" 
@@ -318,15 +315,6 @@
     <key id="key_gotoHistory"  key="&historySidebarCmd.commandKey;"  command="viewHistorySidebar" modifiers="accel,shift"/>
 #else
     <key id="key_gotoHistory"  key="&historySidebarCmd.commandKey;"  command="viewHistorySidebar" modifiers="accel"/>
-#endif
-
-    <key id="key_newMessage"
-         key="&sendMessage.commandkey;"
-         command="Browser:NewMessage"
-#ifdef XP_MACOSX
-         modifiers="accel,shift"/>
-#else
-         modifiers="accel"/>
 #endif
     <key id="key_textZoomReduce"  key="&textZoomReduceCmd.commandkey;"   command="cmd_textZoomReduce"  modifiers="accel"/>
     <key id="key_textZoomEnlarge" key="&textZoomEnlargeCmd.commandkey;"  command="cmd_textZoomEnlarge" modifiers="accel"/>

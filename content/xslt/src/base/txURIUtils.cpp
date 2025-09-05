@@ -207,6 +207,7 @@ void
 URIUtils::ResetWithSource(nsIDocument *aNewDoc, nsIDOMNode *aSourceNode)
 {
     if (!aSourceNode) {
+        // XXXbz passing nsnull as the first arg to Reset is illegal
         aNewDoc->Reset(nsnull, nsnull);
         return;
     }
@@ -219,21 +220,31 @@ URIUtils::ResetWithSource(nsIDocument *aNewDoc, nsIDOMNode *aSourceNode)
     }
     if (!sourceDoc) {
         NS_ASSERTION(0, "no source document found");
+        // XXXbz passing nsnull as the first arg to Reset is illegal
         aNewDoc->Reset(nsnull, nsnull);
         return;
     }
 
-    nsCOMPtr<nsIChannel> channel;
+    nsIPrincipal* sourcePrincipal = sourceDoc->GetPrincipal();
+    if (!sourcePrincipal) {
+        return;
+    }
+
+    // Copy the channel and loadgroup from the source document.
     nsCOMPtr<nsILoadGroup> loadGroup = sourceDoc->GetDocumentLoadGroup();
-    nsCOMPtr<nsIIOService> serv = do_GetService(NS_IOSERVICE_CONTRACTID);
-    if (serv) {
-        // Create a temporary channel to get nsIDocument->Reset to
-        // do the right thing. We want the output document to get
-        // much of the input document's characteristics.
-        serv->NewChannelFromURI(sourceDoc->GetDocumentURI(),
-                                getter_AddRefs(channel));
+    nsCOMPtr<nsIChannel> channel = sourceDoc->GetChannel();
+    if (!channel) {
+        // Need to synthesize one
+        if (NS_FAILED(NS_NewChannel(getter_AddRefs(channel),
+                                    sourceDoc->GetDocumentURI(),
+                                    nsnull,
+                                    loadGroup))) {
+            return;
+        }
+        channel->SetOwner(sourcePrincipal);
     }
     aNewDoc->Reset(channel, loadGroup);
+    aNewDoc->SetPrincipal(sourcePrincipal);
     aNewDoc->SetBaseURI(sourceDoc->GetBaseURI());
 
     // Copy charset

@@ -63,6 +63,7 @@
 
 #include "nsSound.h"
 #include "nsNativeScrollbar.h"
+#include "nsScreenManagerMac.h"
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsCocoaWindow)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsChildView)
@@ -81,6 +82,7 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsClipboard)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsClipboardHelper)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDragService)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDragHelperService)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsScreenManagerMac)
 
 #include "nsBidiKeyboard.h"
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsBidiKeyboard)
@@ -166,10 +168,14 @@ static const nsModuleComponentInfo gComponents[] =
 		NS_NATIVESCROLLBAR_CID,
 		"@mozilla.org/widget/nativescrollbar;1",
 		nsNativeScrollbarConstructor },
-  {	"Native Theme Renderer", 
+	{	"Native Theme Renderer", 
 		NS_THEMERENDERER_CID,
 		"@mozilla.org/chrome/chrome-native-theme;1",
-		nsNativeThemeMacConstructor }
+		nsNativeThemeMacConstructor },
+	{   "nsScreenManager",
+		NS_SCREENMANAGER_CID,
+		"@mozilla.org/gfx/screenmanager;1",
+		nsScreenManagerMacConstructor }
 };
 
 NS_IMPL_NSGETMODULE(nsWidgetMacModule, gComponents)

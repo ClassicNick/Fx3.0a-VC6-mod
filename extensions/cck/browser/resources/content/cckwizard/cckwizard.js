@@ -137,19 +137,36 @@ function DeleteConfig()
 {
   var bundle = document.getElementById("bundle_cckwizard");
 
-  var rv = gPromptService.confirmEx(window, "WizardMachine", bundle.getString("deleteConfirm"),
-                                    gPromptService.BUTTON_TITLE_YES * gPromptService.BUTTON_POS_0 +
-                                    gPromptService.BUTTON_TITLE_NO * gPromptService.BUTTON_POS_1,
-                                    null, null, null, null, {});
-  if (rv == false) {
+  var button = gPromptService.confirmEx(window, bundle.getString("windowTitle"), bundle.getString("deleteConfirm"),
+                                        gPromptService.BUTTON_TITLE_YES * gPromptService.BUTTON_POS_0 +
+                                        gPromptService.BUTTON_TITLE_NO * gPromptService.BUTTON_POS_1,
+                                        null, null, null, null, {});
+  if (button == 0) {
     gPrefBranch.deleteBranch("cck.config."+currentconfigname);
+    currentconfigname = "";
+    currentconfigpath = "";
     updateconfiglist();
   }
 }
 
+function SetSaveOnExitPref()
+{
+    gPrefBranch.setBoolPref("cck.save_on_exit", document.getElementById("saveOnExit").checked);
+}
 
+function OpenCCKWizard()
+{
+   try {
+     document.getElementById("saveOnExit").checked = gPrefBranch.getBoolPref("cck.save_on_exit");
+   } catch (ex) {
+   }
+   try {
+     document.getElementById("zipLocation").value = gPrefBranch.getCharPref("cck.path_to_zip");
+   } catch (ex) {
+   }
+   
 
-
+}
 
 function ShowMain()
 {
@@ -191,6 +208,8 @@ function updateconfiglist()
     document.getElementById('deleteconfig').disabled = true;
     document.getElementById('showconfig').disabled = true;
     document.getElementById('copyconfig').disabled = true;
+    currentconfigname = "";
+    currentconfigpath = "";
   }
 }
 
@@ -225,31 +244,95 @@ function saveconfig()
 
 }
 
+function CloseCCKWizard()
+{
+  var saveOnExit;
+  try {
+    saveOnExit = gPrefBranch.getBoolPref("cck.save_on_exit");
+ } catch (ex) {
+    saveOnExit = false;
+ }
+
+  var button;
+  if (!saveOnExit) {
+    var bundle = document.getElementById("bundle_cckwizard");
+
+    var button = gPromptService.confirmEx(window, bundle.getString("windowTitle"), bundle.getString("cancelConfirm"),
+                                          gPromptService.BUTTON_TITLE_YES * gPromptService.BUTTON_POS_0 +
+                                          gPromptService.BUTTON_TITLE_NO * gPromptService.BUTTON_POS_1,
+                                          null, null, null, null, {});
+  } else {
+    button = 0;
+  }
+  
+  if (button == 0) {
+    saveconfig();
+  }
+  gPrefBranch.setCharPref("cck.path_to_zip", document.getElementById("zipLocation").value);
+}
+
+
 function OnConfigLoad()
 {
   configCheckOKButton();
 }
 
 
+function ClearAll()
+{
+    /* clear out all data */
+    var elements = this.opener.document.getElementsByAttribute("id", "*");
+    for (var i=0; i < elements.length; i++) {
+      if ((elements[i].nodeName == "textbox") ||
+          (elements[i].nodeName == "radiogroup") ||
+          (elements[i].id == "RootKey1") ||
+          (elements[i].id == "Type1")) {
+        if ((elements[i].id != "saveOnExit") && (elements[i].id != "zipLocation")) {
+          elements[i].value = "";
+        }
+      } else if (elements[i].nodeName == "checkbox") {
+        if (elements[i].id != "saveOnExit")
+          elements[i].checked = false;
+      } else if (elements[i].id == "prefList") {
+        listbox = this.opener.document.getElementById('prefList');    
+        var children = listbox.childNodes;
+        for (var j = children.length; j > 0; j--)
+        {
+           listbox.removeChild(children[j-1]);
+        }
+      } else if (elements[i].id == "regList") {
+        listbox = this.opener.document.getElementById('regList');    
+        var children = listbox.childNodes;
+        for (var j = children.length; j > 0; j--)
+        {
+           listbox.removeChild(children[j-1]);
+        }
+      } else if (elements[i].id == "searchPluginList") {
+        listbox = this.opener.document.getElementById('searchPluginList');    
+        var children = listbox.childNodes;
+        for (var j = children.length; j > 0; j--)
+        {
+           listbox.removeChild(children[j-1]);
+        }
+      }
+    } 
+}
+
 function OnConfigOK()
 {
   var configname = document.getElementById('cnc-name').value;
   var configlocation = document.getElementById('cnc-location').value;
-  if ((configname) && (configlocation)) {
-    gPrefBranch.setCharPref("cck.config." + configname, configlocation);
-    this.opener.setcurrentconfig(configname);
-    if (window.name == 'copyconfig') {
-    /* ---------- */
-  var destdir = Components.classes["@mozilla.org/file/local;1"]
-                          .createInstance(Components.interfaces.nsILocalFile);
-  destdir.initWithPath(configlocation);
-  
-  this.opener.CCKWriteConfigFile(destdir);
-
-    }
+  if (window.name == 'copyconfig') {
+    var destdir = Components.classes["@mozilla.org/file/local;1"]
+                            .createInstance(Components.interfaces.nsILocalFile);
+    destdir.initWithPath(configlocation);
+    this.opener.CCKWriteConfigFile(destdir);
   } else {
-    return false;
+    ClearAll();
   }
+  gPrefBranch.setCharPref("cck.config." + configname, configlocation);
+  this.opener.setcurrentconfig(configname);
+
 }
 
 function configCheckOKButton()
@@ -591,8 +674,20 @@ function CreateCCK()
     installrdfdir.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0775);
   } catch(ex) {}
   CCKWriteInstallRDF(installrdfdir);
+  
+// For now, do to a Firefox 1.5 bug, we have to put install.rdf in a subdir and install
+// it from there. So the installer needs a different XPI.
+// We do this first so the install.js that is in the dir is the "good" one.
+  var installerfilename = document.getElementById("filename").value;
+  if (installerfilename.length == 0)
+    installerfilename = "cck";
+  installerfilename += "-installer.xpi";
 
-  CCKWriteInstallJS(destdir);  
+  CCKWriteInstallJS(destdir, true);
+  CCKZip(installerfilename, destdir,
+         "chrome", "components", "defaults", "plugins", "searchplugins", "chrome.manifest", "installrdf", "install.js");
+         
+  CCKWriteInstallJS(destdir, false);
   var filename = document.getElementById("filename").value;
   if (filename.length == 0)
     filename = "cck";
@@ -600,17 +695,7 @@ function CreateCCK()
   
   CCKZip(filename, destdir,
          "chrome", "components", "defaults", "plugins", "searchplugins", "chrome.manifest", "install.rdf", "install.js");
-  var bundle = document.getElementById("bundle_cckwizard");
-  
-// For now, do to a Firefox 1.5 bug, we have to put install.rdf in a subdir and install
-// it from there. So the installer needs a different XPI.
-  var installerfilename = document.getElementById("filename").value;
-  if (installerfilename.length == 0)
-    installerfilename = "cck";
-  installerfilename += "-installer.xpi";
 
-  CCKZip(installerfilename, destdir,
-         "chrome", "components", "defaults", "plugins", "searchplugins", "chrome.manifest", "installrdf", "install.js");
   var bundle = document.getElementById("bundle_cckwizard");
 
   gPromptService.alert(window, bundle.getString("windowTitle"),
@@ -724,6 +809,11 @@ function CCKZip(zipfile, location)
     }
     return;
   }
+  
+  var zipLocation = document.getElementById("zipLocation").value;
+  if (zipLocation.length == 0) {
+    zipLocation = "zip";
+  }
 
   platform = navigator.platform;
   var file = location.clone();
@@ -736,12 +826,12 @@ function CCKZip(zipfile, location)
                        .createInstance(Components.interfaces.nsIFileOutputStream);
   fos.init(file, -1, -1, false);
   var line;
-  line = "cd \"" + location.path + "\"\n";
+  line = "cd /d \"" + location.path + "\"\n";
   fos.write(line, line.length);
   if (navigator.platform == "Win32")
-    line = "zip -r \"" + location.path + "\\" + zipfile + "\"";
+    line = zipLocation + " -r \"" + location.path + "\\" + zipfile + "\"";
   else
-    line = "zip -r \"" + location.path + "/" + zipfile + "\"";  
+    line = zipLocation + " -r \"" + location.path + "/" + zipfile + "\"";  
   for (var i=2; i < arguments.length; i++) {
     line += " " + arguments[i];
   }
@@ -769,7 +859,7 @@ function CCKZip(zipfile, location)
   var args = [file.path];
   
   process.run(true, args, args.length);
-  file.remove(false);
+//  file.remove(false);
 }
 
 function CCKWriteXULOverlay(destdir)
@@ -873,7 +963,7 @@ var liststyleimageend = '");\n}\n';
     fos.write(liststyleimageend, liststyleimageend.length);
   }
   var atrestlogopath = document.getElementById("LargeStillPath").value;
-  if (atrestlogopath && (animatedlogopath.length > 0)) {
+  if (atrestlogopath && (atrestlogopath.length > 0)) {
     var file = Components.classes["@mozilla.org/file/local;1"]
                          .createInstance(Components.interfaces.nsILocalFile);
     file.initWithPath(atrestlogopath);
@@ -1047,7 +1137,7 @@ function CCKWriteProperties(destdir)
       var file = Components.classes["@mozilla.org/file/local;1"]
                            .createInstance(Components.interfaces.nsILocalFile);
       file.initWithPath(certpath);
-      var line = "Cert"+i+"="+file.leafName;
+      var line = "Cert"+ i + "=" + file.leafName + "\n";
       fos.write(line, line.length);
     }
   }  
@@ -1093,41 +1183,61 @@ function CCKWriteDefaultJS(destdir)
     fos.write(useragent2end, useragent2end.length);
   }
   
-  
-  // For these guys Idid something a little clever - the preference name is stored in the XUL
-
-  var proxystringlist = ["HTTPproxyname","SSLproxyname","FTPproxyname","Gopherproxyname","NoProxyname","autoproxyurl" ];
-  
-  for (i = 0; i < proxystringlist.length; i++) {
-    var proxyitem = document.getElementById(proxystringlist[i]);
-    if (proxyitem.value.length > 0) {
-      var line = 'pref("' + proxyitem.getAttribute("preference") + '", "' + proxyitem.value + '");\n';
-      fos.write(line, line.length);
-    }
-  }
-  
-  var proxyintegerlist = ["HTTPportno","SSLportno","FTPportno","Gopherportno","socksv","ProxyType"];
-
-  for (i = 0; i < proxyintegerlist.length; i++) {
-    var proxyitem = document.getElementById(proxyintegerlist[i]);
-    if (proxyitem.value.length > 0) {
-      var line = 'pref("' + proxyitem.getAttribute("preference") + '", ' + proxyitem.value + ');\n';
-      fos.write(line, line.length);
-    }
-  }
-  
-  var proxyitem = document.getElementById("shareAllProxies");
-  var line = 'pref("' + proxyitem.getAttribute("preference") + '", ' + proxyitem.value + ');\n';
-  fos.write(line, line.length);
-
   // Preferences
   listbox = document.getElementById("prefList");
   for (var i=0; i < listbox.getRowCount(); i++) {
     listitem = listbox.getItemAtIndex(i);
-    var line = 'pref("' + listitem.label + '", ' + listitem.value + ');\n';
+    var listitemvalue = listitem.value;
+    if ((listitemvalue == "FALSE") || (listitemvalue == "TRUE")) {
+      listitemvalue = listitemvalue.toLowerCase()    
+    }
+    var line = 'pref("' + listitem.label + '", ' + listitemvalue + ');\n';
     fos.write(line, line.length);
   }
   
+  var radiogroup = document.getElementById("ProxyType");
+  if (radiogroup.value == "")
+    radiogroup.value = "0";
+
+  switch ( radiogroup.value ) {
+    case "1":
+      var proxystringlist = ["HTTPproxyname","SSLproxyname","FTPproxyname","Gopherproxyname","NoProxyname","autoproxyurl" ];
+  
+      for (i = 0; i < proxystringlist.length; i++) {
+        var proxyitem = document.getElementById(proxystringlist[i]);
+        if (proxyitem.value.length > 0) {
+          var line = 'pref("' + proxyitem.getAttribute("preference") + '", "' + proxyitem.value + '");\n';
+          fos.write(line, line.length);
+        }
+      }
+  
+      var proxyintegerlist = ["HTTPportno","SSLportno","FTPportno","Gopherportno","socksv","ProxyType"];
+
+      for (i = 0; i < proxyintegerlist.length; i++) {
+        var proxyitem = document.getElementById(proxyintegerlist[i]);
+        if (proxyitem.value.length > 0) {
+          var line = 'pref("' + proxyitem.getAttribute("preference") + '", ' + proxyitem.value + ');\n';
+          fos.write(line, line.length);
+        }
+      }
+  
+      var proxyitem = document.getElementById("shareAllProxies");
+      var line = 'pref("' + proxyitem.getAttribute("preference") + '", ' + proxyitem.checked + ');\n';
+      fos.write(line, line.length);
+      break;
+    case "2":
+      var proxystringlist = ["autoproxyurl" ];
+  
+      for (i = 0; i < proxystringlist.length; i++) {
+        var proxyitem = document.getElementById(proxystringlist[i]);
+        if (proxyitem.value.length > 0) {
+          var line = 'pref("' + proxyitem.getAttribute("preference") + '", "' + proxyitem.value + '");\n';
+          fos.write(line, line.length);
+        }
+      }
+      break;
+  }
+
   fos.close();
 }
 
@@ -1236,7 +1346,7 @@ function CCKWriteInstallRDF(destdir)
   fos.close();
 }
 
-function CCKWriteInstallJS(destdir)
+function CCKWriteInstallJS(destdir, useinstallrdfdir)
 {
   var file = destdir.clone();
   file.append("install.js");
@@ -1274,9 +1384,16 @@ function CCKWriteInstallJS(destdir)
   else
     str = str.replace(/%searchplugins%/g, '');
     
+  var brokeway = "addDirectory(\"\", \"%version%\", \"installrdf\", cckextensiondir, \"\", true);";
+  var goodway  = "addFile(\"\", \"%version%\", \"install.rdf\", cckextensiondir, \"\", true);";
+
+  if (useinstallrdfdir)
+    str = str.replace(/%installrdf%/g, brokeway);
+  else
+    str = str.replace(/%installrdf%/g, goodway);  
+
   str = str.replace(/%version%/g, document.getElementById("version").value);
-
-
+  
   fos.write(str, str.length); 
   fos.close();
 }
@@ -1352,17 +1469,24 @@ function CCKWriteConfigFile(destdir)
              
   var fos = Components.classes["@mozilla.org/network/file-output-stream;1"]
                        .createInstance(Components.interfaces.nsIFileOutputStream);
+                       
   fos.init(file, -1, -1, false);
 
   var elements = document.getElementsByAttribute("id", "*")
   for (var i=0; i < elements.length; i++) {
     if ((elements[i].nodeName == "textbox") ||
         (elements[i].nodeName == "radiogroup") ||
-        (elements[i].nodeName == "checkbox") ||
         (elements[i].id == "RootKey1") ||
         (elements[i].id == "Type1")) {
-      var line = elements[i].getAttribute("id") + "=" + elements[i].value + "\n";
-      fos.write(line, line.length);
+      if ((elements[i].id != "saveOnExit") && (elements[i].id != "zipLocation")) {
+        var line = elements[i].getAttribute("id") + "=" + elements[i].value + "\n";
+        fos.write(line, line.length);
+      }
+    } else if (elements[i].nodeName == "checkbox") {
+      if (elements[i].id != "saveOnExit") {
+        var line = elements[i].getAttribute("id") + "=" + elements[i].checked + "\n";
+        fos.write(line, line.length);
+      }
     } else if (elements[i].id == "prefList") {
       listbox = document.getElementById('prefList');    
       for (var j=0; j < listbox.getRowCount(); j++) {
@@ -1421,7 +1545,6 @@ function CCKReadConfigFile(srcdir)
   var lis = stream.QueryInterface(Components.interfaces.nsILineInputStream);
   var line = {value:null};
   
-  var prefList = document.getElementById('prefList');    
   configarray = new Array();
   do {
     var more = lis.readLine(line);
@@ -1439,6 +1562,15 @@ function CCKReadConfigFile(srcdir)
   
   // handle prefs
   listbox = document.getElementById('prefList');
+  
+  var children = listbox.childNodes;
+  for (var i = children.length; i > 0; i--)
+  {
+    listbox.removeChild(children[i-1]);
+  }
+
+
+
   var i = 1;
   while( prefname = configarray['PreferenceName' + i]) {
     listbox.appendItem(prefname, configarray['PreferenceValue' + i]);
@@ -1447,6 +1579,13 @@ function CCKReadConfigFile(srcdir)
   
   // handle registry items
   listbox = document.getElementById('regList');
+  
+  var children = listbox.childNodes;
+  for (var i = children.length; i > 0; i--)
+  {
+    listbox.removeChild(children[i-1]);
+  }
+
   var i = 1;
   while( regname = configarray['RegName' + i]) {
     var listitem = listbox.appendItem(regname, "");
@@ -1463,6 +1602,13 @@ function CCKReadConfigFile(srcdir)
 
   // handle searchplugins
   listbox = document.getElementById('searchPluginList');
+  
+  var children = listbox.childNodes;
+  for (var i = children.length; i > 0; i--)
+  {
+    listbox.removeChild(children[i-1]);
+  }
+
   var i = 1;
   while(searchpluginname = configarray['SearchPlugin' + i]) {
     item = document.createElement("richlistitem");
@@ -1487,6 +1633,9 @@ function CCKReadConfigFile(srcdir)
     i++;
   }  
 
+  var proxyitem = document.getElementById("shareAllProxies");
+  proxyitem.checked = configarray["shareAllProxies"];
+  
   DoEnabling();
   toggleProxySettings();
   

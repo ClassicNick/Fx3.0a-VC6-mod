@@ -71,6 +71,7 @@
 #include "nsInt64.h"
 #include "nsIVariant.h"
 #include "nsChannelProperties.h"
+#include "nsStreamUtils.h"
 
 // True if the local cache should be bypassed when processing a request.
 #define BYPASS_LOCAL_CACHE(loadFlags) \
@@ -78,17 +79,6 @@
                       nsICachingChannel::LOAD_BYPASS_LOCAL_CACHE))
 
 static NS_DEFINE_CID(kStreamListenerTeeCID, NS_STREAMLISTENERTEE_CID);
-
-static NS_METHOD DiscardSegments(nsIInputStream *input,
-                                 void *closure,
-                                 const char *buf,
-                                 PRUint32 offset,
-                                 PRUint32 count,
-                                 PRUint32 *countRead)
-{
-    *countRead = count;
-    return NS_OK;
-}
 
 //
 // From section 2.2 of RFC 2616, a token is defined as:
@@ -2768,8 +2758,20 @@ nsHttpChannel::PromptForIdentity(const char *scheme,
     {
         NS_NAMED_LITERAL_STRING(proxyText, "EnterUserPasswordForProxy");
         NS_NAMED_LITERAL_STRING(originText, "EnterUserPasswordForRealm");
-        const PRUnichar *text = proxyAuth ? proxyText.get() : originText.get();
- 
+
+        const PRUnichar *text;
+        if (proxyAuth) {
+            text = proxyText.get();
+        } else {
+            text = originText.get();
+
+            // prepend "scheme://"
+            nsAutoString schemeU; 
+            CopyASCIItoUTF16(scheme, schemeU);
+            schemeU.AppendLiteral("://");
+            displayHost.Insert(schemeU, 0);
+        }
+
         const PRUnichar *strings[] = { realmU.get(), displayHost.get() };
 
         rv = bundle->FormatStringFromName(text, strings, 2,
@@ -4146,7 +4148,7 @@ nsHttpChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
 
     if (mAuthRetryPending || (request == mTransactionPump && mTransactionReplaced)) {
         PRUint32 n;
-        return input->ReadSegments(DiscardSegments, nsnull, count, &n);
+        return input->ReadSegments(NS_DiscardSegment, nsnull, count, &n);
     }
 
     if (mListener) {

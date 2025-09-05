@@ -49,8 +49,12 @@
  */
 
 function syncUIZoom() {
+  try
+  {
     var currentUILevel=gPref.getIntPref("browser.display.zoomui");
     document.styleSheets[1].cssRules[1].style.fontSize=currentUILevel+"px";
+  }
+  catch (e) {}
 }
 
 
@@ -77,7 +81,7 @@ function loadBookmarks(storeStr) {
 
 function refreshBookmarks() {
 	if(gBookmarksDoc.getElementsByTagName("li").length>0) {
-		document.getElementById("item-bookmark").hidden=false;
+		document.getElementById("command_BrowserBookmark").hidden=false;
 	} 
 }
 

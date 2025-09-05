@@ -168,6 +168,18 @@ nsMathMLmactionFrame::Init(nsPresContext*  aPresContext,
   return nsMathMLContainerFrame::Init(aPresContext, aContent, aParent, aContext, aPrevInFlow);
 }
 
+nsresult
+nsMathMLmactionFrame::ChildListChanged(PRInt32 aModType)
+{
+  // update cached values
+  mChildCount = -1;
+  mSelection = 0;
+  mSelectedFrame = nsnull;
+  GetSelectedFrame();
+
+  return nsMathMLContainerFrame::ChildListChanged(aModType);
+}
+
 // return the frame whose number is given by the attribute selection="number"
 nsIFrame* 
 nsMathMLmactionFrame::GetSelectedFrame()
@@ -299,7 +311,9 @@ nsMathMLmactionFrame::Reflow(nsPresContext*          aPresContext,
   nsIFrame* childFrame = GetSelectedFrame();
   if (childFrame) {
     nsReflowReason reason = aReflowState.reason;
-    if (mWasRestyled) {
+    if (childFrame->GetStateBits() & NS_FRAME_FIRST_REFLOW)
+      reason = eReflowReason_Initial;
+    else if (mWasRestyled) {
       mWasRestyled = PR_FALSE;
       // If we have just been restyled, make sure to reflow our
       // selected child with a StyleChange reflow reason so that

@@ -72,7 +72,7 @@ function openNewTabWith(href, sourceURL, postData, event)
 
   // As in openNewWindowWith(), we want to pass the charset of the
   // current document over to a new tab. 
-  var wintype = document.firstChild.getAttribute('windowtype');
+  var wintype = document.documentElement.getAttribute('windowtype');
   var originCharset;
   if (wintype == "navigator:browser")
     originCharset = window.content.document.characterSet;
@@ -94,7 +94,7 @@ function openNewWindowWith(href, sourceURL, postData)
   // set, then extract the current charset menu setting from the current document and use it to
   // initialize the new browser window...
   var charsetArg = null;
-  var wintype = document.firstChild.getAttribute('windowtype');
+  var wintype = document.documentElement.getAttribute('windowtype');
   if (wintype == "navigator:browser")
     charsetArg = "charset=" + window.content.document.characterSet;
 
@@ -658,6 +658,11 @@ function appendFiltersForContentType(aFilePicker, aContentType, aFileExtension, 
     filterString = "*.xht; *.xhtml";
     break;
 
+  case "image/svg+xml":
+    bundleName   = "WebPageSVGOnlyFilter";
+    filterString = "*.svg; *.svgz";
+    break;
+
   case "text/xml":
   case "application/xml":
     bundleName   = "WebPageXMLOnlyFilter";
@@ -955,6 +960,7 @@ function GetSaveModeForContentType(aContentType)
   switch (aContentType) {
   case "text/html":
   case "application/xhtml+xml":
+  case "image/svg+xml":
     saveMode |= SAVEMODE_COMPLETE_TEXT;
     // Fall through
   case "text/xml":

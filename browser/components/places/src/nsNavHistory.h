@@ -85,6 +85,7 @@ class AutoCompleteIntermediateResultSet;
 class mozIAnnotationService;
 class nsNavHistory;
 class nsNavBookmarks;
+class QueryKeyValuePair;
 
 
 // nsNavHistory
@@ -173,8 +174,13 @@ public:
   static const PRInt32 kGetInfoIndex_VisitDate;
   static const PRInt32 kGetInfoIndex_FaviconURL;
 
+  // used in execute queries to get session ID info (only for visits)
+  static const PRInt32 kGetInfoIndex_SessionId;
+
   static nsIAtom* sMenuRootAtom;
   static nsIAtom* sToolbarRootAtom;
+  static nsIAtom* sSessionStartAtom;
+  static nsIAtom* sSessionContinueAtom;
 
   // Take a row of kGetInfoIndex_* columns and construct a ResultNode.
   // The row must contain the full set of columns.
@@ -301,7 +307,7 @@ protected:
                                 const nsAString& aTitle);
 
   nsresult RecursiveGroup(const nsCOMArray<nsNavHistoryResultNode>& aSource,
-                          const PRInt32* aGroupingMode, PRUint32 aGroupCount,
+                          const PRUint32* aGroupingMode, PRUint32 aGroupCount,
                           nsCOMArray<nsNavHistoryResultNode>* aDest);
   nsresult GroupByDay(const nsCOMArray<nsNavHistoryResultNode>& aSource,
                       nsCOMArray<nsNavHistoryResultNode>* aDest);
@@ -376,9 +382,9 @@ protected:
                              void *navHistoryVoid);
 
   // in nsNavHistoryQuery.cpp
-  nsresult TokensToQueries(const nsVoidArray& aTokens,
-                              nsCOMArray<nsINavHistoryQuery>* aQueries,
-                              nsNavHistoryQueryOptions* aOptions);
+  nsresult TokensToQueries(const nsTArray<QueryKeyValuePair>& aTokens,
+                           nsCOMArray<nsINavHistoryQuery>* aQueries,
+                           nsNavHistoryQueryOptions* aOptions);
 
   nsresult ImportFromMork();
 

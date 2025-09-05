@@ -68,7 +68,7 @@ gfxASurface *gfxContext::CurrentSurface()
 
 void gfxContext::SetTarget(gfxASurface *target)
 {
-    cairo_set_target (mCairo, target->CairoSurface());
+    moz_cairo_set_target (mCairo, target->CairoSurface());
     mSurface = target;
 }
 
@@ -506,4 +506,9 @@ void gfxContext::PushFilter(gfxFilter& filter, FilterHints hints, gfxRect& maxAr
 void gfxContext::PopFilter()
 {
 
+}
+
+void gfxContext::ShowPage()
+{
+    cairo_show_page(mCairo);
 }

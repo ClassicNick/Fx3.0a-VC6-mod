@@ -91,7 +91,6 @@ var observer = {
   onEndUpdateBatch: function() {
     this._endUpdateBatch = true;
   },
-  get wantAllDetails() { return this._wantAllDetails; },
   onItemAdded: function(uri, folder, index) {
     this._itemAdded = uri;
     this._itemAddedFolder = folder;
@@ -145,7 +144,6 @@ var observer = {
     }
     throw Components.results.NS_ERROR_NO_INTERFACE;
   },
-  _wantAllDetails: true
 };
 
 bmsvc.addObserver(observer, false);
@@ -258,15 +256,18 @@ if (observer._folderMoved != workFolder ||
     observer._folderMovedNewIndex != 4) {
   dump("moveFolder notification FAILED\n");
 }
+// Test expected failure of moving a folder to be its own parent
+try {
+  bmsvc.moveFolder(workFolder, workFolder, -1);
+  dump("moveFolder parameter validation FAILED\n");
+} catch (e) {}
 if (bmsvc.indexOfItem(root, uri("http://google.com/")) != 1) {
   dump("indexOfItem FAILED\n");
 }
 if (bmsvc.indexOfFolder(root, workFolder) != 4) {
   dump("indexOfFolder FAILED\n");
 }
-bmsvc.setFolderReadonly(workFolder, true);
-bmsvc.setFolderReadonly(homeFolder, true);
-bmsvc.setFolderReadonly(homeFolder, false);
+// XXX test folderReadOnly
 
 ///  EXPECTED TABLE RESULTS
 ///  moz_bookmarks:
@@ -327,8 +328,3 @@ bmsvc.setFolderReadonly(homeFolder, false);
 ///  4             Firefox and Mozilla Links
 ///  5             Work
 ///  6             Home
-///
-///  moz_anno:
-///  id       page     name                  content    expiration
-///  --       ----     ------------------    -------    ----------
-///  1        18       bookmarks/readonly    1          4

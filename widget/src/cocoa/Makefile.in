@@ -95,6 +95,8 @@ MAC_LCPPSRCS = \
 		nsStylClipboardUtils.cpp \
 		nsToolkitBase.cpp \
 		nsTSMStrategy.cpp \
+		nsScreenMac.cpp \
+		nsScreenManagerMac.cpp \
 		$(NULL)
 
 
@@ -118,7 +120,7 @@ CMMSRCS = \
 		nsCursorManager.mm \
 		nsMacCursor.mm \
 		$(NULL)
-	
+
 XPIDLSRCS	+= \
 		nsIChangeManager.idl \
 		nsIMenuCommandDispatcher.idl \
@@ -140,6 +142,21 @@ EXTRA_DSO_LDOPTS += \
 GARBAGE		+= $(GFX_LCPPSRCS) $(MAC_LCPPSRCS)
 
 include $(topsrcdir)/config/rules.mk
+
+NIB_FILES = \
+	classes.nib \
+	info.nib \
+	keyedobjects.nib \
+	$(NULL)
+NIB_DEST = $(DIST)/bin/res/MainMenu.nib
+
+libs:: $(addprefix $(NIB_DEST)/,$(NIB_FILES))
+
+$(NIB_DEST):
+	$(NSINSTALL) -D $@
+
+$(NIB_DEST)/%: $(srcdir)/resources/MainMenu.nib/% $(NIB_DEST)
+	$(INSTALL) $< $(NIB_DEST)
 
 RES_DEST = $(DIST)/bin/libwidget.rsrc
 RES_SRC = nsMacWidget.r

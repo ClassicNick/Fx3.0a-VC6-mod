@@ -67,6 +67,8 @@
 #include "prprf.h"
 #include "mozStorageHelper.h"
 
+#define ICONURI_QUERY "chrome://browser/skin/places/query.png"
+
 // emulate string comparison (used for sorting) for PRTime and int
 inline PRInt32 ComparePRTime(PRTime a, PRTime b)
 {
@@ -92,6 +94,7 @@ nsNavHistoryResultNode::nsNavHistoryResultNode() :
     mID(0),
     mAccessCount(0),
     mTime(0),
+    mSessionID(0),
     mExpanded(PR_FALSE)
 {
 }
@@ -169,6 +172,12 @@ NS_IMETHODIMP nsNavHistoryResultNode::GetTime(PRTime *aTime)
 /* attribute nsIURI con; */
 NS_IMETHODIMP nsNavHistoryResultNode::GetIcon(nsIURI** aURI)
 {
+  PRInt64 folderId;
+  GetFolderId(&folderId);
+
+  if (mType == nsINavHistoryResult::RESULT_TYPE_QUERY && folderId == 0)
+    return NS_NewURI(aURI, ICONURI_QUERY);
+
   nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
   NS_ENSURE_TRUE(faviconService, NS_ERROR_NO_INTERFACE);
   return faviconService->GetFaviconLinkForIconString(mFaviconURL, aURI);
@@ -218,14 +227,6 @@ nsNavHistoryResultNode::OnBeginUpdateBatch()
 NS_IMETHODIMP
 nsNavHistoryResultNode::OnEndUpdateBatch()
 {
-  return NS_OK;
-}
-
-/* readonly attribute boolean wantAllDetails; */
-NS_IMETHODIMP
-nsNavHistoryResultNode::GetWantAllDetails(PRBool *aResult)
-{
-  *aResult = PR_TRUE;
   return NS_OK;
 }
 
@@ -562,14 +563,6 @@ nsNavHistoryQueryNode::OnEndUpdateBatch()
   return NS_OK;
 }
 
-/* readonly attribute boolean wantAllDetails; */
-NS_IMETHODIMP
-nsNavHistoryQueryNode::GetWantAllDetails(PRBool *aResult)
-{
-  *aResult = PR_TRUE;
-  return NS_OK;
-}
-
 NS_IMETHODIMP
 nsNavHistoryQueryNode::GetChildrenReadOnly(PRBool *aResult)
 {
@@ -599,7 +592,7 @@ nsNavHistoryQueryNode::CreateNode(nsIURI *aBookmark,
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ASSERTION(results, "item must be in history!");
 
-  return history->RowToResult(statement, PR_FALSE, aNode);
+  return history->RowToResult(statement, mOptions, aNode);
 }
 
 PRBool
@@ -659,6 +652,10 @@ nsNavHistoryQueryNode::OnItemRemoved(nsIURI *aBookmark,
                                      PRInt64 aFolder, PRInt32 aIndex)
 {
   if (FolderId() == aFolder) {
+    if (aIndex < 0 || aIndex >= mChildren.Count()) {
+      return NS_ERROR_INVALID_ARG;
+    }
+
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -832,6 +829,10 @@ nsNavHistoryQueryNode::OnFolderRemoved(PRInt64 aFolder,
                                        PRInt64 aParent, PRInt32 aIndex)
 {
   if (FolderId() == aParent) {
+    if (aIndex < 0 || aIndex >= mChildren.Count()) {
+      return NS_ERROR_INVALID_ARG;
+    }
+
     // If we're not expanded, we can just invalidate our child list
     // and rebuild it the next time we're opened.
     if (!mExpanded) {
@@ -1070,7 +1071,8 @@ nsNavHistoryResult::nsNavHistoryResult(nsNavHistory* aHistoryService,
                                        PRUint32 aQueryCount,
                                        nsNavHistoryQueryOptions* aOptions)
   : mBundle(aHistoryBundle), mHistoryService(aHistoryService),
-    mCollapseDuplicates(PR_TRUE)
+    mCollapseDuplicates(PR_TRUE),
+    mShowSessions(PR_FALSE)
 {
   NS_ASSERTION(aOptions, "must have options!");
   // Fill saved source queries with copies of the original (the caller might
@@ -1156,6 +1158,7 @@ nsNavHistoryResult::FilledAllResults()
   FillTreeStats(this, -1),
   RebuildAllListRecurse(mChildren);
   InitializeVisibleList();
+  ComputeShowSessions();
 }
 
 // nsNavHistoryResult::BuildChildrenFor
@@ -1663,6 +1666,35 @@ nsNavHistoryResult::FormatFriendlyTime(PRTime aTime, nsAString& aResult)
 }
 
 
+// nsNavHistoryResult::ComputeShowSessions
+//
+//    Computes the value of mShowSessions, which is used to see if we should
+//    try to set styles for session groupings.  We only want to do session
+//    grouping if we're in an appropriate view, which is view by visit and
+//    sorted by date.
+
+void
+nsNavHistoryResult::ComputeShowSessions()
+{
+  mShowSessions = PR_FALSE;
+  NS_ASSERTION(mOptions, "navHistoryResults must have valid options");
+  if (mOptions->ResultType() != nsINavHistoryQueryOptions::RESULT_TYPE_VISIT)
+    return; // not visits
+  if (mOptions->SortingMode() != nsINavHistoryQueryOptions::SORT_BY_DATE_ASCENDING &&
+      mOptions->SortingMode() != nsINavHistoryQueryOptions::SORT_BY_DATE_DESCENDING)
+    return; // not date sorting
+
+  PRUint32 groupCount;
+  const PRUint32* groups = mOptions->GroupingMode(&groupCount);
+  for (PRUint32 i = 0; i < groupCount; i ++) {
+    if (groups[i] != nsINavHistoryQueryOptions::GROUP_BY_DAY)
+      return; // non-time-based grouping
+  }
+
+  mShowSessions = PR_TRUE;
+}
+
+
 // nsNavHistoryResult::FillTreeStats
 //
 //    This basically does a recursive depth-first traversal of the tree to fill
@@ -1722,6 +1754,9 @@ void
 nsNavHistoryResult::RebuildList()
 {
   PRInt32 oldVisibleCount = mVisibleElements.Count();
+
+  // something changed, so we better update the show sessions value
+  ComputeShowSessions();
 
   mAllElements.Clear();
   mVisibleElements.Clear();
@@ -1885,7 +1920,22 @@ NS_IMETHODIMP nsNavHistoryResult::SetSelection(nsITreeSelection* aSelection)
 /* void getRowProperties (in long index, in nsISupportsArray properties); */
 NS_IMETHODIMP nsNavHistoryResult::GetRowProperties(PRInt32 index, nsISupportsArray *properties)
 {
-  return NS_ERROR_NOT_IMPLEMENTED;
+  if (! mShowSessions)
+    return NS_OK; // don't need to bother to compute session boundaries
+
+  if (index < 0 || index >= mVisibleElements.Count())
+    return NS_ERROR_INVALID_ARG;
+  nsNavHistoryResultNode *node = VisibleElementAt(index);
+
+  if (node->mSessionID != 0) {
+    if (index == 0 ||
+        node->mSessionID != VisibleElementAt(index - 1)->mSessionID) {
+      properties->AppendElement(nsNavHistory::sSessionStartAtom);
+    } else {
+      properties->AppendElement(nsNavHistory::sSessionContinueAtom);
+    }
+  }
+  return NS_OK;
 }
 
 /* void getCellProperties (in long row, in nsITreeColumn col, in nsISupportsArray properties); */
@@ -1905,7 +1955,15 @@ NS_IMETHODIMP nsNavHistoryResult::GetCellProperties(PRInt32 row, nsITreeColumn *
     properties->AppendElement(nsNavHistory::sMenuRootAtom);
   else if (toolbarRootId == folderId)
     properties->AppendElement(nsNavHistory::sToolbarRootAtom);
-
+  
+  if (mShowSessions && node->mSessionID != 0) {
+    if (row == 0 ||
+        node->mSessionID != VisibleElementAt(row - 1)->mSessionID) {
+      properties->AppendElement(nsNavHistory::sSessionStartAtom);
+    } else {
+      properties->AppendElement(nsNavHistory::sSessionContinueAtom);
+    }
+  }
   return NS_OK;
 }
 
@@ -2079,8 +2137,13 @@ NS_IMETHODIMP nsNavHistoryResult::GetImageSrc(PRInt32 row, nsITreeColumn *col,
   nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
   NS_ENSURE_TRUE(faviconService, NS_ERROR_NO_INTERFACE);
 
+  nsCOMPtr<nsIURI> iconURI;
+  nsresult rv = VisibleElementAt(row)->GetIcon(getter_AddRefs(iconURI));
+  if (NS_FAILED(rv))
+    return rv;
+
   nsCAutoString spec;
-  faviconService->GetFaviconSpecForIconString(VisibleElementAt(row)->mFaviconURL, spec);
+  iconURI->GetSpec(spec);
 //  _retval = NS_ConvertUTF8toUTF16(spec);
   CopyUTF8toUTF16(spec, _retval);
   return NS_OK;

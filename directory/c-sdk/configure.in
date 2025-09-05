@@ -198,7 +198,15 @@ AC_ARG_ENABLE(n32,
 AC_ARG_ENABLE(64bit,
     [  --enable-64bit          Enable 64-bit support (on certain platforms)],
     [ if test "$enableval" = "yes"; then
-	    USE_64=1
+	    USE_64=1 ; export USE_64
+      elif test "$enableval" = "no"; then
+        USE_64=
+      else
+        # if the user specified nothing, just guess based on machine type
+        arch=`uname -m`
+        case $arch in
+             x86_64|ppc64|ia64|s390x) USE_64=1 ; export USE_64 ;;
+        esac
       fi ])
 
 AC_ARG_ENABLE(mdupdate,
@@ -206,19 +214,6 @@ AC_ARG_ENABLE(mdupdate,
     [ if test "$enableval" = "yes"; then
 	    USE_MDUPDATE=1
       fi ])
-
-dnl ========================================================
-dnl = Build libssldap, and use the NSS installed in dist for
-dnl = the crypto.
-dnl ========================================================
-dnl
-AC_ARG_WITH(nss, 
-    [  --with-nss              Build libssldap, using NSS for crypto],
-    [   if test "$withval" = "yes"; then
-            USE_NSS=1
-	    else
-            USE_NSS=
-	    fi])
 
 dnl ========================================================
 dnl = Use the NSPR copy in the system (assuming it exists) 
@@ -235,12 +230,25 @@ AC_ARG_WITH(system-nspr,
 if test "$_WIN32_MSVC"; then
     _SYSTEM_NSPR=
 fi
-	
-if test -n "$_SYSTEM_NSPR"; then
-    AM_PATH_NSPR(4.0.0, [MOZ_NATIVE_NSPR=1], [MOZ_NATIVE_NSPR=])
+
+# first, see if user has specified explicit NSPR include and lib paths
+AM_PATH_GIVEN_NSPR()
+
+# next, see if user explicitly said to use system nspr
+if test -z "$no_nspr" -a -z "$NSPR_CFLAGS" -a -z "$NSPR_LIBS" ; then
+    if test -n "$_SYSTEM_NSPR"; then
+        AM_PATH_NSPR(4.0.0, [MOZ_NATIVE_NSPR=1], [MOZ_NATIVE_NSPR=])
+    else
+# see if we are being built in the same build tree as nspr
+        AM_PATH_INTREE_NSPR(../../dist)
+# failing that, see if we can find nspr-config or pkg-config nspr
+        if test -z "$NSPR_CFLAGS" ; then
+            AM_PATH_NSPR(4.0.0, [MOZ_NATIVE_NSPR=1], [MOZ_NATIVE_NSPR=])
+        fi
+    fi
 fi
 
-if test -z "$MOZ_NATIVE_NSPR"; then
+if test -n "$_SYSTEM_NSPR" -a -z "$MOZ_NATIVE_NSPR"; then
     NSPR_CFLAGS='-I$(DIST)/include/nspr'
     NSPR_LIBS='-L$(DIST)/lib '"-lplds$NSPR_VERSION -lplc$NSPR_VERSION -lnspr$NSPR_VERSION"
     # explicitly set libs for Visual Age C++ for OS/2
@@ -248,6 +256,74 @@ if test -z "$MOZ_NATIVE_NSPR"; then
         NSPR_LIBS='$(DIST)/lib/nspr'$NSPR_VERSION'.lib $(DIST)/lib/plc'$NSPR_VERSION'.lib $(DIST)/lib/plds'$NSPR_VERSION'.lib '$_PTHREAD_LDFLAGS''
     elif test "$_WIN32_MSVC"; then
             NSPR_LIBS='$(DIST)/lib/nspr'$NSPR_VERSION'.lib $(DIST)/lib/plc'$NSPR_VERSION'.lib $(DIST)/lib/plds'$NSPR_VERSION'.lib '
+    fi
+fi
+
+dnl ========================================================
+dnl = Use the NSS copy in the system (assuming it exists) 
+dnl = rather than the one in the source tree (mozilla/security)
+dnl ========================================================
+AC_ARG_WITH(system-nss,
+    [  --with-system-nss   Use system installed NSS],
+    [   if test "$withval" = "yes"; then
+            _SYSTEM_NSS=1
+            USE_NSS=1
+	    else
+            _SYSTEM_NSS=
+	    fi], _SYSTEM_NSS= )
+
+if test "$_WIN32_MSVC"; then
+    _SYSTEM_NSS=
+fi
+
+# first, see if user has specified explicit NSS include and lib paths
+AM_PATH_GIVEN_NSS()
+
+# next, see if user explicitly said to use system nss
+if test -n "$USE_NSS" -a -z "$NSS_CFLAGS" -a -z "$NSS_LIBS" ; then
+    if test -n "$_SYSTEM_NSS"; then
+        AM_PATH_NSS(3.9.0, [MOZ_NATIVE_NSS=1], [MOZ_NATIVE_NSS=])
+    else
+# see if we are being built in the same build tree as nss
+        AM_PATH_INTREE_NSS(../../dist)
+# failing that, see if we can find nss-config or pkg-config nss
+        if test -z "$NSS_CFLAGS" ; then
+            AM_PATH_NSS(3.9.0, [MOZ_NATIVE_NSS=1], [MOZ_NATIVE_NSS=])
+        fi
+    fi
+fi
+
+
+dnl ========================================================
+dnl = svrcore gives the command line tools secure PIN management
+dnl = for client cert based authentication
+dnl ========================================================
+dnl ========================================================
+dnl = Use the SVRCORE copy in the system (assuming it exists) 
+dnl = rather than the one in the source tree (mozilla/security)
+dnl ========================================================
+AC_ARG_WITH(system-svrcore,
+    [  --with-system-svrcore   Use system installed SVRCORE],
+    [   if test "$withval" = "yes"; then
+            _SYSTEM_SVRCORE=1
+	    else
+            _SYSTEM_SVRCORE=
+	    fi], _SYSTEM_SVRCORE= )
+
+# first, see if user has specified explicit SVRCORE include and lib paths
+AM_PATH_GIVEN_SVRCORE()
+
+# next, see if user explicitly said to use system svrcore
+if test -z "$SVRCORE_CFLAGS" -a -z "$SVRCORE_LIBS" ; then
+    if test -n "$_SYSTEM_SVRCORE"; then
+        AM_PATH_SVRCORE(4.0.1, [MOZ_NATIVE_SVRCORE=1], [MOZ_NATIVE_SVRCORE=])
+    else
+# see if we are being built in the same build tree as svrcore
+        AM_PATH_INTREE_SVRCORE(../../dist)
+# failing that, see if we can find svrcore-config or pkg-config svrcore
+        if test -z "$SVRCORE_CFLAGS" -o -z "$SVRCORE_LIBS"; then
+            AM_PATH_SVRCORE(4.0.1, [MOZ_NATIVE_SVRCORE=1], [MOZ_NATIVE_SVRCORE=])
+        fi
     fi
 fi
 
@@ -383,7 +459,27 @@ if test -z "$SKIP_COMPILER_CHECKS"; then
 dnl ========================================================
 dnl Checks for compilers.
 dnl ========================================================
-if test "$target" != "$host"; then
+if test "$target" = "$host"; then
+    AC_PROG_CXX
+    if test "$CXX" = "cl" -a -z "$CC"; then
+        CC=$CXX
+    else        
+        AC_PROG_CC
+    fi
+    AC_PROG_CPP
+    AC_PROG_RANLIB
+    AC_PATH_PROGS(AS, as, $CC)
+    AC_PATH_PROGS(AR, ar, echo not_ar)
+    AC_PATH_PROGS(LD, ld link, echo not_ld)
+    AC_PATH_PROGS(STRIP, strip, echo not_strip)
+    AC_PATH_PROGS(WINDRES, windres, echo not_windres)
+    if test -z "$HOST_CC"; then
+	    HOST_CC="$CC"
+    fi
+    if test -z "$HOST_CFLAGS"; then
+	    HOST_CFLAGS="$CFLAGS"
+    fi
+else
     echo "cross compiling from $host to $target"
     cross_compiling=yes
 
@@ -429,27 +525,6 @@ if test "$target" != "$host"; then
     AC_CHECK_PROGS(LD, $LD "${target_alias}-ld" "${target}-ld", echo)
     AC_CHECK_PROGS(STRIP, $STRIP "${target_alias}-strip" "${target}-strip", echo)
     AC_CHECK_PROGS(WINDRES, $WINDRES "${target_alias}-windres" "${target}-windres", echo)
-
-else
-    AC_PROG_CXX
-    if test "$CXX" = "cl" -a -z "$CC"; then
-        CC=$CXX
-    else        
-        AC_PROG_CC
-    fi
-    AC_PROG_CPP
-    AC_PROG_RANLIB
-    AC_PATH_PROGS(AS, as, $CC)
-    AC_PATH_PROGS(AR, ar, echo not_ar)
-    AC_PATH_PROGS(LD, ld link, echo not_ld)
-    AC_PATH_PROGS(STRIP, strip, echo not_strip)
-    AC_PATH_PROGS(WINDRES, windres, echo not_windres)
-    if test -z "$HOST_CC"; then
-	    HOST_CC="$CC"
-    fi
-    if test -z "$HOST_CFLAGS"; then
-	    HOST_CFLAGS="$CFLAGS"
-    fi
 fi
 
 if test "$GCC" = "yes"; then
@@ -905,14 +980,24 @@ case "$target" in
     AC_DEFINE(XP_UNIX)
     AC_DEFINE(HPUX)
     AC_DEFINE(_HPUX_SOURCE)
-    AC_DEFINE(hppa)
-    DLL_SUFFIX=sl
+    if test "$OS_TEST" = "ia64" ; then
+        AC_DEFINE(ia64)
+        DLL_SUFFIX=so
+    else
+        AC_DEFINE(hppa)
+        DLL_SUFFIX=sl
+    fi
     DSO_LDOPTS='-b +h $(notdir $@)'
     if test -z "$GNU_CC"; then
         CC="$CC -Ae"
         CXX="$CXX -ext"
-        CFLAGS="$CFLAGS +ESlit"
-        CXXFLAGS="$CXXFLAGS +ESlit"
+        if test "$OS_RELEASE" = "B.11.23"; then
+            CFLAGS="$CFLAGS +Olit=all"
+            CXXFLAGS="$CXXFLAGS +Olit=all"
+        else
+            CFLAGS="$CFLAGS +ESlit"
+            CXXFLAGS="$CXXFLAGS +ESlit"
+        fi
         DSO_CFLAGS=+Z
     else
         DSO_CFLAGS=-fPIC
@@ -941,7 +1026,7 @@ case "$target" in
         AC_DEFINE(HAVE_INT_LOCALTIME_R)
     fi
 
-    if echo "$OS_RELEASE" | egrep '^(B.10.30|B.11.00|B.11.11)' >/dev/null; then
+    if echo "$OS_RELEASE" | egrep '^(B.10.30|B.11.00|B.11.11|B.11.23)' >/dev/null; then
         AC_DEFINE(HAVE_POINTER_LOCALTIME_R)
     fi
 
@@ -994,6 +1079,24 @@ case "$target" in
         DEFAULT_IMPL_STRATEGY=_PTH
     fi
 
+    if test "$OS_RELEASE" = "B.11.23"; then
+        AC_DEFINE(HPUX10)
+        AC_DEFINE(HPUX11)
+        AC_DEFINE(_LARGEFILE64_SOURCE)
+        AC_DEFINE(_PR_HAVE_OFF64_T)
+        AC_DEFINE(HAVE_FCNTL_FILE_LOCKING)
+        if test -z "$GNU_CC"; then
+            if test -z "$USE_64"; then
+                CFLAGS="$CFLAGS +DD32 +DSblended"
+                CXXFLAGS="$CXXFLAGS +DD32 +DSblended"
+            else
+                CFLAGS="$CFLAGS +DD64 +DSblended"
+                CXXFLAGS="$CXXFLAGS +DD64 +DSblended"
+            fi
+        fi
+        DEFAULT_IMPL_STRATEGY=_PTH
+    fi
+
     if test "$DEFAULT_IMPL_STRATEGY" = "_EMU"; then
         USE_NSPR_THREADS=1
         USE_PTHREADS=
@@ -1007,6 +1110,7 @@ case "$target" in
             USE_PTHREADS=
         fi
     fi
+
     ;;
 
 *-irix*)
@@ -2152,6 +2256,8 @@ AC_SUBST(USE_USER_PTHREADS)
 AC_SUBST(USE_NATIVE_THREADS)
 AC_SUBST(USE_NSPR_THREADS)
 AC_SUBST(USE_NSS)
+AC_SUBST(NSS_CFLAGS)
+AC_SUBST(NSS_LIBS)
 
 AC_SUBST(CPU_ARCH)
 
