@@ -48,7 +48,7 @@ LIBRARY_NAME     = sqlite3_s
 MODULE_NAME      = sqlite3
 FORCE_STATIC_LIB = 1
 
-EXPORTS = sqlite3.h
+EXPORTS = sqlite3.h sqlite3file.h
 
 CSRCS = \
 	alter.c \
@@ -95,6 +95,11 @@ CSRCS = \
 	where.c \
 	$(NULL)
 
+# REFEF_IO allows us to override IO functions, which is used in the AsyncIO
+# storage system. SECURE_DELETE will cause SQLITE to 0-fill delete data so we
+# don't have to vacuum to make sure the data is not visible in the file.
+DEFINES = -DSQLITE_ENABLE_REDEF_IO -DSQLITE_SECURE_DELETE=1
+
 ifdef ENABLE_TESTS
 ##LIBS = $(DIST)/lib/$(LIB_PREFIX)sqlite3_s.$(LIB_SUFFIX)
 ##SIMPLE_PROGRAMS = sqlite-shell
@@ -105,3 +110,5 @@ include $(topsrcdir)/config/rules.mk
 sqlite-shell.$(OBJ_SUFFIX): shell.c
 	$(ELOG) $(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $(_VPATH_SRCS)
 
+# next line allows use of MOZ_OBJDIR in .mozconfig with older gcc on BeOS, maybe others
+LOCAL_INCLUDES += -I$(srcdir)

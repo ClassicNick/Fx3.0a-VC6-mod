@@ -109,7 +109,16 @@ const RELOAD_ACTION_REMOVE = 2;
 // rows.
 const RELOAD_ACTION_MOVE = 3;
 
+#ifdef XP_MACOSX
+// On Mac OSX, the transferable system converts "\r\n" to "\n\n", where we
+// really just want "\n".
+const NEWLINE= "\n";
+#else
+// On other platforms, the transferable system converts "\r\n" to "\n".
 const NEWLINE = "\r\n";
+#endif
+
+const MENU_URI = "chrome://browser/content/places/menu.xml#places-menupopup";
 
 function STACK(args) {
   var temp = arguments.callee.caller;
@@ -744,25 +753,6 @@ var PlacesController = {
   },
 
   /**
-   * Given a Mouse event, determine which function should be used to load
-   * the selected link. Modifiers may override the default settings and cause
-   * a link to be opened in a new tab or window. 
-   * @param   event
-   *          The DOM Mouse Event triggering a URL load
-   * @returns A function which should be used to load the selected URL.
-   */
-  _getLoadFunctionForEvent: function PP__getLoadFunctionForEvent(event) {
-    if (event.button != 0)
-      return null;
-    
-    if (event.ctrlKey)
-      return this.openLinkInNewTab;
-    else if (event.shiftKey)
-      return this.openLinkInNewWindow;
-    return this.openLinkInCurrentWindow;
-  },
-
-  /**
    * Loads a URL in the appropriate tab or window, given the user's preference
    * specified by modifier keys tracked by a DOM event
    * @param   event
@@ -770,9 +760,9 @@ var PlacesController = {
    *          preferred destination window or tab.
    */
   mouseLoadURI: function PC_mouseLoadURI(event) {
-    var fn = this._getLoadFunctionForEvent(event);
-    if (fn)
-      this._getLoadFunctionForEvent(event)();
+    var node = this._activeView.selectedURINode;
+    if (node)
+      this._activeView.browserWindow.openUILink(node.uri, event, false, false);
   },
 
   /**
@@ -1305,11 +1295,17 @@ var PlacesController = {
   /**
    * Get a TransferDataSet containing the content of the selection that can be
    * dropped elsewhere. 
+   * @param   dragAction
+   *          The action to happen when dragging, i.e. copy
    * @returns A TransferDataSet object that can be dragged and dropped 
    *          elsewhere.
    */
-  getTransferData: function PC_getTransferData() {
-    var nodes = this._activeView.getCopyableSelection();
+  getTransferData: function PC_getTransferData(dragAction) {
+    var nodes = null;
+    if (dragAction == Ci.nsIDragService.DRAGDROP_ACTION_COPY)
+      nodes = this._activeView.getCopyableSelection();
+    else
+      nodes = this._activeView.getDragableSelection();
     var dataSet = new TransferDataSet();
     for (var i = 0; i < nodes.length; ++i) {
       var node = nodes[i];
@@ -1451,9 +1447,14 @@ var PlacesController = {
  */
 var PlacesControllerDragHelper = {
   /**
+   * DOM Element currently being dragged over
+   */
+  currentDropTarget: null,
+   
+  /**
    * @returns The current active drag session. Returns null if there is none.
    */
-  _getSession: function VO__getSession() {
+  getSession: function VO__getSession() {
     var dragService = 
         Cc["@mozilla.org/widget/dragservice;1"].
         getService(Ci.nsIDragService);
@@ -1476,7 +1477,7 @@ var PlacesControllerDragHelper = {
         !PlacesController.nodeIsFolder(parent))
       return false;
   
-    var session = this._getSession();
+    var session = this.getSession();
     if (session) {
       if (orientation != NHRVO.DROP_ON)
         var types = view.supportedDropTypes;
@@ -1531,7 +1532,7 @@ var PlacesControllerDragHelper = {
    */
   onDrop: function PCDH_onDrop(sourceView, targetView, insertionPoint, 
                                visibleInsertCount) {
-    var session = this._getSession();
+    var session = this.getSession();
     var copy = session.dragAction & Ci.nsIDragService.DRAGDROP_ACTION_COPY;
     var transactions = [];
     var xferable = this._initTransferable(targetView, 

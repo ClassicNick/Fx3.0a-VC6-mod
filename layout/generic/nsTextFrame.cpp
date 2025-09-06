@@ -268,14 +268,36 @@ public:
                                   nsIContent*     aChild,
                                   PRBool          aAppend);
   
-  virtual nsIFrame* GetNextInFlow() const {
-    return mNextInFlow;
+  virtual nsIFrame* GetNextContinuation() const {
+    return mNextContinuation;
+  }
+  NS_IMETHOD SetNextContinuation(nsIFrame* aNextContinuation) {
+    NS_ASSERTION (!aNextContinuation || GetType() == aNextContinuation->GetType(),
+                  "setting a next continuation with incorrect type!");
+    NS_ASSERTION (!nsSplittableFrame::IsInNextContinuationChain(aNextContinuation, this),
+                  "creating a loop in continuation chain!");
+    mNextContinuation = aNextContinuation;
+    if (aNextContinuation)
+      aNextContinuation->RemoveStateBits(NS_FRAME_IS_FLUID_CONTINUATION);
+    return NS_OK;
+  }
+  virtual nsIFrame* GetNextInFlowVirtual() const { return GetNextInFlow(); }
+  nsIFrame* GetNextInFlow() const {
+    return mNextContinuation && (mNextContinuation->GetStateBits() & NS_FRAME_IS_FLUID_CONTINUATION) ? 
+      mNextContinuation : nsnull;
   }
   NS_IMETHOD SetNextInFlow(nsIFrame* aNextInFlow) {
-    mNextInFlow = aNextInFlow;
+    NS_ASSERTION (!aNextInFlow || GetType() == aNextInFlow->GetType(),
+                  "setting a next in flow with incorrect type!");
+    NS_ASSERTION (!nsSplittableFrame::IsInNextContinuationChain(aNextInFlow, this),
+                  "creating a loop in continuation chain!");
+    mNextContinuation = aNextInFlow;
+    if (aNextInFlow)
+      aNextInFlow->AddStateBits(NS_FRAME_IS_FLUID_CONTINUATION);
     return NS_OK;
   }
   virtual nsIFrame* GetLastInFlow() const;
+  virtual nsIFrame* GetLastContinuation() const;
   
   NS_IMETHOD  IsSplittable(nsSplittableType& aIsSplittable) const {
     aIsSplittable = NS_FRAME_SPLITTABLE;
@@ -299,6 +321,8 @@ public:
                          nsIContent **   aNewContent,
                          PRInt32&        aContentOffset,
                          PRInt32&        aContentOffsetEnd);
+  
+  virtual ContentOffsets CalcContentOffsetsFromFramePoint(nsPoint aPoint);
   
   NS_IMETHOD GetPositionSlowly(nsIRenderingContext * aRendContext,
                                const nsPoint&        aPoint,
@@ -551,7 +575,7 @@ public:
 protected:
     virtual ~nsTextFrame();
   
-  nsIFrame* mNextInFlow;
+  nsIFrame* mNextContinuation;
   PRInt32   mContentOffset;
   PRInt32   mContentLength;
   PRInt32   mColumn;
@@ -1367,8 +1391,8 @@ NS_IMETHODIMP nsTextFrame::GetAccessible(nsIAccessible** aAccessible)
 NS_IMETHODIMP
 nsTextFrame::Destroy(nsPresContext* aPresContext)
 {
-  if (mNextInFlow) {
-    mNextInFlow->SetPrevInFlow(nsnull);
+  if (mNextContinuation) {
+    mNextContinuation->SetPrevInFlow(nsnull);
   }
   // Let the base class destroy the frame
   return nsFrame::Destroy(aPresContext);
@@ -1384,17 +1408,36 @@ public:
 
   NS_IMETHOD Destroy(nsPresContext* aPresContext);
 
-  virtual nsIFrame* GetPrevInFlow() const {
-    return mPrevInFlow;
+  virtual nsIFrame* GetPrevContinuation() const {
+    return mPrevContinuation;
+  }
+  NS_IMETHOD SetPrevContinuation(nsIFrame* aPrevContinuation) {
+    NS_ASSERTION (!aPrevContinuation || GetType() == aPrevContinuation->GetType(),
+                  "setting a prev continuation with incorrect type!");
+    NS_ASSERTION (!nsSplittableFrame::IsInPrevContinuationChain(aPrevContinuation, this),
+                  "creating a loop in continuation chain!");
+    mPrevContinuation = aPrevContinuation;
+    RemoveStateBits(NS_FRAME_IS_FLUID_CONTINUATION);
+    return NS_OK;
+  }
+  virtual nsIFrame* GetPrevInFlowVirtual() const { return GetPrevInFlow(); }
+  nsIFrame* GetPrevInFlow() const {
+    return (GetStateBits() & NS_FRAME_IS_FLUID_CONTINUATION) ? mPrevContinuation : nsnull;
   }
   NS_IMETHOD SetPrevInFlow(nsIFrame* aPrevInFlow) {
-    mPrevInFlow = aPrevInFlow;
+    NS_ASSERTION (!aPrevInFlow || GetType() == aPrevInFlow->GetType(),
+                  "setting a prev in flow with incorrect type!");
+    NS_ASSERTION (!nsSplittableFrame::IsInPrevContinuationChain(aPrevInFlow, this),
+                  "creating a loop in continuation chain!");
+    mPrevContinuation = aPrevInFlow;
+    AddStateBits(NS_FRAME_IS_FLUID_CONTINUATION);
     return NS_OK;
   }
   virtual nsIFrame* GetFirstInFlow() const;
+  virtual nsIFrame* GetFirstContinuation() const;
   
 protected:
-  nsIFrame* mPrevInFlow;
+  nsIFrame* mPrevContinuation;
 };
 
 NS_IMETHODIMP
@@ -1409,8 +1452,9 @@ nsContinuingTextFrame::Init(nsPresContext*  aPresContext,
   rv = nsTextFrame::Init(aPresContext, aContent, aParent, aContext, aPrevInFlow);
 
   if (aPrevInFlow) {
+    nsIFrame* nextContinuation = aPrevInFlow->GetNextContinuation();
     // Hook the frame into the flow
-    mPrevInFlow = aPrevInFlow;
+    SetPrevInFlow(aPrevInFlow);
     aPrevInFlow->SetNextInFlow(this);
 #ifdef IBMBIDI
     if (aPrevInFlow->GetStateBits() & NS_FRAME_IS_BIDI) {
@@ -1427,17 +1471,12 @@ nsContinuingTextFrame::Init(nsPresContext*  aPresContext,
       propTable->SetProperty(this, nsLayoutAtoms::charType,
                  propTable->GetProperty(aPrevInFlow, nsLayoutAtoms::charType),
                              nsnull, nsnull);
-
-      void* value = propTable->GetProperty(aPrevInFlow,
-                                           nsLayoutAtoms::nextBidi);
-      if (value) {  // nextBidi
-        // aPrevInFlow and this frame will point to the same next bidi frame.
-        propTable->SetProperty(this, nsLayoutAtoms::nextBidi,
-                               value, nsnull, nsnull);
-
-        ( (nsIFrame*) value)->GetOffsets(start, end);
+      if (nextContinuation) {
+        SetNextContinuation(nextContinuation);
+        nextContinuation->SetPrevContinuation(this);
+        nextContinuation->GetOffsets(start, end);
         mContentLength = PR_MAX(1, start - mContentOffset);
-      } // value
+      }
       mState |= NS_FRAME_IS_BIDI;
     } // prev frame is bidi
 #endif // IBMBIDI
@@ -1449,7 +1488,7 @@ nsContinuingTextFrame::Init(nsPresContext*  aPresContext,
 NS_IMETHODIMP
 nsContinuingTextFrame::Destroy(nsPresContext* aPresContext)
 {
-  if (mPrevInFlow || mNextInFlow) {
+  if (mPrevContinuation || mNextContinuation) {
     nsSplittableFrame::RemoveFromFlow(this);
   }
   // Let the base class destroy the frame
@@ -1468,6 +1507,20 @@ nsContinuingTextFrame::GetFirstInFlow() const
     previous = firstInFlow->GetPrevInFlow();
   } while (previous);
   return firstInFlow;
+}
+
+nsIFrame*
+nsContinuingTextFrame::GetFirstContinuation() const
+{
+  // Can't cast to |nsContinuingTextFrame*| because the first one isn't.
+  nsIFrame *firstContinuation,
+  *previous = NS_CONST_CAST(nsIFrame*,
+                            NS_STATIC_CAST(const nsIFrame*, mPrevContinuation));
+  do {
+    firstContinuation = previous;
+    previous = firstContinuation->GetPrevContinuation();
+  } while (previous);
+  return firstContinuation;
 }
 
 //DRAW SELECTION ITERATOR USED FOR TEXTFRAMES ONLY
@@ -1844,13 +1897,24 @@ nsTextFrame::GetCursor(const nsPoint& aPoint,
 nsIFrame*
 nsTextFrame::GetLastInFlow() const
 {
-  nsTextFrame* lastInFlow = (nsTextFrame*)this;
-  while (lastInFlow->mNextInFlow)  {
-    lastInFlow = (nsTextFrame*)lastInFlow->mNextInFlow;
+  nsTextFrame* lastInFlow = NS_CONST_CAST(nsTextFrame*, this);
+  while (lastInFlow->GetNextInFlow())  {
+    lastInFlow = NS_STATIC_CAST(nsTextFrame*, lastInFlow->GetNextInFlow());
   }
   NS_POSTCONDITION(lastInFlow, "illegal state in flow chain.");
   return lastInFlow;
 }
+nsIFrame*
+nsTextFrame::GetLastContinuation() const
+{
+  nsTextFrame* lastInFlow = NS_CONST_CAST(nsTextFrame*, this);
+  while (lastInFlow->mNextContinuation)  {
+    lastInFlow = NS_STATIC_CAST(nsTextFrame*, lastInFlow->mNextContinuation);
+  }
+  NS_POSTCONDITION(lastInFlow, "illegal state in continuation chain.");
+  return lastInFlow;
+}
+
 
 NS_IMETHODIMP
 nsTextFrame::CharacterDataChanged(nsPresContext* aPresContext,
@@ -1862,7 +1926,7 @@ nsTextFrame::CharacterDataChanged(nsPresContext* aPresContext,
   PRBool markAllDirty = PR_TRUE;
   if (aAppend) {
     markAllDirty = PR_FALSE;
-    nsTextFrame* frame = (nsTextFrame*)GetLastInFlow();
+    nsTextFrame* frame = NS_STATIC_CAST(nsTextFrame*, GetLastInFlow());
     frame->mState &= ~TEXT_WHITESPACE_FLAGS;
     frame->mState |= NS_FRAME_IS_DIRTY;
     targetTextFrame = frame;
@@ -1875,14 +1939,7 @@ nsTextFrame::CharacterDataChanged(nsPresContext* aPresContext,
     while (textFrame) {
       textFrame->mState &= ~TEXT_WHITESPACE_FLAGS;
       textFrame->mState |= NS_FRAME_IS_DIRTY;
-#ifdef IBMBIDI
-      void* nextBidiFrame;
-      if ((textFrame->mState & NS_FRAME_IS_BIDI) &&
-          (nextBidiFrame = propTable->GetProperty(textFrame, nsLayoutAtoms::nextBidi)))
-        textFrame = (nsTextFrame*)nextBidiFrame;
-      else
-#endif
-        textFrame = (nsTextFrame*)textFrame->mNextInFlow;
+      textFrame = NS_STATIC_CAST(nsTextFrame*, textFrame->GetNextContinuation());
     }
   }
 
@@ -2721,14 +2778,6 @@ nsTextFrame::IsTextInSelection()
   if (0 != textLength) {
 
     SelectionDetails *details = nsnull;
-    nsCOMPtr<nsIFrameSelection> frameSelection;
-    //get the frameSelection from the selection controller
-    if (selCon) {
-      frameSelection = do_QueryInterface(selCon); //this MAY implement
-    }
-    //if that failed get it from the pres shell
-    if (!frameSelection)
-      frameSelection = shell->FrameSelection();
 
     nsCOMPtr<nsIContent> content;
     PRInt32 offset;
@@ -2738,9 +2787,9 @@ nsTextFrame::IsTextInSelection()
                                                    getter_AddRefs(content),
                                                    &offset, &length);
     if (NS_SUCCEEDED(rv) && content) {
-      rv = frameSelection->LookUpSelection(content, mContentOffset,
-                                           mContentLength, &details,
-                                           PR_FALSE);
+      rv = GetFrameSelection()->LookUpSelection(content, mContentOffset,
+                                                mContentLength, &details,
+                                                PR_FALSE);
     }
       
     //where are the selection points "really"
@@ -2883,27 +2932,16 @@ nsTextFrame::PaintUnicodeText(nsPresContext* aPresContext,
     else 
     { //we draw according to selection rules
       SelectionDetails *details = nsnull;
-      nsCOMPtr<nsIFrameSelection> frameSelection;
-      //get the frameSelection from the selection controller
-      if (selCon)
-      {
-        frameSelection = do_QueryInterface(selCon); //this MAY implement
-      }
-      //if that failed get it from the pres shell
-      nsresult rv = NS_OK;
-      if (!frameSelection)
-        frameSelection = shell->FrameSelection();
       nsCOMPtr<nsIContent> content;
       PRInt32 offset;
       PRInt32 length;
-
-      rv = GetContentAndOffsetsForSelection(aPresContext,
-                                            getter_AddRefs(content),
-                                            &offset, &length);
+      nsresult rv = GetContentAndOffsetsForSelection(aPresContext,
+                                                     getter_AddRefs(content),
+                                                     &offset, &length);
       if (NS_SUCCEEDED(rv) && content) {
-        rv = frameSelection->LookUpSelection(content, mContentOffset, 
-                                             mContentLength, &details,
-                                             PR_FALSE);
+        rv = GetFrameSelection()->LookUpSelection(content, mContentOffset, 
+                                                 mContentLength, &details,
+                                                 PR_FALSE);
       }
         
       //where are the selection points "really"
@@ -3620,23 +3658,16 @@ nsTextFrame::PaintTextSlowly(nsPresContext* aPresContext,
     else 
     {
       SelectionDetails *details = nsnull;
-      nsCOMPtr<nsIFrameSelection> frameSelection;
-//get the frame selection
-      nsresult rv = NS_OK;
-      frameSelection = do_QueryInterface(selCon); //this MAY implement
-      if (!frameSelection)//if that failed get it from the presshell
-        frameSelection = shell->FrameSelection();
       nsCOMPtr<nsIContent> content;
       PRInt32 offset;
       PRInt32 length;
-
-      rv = GetContentAndOffsetsForSelection(aPresContext,
-                                            getter_AddRefs(content),
-                                            &offset, &length);
+      nsresult rv = GetContentAndOffsetsForSelection(aPresContext,
+                                                     getter_AddRefs(content),
+                                                     &offset, &length);
       if (NS_SUCCEEDED(rv)) {
-        rv = frameSelection->LookUpSelection(content, mContentOffset, 
-                                             mContentLength, &details,
-                                             PR_FALSE);
+        rv = GetFrameSelection()->LookUpSelection(content, mContentOffset, 
+                                                  mContentLength, &details,
+                                                  PR_FALSE);
       }
 
       //where are the selection points "really"
@@ -3872,23 +3903,16 @@ nsTextFrame::PaintAsciiText(nsPresContext* aPresContext,
     }
     else {
       SelectionDetails *details;
-      nsCOMPtr<nsIFrameSelection> frameSelection;
-//get the frame selection
-      frameSelection = do_QueryInterface(selCon); //this MAY implement
-      nsresult rv = NS_OK;
-      if (!frameSelection)//if that failed get it from the presshell
-        frameSelection = shell->FrameSelection();
       nsCOMPtr<nsIContent> content;
       PRInt32 offset;
       PRInt32 length;
-
-      rv = GetContentAndOffsetsForSelection(aPresContext,
-                                            getter_AddRefs(content),
-                                            &offset, &length);
+      nsresult rv = GetContentAndOffsetsForSelection(aPresContext,
+                                                     getter_AddRefs(content),
+                                                     &offset, &length);
       if (NS_SUCCEEDED(rv)) {
-        rv = frameSelection->LookUpSelection(content, mContentOffset, 
-                                             mContentLength, &details,
-                                             PR_FALSE);
+        rv = GetFrameSelection()->LookUpSelection(content, mContentOffset, 
+                                                  mContentLength, &details,
+                                                  PR_FALSE);
       }
         
       //where are the selection points "really"
@@ -3999,6 +4023,16 @@ nsTextFrame::PaintAsciiText(nsPresContext* aPresContext,
   if (paintBuf != paintBufMem) {
     delete [] paintBuf;
   }
+}
+
+// XXX I don't really want to rewrite GetPositionHelper, so I'm doing this
+// hack for now
+nsIFrame::ContentOffsets nsTextFrame::CalcContentOffsetsFromFramePoint(nsPoint aPoint) {
+  ContentOffsets offsets;
+  GetPositionHelper(aPoint, getter_AddRefs(offsets.content), offsets.offset,
+                    offsets.secondaryOffset);
+  offsets.associateWithNext = (mContentOffset == offsets.offset);
+  return offsets;
 }
 
 //---------------------------------------------------------------------------
@@ -4233,32 +4267,17 @@ nsTextFrame::SetSelected(nsPresContext* aPresContext,
   else
   {//we need to see if any other selection available.
     SelectionDetails *details = nsnull;
-    nsCOMPtr<nsIFrameSelection> frameSelection;
+    nsCOMPtr<nsIContent> content;
+    PRInt32 offset;
+    PRInt32 length;
 
-    nsIPresShell *shell = aPresContext->GetPresShell();
-    if (shell) {
-      nsCOMPtr<nsISelectionController> selCon;
-      nsresult rv = GetSelectionController(aPresContext,
-                                           getter_AddRefs(selCon));
-      if (NS_SUCCEEDED(rv) && selCon)
-      {
-        frameSelection = do_QueryInterface(selCon); //this MAY implement
-      }
-      if (!frameSelection)
-        frameSelection = shell->FrameSelection();
-
-      nsCOMPtr<nsIContent> content;
-      PRInt32 offset;
-      PRInt32 length;
-
-      rv = GetContentAndOffsetsForSelection(aPresContext,
-                                            getter_AddRefs(content),
-                                            &offset, &length);
-      if (NS_SUCCEEDED(rv) && content) {
-        rv = frameSelection->LookUpSelection(content, offset,
-                                             length, &details, PR_TRUE);
-        // PR_TRUE last param used here! we need to see if we are still selected. so no shortcut
-      }
+    nsresult rv = GetContentAndOffsetsForSelection(aPresContext,
+                                                   getter_AddRefs(content),
+                                                   &offset, &length);
+    if (NS_SUCCEEDED(rv) && content) {
+      rv = GetFrameSelection()->LookUpSelection(content, offset,
+                                                length, &details, PR_TRUE);
+      // PR_TRUE last param used here! we need to see if we are still selected. so no shortcut
     }
     if (!details)
       RemoveStateBits(NS_FRAME_SELECTED_CONTENT);
@@ -4280,23 +4299,16 @@ nsTextFrame::SetSelected(nsPresContext* aPresContext,
   }
   if (aSpread == eSpreadDown)
   {
-    nsIFrame* frame = GetPrevInFlow();
+    nsIFrame* frame = GetPrevContinuation();
     while(frame){
       frame->SetSelected(aPresContext, aRange,aSelected,eSpreadNone);
-      frame = frame->GetPrevInFlow();
+      frame = frame->GetPrevContinuation();
     }
-    frame = GetNextInFlow();
+    frame = GetNextContinuation();
     while (frame){
       frame->SetSelected(aPresContext, aRange,aSelected,eSpreadNone);
-      frame = frame->GetNextInFlow();
+      frame = frame->GetNextContinuation();
     }
-#ifdef IBMBIDI
-    if ((mState & NS_FRAME_IS_BIDI) &&
-        (frame = NS_STATIC_CAST(nsIFrame*,
-                                aPresContext->PropertyTable()->GetProperty(this, nsLayoutAtoms::nextBidi)))) {
-      frame->SetSelected(aPresContext, aRange, aSelected, aSpread);
-    }
-#endif // IBMBIDI
   }
   return NS_OK;
 }
@@ -4443,33 +4455,14 @@ nsTextFrame::GetChildFrameContainingOffset(PRInt32 inContentOffset,
   if ((contentOffset > mContentLength) || ((contentOffset == mContentLength) && inHint) )
   {
     //this is not the frame we are looking for.
-    nsIFrame* nextInFlow = GetNextInFlow();
-    if (nextInFlow)
+    nsIFrame* nextContinuation = GetNextContinuation();
+    if (nextContinuation)
     {
-      return nextInFlow->GetChildFrameContainingOffset(inContentOffset, inHint, outFrameContentOffset, outChildFrame);
+      return nextContinuation->GetChildFrameContainingOffset(inContentOffset, inHint, outFrameContentOffset, outChildFrame);
     }
     else {
-#ifdef IBMBIDI // Simon
-    // There is no nextInFlow - check if there is a bidi
-    // continuation frame
-    if (mState & NS_FRAME_IS_BIDI)
-    {
-      nsIFrame *nextBidi = GetNextSibling();
-      if (nextBidi)
-      {
-        PRInt32 start, end;
-        if (NS_SUCCEEDED(nextBidi->GetOffsets(start, end)) && start > 0)
-        {
-          return nextBidi->GetChildFrameContainingOffset(inContentOffset, 
-            inHint, outFrameContentOffset, outChildFrame);
-        }
-      }
-    }
-#endif // IBMBIDI
-      {
-        if (contentOffset != mContentLength) //that condition was only for when there is a choice
-          return NS_ERROR_FAILURE;
-      }
+      if (contentOffset != mContentLength) //that condition was only for when there is a choice
+        return NS_ERROR_FAILURE;
     }
   }
 
@@ -4582,18 +4575,9 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
     aPos->mStartOffset = mContentOffset;
   }
   if (aPos->mStartOffset > (mContentOffset + mContentLength)){
-    nsIFrame *nextInFlow;
-#ifdef IBMBIDI
-    if (isOddLevel) {
-      nextInFlow = NS_STATIC_CAST(nsIFrame*,
-                           aPresContext->PropertyTable()->GetProperty(this,
-                                                     nsLayoutAtoms::nextBidi));
-    }
-    else
-#endif
-    nextInFlow = GetNextInFlow();
-    if (!nextInFlow){
-      NS_ASSERTION(PR_FALSE,"nsTextFrame::PeekOffset no more flow \n");
+    nsIFrame *nextContinuation = GetNextContinuation();
+    if (!nextContinuation){
+      NS_ASSERTION(PR_FALSE,"nsTextFrame::PeekOffset no more continuation\n");
       return NS_ERROR_INVALID_ARG;
     }
     // undoing the RTL flipping of mPreferLeft for the delegation
@@ -4601,7 +4585,7 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
     if ((eSelectCharacter == aPos->mAmount)
         || (eSelectWord == aPos->mAmount))
       aPos->mPreferLeft ^= isOddLevel;
-    return nextInFlow->PeekOffset(aPresContext, aPos);
+    return nextContinuation->PeekOffset(aPresContext, aPos);
   }
  
   // XXX TODO: explain the following:
@@ -5274,10 +5258,7 @@ nsTextFrame::MeasureText(nsPresContext*          aPresContext,
   PRInt32      start = -1, end;
 
   if (mState & NS_FRAME_IS_BIDI) {
-    nextBidi = NS_STATIC_CAST(nsTextFrame*,
-                              aPresContext->PropertyTable()->GetProperty(this,
-                                                     nsLayoutAtoms::nextBidi));
-
+    nextBidi = NS_STATIC_CAST(nsTextFrame*, GetLastInFlow()->GetNextContinuation());
     if (nextBidi) {
       if (mContentLength < 1) {
         mContentLength = 1;
@@ -5915,7 +5896,7 @@ nsTextFrame::Reflow(nsPresContext*          aPresContext,
   PRInt32 startingOffset = 0;
   nsIFrame* prevInFlow = GetPrevInFlow();
   if (nsnull != prevInFlow) {
-    nsTextFrame* prev = (nsTextFrame*)prevInFlow;
+    nsTextFrame* prev = NS_STATIC_CAST(nsTextFrame*, prevInFlow);
     startingOffset = prev->mContentOffset + prev->mContentLength;
 
     // If our starting offset doesn't agree with mContentOffset, then our
@@ -5997,7 +5978,7 @@ nsTextFrame::Reflow(nsPresContext*          aPresContext,
 
   // Set inWord to true if we are part of a previous piece of text's word. This
   // is only valid for one pass through the measuring loop.
-  PRBool inWord = lineLayout.InWord() || ((nsnull != prevInFlow) && (((nsTextFrame*)prevInFlow)->mState & TEXT_FIRST_LETTER));
+  PRBool inWord = lineLayout.InWord() || ((nsnull != prevInFlow) && (NS_STATIC_CAST(nsTextFrame*, prevInFlow)->mState & TEXT_FIRST_LETTER));
   if (inWord) {
     mState |= TEXT_IN_WORD;
   }
@@ -6030,7 +6011,7 @@ nsTextFrame::Reflow(nsPresContext*          aPresContext,
       // NOTE: Trailing whitespace includes word and letter spacing!
       realWidth += ts.mSpaceWidth + ts.mWordSpacing + ts.mLetterSpacing;
     }
-    if (!mNextInFlow &&
+    if (!GetNextInFlow() &&
         (mState & TEXT_OPTIMIZE_RESIZE) &&
         !aMetrics.mComputeMEW &&
         (lastTimeWeSkippedLeadingWS == skipWhitespace) &&
@@ -6645,12 +6626,12 @@ nsTextFrame::List(FILE* out, PRInt32 aIndent) const
   if (nsnull != mNextSibling) {
     fprintf(out, " next=%p", NS_STATIC_CAST(void*, mNextSibling));
   }
-  nsIFrame* prevInFlow = GetPrevInFlow();
-  if (nsnull != prevInFlow) {
-    fprintf(out, " prev-in-flow=%p", NS_STATIC_CAST(void*, prevInFlow));
+  nsIFrame* prevContinuation = GetPrevContinuation();
+  if (nsnull != prevContinuation) {
+    fprintf(out, " prev-continuation=%p", NS_STATIC_CAST(void*, prevContinuation));
   }
-  if (nsnull != mNextInFlow) {
-    fprintf(out, " next-in-flow=%p", NS_STATIC_CAST(void*, mNextInFlow));
+  if (nsnull != mNextContinuation) {
+    fprintf(out, " next-continuation=%p", NS_STATIC_CAST(void*, mNextContinuation));
   }
 
   // Output the rect and state

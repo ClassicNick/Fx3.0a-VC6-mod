@@ -236,7 +236,7 @@ static const int kDisabledQuicksearchPopupItemTag = 9999;
 // - managerStarted:
 //
 // Notification callback from the bookmark manager. Reload all the table data, but
-// only if we think we've fully initalized ourselves.
+// only if we think we've fully initialized ourselves.
 //
 - (void)managerStarted:(NSNotification*)inNotify
 {
@@ -720,7 +720,7 @@ static const int kDisabledQuicksearchPopupItemTag = 9999;
   // first arrange the items at the top level
   if ([bmItems count] > 1)
   {
-    BookmarkFolder* itemsParent = [[bmItems firstObject] parent];
+    BookmarkFolder* itemsParent = (BookmarkFolder*) [[bmItems firstObject] parent];
     [itemsParent arrangeChildItems:bmItems usingSelector:sortSelector reverseSort:reverseSort];
   }
   

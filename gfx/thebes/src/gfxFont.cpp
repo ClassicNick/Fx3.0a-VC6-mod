@@ -37,6 +37,7 @@
 
 #include "nsIPref.h"
 #include "nsServiceManagerUtils.h"
+#include "nsReadableUtils.h"
 
 #include "gfxFont.h"
 
@@ -69,7 +70,7 @@ gfxFontGroup::gfxFontGroup(const nsAString& aFamilies, const gfxFontStyle *aStyl
             rv = prefs->GetCharPref(prefName.get(), getter_Copies(value));
             if (NS_SUCCEEDED(rv) && value.get()) {
                 mFamilies.AppendLiteral(",");
-                mFamilies.AppendWithConversion(value);
+                AppendUTF8toUTF16(value, mFamilies);
             }
         }
     }
@@ -125,24 +126,29 @@ gfxFontGroup::ForEachFont(FontCreationCallback fc,
             family = Substring(nameStart, p);
             family.CompressWhitespace(PR_FALSE, PR_TRUE);
 
-            if (family.EqualsLiteral("serif") ||
-                family.EqualsLiteral("sans-serif") ||
-                family.EqualsLiteral("monospace") ||
-                family.EqualsLiteral("cursive") ||
-                family.EqualsLiteral("fantasy"))
+            if (family.LowerCaseEqualsLiteral("serif") ||
+                family.LowerCaseEqualsLiteral("sans-serif") ||
+                family.LowerCaseEqualsLiteral("monospace") ||
+                family.LowerCaseEqualsLiteral("cursive") ||
+                family.LowerCaseEqualsLiteral("fantasy"))
             {
                 generic = PR_TRUE;
 
+                nsCAutoString lcFamily;
+                ToLowerCase(NS_LossyConvertUTF16toASCII(family), lcFamily);
+
                 nsCAutoString prefName("font.name.");
-                prefName.AppendWithConversion(family);
+                prefName.Append(lcFamily);
                 prefName.AppendLiteral(".");
                 prefName.Append(mStyle.langGroup);
 
+                // prefs file always uses (must use) UTF-8 so that we can use
+                // |GetCharPref| and treat the result as a UTF-8 string.
                 nsXPIDLCString value;
                 nsresult rv = prefs->GetCharPref(prefName.get(), getter_Copies(value));
                 if (NS_SUCCEEDED(rv)) {
-                    genericFamily.Assign(family);
-                    family.AssignWithConversion(value);
+                    CopyASCIItoUTF16(lcFamily, genericFamily);
+                    CopyUTF8toUTF16(value, family);
                 }
             } else {
                 generic = PR_FALSE;
@@ -161,3 +167,19 @@ gfxFontGroup::ForEachFont(FontCreationCallback fc,
     return PR_TRUE;
 }
 
+void
+gfxFontStyle::ComputeWeightAndOffset(PRInt16 *outBaseWeight, PRInt16 *outOffset) const
+{
+    PRInt16 baseWeight = (weight + 50) / 100;
+    PRInt16 offset = weight - baseWeight * 100;
+
+    if (baseWeight < 0)
+        baseWeight = 0;
+    if (baseWeight > 9)
+        baseWeight = 9;
+
+    if (outBaseWeight)
+        *outBaseWeight = baseWeight;
+    if (outOffset)
+        *outOffset = offset;
+}

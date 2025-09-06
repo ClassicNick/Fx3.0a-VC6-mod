@@ -24,6 +24,7 @@
  *   Benjamin Smedberg <benjamin@smedbergs.us>
  *   Ben Goodger <ben@mozilla.org>
  *   Fredrik Holmqvist <thesuckiestemail@yahoo.se>
+ *   Ben Turner <mozilla@songbirdnest.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -1888,12 +1889,14 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 #ifdef MOZ_ACCESSIBILITY_ATK
   // Reset GTK_MODULES, strip atk-bridge if exists
   // Mozilla will load libatk-bridge.so later if necessary
-  const char* gtkModules = getenv("GTK_MODULES");
-  if (gtkModules) {
+  const char* gtkModules = PR_GetEnv("GTK_MODULES");
+  if (gtkModules && *gtkModules) {
     nsCString gtkModulesStr(gtkModules);
     gtkModulesStr.ReplaceSubstring("atk-bridge", "");
-    char* newGtkModules = strdup(gtkModulesStr.get());
-    setenv("GTK_MODULES", newGtkModules, 1);
+    char* expr = PR_smprintf("GTK_MODULES=%s", gtkModulesStr.get());
+    if (expr)
+      PR_SetEnv(expr);
+    // We intentionally leak |expr| here since it is required by PR_SetEnv.
   }
 #endif
 
@@ -2104,8 +2107,11 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 #endif
 
 #if defined(MOZ_UPDATER)
-    // Check for and process any available updates
-    ProcessUpdates(dirProvider.GetAppDir(), gRestartArgc, gRestartArgv);
+  // Check for and process any available updates
+  ProcessUpdates(dirProvider.GetGREDir(),
+                 dirProvider.GetAppDir(),
+                 gRestartArgc,
+                 gRestartArgv);
 #endif
 
     nsCOMPtr<nsIProfileLock> profileLock;
@@ -2224,7 +2230,7 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 
         if (gDoMigration) {
           nsCOMPtr<nsIFile> file;
-          profD->Clone(getter_AddRefs(file));
+          dirProvider.GetAppDir()->Clone(getter_AddRefs(file));
           file->AppendNative(NS_LITERAL_CSTRING("override.ini"));
           nsINIParser parser;
           nsCOMPtr<nsILocalFile> localFile(do_QueryInterface(file));

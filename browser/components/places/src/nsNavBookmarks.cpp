@@ -44,6 +44,7 @@
 #include "nsNetUtil.h"
 #include "nsIAnnotationService.h"
 #include "nsIRemoteContainer.h"
+#include "nsUnicharUtils.h"
 
 const PRInt32 nsNavBookmarks::kFindBookmarksIndex_ItemChild = 0;
 const PRInt32 nsNavBookmarks::kFindBookmarksIndex_FolderChild = 1;
@@ -89,7 +90,6 @@ nsNavBookmarks::Init()
 
   nsNavHistory *history = History();
   NS_ENSURE_TRUE(history, NS_ERROR_UNEXPECTED);
-  history->AddObserver(this, PR_FALSE); // allows us to notify on title changes
   mozIStorageConnection *dbConn = DBConn();
   mozStorageTransaction transaction(dbConn, PR_FALSE);
 
@@ -101,6 +101,17 @@ nsNavBookmarks::Init()
         "folder_child INTEGER, "
         "parent INTEGER, "
         "position INTEGER)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // this index will make it faster to determine if a given item is
+    // bookmarked (used by history queries and vacuuming, for example)
+    rv = dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE INDEX moz_bookmarks_itemindex ON moz_bookmarks (item_child)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // the most common operation is to find the children given a parent
+    rv = dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE INDEX moz_bookmarks_parentindex ON moz_bookmarks (parent)"));
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -120,6 +131,24 @@ nsNavBookmarks::Init()
     rv = dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("CREATE TABLE moz_bookmarks_roots ("
         "root_name VARCHAR(16) UNIQUE, "
         "folder_id INTEGER)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  // moz_keywords
+  dbConn->TableExists(NS_LITERAL_CSTRING("moz_keywords"), &exists);
+  if (! exists) {
+    rv = dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE TABLE moz_keywords ("
+        "keyword VARCHAR(32) UNIQUE,"
+        "page_id INTEGER)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // it should be fast to go url->ID and ID->url
+    rv = dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE INDEX moz_keywords_keywordindex ON moz_keywords (keyword)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE INDEX moz_keywords_pageindex ON moz_keywords (page_id)"));
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -225,10 +254,51 @@ nsNavBookmarks::Init()
                                getter_AddRefs(mDBGetChildAt));
   NS_ENSURE_SUCCESS(rv, rv);
 
+  // mDBGetRedirectDestinations
+  // input = page ID, time threshold; output = unique ID input has redirected to
+  rv = dbConn->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT dest_v.page_id "
+      "FROM moz_historyvisit source_v "
+      "LEFT JOIN moz_historyvisit dest_v ON dest_v.from_visit = source_v.visit_id "
+      "WHERE source_v.page_id = ?1 "
+      "AND source_v.visit_date >= ?2 "
+      "AND (dest_v.visit_type = 5 OR dest_v.visit_type = 6) "
+      "GROUP BY dest_v.page_id"),
+    getter_AddRefs(mDBGetRedirectDestinations));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  FillBookmarksHash();
+
+  // must be last: This may cause bookmarks to be imported, which will exercise
+  // most of the bookmark system
+  // keywords
+  rv = dbConn->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT k.keyword FROM moz_history h "
+      "JOIN moz_keywords k ON h.id = k.page_id "
+      "WHERE h.url = ?1"),
+    getter_AddRefs(mDBGetKeywordForURI));
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = dbConn->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT url FROM moz_keywords k "
+      "JOIN moz_history h ON k.page_id = h.id "
+      "WHERE k.keyword = ?1"),
+    getter_AddRefs(mDBGetURIForKeyword));
+  NS_ENSURE_SUCCESS(rv, rv);
+
   rv = InitRoots();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  return transaction.Commit();
+  rv = transaction.Commit();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // allows us to notify on title changes. MUST BE LAST so it is impossible
+  // to fail after this call, or the history service will have a reference to
+  // us and we won't go away.
+  history->AddObserver(this, PR_FALSE);
+
+  // DO NOT PUT STUFF HERE that can fail. See observer comment above.
+
+  return NS_OK;
 }
 
 struct RenumberItem {
@@ -375,6 +445,222 @@ nsNavBookmarks::CreateRoot(mozIStorageStatement* aGetRootStatement,
 
   return NS_OK;
 }
+
+
+// nsNavBookmarks::FillBookmarksHash
+//
+//    This initializes the bookmarks hashtable that tells us which bookmark
+//    a given URI redirects to. This hashtable includes all URIs that
+//    redirect to bookmarks.
+//
+//    This is called from the bookmark init function and so is wrapped
+//    in that transaction (for better performance).
+
+nsresult
+nsNavBookmarks::FillBookmarksHash()
+{
+  nsresult rv;
+  PRBool hasMore;
+
+  // first init the hashtable
+  NS_ENSURE_TRUE(mBookmarksHash.Init(1024), NS_ERROR_OUT_OF_MEMORY);
+
+  // first populate the table with all bookmarks
+  nsCOMPtr<mozIStorageStatement> statement;
+  rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT h.id "
+      "FROM moz_bookmarks b "
+      "JOIN moz_history h ON b.item_child = h.id"),
+    getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+  while (NS_SUCCEEDED(statement->ExecuteStep(&hasMore)) && hasMore) {
+    PRInt64 pageID;
+    rv = statement->GetInt64(0, &pageID);
+    NS_ENSURE_TRUE(mBookmarksHash.Put(pageID, pageID), NS_ERROR_OUT_OF_MEMORY);
+  }
+
+  // Find all pages h2 that have been redirected to from a bookmarked URI:
+  //    bookmarked -> url (h1)         url (h2)
+  //                    |                 ^
+  //                    .                 |
+  //                 visit (v1) -> destination visit (v2)
+  // This should catch most redirects, which are only one level. More levels of
+  // redirection will be handled separately.
+  rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT v1.page_id, v2.page_id "
+      "FROM moz_bookmarks b "
+      "LEFT JOIN moz_historyvisit v1 on b.item_child = v1.page_id "
+      "LEFT JOIN moz_historyvisit v2 on v2.from_visit = v1.visit_id "
+      "WHERE v2.visit_type = 5 OR v2.visit_type = 6 " // perm. or temp. RDRs
+      "GROUP BY v2.page_id"),
+    getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+  while (NS_SUCCEEDED(statement->ExecuteStep(&hasMore)) && hasMore) {
+    PRInt64 fromId, toId;
+    statement->GetInt64(0, &fromId);
+    statement->GetInt64(1, &toId);
+
+    NS_ENSURE_TRUE(mBookmarksHash.Put(toId, fromId), NS_ERROR_OUT_OF_MEMORY);
+
+    // handle redirects deeper than one level
+    rv = RecursiveAddBookmarkHash(fromId, toId, 0);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  return NS_OK;
+}
+
+
+// nsNavBookmarks::AddBookmarkToHash
+//
+//    Given a bookmark that was potentially added, this goes through all
+//    redirects that this page may have resulted in and adds them to our hash.
+//    Note that this takes the ID of the URL in the history system, which we
+//    generally have when calling this function and which makes it faster.
+//
+//    For better performance, this call should be in a DB transaction.
+//
+//    @see RecursiveAddBookmarkHash
+
+nsresult
+nsNavBookmarks::AddBookmarkToHash(PRInt64 aBookmarkId, PRTime aMinTime)
+{
+  // this function might be called before our hashtable is initialized (for
+  // example, on history import), just ignore these, we'll pick up the add when
+  // the hashtable is initialized later
+  if (! mBookmarksHash.IsInitialized())
+    return NS_OK;
+  if (! mBookmarksHash.Put(aBookmarkId, aBookmarkId))
+    return NS_ERROR_OUT_OF_MEMORY;
+  return RecursiveAddBookmarkHash(aBookmarkId, aBookmarkId, aMinTime);
+}
+
+
+// nsNavBookmkars::RecursiveAddBookmarkHash
+//
+//    Used to add a new level of redirect information to the bookmark hash.
+//    Given a source bookmark 'aBookmark' and 'aCurrentSouce' that has already
+//    been added to the hashtable, this will add all redirect destinations of
+//    'aCurrentSort'. Will call itself recursively to walk down the chain.
+//
+//    'aMinTime' is the minimum time to consider visits from. Visits previous
+//    to this will not be considered. This allows the search to be much more
+//    efficient if you know something happened recently. Use 0 for the min time
+//    to search all history for redirects.
+
+nsresult
+nsNavBookmarks::RecursiveAddBookmarkHash(PRInt64 aBookmarkID,
+                                         PRInt64 aCurrentSource,
+                                         PRTime aMinTime)
+{
+  nsresult rv;
+  nsTArray<PRInt64> found;
+
+  // scope for the DB statement. The statement must be reset by the time we
+  // recursively call ourselves again, because our recursive call will use the
+  // same statement.
+  {
+    mozStorageStatementScoper scoper(mDBGetRedirectDestinations);
+    rv = mDBGetRedirectDestinations->BindInt64Parameter(0, aCurrentSource);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = mDBGetRedirectDestinations->BindInt64Parameter(1, aMinTime);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    PRBool hasMore;
+    while (NS_SUCCEEDED(mDBGetRedirectDestinations->ExecuteStep(&hasMore)) &&
+           hasMore) {
+
+      // add this newly found redirect destination to the hashtable
+      PRInt64 curID;
+      rv = mDBGetRedirectDestinations->GetInt64(0, &curID);
+      NS_ENSURE_SUCCESS(rv, rv);
+
+      // It is very important we ignore anything already in our hashtable. It
+      // is actually pretty common to get loops of redirects. For example,
+      // a restricted page will redirect you to a login page, which will
+      // redirect you to the restricted page again with the proper cookie.
+      PRInt64 alreadyExistingOne;
+      if (mBookmarksHash.Get(curID, &alreadyExistingOne))
+        continue;
+
+      if (! mBookmarksHash.Put(curID, aBookmarkID))
+        return NS_ERROR_OUT_OF_MEMORY;
+
+      // save for recursion later
+      found.AppendElement(curID);
+    }
+  }
+
+  // recurse on each found item now that we're done with the statement
+  for (PRUint32 i = 0; i < found.Length(); i ++) {
+    rv = RecursiveAddBookmarkHash(aBookmarkID, found[i], aMinTime);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  return NS_OK;
+}
+
+
+// nsNavBookmarks::UpdateBookmarkHashOnRemove
+//
+//    Call this when a bookmark is removed. It will see if the bookmark still
+//    exists anywhere in the system, and, if not, remove all references to it
+//    in the bookmark hashtable.
+//
+//    The callback takes a pointer to what bookmark is being removed (as
+//    an Int64 history page ID) as the userArg and removes all redirect
+//    destinations that reference it.
+
+PR_STATIC_CALLBACK(PLDHashOperator)
+RemoveBookmarkHashCallback(nsTrimInt64HashKey::KeyType aKey,
+                           PRInt64& aBookmark, void* aUserArg)
+{
+  const PRInt64* removeThisOne = NS_REINTERPRET_CAST(const PRInt64*, aUserArg);
+  if (aBookmark == *removeThisOne)
+    return PL_DHASH_REMOVE;
+  return PL_DHASH_NEXT;
+}
+nsresult
+nsNavBookmarks::UpdateBookmarkHashOnRemove(PRInt64 aBookmarkId)
+{
+  // note we have to use the DB version here since the hashtable may be
+  // out-of-date
+  PRBool inDB;
+  nsresult rv = IsBookmarkedInDatabase(aBookmarkId, &inDB);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (inDB)
+    return NS_OK; // bookmark still exists, don't need to update hashtable
+
+  // remove it
+  mBookmarksHash.Enumerate(RemoveBookmarkHashCallback,
+                           NS_REINTERPRET_CAST(void*, &aBookmarkId));
+  return NS_OK;
+}
+
+
+// nsNavBookmarks::IsBookmarkedInDatabase
+//
+//    This checks to see if the specified URI is actually bookmarked, bypassing
+//    our hashtable. Normal IsBookmarked checks just use the hashtable.
+
+nsresult
+nsNavBookmarks::IsBookmarkedInDatabase(PRInt64 aBookmarkID,
+                                       PRBool *aIsBookmarked)
+{
+  // we'll just select position since it's just an int32 and may be faster.
+  // We don't actually care about the data, just whether there is any.
+  nsCOMPtr<mozIStorageStatement> statement;
+  nsresult rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT position FROM moz_bookmarks WHERE item_child = ?1"),
+    getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = statement->BindInt64Parameter(0, aBookmarkID);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return statement->ExecuteStep(aIsBookmarked);
+}
+
 
 nsresult
 nsNavBookmarks::AdjustIndices(PRInt64 aFolder,
@@ -548,6 +834,8 @@ nsNavBookmarks::InsertItem(PRInt64 aFolder, nsIURI *aItem, PRInt32 aIndex)
   rv = transaction.Commit();
   NS_ENSURE_SUCCESS(rv, rv);
 
+  AddBookmarkToHash(childID, 0);
+
   ENUMERATE_WEAKARRAY(mObservers, nsINavBookmarkObserver,
                       OnItemAdded(aItem, aFolder, index))
 
@@ -597,6 +885,9 @@ nsNavBookmarks::RemoveItem(PRInt64 aFolder, nsIURI *aItem)
   }
 
   rv = transaction.Commit();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = UpdateBookmarkHashOnRemove(childID);
   NS_ENSURE_SUCCESS(rv, rv);
 
   ENUMERATE_WEAKARRAY(mObservers, nsINavBookmarkObserver,
@@ -1327,8 +1618,6 @@ nsNavBookmarks::QueryFolderChildren(PRInt64 aFolderId,
                                     nsNavHistoryQueryOptions *aOptions,
                                     nsCOMArray<nsNavHistoryResultNode> *aChildren)
 {
-  mozStorageTransaction transaction(DBConn(), PR_FALSE);
-
   nsresult rv;
   mozStorageStatementScoper scope(mDBGetChildren);
 
@@ -1377,7 +1666,7 @@ nsNavBookmarks::QueryFolderChildren(PRInt64 aFolderId,
 
     NS_ENSURE_TRUE(aChildren->AppendObject(node), NS_ERROR_OUT_OF_MEMORY);
   }
-  return transaction.Commit();
+  return NS_OK;
 }
 
 PRInt32
@@ -1398,16 +1687,74 @@ nsNavBookmarks::FolderCount(PRInt64 aFolder)
 NS_IMETHODIMP
 nsNavBookmarks::IsBookmarked(nsIURI *aURI, PRBool *aBookmarked)
 {
-  *aBookmarked = PR_FALSE;
+  nsNavHistory* history = History();
+  NS_ENSURE_TRUE(history, NS_ERROR_UNEXPECTED);
 
-  mozStorageStatementScoper scope(mDBFindURIBookmarks);
-
-  nsresult rv = BindStatementURI(mDBFindURIBookmarks, 0, aURI);
+  // convert the URL to an ID
+  PRInt64 urlID;
+  nsresult rv = history->GetUrlIdFor(aURI, &urlID, PR_FALSE);
   NS_ENSURE_SUCCESS(rv, rv);
+  if (! urlID) {
+    // never seen this before, not even in history
+    *aBookmarked = PR_FALSE;
+    return NS_OK;
+  }
 
-  rv = mDBFindURIBookmarks->ExecuteStep(aBookmarked);
+  PRInt64 bookmarkedID;
+  PRBool foundOne = mBookmarksHash.Get(urlID, &bookmarkedID);
+
+  // IsBookmarked only tests if this exact URI is bookmarked, so we need to
+  // check that the destination matches
+  if (foundOne)
+    *aBookmarked = (urlID == bookmarkedID);
+  else
+    *aBookmarked = PR_FALSE;
+
+#ifdef DEBUG
+  // sanity check for the bookmark hashtable
+  PRBool realBookmarked;
+  rv = IsBookmarkedInDatabase(urlID, &realBookmarked);
+  NS_ASSERTION(realBookmarked == *aBookmarked,
+               "Bookmark hash table out-of-sync with the database");
+#endif
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavBookmarks::GetBookmarkedURIFor(nsIURI* aURI, nsIURI** _retval)
+{
+  *_retval = nsnull;
+
+  nsNavHistory* history = History();
+  NS_ENSURE_TRUE(history, NS_ERROR_UNEXPECTED);
+
+  // convert the URL to an ID
+  PRInt64 urlID;
+  nsresult rv = history->GetUrlIdFor(aURI, &urlID, PR_FALSE);
   NS_ENSURE_SUCCESS(rv, rv);
+  if (! urlID) {
+    // never seen this before, not even in history, leave result NULL
+    return NS_OK;
+  }
 
+  PRInt64 bookmarkID;
+  if (mBookmarksHash.Get(urlID, &bookmarkID)) {
+    // found one, convert ID back to URL. This statement is NOT refcounted
+    mozIStorageStatement* statement = history->DBGetIdPageInfo();
+    NS_ENSURE_TRUE(statement, NS_ERROR_UNEXPECTED);
+    mozStorageStatementScoper scoper(statement);
+
+    rv = statement->BindInt64Parameter(0, bookmarkID);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    PRBool hasMore;
+    if (NS_SUCCEEDED(statement->ExecuteStep(&hasMore)) && hasMore) {
+      nsCAutoString spec;
+      statement->GetUTF8String(nsNavHistory::kGetInfoIndex_URL, spec);
+      return NS_NewURI(_retval, spec);
+    }
+  }
   return NS_OK;
 }
 
@@ -1493,6 +1840,124 @@ nsNavBookmarks::IndexOfFolder(PRInt64 aParent,
 
   *aIndex = mDBIndexOfFolder->AsInt32(0);
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNavBookmarks::SetKeywordForURI(nsIURI* aURI, const nsAString& aKeyword)
+{
+  nsresult rv;
+  mozStorageTransaction transaction(DBConn(), PR_FALSE);
+
+  nsNavHistory *history = History();
+  NS_ENSURE_TRUE(history, NS_ERROR_UNEXPECTED);
+  PRInt64 pageId;
+  nsCOMPtr<mozIStorageStatement> statement;
+
+  // Shortcuts are always lowercased internally.
+  nsAutoString kwd(aKeyword);
+  ToLowerCase(kwd);
+
+  if (kwd.IsEmpty()) {
+    // delete any existing keyword for the given URI
+    rv = history->GetUrlIdFor(aURI, &pageId, PR_FALSE);
+    if (! pageId)
+      return NS_OK; // URL not found: no keyword
+
+    rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
+        "DELETE FROM moz_keywords WHERE page_id = ?1"),
+      getter_AddRefs(statement));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = statement->BindInt64Parameter(0, pageId);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    rv = statement->Execute();
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    return transaction.Commit();
+  } else if (! aURI) {
+    // delete any existing URIs associated with the given keyword
+    rv = history->GetUrlIdFor(aURI, &pageId, PR_FALSE);
+    if (! pageId)
+      return NS_OK; // URL not found: no keyword
+
+    rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
+        "DELETE FROM moz_keywords WHERE keyword = ?1"),
+      getter_AddRefs(statement));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = statement->BindStringParameter(0, kwd);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    rv = statement->Execute();
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    return transaction.Commit();
+  }
+
+  // otherwise, we have a URI/keyword pair and want to create it...
+
+  rv = history->GetUrlIdFor(aURI, &pageId, PR_TRUE);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // this statement will overwrite any old keyword with that value since the
+  // keyword column is unique and we use "OR REPLACE" conflict resolution
+  rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
+      "INSERT OR REPLACE INTO moz_keywords (keyword, page_id) VALUES (?1, ?2)"),
+    getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = statement->BindStringParameter(0, kwd);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = statement->BindInt64Parameter(1, pageId);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = statement->Execute();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return transaction.Commit();
+}
+
+NS_IMETHODIMP
+nsNavBookmarks::GetKeywordForURI(nsIURI* aURI, nsAString& aKeyword)
+{
+  aKeyword.Truncate(0);
+
+  mozStorageStatementScoper scoper(mDBGetKeywordForURI);
+  nsresult rv = BindStatementURI(mDBGetKeywordForURI, 0, aURI);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRBool hasMore = PR_FALSE;
+  rv = mDBGetKeywordForURI->ExecuteStep(&hasMore);
+  if (NS_FAILED(rv) || ! hasMore)
+    return NS_OK; // not found: leave keyword field empty
+
+  // found, get the keyword
+  return mDBGetKeywordForURI->GetString(0, aKeyword);
+}
+
+NS_IMETHODIMP
+nsNavBookmarks::GetURIForKeyword(const nsAString& aKeyword, nsIURI** aURI)
+{
+  *aURI = nsnull;
+  if (aKeyword.IsEmpty())
+    return NS_ERROR_INVALID_ARG;
+
+  // Shortcuts are always lowercased internally.
+  nsAutoString kwd(aKeyword);
+  ToLowerCase(kwd);
+
+  mozStorageStatementScoper scoper(mDBGetURIForKeyword);
+  nsresult rv = mDBGetURIForKeyword->BindStringParameter(0, kwd);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRBool hasMore = PR_FALSE;
+  rv = mDBGetURIForKeyword->ExecuteStep(&hasMore);
+  if (NS_FAILED(rv) || ! hasMore)
+    return NS_OK; // not found: leave URI null
+
+  // found, get the URI
+  nsCAutoString spec;
+  rv = mDBGetURIForKeyword->GetUTF8String(0, spec);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return NS_NewURI(aURI, spec);
 }
 
 NS_IMETHODIMP

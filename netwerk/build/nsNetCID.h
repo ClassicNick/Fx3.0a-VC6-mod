@@ -748,6 +748,14 @@
     {0xa1, 0x6c, 0x00, 0x50, 0x04, 0x1c, 0xaf, 0x44} \
 }
 
+/**
+ * General-purpose content sniffer component. Use with CreateInstance.
+ *
+ * Implements nsIContentSniffer
+ */
+#define NS_GENERIC_CONTENT_SNIFFER \
+    "@mozilla.org/network/content-sniffer;1"
+
 /******************************************************************************
  * Contracts that can be implemented by necko users.
  */
@@ -758,6 +766,17 @@
  */
 #define NS_GLOBAL_CHANNELEVENTSINK_CONTRACTID \
   "@mozilla.org/netwerk/global-channel-event-sink;1"
+
+/******************************************************************************
+ * Categories
+ */
+/**
+ * Services registered in this category will get notified via
+ * nsIChannelEventSink about all redirects that happen and have the opportunity
+ * to veto them. The value of the category entries is interpreted as the
+ * contract ID of the service.
+ */
+#define NS_CHANNEL_EVENT_SINK_CATEGORY "net-channel-event-sinks"
 
 
 #endif // nsNetCID_h__

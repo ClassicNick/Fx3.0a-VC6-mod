@@ -37,7 +37,6 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsMetricsService.h"
-#include "nsMetricsEvent.h"
 #include "nsXPCOM.h"
 #include "nsServiceManagerUtils.h"
 #include "nsDirectoryServiceUtils.h"
@@ -50,48 +49,149 @@
 #include "nsIPrefBranch.h"
 #include "nsIObserver.h"
 #include "nsILocalFile.h"
+#include "nsLoadCollector.h"
+#include "nsWindowCollector.h"
+#include "nsIPropertyBag.h"
+#include "nsIProperty.h"
+#include "nsIVariant.h"
+#include "nsIDOMElement.h"
+#include "nsIDOMSerializer.h"
+#include "nsMultiplexInputStream.h"
+#include "nsStringStream.h"
+#include "nsVariant.h"
+#include "bzlib.h"
 
-// Flush the event log whenever its size exceeds this amount of bytes.
-#define NS_EVENTLOG_FLUSH_POINT 4096
+// Make our MIME type inform the server of possible compression.
+#ifdef NS_METRICS_SEND_UNCOMPRESSED_DATA
+#define NS_METRICS_MIME_TYPE "application/vnd.mozilla.metrics"
+#else
+#define NS_METRICS_MIME_TYPE "application/vnd.mozilla.metrics.bz2"
+#endif
+
+// Flush the event log whenever its size exceeds this number of events.
+#define NS_EVENTLOG_FLUSH_POINT 64
+
+nsMetricsService* nsMetricsService::sMetricsService = nsnull;
+#ifdef PR_LOGGING
+PRLogModuleInfo *gMetricsLog;
+#endif
 
 //-----------------------------------------------------------------------------
 
-NS_IMPL_ISUPPORTS5_CI(nsMetricsService, nsIMetricsService,
-                      nsIStreamListener, nsIRequestObserver,
-                      nsIObserver, nsITimerCallback)
+NS_IMPL_ISUPPORTS6_CI(nsMetricsService, nsIMetricsService, nsIAboutModule,
+                      nsIStreamListener, nsIRequestObserver, nsIObserver,
+                      nsITimerCallback)
 
 NS_IMETHODIMP
-nsMetricsService::LogCustomEvent(const nsACString &data)
+nsMetricsService::LogEvent(const nsAString &eventNS,
+                           const nsAString &eventName,
+                           nsIPropertyBag *eventProperties)
 {
-  nsMetricsEvent event(NS_METRICS_CUSTOM_EVENT);
-  PRUint32 len = data.Length();
-  NS_ENSURE_ARG(len < PR_UINT16_MAX);
-  event.PutInt16(len);
-  event.PutBytes(data.BeginReading(), len);
-  return LogEvent(event);
-}
+  NS_ENSURE_ARG_POINTER(eventProperties);
 
-NS_IMETHODIMP
-nsMetricsService::LogEvent(const nsMetricsEvent &event)
-{
   if (mSuspendCount != 0)  // Ignore events while suspended
     return NS_OK;
 
-  NS_ENSURE_ARG(PRUint32(event.Type()) < PR_UINT8_MAX);
+  // Create a DOM element for the event and append it to our document.
+  nsCOMPtr<nsIDOMElement> eventElement;
+  nsresult rv = mDocument->CreateElementNS(eventNS, eventName,
+                                           getter_AddRefs(eventElement));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  // The event header consists of the following fields:
-  PRUint8 type;        // 8-bit event type
-  PRUint32 timestamp;  // 32-bit timestamp (seconds since the epoch)
+  // Attach the given properties as attributes.
+  nsCOMPtr<nsISimpleEnumerator> enumerator;
+  rv = eventProperties->GetEnumerator(getter_AddRefs(enumerator));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  type = (PRUint8) event.Type();
-  timestamp = PRUint32(PR_Now() / PR_USEC_PER_SEC);
+  nsCOMPtr<nsISupports> propertySupports;
+  while (NS_SUCCEEDED(enumerator->GetNext(getter_AddRefs(propertySupports)))) {
+    nsCOMPtr<nsIProperty> property = do_QueryInterface(propertySupports);
+    if (!property) {
+      NS_WARNING("PropertyBag enumerator has non-nsIProperty elements");
+      continue;
+    }
 
-  mEventLog.AppendElement(type);
-  mEventLog.AppendElements((PRUint8 *) &timestamp, sizeof(timestamp));
-  mEventLog.AppendElements(event.Buffer(), event.BufferLength());
+    nsAutoString name;
+    rv = property->GetName(name);
+    if (NS_FAILED(rv)) {
+      NS_WARNING("Failed to get property name");
+      continue;
+    }
 
-  if (mEventLog.Length() > NS_EVENTLOG_FLUSH_POINT)
-    FlushData();
+    nsCOMPtr<nsIVariant> value;
+    rv = property->GetValue(getter_AddRefs(value));
+    if (NS_FAILED(rv) || !value) {
+      NS_WARNING("Failed to get property value");
+      continue;
+    }
+
+    nsAutoString valueString;
+    rv = value->GetAsDOMString(valueString);
+    if (NS_FAILED(rv)) {
+      NS_WARNING("Failed to convert property value to string");
+      continue;
+    }
+
+    rv = eventElement->SetAttribute(name, valueString);
+    if (NS_FAILED(rv)) {
+      NS_WARNING("Failed to set attribute value");
+    }
+    continue;
+  }
+
+  // Add the event timestamp
+  nsAutoString timeString;
+  timeString.AppendInt(PR_Now() / PR_USEC_PER_SEC);
+  rv = eventElement->SetAttribute(NS_LITERAL_STRING("time"), timeString);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIDOMNode> outChild;
+  rv = mRoot->AppendChild(eventElement, getter_AddRefs(outChild));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (++mEventCount > NS_EVENTLOG_FLUSH_POINT)
+    Flush();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsMetricsService::Flush()
+{
+  nsresult rv;
+
+  PRFileDesc *fd;
+  rv = OpenDataFile(PR_WRONLY | PR_APPEND | PR_CREATE_FILE, &fd);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Serialize our document, then strip off the root start and end tags,
+  // and write it out.
+
+  nsCOMPtr<nsIDOMSerializer> ds =
+    do_CreateInstance(NS_XMLSERIALIZER_CONTRACTID);
+  NS_ENSURE_TRUE(ds, NS_ERROR_UNEXPECTED);
+
+  nsAutoString docText;
+  rv = ds->SerializeToString(mRoot, docText);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // The first '>' will be the end of the root start tag.
+  docText.Cut(0, docText.FindChar('>') + 1);
+
+  // The last '<' will be the beginning of the root end tag.
+  PRInt32 start = docText.RFindChar('<');
+  docText.Cut(start, docText.Length() - start);
+
+  NS_ConvertUTF16toUTF8 utf8Doc(docText);
+  PRInt32 num = utf8Doc.Length();
+  PRBool succeeded = ( PR_Write(fd, utf8Doc.get(), num) == num );
+
+  PR_Close(fd);
+  NS_ENSURE_STATE(succeeded);
+
+  // Create a new mRoot
+  rv = CreateRoot();
+  NS_ENSURE_SUCCESS(rv, rv);
+
   return NS_OK;
 }
 
@@ -101,16 +201,21 @@ nsMetricsService::Upload()
   if (mUploading)  // Ignore new uploads issued while uploading.
     return NS_OK;
 
-  // We suspend logging until the upload completes.
+  // XXX Download filtering rules and apply them.
 
-  nsresult rv = FlushData();
+  nsresult rv = Flush();
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = UploadData();
-  if (NS_SUCCEEDED(rv)) {
+  if (NS_SUCCEEDED(rv))
     mUploading = PR_TRUE;
-    Suspend();
-  }
+
+  // Since UploadData is uploading a copy of the data, we can delete the
+  // original data file, and allow new events to be logged to a new file.
+  nsCOMPtr<nsILocalFile> dataFile;
+  GetDataFile(&dataFile);
+  if (dataFile)
+    dataFile->Remove(PR_FALSE);
 
   return NS_OK;
 }
@@ -131,6 +236,24 @@ nsMetricsService::Resume()
 }
 
 NS_IMETHODIMP
+nsMetricsService::NewChannel(nsIURI *uri, nsIChannel **result)
+{
+  nsresult rv = Flush();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsILocalFile> dataFile;
+  GetDataFile(&dataFile);
+  NS_ENSURE_STATE(dataFile);
+
+  nsCOMPtr<nsIInputStream> stream;
+  OpenCompleteXMLStream(dataFile, getter_AddRefs(stream));
+  NS_ENSURE_STATE(stream);
+
+  return NS_NewInputStreamChannel(result, uri, stream,
+                                  NS_LITERAL_CSTRING("text/xml"), nsnull);
+}
+
+NS_IMETHODIMP
 nsMetricsService::OnStartRequest(nsIRequest *request, nsISupports *context)
 {
   return NS_OK;
@@ -140,12 +263,10 @@ NS_IMETHODIMP
 nsMetricsService::OnStopRequest(nsIRequest *request, nsISupports *context,
                                 nsresult status)
 {
-  nsCOMPtr<nsILocalFile> dataFile;
-  GetDataFile(&dataFile);
-  if (dataFile)
-    dataFile->Remove(PR_FALSE);
+  nsCOMPtr<nsILocalFile> uploadFile = do_QueryInterface(context);
+  if (uploadFile)
+    uploadFile->Remove(PR_FALSE);
 
-  Resume();
   mUploading = PR_FALSE;
   return NS_OK;
 }
@@ -164,8 +285,10 @@ nsMetricsService::Observe(nsISupports *subject, const char *topic,
                           const PRUnichar *data)
 {
   if (strcmp(topic, NS_XPCOM_SHUTDOWN_OBSERVER_ID) == 0) {
-    FlushData();
-  } else if (strcmp(topic, "app-startup") == 0) {
+    Flush();
+    nsLoadCollector::Shutdown();
+    nsWindowCollector::Shutdown();
+  } else if (strcmp(topic, "profile-after-change") == 0) {
     PRInt32 interval = 86400000;  // 24 hours
     nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
     if (prefs)
@@ -187,10 +310,63 @@ nsMetricsService::Notify(nsITimer *timer)
   return NS_OK;
 }
 
+/*static*/ nsMetricsService *
+nsMetricsService::get()
+{
+  if (!sMetricsService) {
+    nsCOMPtr<nsIMetricsService> ms =
+      do_GetService(NS_METRICSSERVICE_CONTRACTID);
+    if (!sMetricsService)
+      NS_WARNING("failed to initialize metrics service");
+  }
+  return sMetricsService;
+}
+
+/*static*/ NS_METHOD
+nsMetricsService::Create(nsISupports *outer, const nsIID &iid, void **result)
+{
+  NS_ENSURE_TRUE(!outer, NS_ERROR_NO_AGGREGATION);
+
+  nsRefPtr<nsMetricsService> ms;
+  if (!sMetricsService) {
+    ms = new nsMetricsService();
+    if (!ms)
+      return NS_ERROR_OUT_OF_MEMORY;
+    NS_ASSERTION(sMetricsService, "should be non-null");
+
+    nsresult rv = ms->Init();
+    if (NS_FAILED(rv))
+      return rv;
+  }
+  return sMetricsService->QueryInterface(iid, result);
+}
+
 nsresult
 nsMetricsService::Init()
 {
+#ifdef PR_LOGGING
+  gMetricsLog = PR_NewLogModule("nsMetricsService");
+#endif
+
   nsresult rv;
+
+  // Create an XML document to serve as the owner document for elements.
+  mDocument = do_CreateInstance("@mozilla.org/xml/xml-document;1");
+  NS_ENSURE_TRUE(mDocument, NS_ERROR_FAILURE);
+
+  // Create a root log element.
+  rv = CreateRoot();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Start up the collectors
+  rv = nsWindowCollector::Startup();
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = nsLoadCollector::Startup();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Hook ourselves up to observe notifications last.  This ensures that
+  // we don't end up with an extra reference to the metrics service if
+  // any of the above initialization fails.
 
   // Hook ourselves up to receive the xpcom shutdown event so we can properly
   // flush our data to disk.
@@ -200,7 +376,24 @@ nsMetricsService::Init()
 
   rv = obsSvc->AddObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, PR_FALSE);
   NS_ENSURE_SUCCESS(rv, rv);
-  
+
+  rv = obsSvc->AddObserver(this, "profile-after-change", PR_FALSE);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return NS_OK;
+}
+
+nsresult
+nsMetricsService::CreateRoot()
+{
+  nsresult rv;
+  nsCOMPtr<nsIDOMElement> root;
+  rv = mDocument->CreateElementNS(NS_LITERAL_STRING(NS_METRICS_NAMESPACE),
+                                  NS_LITERAL_STRING("log"),
+                                  getter_AddRefs(root));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  mRoot = root;
   return NS_OK;
 }
 
@@ -212,7 +405,7 @@ nsMetricsService::GetDataFile(nsCOMPtr<nsILocalFile> *result)
                                        getter_AddRefs(file));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = file->AppendNative(NS_LITERAL_CSTRING("metrics.dat"));
+  rv = file->AppendNative(NS_LITERAL_CSTRING("metrics.xml"));
   NS_ENSURE_SUCCESS(rv, rv);
 
   *result = do_QueryInterface(file, &rv);
@@ -227,25 +420,6 @@ nsMetricsService::OpenDataFile(PRUint32 flags, PRFileDesc **fd)
   NS_ENSURE_SUCCESS(rv, rv);
 
   return dataFile->OpenNSPRFileDesc(flags, 0600, fd);
-}
-
-nsresult
-nsMetricsService::FlushData()
-{
-  nsresult rv;
-
-  PRFileDesc *fd;
-  rv = OpenDataFile(PR_WRONLY | PR_APPEND | PR_CREATE_FILE, &fd);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  PRInt32 num = mEventLog.Length();
-  PRBool succeeded = ( PR_Write(fd, mEventLog.Elements(), num) == num );
-
-  PR_Close(fd);
-  NS_ENSURE_STATE(succeeded);
-
-  mEventLog.SetLength(0);
-  return NS_OK;
 }
 
 nsresult
@@ -267,7 +441,7 @@ nsMetricsService::UploadData()
     return NS_ERROR_ABORT;
 
   nsCOMPtr<nsILocalFile> file;
-  nsresult rv = GetDataFile(&file);
+  nsresult rv = GetDataFileForUpload(&file);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // NOTE: nsIUploadChannel requires a buffered stream to upload...
@@ -297,7 +471,7 @@ nsMetricsService::UploadData()
   nsCOMPtr<nsIUploadChannel> uploadChannel = do_QueryInterface(channel);
   NS_ENSURE_STATE(uploadChannel); 
 
-  NS_NAMED_LITERAL_CSTRING(binaryType, "application/vnd.mozilla.metrics");
+  NS_NAMED_LITERAL_CSTRING(binaryType, NS_METRICS_MIME_TYPE);
   rv = uploadChannel->SetUploadStream(uploadStream, binaryType, -1);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -306,8 +480,154 @@ nsMetricsService::UploadData()
   rv = httpChannel->SetRequestMethod(NS_LITERAL_CSTRING("POST"));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = channel->AsyncOpen(this, nsnull);
+  rv = channel->AsyncOpen(this, file);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  return NS_OK;
+}
+
+nsresult
+nsMetricsService::GetDataFileForUpload(nsCOMPtr<nsILocalFile> *result)
+{
+  nsCOMPtr<nsILocalFile> input;
+  nsresult rv = GetDataFile(&input);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIInputStream> src;
+  rv = OpenCompleteXMLStream(input, getter_AddRefs(src));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIFile> temp;
+  rv = input->Clone(getter_AddRefs(temp));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCAutoString leafName;
+  rv = temp->GetNativeLeafName(leafName);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  leafName.AppendLiteral(".bz2");
+  rv = temp->SetNativeLeafName(leafName);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsILocalFile> ltemp = do_QueryInterface(temp, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  FILE *destFp = NULL;
+  rv = ltemp->OpenANSIFileDesc("wb", &destFp);
+
+  // Copy file using bzip2 compression:
+
+  if (NS_SUCCEEDED(rv)) {
+#ifdef NS_METRICS_SEND_UNCOMPRESSED_DATA
+    char buf[4096];
+    PRUint32 n;
+
+    while (NS_SUCCEEDED(rv = src->Read(buf, sizeof(buf), &n)) && n) {
+      if (fwrite(buf, 1, n, destFp) != n) {
+        NS_WARNING("failed to write data");
+        rv = NS_ERROR_UNEXPECTED;
+        break;
+      }
+    }
+#else
+    int bzerr = BZ_OK;
+    BZFILE *destBz = BZ2_bzWriteOpen(&bzerr, destFp,
+                                     9,  // block size (1-9)
+                                     0,  // verbosity
+                                     0); // work factor
+    if (destBz) {
+      char buf[4096];
+      PRUint32 n;
+
+      while (NS_SUCCEEDED(rv = src->Read(buf, sizeof(buf), &n)) && n) {
+        BZ2_bzWrite(&bzerr, destBz, buf, n);
+        if (bzerr != BZ_OK) {
+          NS_WARNING("failed to write data");
+          rv = NS_ERROR_UNEXPECTED;
+          break;
+        }
+      }
+
+      BZ2_bzWriteClose(&bzerr, destBz,
+                       0,        // abandon
+                       nsnull,   // nbytes_in
+                       nsnull);  // nbytes_out
+    }
+#endif
+  }
+
+  if (destFp)
+    fclose(destFp);
+
+  if (NS_SUCCEEDED(rv)) {
+    *result = nsnull;
+    ltemp.swap(*result);
+  }
+
+  return rv;
+}
+
+nsresult
+nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
+                                       nsIInputStream **result)
+{
+  // Construct a full XML document using the header, file contents, and
+  // footer.
+  static const char METRICS_XML_HEAD[] =
+      "<?xml version=\"1.0\"?>\n"
+      "<log xmlns=\"http://www.mozilla.org/metrics\">\n";
+  static const char METRICS_XML_TAIL[] = "</log>";
+
+  nsCOMPtr<nsIInputStream> fileStream;
+  NS_NewLocalFileInputStream(getter_AddRefs(fileStream), dataFile);
+  NS_ENSURE_STATE(fileStream);
+
+  nsCOMPtr<nsIMultiplexInputStream> miStream =
+    do_CreateInstance(NS_MULTIPLEXINPUTSTREAM_CONTRACTID);
+  NS_ENSURE_STATE(miStream);
+
+  nsCOMPtr<nsIInputStream> stringStream;
+  NS_NewByteInputStream(getter_AddRefs(stringStream), METRICS_XML_HEAD,
+                        sizeof(METRICS_XML_HEAD)-1);
+  NS_ENSURE_STATE(stringStream);
+
+  nsresult rv = miStream->AppendStream(stringStream);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = miStream->AppendStream(fileStream);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  NS_NewByteInputStream(getter_AddRefs(stringStream), METRICS_XML_TAIL,
+                        sizeof(METRICS_XML_TAIL)-1);
+  NS_ENSURE_STATE(stringStream);
+
+  rv = miStream->AppendStream(stringStream);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  NS_ADDREF(*result = miStream);
+  return NS_OK;
+}
+
+/* static */ nsresult
+nsMetricsUtils::PutUint16(nsIWritablePropertyBag *bag,
+                          const nsAString &propertyName,
+                          PRUint16 propertyValue)
+{
+  nsCOMPtr<nsIWritableVariant> var = new nsVariant();
+  NS_ENSURE_TRUE(var, NS_ERROR_OUT_OF_MEMORY);
+  var->SetAsUint16(propertyValue);
+  return bag->SetProperty(propertyName, var);
+}
+
+/* static */ nsresult
+nsMetricsUtils::NewPropertyBag(nsHashPropertyBag **result)
+{
+  nsRefPtr<nsHashPropertyBag> bag = new nsHashPropertyBag();
+  NS_ENSURE_TRUE(bag, NS_ERROR_OUT_OF_MEMORY);
+
+  nsresult rv = bag->Init();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  bag.swap(*result);
   return NS_OK;
 }

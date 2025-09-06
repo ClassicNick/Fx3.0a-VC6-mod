@@ -64,9 +64,7 @@
               <i>none</i>
             [% ELSE %]
               [% FOREACH flag = attachment.flags %]
-                [% IF flag.setter %]
-                  [% flag.setter.nick FILTER html %]:
-                [% END %]
+                [% flag.setter.nick FILTER html %]:
                 [%+ flag.type.name FILTER html FILTER no_break %][% flag.status %]
                 [%+ IF flag.status == "?" && flag.requestee %]
                   ([% flag.requestee.nick FILTER html %])
@@ -77,7 +75,7 @@
         [% END %]
 
         <td valign="top">
-          <a href="attachment.cgi?id=[% attachment.id %]&amp;action=edit">Edit</a>
+          <a href="attachment.cgi?id=[% attachment.id %]&amp;action=edit">Details</a>
           [% IF attachment.ispatch && patchviewerinstalled %]
             | <a href="attachment.cgi?id=[% attachment.id %]&amp;action=diff">Diff</a>
           [% END %]

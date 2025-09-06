@@ -218,7 +218,13 @@ calMemoryCalendar.prototype = {
                                                "item ID mismatch between old and new items");
             return;
         }
-
+        
+        if (aNewItem.parentItem != aNewItem) {
+            aNewItem.parentItem.recurrenceInfo.modifyException(aNewItem);
+            aNewItem = aNewItem.parentItem;
+        }
+        aOldItem = aOldItem.parentItem;
+        
         if (aOldItem != this.mItems[aOldItem.id]) {
             if (aListener)
                 aListener.onOperationComplete (this.calendarToReturn,
@@ -417,9 +423,9 @@ calMemoryCalendar.prototype = {
                                : END_OF_TIME);
             } else if (wantTodos && (item instanceof calITodo)) {
                 // if it's a todo, also filter based on completeness
-                if (item.percentComplete == 100 && !itemCompletedFilter)
+                if (item.isCompleted && !itemCompletedFilter)
                     continue;
-                else if (item.percentComplete < 100 && !itemNotCompletedFilter)
+                else if (item.isCompleted && !itemNotCompletedFilter)
                     continue;
 
                 itemEndTime = itemStartTime = 

@@ -665,18 +665,21 @@ nsXFormsSubmissionElement::GetBoundInstanceData(nsIDOMNode **result)
 {
   nsCOMPtr<nsIModelElementPrivate> model;
   nsCOMPtr<nsIDOMXPathResult> xpRes;
+  PRBool usesModelBind;
   nsresult rv =
     nsXFormsUtils::EvaluateNodeBinding(mElement, 0,
                                        NS_LITERAL_STRING("ref"),
                                        NS_LITERAL_STRING("/"),
                                        nsIDOMXPathResult::FIRST_ORDERED_NODE_TYPE,
                                        getter_AddRefs(model),
-                                       getter_AddRefs(xpRes));
+                                       getter_AddRefs(xpRes),
+                                       &usesModelBind);
 
   if (NS_FAILED(rv) || !xpRes)
     return NS_ERROR_UNEXPECTED;
 
-  return xpRes->GetSingleNodeValue(result);
+  return usesModelBind ? xpRes->SnapshotItem(0, result)
+                       : xpRes->GetSingleNodeValue(result);
 }
 
 PRBool
@@ -1279,7 +1282,7 @@ nsXFormsSubmissionElement::CopyChildren(nsIDOMNode *source, nsIDOMNode *dest,
 
       PRUint32 encType;
       if (attachments &&
-          NS_SUCCEEDED(GetElementEncodingType(currentNode, &encType)) &&
+          NS_SUCCEEDED(GetElementEncodingType(currentNode, &encType, model)) &&
           encType == ELEMENT_ENCTYPE_URI)
       {
         // ok, looks like we have a local file to upload
@@ -1744,7 +1747,9 @@ nsXFormsSubmissionElement::AppendPostDataChunk(nsCString &postDataChunk,
 }
 
 nsresult
-nsXFormsSubmissionElement::GetElementEncodingType(nsIDOMNode *node, PRUint32 *encType)
+nsXFormsSubmissionElement::GetElementEncodingType(nsIDOMNode             *node,
+                                                  PRUint32               *encType,
+                                                  nsIModelElementPrivate *aModel)
 {
   *encType = ELEMENT_ENCTYPE_STRING; // default
 
@@ -1753,7 +1758,12 @@ nsXFormsSubmissionElement::GetElementEncodingType(nsIDOMNode *node, PRUint32 *en
 
   // check for 'xsd:base64Binary', 'xsd:hexBinary', or 'xsd:anyURI'
   nsAutoString type, nsuri;
-  nsresult rv = nsXFormsUtils::ParseTypeFromNode(node, type, nsuri);
+  nsresult rv;
+  if (aModel) {
+    rv = aModel->GetTypeFromNode(node, type, nsuri);
+  } else {
+    rv = nsXFormsUtils::ParseTypeFromNode(node, type, nsuri);
+  }
   if (NS_SUCCEEDED(rv) &&
       nsuri.EqualsLiteral(NS_NAMESPACE_XML_SCHEMA) &&
       !type.IsEmpty())

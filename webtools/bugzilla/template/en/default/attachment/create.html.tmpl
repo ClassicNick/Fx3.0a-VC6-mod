@@ -26,7 +26,7 @@
 [%# Define strings that will serve as the title and header of this page %]
 [% title = BLOCK %]Create New Attachment for [% terms.Bug %] #[% bugid %][% END %]
 [% h1 = BLOCK %]Create New Attachment for
-  [%+ GetBugLink(bugid, "$terms.Bug $bugid") %][% END %]
+  [%+ "$terms.Bug $bugid" FILTER bug_link(bugid) FILTER none %][% END %]
 [% h2 = BLOCK %][% bugsummary FILTER html %][% END %]
 
 [% PROCESS global/header.html.tmpl
@@ -237,7 +237,14 @@
       <th><label for="comment">Comment:</label></th>
       <td>
         <em>(optional) Add a comment about this attachment to the [% terms.bug %].</em><br>
-        <textarea wrap="soft" id="commment" name="comment" rows="6" cols="80"></textarea>
+        [% INCLUDE global/textarea.html.tmpl
+          name    = 'comment'
+          id      = 'comment'
+          minrows = 6
+          maxrows = 15
+          cols    = 80
+          wrap    = 'soft'
+        %]
       </td>
     </tr>
     <tr>

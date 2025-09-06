@@ -35,7 +35,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "nsISupports.h"
+#include "nsISupportsUtils.h"
 #include "nsIContent.h"
 #include "nsIDOMDocumentFragment.h"
 #include "nsGenericElement.h"

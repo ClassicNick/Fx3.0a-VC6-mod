@@ -49,8 +49,15 @@ sub get_param_list {
   {
    name => 'urlbase',
    type => 't',
-   default => 'http://you-havent-visited-editparams.cgi-yet/',
+   default => '',
    checker => \&check_urlbase
+  },
+
+  {
+   name => 'docs_urlbase',
+   type => 't',
+   default => 'docs/html/',
+   checker => \&check_url
   },
 
   {

@@ -163,6 +163,7 @@ nsHttpChannel::nsHttpChannel()
     , mAuthRetryPending(PR_FALSE)
     , mSuppressDefensiveAuth(PR_FALSE)
     , mResuming(PR_FALSE)
+    , mOpenedCacheForWriting(PR_FALSE)
 {
     LOG(("Creating nsHttpChannel @%x\n", this));
 
@@ -383,7 +384,8 @@ nsHttpChannel::Connect(PRBool firstTime)
         // out to net to validate it.  this call sets mCachedContentIsValid
         // and may set request headers as required for cache validation.
         rv = CheckCache();
-        NS_ASSERTION(NS_SUCCEEDED(rv), "cache check failed");
+        if (NS_FAILED(rv))
+            NS_WARNING("cache check failed");
 
         // read straight from the cache if possible...
         if (mCachedContentIsValid) {
@@ -877,15 +879,14 @@ nsHttpChannel::ProcessNormal()
     // must do this early on so as to prevent it from being seen up stream.
     // The same problem exists for Content-Encoding: compress in default
     // Apache installs.
-    const char *encoding = mResponseHead->PeekHeader(nsHttp::Content_Encoding);
-    if (encoding && PL_strcasestr(encoding, "gzip") && (
+    if (mResponseHead->HasHeaderValue(nsHttp::Content_Encoding, "gzip") && (
         mResponseHead->ContentType().EqualsLiteral(APPLICATION_GZIP) ||
         mResponseHead->ContentType().EqualsLiteral(APPLICATION_GZIP2) ||
         mResponseHead->ContentType().EqualsLiteral(APPLICATION_GZIP3))) {
         // clear the Content-Encoding header
         mResponseHead->ClearHeader(nsHttp::Content_Encoding);
     }
-    else if (encoding && PL_strcasestr(encoding, "compress") && (
+    else if (mResponseHead->HasHeaderValue(nsHttp::Content_Encoding, "compress") && (
              mResponseHead->ContentType().EqualsLiteral(APPLICATION_COMPRESS) ||
              mResponseHead->ContentType().EqualsLiteral(APPLICATION_COMPRESS2))) {
         // clear the Content-Encoding header
@@ -993,14 +994,10 @@ nsHttpChannel::ReplaceWithProxy(nsIProxyInfo *pi)
         return rv;
 
     // Inform consumers about this fake redirect
-    nsCOMPtr<nsIChannelEventSink> channelEventSink;
-    GetCallback(channelEventSink);
-    if (channelEventSink) {
-        PRUint32 flags = nsIChannelEventSink::REDIRECT_INTERNAL;
-        rv = channelEventSink->OnChannelRedirect(this, newChannel, flags);
-        if (NS_FAILED(rv))
-            return rv;
-    }
+    PRUint32 flags = nsIChannelEventSink::REDIRECT_INTERNAL;
+    rv = gHttpHandler->OnChannelRedirect(this, newChannel, flags);
+    if (NS_FAILED(rv))
+        return rv;
 
     // open new channel
     rv = newChannel->AsyncOpen(mListener, mListenerContext);
@@ -1427,7 +1424,7 @@ nsHttpChannel::CheckCache()
 
     // Get the method that was used to generate the cached response
     rv = mCacheEntry->GetMetaDataElement("request-method", getter_Copies(buf));
-    if (NS_FAILED(rv)) return rv;
+    NS_ENSURE_SUCCESS(rv, rv);
 
     nsHttpAtom method = nsHttp::ResolveAtom(buf);
     if (method == nsHttp::Head) {
@@ -1441,7 +1438,7 @@ nsHttpChannel::CheckCache()
     // We'll need this value in later computations...
     PRUint32 lastModifiedTime;
     rv = mCacheEntry->GetLastModified(&lastModifiedTime);
-    if (NS_FAILED(rv)) return rv;
+    NS_ENSURE_SUCCESS(rv, rv);
 
     // Determine if this is the first time that this cache entry
     // has been accessed during this session.
@@ -1450,7 +1447,7 @@ nsHttpChannel::CheckCache()
 
     // Get the cached HTTP response headers
     rv = mCacheEntry->GetMetaDataElement("response-head", getter_Copies(buf));
-    if (NS_FAILED(rv)) return rv;
+    NS_ENSURE_SUCCESS(rv, rv);
 
     // Parse the cached HTTP response headers
     NS_ASSERTION(!mCachedResponseHead, "memory leak detected");
@@ -1458,7 +1455,7 @@ nsHttpChannel::CheckCache()
     if (!mCachedResponseHead)
         return NS_ERROR_OUT_OF_MEMORY;
     rv = mCachedResponseHead->Parse((char *) buf.get());
-    if (NS_FAILED(rv)) return rv;
+    NS_ENSURE_SUCCESS(rv, rv);
     buf.Adopt(0);
 
     // If we were only granted read access, then assume the entry is valid.
@@ -1480,7 +1477,7 @@ nsHttpChannel::CheckCache()
         if (contentLength != nsInt64(-1)) {
             PRUint32 size;
             rv = mCacheEntry->GetDataSize(&size);
-            if (NS_FAILED(rv)) return rv;
+            NS_ENSURE_SUCCESS(rv, rv);
 
             if (nsInt64(size) != contentLength) {
                 LOG(("Cached data size does not match the Content-Length header "
@@ -1488,7 +1485,7 @@ nsHttpChannel::CheckCache()
                 if ((nsInt64(size) < contentLength) && mCachedResponseHead->IsResumable()) {
                     // looks like a partial entry.
                     rv = SetupByteRangeRequest(size);
-                    if (NS_FAILED(rv)) return rv;
+                    NS_ENSURE_SUCCESS(rv, rv);
                     mCachedContentIsPartial = PR_TRUE;
                 }
                 return NS_OK;
@@ -1544,7 +1541,7 @@ nsHttpChannel::CheckCache()
         PRUint32 time = 0; // a temporary variable for storing time values...
 
         rv = mCacheEntry->GetExpirationTime(&time);
-        if (NS_FAILED(rv)) return rv;
+        NS_ENSURE_SUCCESS(rv, rv);
 
         if (NowInSeconds() <= time)
             doValidation = PR_FALSE;
@@ -1557,7 +1554,7 @@ nsHttpChannel::CheckCache()
             // is consistent with existing browsers and is generally expected
             // by web authors.
             rv = mCachedResponseHead->ComputeFreshnessLifetime(&time);
-            if (NS_FAILED(rv)) return rv;
+            NS_ENSURE_SUCCESS(rv, rv);
 
             if (time == 0)
                 doValidation = PR_TRUE;
@@ -1713,6 +1710,7 @@ nsHttpChannel::CloseCacheEntry(nsresult status)
         mCachePump = 0;
         mCacheEntry = 0;
         mCacheAccess = 0;
+        mOpenedCacheForWriting = PR_FALSE;
     }
     return rv;
 }
@@ -1855,6 +1853,8 @@ nsHttpChannel::InstallCacheListener(PRUint32 offset)
     rv = mCacheEntry->OpenOutputStream(offset, getter_AddRefs(out));
     if (NS_FAILED(rv)) return rv;
 
+    mOpenedCacheForWriting = PR_TRUE;
+
     // XXX disk cache does not support overlapped i/o yet
 #if 0
     // Mark entry valid inorder to allow simultaneous reading...
@@ -1869,8 +1869,8 @@ nsHttpChannel::InstallCacheListener(PRUint32 offset)
     rv = tee->Init(mListener, out);
     if (NS_FAILED(rv)) return rv;
 
-    mListener = do_QueryInterface(tee, &rv);
-    return rv;
+    mListener = tee;
+    return NS_OK;
 }
 
 //-----------------------------------------------------------------------------
@@ -2069,26 +2069,17 @@ nsHttpChannel::ProcessRedirection(PRUint32 redirectType)
         redirectFlags = nsIChannelEventSink::REDIRECT_TEMPORARY;
 
     // verify that this is a legal redirect
-    nsCOMPtr<nsIChannelEventSink> globalObserver = 
-             do_GetService(NS_GLOBAL_CHANNELEVENTSINK_CONTRACTID);
-    if (globalObserver) {
-        rv = globalObserver->OnChannelRedirect(this, newChannel, redirectFlags);
-        if (NS_FAILED(rv)) return rv;
-    }
+    rv = gHttpHandler->OnChannelRedirect(this, newChannel, redirectFlags);
+    if (NS_FAILED(rv))
+        return rv;
 
-    // call out to the event sink to notify it of this redirection.
+    // And now, the deprecated way
     nsCOMPtr<nsIHttpEventSink> httpEventSink;
     GetCallback(httpEventSink);
     if (httpEventSink) {
         // NOTE: nsIHttpEventSink is only used for compatibility with pre-1.8
         // versions.
         rv = httpEventSink->OnRedirect(this, newChannel);
-        if (NS_FAILED(rv)) return rv;
-    }
-    nsCOMPtr<nsIChannelEventSink> channelEventSink;
-    GetCallback(channelEventSink);
-    if (channelEventSink) {
-        rv = channelEventSink->OnChannelRedirect(this, newChannel, redirectFlags);
         if (NS_FAILED(rv)) return rv;
     }
     // XXX we used to talk directly with the script security manager, but that
@@ -3362,8 +3353,7 @@ nsHttpChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *context)
     // Adjust mCaps according to our request headers:
     //  - If "Connection: close" is set as a request header, then do not bother
     //    trying to establish a keep-alive connection.
-    const char *connHeader = mRequestHead.PeekHeader(nsHttp::Connection);
-    if (PL_strcasestr(connHeader, "close"))
+    if (mRequestHead.HasHeaderValue(nsHttp::Connection, "close"))
         mCaps &= ~(NS_HTTP_ALLOW_KEEPALIVE | NS_HTTP_ALLOW_PIPELINING);
     
     mIsPending = PR_TRUE;
@@ -4108,18 +4098,16 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
 
     if (mCacheEntry) {
         nsresult closeStatus = status;
-        if (mCanceled) {
-            // we don't want to discard the cache entry if canceled and
-            // reading from the cache.
-            if (request == mCachePump)
-                closeStatus = NS_OK;
-            // we also don't want to discard the cache entry if the
-            // server supports byte range requests, because we could always
-            // complete the download at a later time.
-            else if (isPartial && mResponseHead && mResponseHead->IsResumable()) {
-                LOG(("keeping partial response that is resumable!\n"));
-                closeStatus = NS_OK; 
-            }
+        // we don't want to discard the cache entry if we're only reading from
+        // the cache.
+        if (!mOpenedCacheForWriting || request == mCachePump)
+            closeStatus = NS_OK;
+        // we also don't want to discard the cache entry if the server supports
+        // byte range requests, because we could always complete the download
+        // at a later time.
+        else if (isPartial && mResponseHead && mResponseHead->IsResumable()) {
+            LOG(("keeping partial response that is resumable!\n"));
+            closeStatus = NS_OK; 
         }
         CloseCacheEntry(closeStatus);
     }

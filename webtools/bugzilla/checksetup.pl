@@ -865,6 +865,12 @@ unless (-d $attachdir) {
     mkdir $attachdir, 0770;
 }
 
+# ZLL: 2005-08-20 Create extensions/ if it does not already exist:
+unless (-d $extensionsdir) {
+    print "Creating extensions directory ($extensionsdir) ...\n";
+    mkdir $extensionsdir, 0770;
+}
+
 
 # 2000-12-14 New graphing system requires a directory to put the graphs in
 # This code copied from what happens for the data dir above.
@@ -1305,7 +1311,7 @@ unless ($switch{'no_templates'}) {
 # These are the files which need to be marked executable
 my @executable_files = ('whineatnews.pl', 'collectstats.pl',
    'checksetup.pl', 'importxml.pl', 'runtests.pl', 'testserver.pl',
-   'whine.pl');
+   'whine.pl', 'customfield.pl');
 
 # tell me if a file is executable.  All CGI files and those in @executable_files
 # are executable
@@ -4263,6 +4269,17 @@ if (scalar(@$controlchar_bugs))
     print " done.\n" if $found;
 }
 
+# 2005-08-10 Myk Melez <myk@mozilla.org> bug 287325
+# Record each field's type and whether or not it's a custom field in fielddefs.
+$dbh->bz_add_column('fielddefs', 'type',
+                    { TYPE => 'INT2', NOTNULL => 1, DEFAULT => 0 });
+$dbh->bz_add_column('fielddefs', 'custom',
+                    { TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 'FALSE' });
+
+# 2005-12-07 altlst@sonic.net -- Bug 225221
+$dbh->bz_add_column('longdescs', 'comment_id',
+                    {TYPE => 'MEDIUMSERIAL', NOTNULL => 1, PRIMARYKEY => 1});
+
 # If you had to change the --TABLE-- definition in any way, then add your
 # differential change code *** A B O V E *** this comment.
 #
@@ -4404,6 +4421,9 @@ add_setting ("post_bug_submit_action", {"next_bug" => 1,
 
 # 2005-06-29 wurblzap@gmail.com -- Bug 257767
 add_setting ('csv_colsepchar', {',' => 1, ';' => 2 }, ',' );
+
+# 2005-10-26 wurblzap@gmail.com -- Bug 291459
+add_setting ("zoom_textareas", {"on" => 1, "off" => 2 }, "on" );
 
 # 2005-10-21 LpSolit@gmail.com -- Bug 313020
 add_setting('per_bug_queries', {'on' => 1, 'off' => 2}, 'on');

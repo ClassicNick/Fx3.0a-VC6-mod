@@ -38,14 +38,12 @@
 
 #include "nsMetricsModule.h"
 #include "nsMetricsService.h"
-#include "nsMetricsEvent.h"
 #include "nsIGenericFactory.h"
 #include "nsICategoryManager.h"
 #include "nsServiceManagerUtils.h"
 #include "nsCOMPtr.h"
 #include "nsXPCOMCID.h"
 
-NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsMetricsService, Init)
 NS_DECL_CLASSINFO(nsMetricsService)
 
 static NS_METHOD
@@ -61,7 +59,7 @@ nsMetricsServiceRegisterSelf(nsIComponentManager *compMgr,
 
   cat->AddCategoryEntry("app-startup",
                         NS_METRICSSERVICE_CLASSNAME,
-                        NS_METRICSSERVICE_CONTRACTID,
+                        "service," NS_METRICSSERVICE_CONTRACTID,
                         PR_TRUE, PR_TRUE, nsnull);
   return NS_OK;
 }
@@ -71,7 +69,7 @@ static const nsModuleComponentInfo components[] = {
     NS_METRICSSERVICE_CLASSNAME,
     NS_METRICSSERVICE_CID,
     NS_METRICSSERVICE_CONTRACTID,
-    nsMetricsServiceConstructor,
+    nsMetricsService::Create,
     nsMetricsServiceRegisterSelf,
     NULL,
     NULL,
@@ -79,6 +77,12 @@ static const nsModuleComponentInfo components[] = {
     NULL,
     &NS_CLASSINFO_NAME(nsMetricsService),
     nsIClassInfo::MAIN_THREAD_ONLY | nsIClassInfo::SINGLETON
+  },
+  {
+    NS_METRICSSERVICE_CLASSNAME,
+    NS_METRICSSERVICE_CID,
+    NS_ABOUT_MODULE_CONTRACTID_PREFIX "metrics",
+    nsMetricsService::Create
   }
 };
 

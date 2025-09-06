@@ -43,6 +43,7 @@
 class nsIEditor;
 class nsIDocShell;
 class nsISelectionController;
+class nsIFrameSelection;
 
 #define NS_IGFXTEXTCONTROLFRAME2_IID \
 {/* 0c3b64da-4431-11da-94fd-00e08161165f*/ \
@@ -87,7 +88,8 @@ public:
   NS_IMETHOD    SetSelectionRange(PRInt32 aSelectionStart, PRInt32 aSelectionEnd) = 0;
   NS_IMETHOD    GetSelectionRange(PRInt32* aSelectionStart, PRInt32* aSelectionEnd) = 0;
 
-  NS_IMETHOD    GetSelectionContr(nsISelectionController **aSelCon) = 0;
+  virtual nsISelectionController* GetOwnedSelectionController() = 0;
+  virtual nsIFrameSelection* GetOwnedFrameSelection() = 0;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsITextControlFrame,

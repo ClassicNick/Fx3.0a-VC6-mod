@@ -70,6 +70,7 @@
 #include "nsIAutoCompleteResult.h"
 #include "nsIPK11TokenDB.h"
 #include "nsIPK11Token.h"
+#include "nsUnicharUtils.h"
 
 static const char kPMPropertiesURL[] = "chrome://passwordmgr/locale/passwordmgr.properties";
 static PRBool sRememberPasswords = PR_FALSE;
@@ -824,6 +825,7 @@ nsPasswordManager::OnStateChange(nsIWebProgress* aWebProgress,
     nsCOMPtr<nsIForm> form = do_QueryInterface(formNode);
     SignonDataEntry* firstMatch = nsnull;
     PRBool attachedToInput = PR_FALSE;
+    PRBool prefilledUser = PR_FALSE;
     nsCOMPtr<nsIDOMHTMLInputElement> userField, passField;
     nsCOMPtr<nsIDOMHTMLInputElement> temp;
     nsAutoString fieldType;
@@ -831,8 +833,10 @@ nsPasswordManager::OnStateChange(nsIWebProgress* aWebProgress,
     for (SignonDataEntry* e = hashEnt->head; e; e = e->next) {
       
       nsCOMPtr<nsISupports> foundNode;
-      form->ResolveName(e->userField, getter_AddRefs(foundNode));
-      temp = do_QueryInterface(foundNode);
+      if (!(e->userField).IsEmpty()) {
+        form->ResolveName(e->userField, getter_AddRefs(foundNode));
+        temp = do_QueryInterface(foundNode);
+      }
 
       nsAutoString oldUserValue;
 
@@ -843,16 +847,15 @@ nsPasswordManager::OnStateChange(nsIWebProgress* aWebProgress,
 
         temp->GetValue(oldUserValue);
         userField = temp;
-      } else {
-        continue;
       }
 
       if (!(e->passField).IsEmpty()) {
         form->ResolveName(e->passField, getter_AddRefs(foundNode));
         temp = do_QueryInterface(foundNode);
       }
-      else {
-        // No password field name was supplied, try to locate one in the form.
+      else if (userField) {
+        // No password field name was supplied, try to locate one in the form,
+        // but only if we have a username field.
         nsCOMPtr<nsIFormControl> fc(do_QueryInterface(foundNode));
         PRInt32 index = -1;
         form->IndexOfControl(fc, &index);
@@ -908,6 +911,7 @@ nsPasswordManager::OnStateChange(nsIWebProgress* aWebProgress,
         // for that username.  If there are multiple saved usernames,
         // we will also attach the autocomplete listener.
 
+        prefilledUser = PR_TRUE;
         nsAutoString userValue;
         if (NS_FAILED(DecryptData(e->userValue, userValue)))
           goto done;
@@ -921,7 +925,7 @@ nsPasswordManager::OnStateChange(nsIWebProgress* aWebProgress,
         }
       }
 
-      if (firstMatch && !attachedToInput) {
+      if (firstMatch && userField && !attachedToInput) {
         // We've found more than one possible signon for this form.
 
         // Listen for blur and autocomplete events on the username field so
@@ -935,19 +939,29 @@ nsPasswordManager::OnStateChange(nsIWebProgress* aWebProgress,
       }
     }
 
+    // If we found more than one match, attachedToInput will be true,
+    // but if we found just one, we need to attach the autocomplete listener,
+    // and fill in the username and password  only if the HTML didn't prefill
+    // the username.
     if (firstMatch && !attachedToInput) {
-      nsAutoString buffer;
+      if (userField)
+        AttachToInput(userField);
 
-      if (NS_FAILED(DecryptData(firstMatch->userValue, buffer)))
-        goto done;
+      if (!prefilledUser){
+        nsAutoString buffer;
 
-      userField->SetValue(buffer);
+        if (userField) {
+          if (NS_FAILED(DecryptData(firstMatch->userValue, buffer)))
+            goto done;
 
-      if (NS_FAILED(DecryptData(firstMatch->passValue, buffer)))
-        goto done;
+          userField->SetValue(buffer);
+        }
 
-      passField->SetValue(buffer);
-      AttachToInput(userField);
+        if (NS_FAILED(DecryptData(firstMatch->passValue, buffer)))
+          goto done;
+
+        passField->SetValue(buffer);
+      }
     }
   }
 
@@ -1489,7 +1503,7 @@ nsPasswordManager::AutoCompleteSearch(const nsAString& aSearchString,
       for (PRInt32 i = result->mArray.Count() - 1; i >= 0; --i) {
         nsDependentString match(NS_STATIC_CAST(PRUnichar*, result->mArray.ElementAt(i)));
         if (aSearchString.Length() > match.Length() ||
-            !StringBeginsWith(match, aSearchString)) {
+            !StringBeginsWith(match, aSearchString, nsCaseInsensitiveStringComparator())) {
           nsMemory::Free(result->mArray.ElementAt(i));
           result->mArray.RemoveElementAt(i);
         }
@@ -1528,7 +1542,7 @@ nsPasswordManager::AutoCompleteSearch(const nsAString& aSearchString,
           return NS_ERROR_FAILURE;
 
         if (aSearchString.Length() <= userValue.Length() &&
-            StringBeginsWith(userValue, aSearchString)) {
+            StringBeginsWith(userValue, aSearchString, nsCaseInsensitiveStringComparator())) {
           PRUnichar* data = ToNewUnicode(userValue);
           if (data)
             result->mArray.AppendElement(data);

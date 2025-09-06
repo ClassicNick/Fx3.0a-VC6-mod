@@ -55,6 +55,12 @@
 #include "nsDisplayList.h"
 #include "nsRegion.h"
 
+#ifdef MOZ_SVG_FOREIGNOBJECT
+#include "nsSVGForeignObjectFrame.h"
+#include "nsSVGUtils.h"
+#include "nsISVGOuterSVGFrame.h"
+#endif
+
 /**
  * A namespace class for static layout utilities.
  */
@@ -492,17 +498,35 @@ nsLayoutUtils::GetEventCoordinatesRelativeTo(nsEvent* aEvent, nsIFrame* aFrame)
   if (!GUIEvent->widget)
     return nsPoint(NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE);
 
-  nsPoint frameToView;
-  nsIView* frameView = aFrame->GetClosestView(&frameToView);
+  // If it is, or is a descendant of, an SVG foreignobject frame,
+  // then we need to do extra work
+  nsIFrame* rootFrame = aFrame;
+  for (nsIFrame* f = aFrame; f; f = GetCrossDocParentFrame(f)) {
+#ifdef MOZ_SVG_FOREIGNOBJECT
+    if (f->IsFrameOfType(nsIFrame::eSVGForeignObject)) {
+      nsSVGForeignObjectFrame* fo = NS_STATIC_CAST(nsSVGForeignObjectFrame*, f);
+      nsIFrame* outer;
+      CallQueryInterface(nsSVGUtils::GetOuterSVGFrame(fo), &outer);
+      return fo->TransformPointFromOuter(
+          GetEventCoordinatesRelativeTo(aEvent, outer)) -
+        aFrame->GetOffsetTo(fo);
+    }
+#endif
+    rootFrame = f;
+  }
 
-  nsPoint widgetToView = TranslateWidgetToView(aFrame->GetPresContext(),
+  nsIView* rootView = rootFrame->GetView();
+  if (!rootView)
+    return nsPoint(NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE);
+
+  nsPoint widgetToView = TranslateWidgetToView(rootFrame->GetPresContext(),
                                GUIEvent->widget, GUIEvent->refPoint,
-                               frameView);
+                               rootView);
 
   if (widgetToView == nsPoint(NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE))
     return nsPoint(NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE);
 
-  return widgetToView - frameToView;
+  return widgetToView - aFrame->GetOffsetTo(rootFrame);
 }
 
 nsPoint

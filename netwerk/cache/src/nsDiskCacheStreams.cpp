@@ -511,7 +511,7 @@ nsDiskCacheStreamIO::Flush()
             rv = cacheMap->DeleteStorage(record, nsDiskCache::kData);
             if (NS_FAILED(rv)) {
                 NS_WARNING("cacheMap->DeleteStorage() failed.");
-                cacheMap->DoomRecord(record);
+                cacheMap->DeleteRecord(record);
                 return  rv;
             }
         }
@@ -636,8 +636,8 @@ nsDiskCacheStreamIO::UpdateFileSize()
 
     // update cache size totals
     nsDiskCacheMap * cacheMap = mDevice->CacheMap();
-    cacheMap->DecrementTotalSize(oldSizeK * 1024);       // decrement old size
-    cacheMap->IncrementTotalSize(newSizeK * 1024);       // increment new size
+    cacheMap->DecrementTotalSize(oldSizeK);       // decrement old size
+    cacheMap->IncrementTotalSize(newSizeK);       // increment new size
     
     if (!mBinding->mDoomed) {
         nsresult rv = cacheMap->UpdateRecord(record);

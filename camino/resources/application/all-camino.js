@@ -62,7 +62,7 @@ pref("chimera.log_js_to_console", false);
 
 // Identify Camino in the UA string
 pref("general.useragent.vendor", "Camino");
-pref("general.useragent.vendorSub", "1.0+");
+pref("general.useragent.vendorSub", "1.2+");
 
 pref("browser.chrome.favicons", true);
 pref("browser.urlbar.autocomplete.enabled", true);
@@ -112,3 +112,6 @@ pref("browser.tabs.loadInBackground", false);
 
 // use the html network errors rather than sheets
 pref("browser.xul.error_pages.enabled", true);
+
+// map delete key to back button
+pref("browser.backspace_action", 0);

@@ -1101,6 +1101,8 @@ nsNavHistoryContainerResultNode::RemoveChildAt(PRInt32 aIndex,
       isContainerOpen = mChildren[aIndex]->GetAsContainer()->mExpanded;
       if (isContainerOpen)
         visibleRows = result->CountVisibleRowsForItem(mChildren[aIndex]);
+      else // visible but closed containers take one row (their own)
+        visibleRows = 1;
     } else {
       visibleRows = 1;
     }
@@ -2144,7 +2146,7 @@ nsNavHistoryQueryResultNode::OnTitleChanged(nsIURI* aURI,
 
 // nsNavHistoryQueryResultNode::OnDeleteURI
 //
-//    Here, we can always live update by just deleting all occurances of
+//    Here, we can always live update by just deleting all occurrences of
 //    the given URI.
 
 NS_IMETHODIMP
@@ -2681,7 +2683,12 @@ nsNavHistoryFolderResultNode::OnItemAdded(nsIURI* aBookmark, PRInt64 aFolder,
   nsresult rv = history->UriToResultNode(aBookmark, mOptions, &node);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  return InsertChildAt(node, aIndex);
+  if (GetSortType() == nsINavHistoryQueryOptions::SORT_BY_NONE) {
+    // insert at natural bookmarks position
+    return InsertChildAt(node, aIndex);
+  }
+  // insert at sorted position
+  return InsertSortedChild(node, PR_FALSE);
 }
 
 
@@ -2888,7 +2895,12 @@ nsNavHistoryFolderResultNode::OnFolderAdded(PRInt64 aFolder, PRInt64 aParent,
   nsresult rv = bookmarks->ResultNodeForFolder(aFolder, mOptions, &node);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  return InsertChildAt(node, aIndex);
+  if (GetSortType() == nsINavHistoryQueryOptions::SORT_BY_NONE) {
+    // insert at natural bookmarks position
+    return InsertChildAt(node, aIndex);
+  }
+  // insert at sorted position
+  return InsertSortedChild(node, PR_FALSE);
 }
 
 

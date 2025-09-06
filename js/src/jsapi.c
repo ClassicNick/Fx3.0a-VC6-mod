@@ -1889,6 +1889,19 @@ JS_IsAboutToBeFinalized(JSContext *cx, void *thing)
     return js_IsAboutToBeFinalized(cx, thing);
 }
 
+JS_PUBLIC_API(void)
+JS_SetGCParameter(JSRuntime *rt, JSGCParamKey key, uint32 value)
+{
+    switch (key) {
+      case JSGC_MAX_BYTES:
+        rt->gcMaxBytes = value;
+        break;
+      case JSGC_MAX_MALLOC_BYTES:
+        rt->gcMaxMallocBytes = value;
+        break;
+    }
+}
+
 JS_PUBLIC_API(intN)
 JS_AddExternalStringFinalizer(JSStringFinalizeOp finalizer)
 {
@@ -2025,10 +2038,10 @@ JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
 
     /* Create a prototype object for this class. */
     proto = js_NewObject(cx, clasp, parent_proto, obj);
-    if (!proto) {
-        named = JS_FALSE;
-        goto bad;
-    }
+    if (!proto)
+        return NULL;
+
+    /* After this point, control must exit via label bad or out. */
     JS_PUSH_SINGLE_TEMP_ROOT(cx, OBJECT_TO_JSVAL(proto), &tvr);
 
     if (!constructor) {
@@ -4163,7 +4176,7 @@ JS_CallFunctionName(JSContext *cx, JSObject *obj, const char *name, uintN argc,
         return JS_FALSE;
     ok = js_InternalCall(cx, obj, fval, argc, argv, rval);
     LAST_FRAME_CHECKS(cx, ok);
-    return JS_TRUE;
+    return ok;
 }
 
 JS_PUBLIC_API(JSBool)
@@ -4439,7 +4452,7 @@ JS_DecodeBytes(JSContext *cx, const char *src, size_t srclen, jschar *dst,
 JS_PUBLIC_API(JSBool)
 JS_CStringsAreUTF8()
 {
-#ifdef JS_STRINGS_ARE_UTF8
+#ifdef JS_C_STRINGS_ARE_UTF8
     return JS_TRUE;
 #else
     return JS_FALSE;

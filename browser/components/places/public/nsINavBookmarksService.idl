@@ -342,9 +342,22 @@ interface nsINavBookmarksService : nsISupports
   boolean getFolderReadonly(in PRInt64 folder);
 
   /**
-   * Returns true if the given URI is in any bookmark folder.
+   * Returns true if the given URI is in any bookmark folder. If you want the
+   * results to be redirect-aware, use getBookmarkedURIFor()
    */
   boolean isBookmarked(in nsIURI uri);
+
+  /**
+   * Used to see if the given URI is bookmarked, or any page that redirected to
+   * it is bookmarked. For example, if I bookmark "mozilla.org" by manually
+   * typing it in, and follow the bookmark, I will get redirected to
+   * "www.mozilla.org". Logically, this new page is also bookmarked. This
+   * function, if given "www.mozilla.org", will return the URI of the bookmark,
+   * in this case "mozilla.org".
+   *
+   * If there is no bookmarked page found, it will return NULL.
+   */
+  nsIURI getBookmarkedURIFor(in nsIURI uri);
 
   /**
    * Returns the list of folder ids that contain the given URI.
@@ -363,6 +376,30 @@ interface nsINavBookmarksService : nsISupports
    * Returns -1 if the subfolder is not present in the parent folder.
    */
   PRInt32 indexOfFolder(in PRInt64 parent, in PRInt64 folder);
+
+  /**
+   * Associates the given keyword with the given URI.
+   *
+   * Use an empty keyword to clear the keyword associated with the URI. Use an
+   * empty URI to clear the URI associated with that keyword. In both of these
+   * cases, succeeds but does nothing if the URL/keyword is not found.
+   *
+   * When setting a keyword (both URI and keyword are specified), the URI must
+   * be bookmarked for the keyword to be persistent.
+   */
+  void setKeywordForURI(in nsIURI uri, in AString keyword);
+
+  /**
+   * Retrieves the keyword for the given URI. Will be empty if no such
+   * keyword is found.
+   */
+  AString getKeywordForURI(in nsIURI uri);
+
+  /**
+   * Returns the URI associated with the given keyword. Empty if no such
+   * keyword is found.
+   */
+  nsIURI getURIForKeyword(in AString keyword);
 
   /**
    * Adds a bookmark observer. If ownsWeak is false, the bookmark service will

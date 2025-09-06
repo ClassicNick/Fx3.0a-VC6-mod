@@ -37,16 +37,37 @@
 
 /* 	background-position:0px 100%; */
 
-#urlbar * {
-      background-color:white;
-}
-
 #urlbar input {
 	background-repeat:no-repeat;
 	background-image:url(chrome://minimo/skin/transfer.jpg);
 	padding:0px;
 	margin:0px;
  	border:1px solid black;
+}
+
+#urlbar {
+	padding:1px;
+}
+
+#urlbar * {
+      background-color:white;
+}
+
+/* Homebar max icons */ 
+
+#browserleftbar .toolbarbutton-icon {
+  width:16px;
+  height:16px;
+}
+
+/* Hack to remove the resizer icon */ 
+
+.statusbar-resizerpanel { 
+  display:none;
+}
+
+.statusbarpanel-text {
+  padding:.3em ! important;
 }
 
 /* This should be placed in with Toolbars section */ 
@@ -67,9 +88,6 @@ toolbar *, #appcontent *, * {
   margin: 0px ! important;
 }
 
-#urlbar {
-	padding:1px;
-}
 
 /* Tab browser stuff */
 

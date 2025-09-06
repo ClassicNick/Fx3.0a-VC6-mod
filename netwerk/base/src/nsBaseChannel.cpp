@@ -40,10 +40,12 @@
 #include "nsURLHelper.h"
 #include "nsNetUtil.h"
 #include "nsMimeTypes.h"
+#include "nsIOService.h"
 #include "nsIHttpEventSink.h"
 #include "nsIHttpChannel.h"
 #include "nsIChannelEventSink.h"
 #include "nsIStreamConverterService.h"
+#include "nsIContentSniffer.h"
 
 // Determine if this URI is using a safe port.
 static nsresult
@@ -118,16 +120,12 @@ nsBaseChannel::Redirect(nsIChannel *newChannel, PRUint32 redirectFlags)
   // we support nsIHttpEventSink if we are an HTTP channel and if this is not
   // an internal redirect.
 
-  nsresult rv;
-
-  // Give the global event sink a chance to observe/block this redirect.
-  nsCOMPtr<nsIChannelEventSink> channelEventSink =
-      do_GetService(NS_GLOBAL_CHANNELEVENTSINK_CONTRACTID);
-  if (channelEventSink) {
-    rv = channelEventSink->OnChannelRedirect(this, newChannel, redirectFlags);
-    if (NS_FAILED(rv))
-      return rv;
-  }
+  // Global observers. These come first so that other observers don't see
+  // redirects that get aborted for security reasons anyway.
+  NS_ASSERTION(gIOService, "Must have an IO service");
+  nsresult rv = gIOService->OnChannelRedirect(this, newChannel, redirectFlags);
+  if (NS_FAILED(rv))
+    return rv;
 
   // Backwards compat for non-internal redirects from a HTTP channel.
   if (!(redirectFlags & nsIChannelEventSink::REDIRECT_INTERNAL)) {
@@ -143,6 +141,7 @@ nsBaseChannel::Redirect(nsIChannel *newChannel, PRUint32 redirectFlags)
     }
   }
 
+  nsCOMPtr<nsIChannelEventSink> channelEventSink;
   // Give our consumer a chance to observe/block this redirect.
   GetCallback(channelEventSink);
   if (channelEventSink) {
@@ -456,10 +455,14 @@ nsBaseChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *ctxt)
   if (NS_FAILED(rv))
     return rv;
 
-  rv = NS_NewInputStreamPump(getter_AddRefs(mPump), stream, -1, -1, 0, 0,
-                             PR_TRUE);
-  if (NS_FAILED(rv))
+  mPump = new nsInputStreamPump();
+  if (!mPump)
+    return NS_ERROR_OUT_OF_MEMORY;
+  rv = mPump->Init(stream, -1, -1, 0, 0, PR_TRUE);
+  if (NS_FAILED(rv)) {
+    mPump = nsnull;
     return rv;
+  }
 
   rv = mPump->AsyncRead(this, nsnull);
   if (NS_FAILED(rv)) {
@@ -525,13 +528,30 @@ nsBaseChannel::GetInterface(const nsIID &iid, void **result)
 //-----------------------------------------------------------------------------
 // nsBaseChannel::nsIRequestObserver
 
+static void
+CallTypeSniffers(void *aClosure, const PRUint8 *aData, PRUint32 aCount)
+{
+  nsIChannel *chan = NS_STATIC_CAST(nsIChannel*, aClosure);
+
+  nsCOMPtr<nsIContentSniffer> sniffer =
+    do_CreateInstance(NS_GENERIC_CONTENT_SNIFFER);
+  if (!sniffer)
+    return;
+
+  nsCAutoString detected;
+  nsresult rv = sniffer->GetMIMETypeFromContent(chan, aData, aCount, detected);
+  if (NS_SUCCEEDED(rv))
+    chan->SetContentType(detected);
+}
+
 NS_IMETHODIMP
 nsBaseChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
 {
   // If our content type is unknown, then use the content type sniffer.  If the
   // sniffer is not available for some reason, then we just keep going as-is.
-  if (NS_SUCCEEDED(mStatus) && mContentType.EqualsLiteral(UNKNOWN_CONTENT_TYPE))
-    PushStreamConverter(UNKNOWN_CONTENT_TYPE, "*/*", PR_FALSE);
+  if (NS_SUCCEEDED(mStatus) && mContentType.EqualsLiteral(UNKNOWN_CONTENT_TYPE)) {
+    mPump->PeekStream(CallTypeSniffers, NS_STATIC_CAST(nsIChannel*, this));
+  }
 
   return mListener->OnStartRequest(this, mListenerContext);
 }

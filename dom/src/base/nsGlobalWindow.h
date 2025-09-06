@@ -111,6 +111,13 @@ class nsHistory;
 class nsIDocShellLoadInfo;
 class WindowStateHolder;
 
+// permissible values for CheckOpenAllow
+enum OpenAllowValue {
+  allowNot = 0,     // the window opening is denied
+  allowNoAbuse,     // allowed: not a popup
+  allowWhitelisted  // allowed: it's whitelisted or popup blocking is disabled
+};
+
 //*****************************************************************************
 // nsGlobalWindow: Global Object for Scripting
 //*****************************************************************************
@@ -207,12 +214,11 @@ public:
   virtual NS_HIDDEN_(nsresult) Deactivate();
   virtual NS_HIDDEN_(nsIFocusController*) GetRootFocusController();
 
-  virtual NS_HIDDEN_(void) SetOpenerScriptURL(nsIURI* aURI);
+  virtual NS_HIDDEN_(void) SetOpenerScriptPrincipal(nsIPrincipal* aPrincipal);
 
   virtual NS_HIDDEN_(PopupControlState) PushPopupControlState(PopupControlState state, PRBool aForce) const;
   virtual NS_HIDDEN_(void) PopPopupControlState(PopupControlState state) const;
   virtual NS_HIDDEN_(PopupControlState) GetPopupControlState() const;
-  virtual NS_HIDDEN_(OpenAllowValue) GetOpenAllow(const nsAString &aName);
 
   virtual NS_HIDDEN_(nsresult) SaveWindowState(nsISupports **aState);
   virtual NS_HIDDEN_(nsresult) RestoreWindowState(nsISupports *aState);
@@ -294,8 +300,6 @@ protected:
                           nsISupports *aState,
                           PRBool aClearScopeHint,
                           PRBool aIsInternalCall);
-
-  PRBool WouldReuseInnerWindow(nsIDocument *aNewDocument, PRBool useDocURI);
 
   // Get the parent, returns null if this is a toplevel window
   nsIDOMWindowInternal *GetParentInternal();
@@ -496,6 +500,8 @@ protected:
   nsCOMPtr<nsIDOMPkcs11>        mPkcs11;
 
   nsCOMPtr<nsIXPConnectJSObjectHolder> mInnerWindowHolder;
+  nsCOMPtr<nsIPrincipal> mOpenerScriptPrincipal; // strong; used to determine
+                                                 // whether to clear scope
 
   // These member variable are used only on inner windows.
   nsCOMPtr<nsIEventListenerManager> mListenerManager;
@@ -602,11 +608,12 @@ struct nsTimeout
   // Returned as value of setTimeout()
   PRUint32 mPublicId;
 
-  // Non-zero if repetitive timeout
+  // Non-zero interval in milliseconds if repetitive timeout
   PRInt32 mInterval;
 
-  // Nominal time to run this timeout
-  PRIntervalTime mWhen;
+  // Nominal time (in microseconds since the epoch) to run this
+  // timeout
+  PRTime mWhen;
 
   // Principal with which to execute
   nsCOMPtr<nsIPrincipal> mPrincipal;

@@ -4,16 +4,14 @@
  *
  * @package amo
  * @subpackage docs
- * @todo find a more elegant way to push in global template data (like $cats)
  */
 
 
 
 /**
- * Require our config, smarty class.
+ * Require our config.
  */
 require_once('config.php');
-require_once(SMARTY_BASEDIR.'/Smarty.class.php');  // Smarty
 
 
 
@@ -23,6 +21,57 @@ require_once(SMARTY_BASEDIR.'/Smarty.class.php');  // Smarty
 ini_set('display_errors',DISPLAY_ERRORS);
 ini_set('error_reporting',ERROR_REPORTING);
 ini_set('magic_quotes_gpc',0);
+
+
+
+/**
+ * Name of the current script.
+ *
+ * This is used in important comparisons with $shadow_config and $cache_config,
+ * so it was pulled out of config.php so it's immutable.
+ */
+define('SCRIPT_NAME',substr($_SERVER['SCRIPT_NAME'], strlen(WEB_PATH.'/'), strlen($_SERVER['SCRIPT_NAME'])));
+
+
+
+/**
+ * Set up caching if this page requires caching.  First we will include Cache_Lite and create an object.
+ *
+ * Second, we will check to see if the cache has already been compiled for our ID.
+ *
+ * This is all done before anything else happens because we want to save cycles.
+ */
+
+// Set our cacheLiteId based on our params.
+// We'll keep it around even if we aren't using the cache.
+$cacheLiteId = md5($_SERVER['QUERY_STRING']);
+
+// Is the current page set to be cached?
+if (!empty($cache_config[SCRIPT_NAME])) {
+
+    require_once('Cache/Lite.php');
+
+    // Set options.
+    $cacheOptions = array(
+        'cacheDir' => CACHE_DIR.'/',
+        'lifeTime' => $cache_config[SCRIPT_NAME]
+    );
+
+    // Instantiate Cache_Lite() object.
+    $cache = new Cache_Lite($cacheOptions);
+
+    // If our page is already cached, display from cache and exit.
+    if ($cacheData = $cache->get($cacheLiteId,SCRIPT_NAME)) {
+
+        // If we have specified a custom content-type for this script, echo the header here.
+        if (!empty($contentType_config[SCRIPT_NAME])) {
+            header('Content-type: '.$contentType_config[SCRIPT_NAME]);
+        }
+
+        echo $cacheData;
+        exit;
+    }
+}
 
 
 
@@ -55,6 +104,13 @@ switch( $_GET['app'] ) {
         $compileId = 'firefox';
         break;
 }
+
+
+
+/**
+ * Include Smarty class.  If we get here, we're going to generate the page.
+ */
+require_once(SMARTY_BASEDIR.'/Smarty.class.php');  // Smarty
 
 
 
@@ -96,7 +152,7 @@ class AMO_Smarty extends Smarty
 function startProcessing($aTplName, $aCacheId, $aCompileId, $aPageType='default')
 {
     // Pass in our global variables.
-    global $tpl, $pageType, $content, $cacheId, $compileId;
+    global $tpl, $pageType, $content, $cacheId, $compileId, $cache_config;
 
     $pageType = $aPageType;
     $content = $aTplName;
@@ -104,10 +160,5 @@ function startProcessing($aTplName, $aCacheId, $aCompileId, $aPageType='default'
     $compileId = $aCompileId;
 
     $tpl = new AMO_Smarty();
-
-    if ($tpl->is_cached($aTplName, $aCacheId, $aCompileId)) {
-        require_once('finish.php');
-        exit;
-    }
 }
 ?>

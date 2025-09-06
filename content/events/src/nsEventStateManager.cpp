@@ -1408,29 +1408,13 @@ nsEventStateManager::GetSelection(nsIFrame* inFrame,
                                   nsPresContext* inPresContext,
                                   nsIFrameSelection** outSelection)
 {
-  *outSelection = nsnull;
-
-  if (inFrame) {
-    nsCOMPtr<nsISelectionController> selCon;
-    nsresult rv = inFrame->GetSelectionController(inPresContext, getter_AddRefs(selCon));
-
-    if (NS_SUCCEEDED(rv) && selCon) {
-      nsCOMPtr<nsIFrameSelection> frameSel;
-
-      frameSel = do_QueryInterface(selCon);
-
-      if (! frameSel) {
-        nsIPresShell *shell = inPresContext->GetPresShell();
-        if (shell)
-          frameSel = shell->FrameSelection();
-      }
-
-      *outSelection = frameSel.get();
-      NS_IF_ADDREF(*outSelection);
-    }
+  if (!inFrame || !outSelection) {
+    NS_ERROR("Invalid call");
+    return;
   }
-
-} // GetSelection
+  *outSelection = inFrame->GetFrameSelection();
+  NS_IF_ADDREF(*outSelection);
+}
 
 void
 nsEventStateManager::FillInEventFromGestureDown(nsMouseEvent* aEvent)
@@ -1796,9 +1780,7 @@ nsEventStateManager::DoScrollText(nsPresContext* aPresContext,
       nsIComboboxControlFrame* comboBox = nsnull;
       CallQueryInterface(scrollFrame, &comboBox);
       if (comboBox) {
-        PRBool isDroppedDown = PR_FALSE;
-        comboBox->IsDroppedDown(&isDroppedDown);
-        if (isDroppedDown) {
+        if (comboBox->IsDroppedDown()) {
           // Don't propagate to parent when drop down menu is active.
           if (passToParent) {
             passToParent = PR_FALSE;
@@ -5121,6 +5103,18 @@ nsEventStateManager::SetContentCaretVisible(nsIPresShell* aPresShell,
     if (domSelection) {
       // First, tell the caret which selection to use
       caret->SetCaretDOMSelection(domSelection);
+
+      if (aVisible) {
+        // Check whether domSelection has focus node
+        // If not, we need move caret to the top of the document 
+        nsCOMPtr<nsIDOMNode> focusNode;
+        domSelection->GetFocusNode(getter_AddRefs(focusNode));
+        if (!focusNode) {
+          nsCOMPtr<nsISelectionController> selCon(do_QueryInterface(aPresShell));
+          if (selCon)
+            selCon->CompleteMove(PR_FALSE, PR_FALSE);
+        }
+      }
 
       // In content, we need to set the caret
       // the only other case is edit fields, where they have a different frame selection from the doc's

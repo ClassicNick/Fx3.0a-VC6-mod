@@ -81,7 +81,7 @@
 // Size of visit count boost to give to urls which are sites or paths
 #define AUTOCOMPLETE_NONPAGE_VISIT_COUNT_BOOST 5
 // set to use more optimized (in-memory database) link coloring
-#define IN_MEMORY_LINKS
+//#define IN_MEMORY_LINKS
 
 #define QUERYUPDATE_TIME 0
 #define QUERYUPDATE_SIMPLE 1
@@ -273,7 +273,25 @@ public:
                                    nsCOMArray<nsNavHistoryQuery>* aQueries,
                                    nsNavHistoryQueryOptions** aOptions);
 
-private:
+  // Import-friendly version of SetPageDetails + AddVisit.
+  // This method adds a page to history along with a single last visit.
+  // It is an error to call this method if aURI might already be in history.
+  // The given aVisitCount should include the given last-visit date.
+  // aLastVisitDate can be -1 if there is no last visit date to record.
+  nsresult AddPageWithVisit(nsIURI *aURI,
+                            const nsString &aTitle,
+                            const nsString &aUserTitle,
+                            PRBool aHidden, PRBool aTyped,
+                            PRInt32 aVisitCount,
+                            PRInt32 aLastVisitTransition,
+                            PRTime aLastVisitDate);
+
+  // Checks the database for any duplicate URLs.  If any are found,
+  // all but the first are removed.  This must be called after using
+  // AddPageWithVisit, to ensure that the database is in a consistent state.
+  nsresult RemoveDuplicateURIs();
+
+ private:
   ~nsNavHistory();
 
   // used by GetHistoryService
@@ -284,9 +302,7 @@ protected:
   //
   // Constants
   //
-  nsCOMPtr<nsIPrefService> gPrefService;
-  nsCOMPtr<nsIPrefBranch> gPrefBranch;
-  nsCOMPtr<nsIObserverService> gObserverService;
+  nsCOMPtr<nsIPrefBranch> mPrefBranch; // MAY BE NULL when we are shutting down
   nsDataHashtable<nsStringHashKey, int> gExpandedItems;
 
   //
@@ -329,10 +345,15 @@ protected:
   nsresult InitMemDB();
 #endif
 
+  // this statement is kept open to persist the cache, see InitDB
+  nsCOMPtr<mozIStorageConnection> mDummyDBConn;
+  nsCOMPtr<mozIStorageStatement> mDummyStatement;
+
   nsresult AddVisitChain(nsIURI* aURI, PRBool aToplevel, PRBool aRedirect,
                          nsIURI* aReferrer, PRInt64* aVisitID,
-                         PRInt64* aSessionID);
-  nsresult InternalAddNewPage(nsIURI* aURI, PRBool aHidden, PRBool aTyped,
+                         PRInt64* aSessionID, PRInt64* aRedirectBookmark);
+  nsresult InternalAddNewPage(nsIURI* aURI, const nsAString& aTitle,
+                              PRBool aHidden, PRBool aTyped,
                               PRInt32 aVisitCount, PRInt64* aPageID);
   nsresult InternalAddVisit(PRInt64 aPageID, PRInt64 aReferringVisit,
                             PRInt64 aSessionID, PRTime aTime,
@@ -340,7 +361,7 @@ protected:
   PRBool FindLastVisit(nsIURI* aURI, PRInt64* aVisitID,
                        PRInt64* aSessionID);
   PRBool IsURIStringVisited(const nsACString& url);
-  nsresult VacuumDB(PRTime aTimeAgo, PRBool aCompress);
+  nsresult VacuumDB(PRTime aTimeAgo);
   nsresult LoadPrefs();
 
   // Current time optimization
@@ -470,19 +491,19 @@ protected:
 nsresult BindStatementURI(mozIStorageStatement* statement, PRInt32 index,
                           nsIURI* aURI);
 
-NS_NAMED_LITERAL_CSTRING(placesURIPrefix, "place:");
+#define PLACES_URI_PREFIX "place:"
 
 /* Returns true if the given URI represents a history query. */
 inline PRBool IsQueryURI(const nsCString &uri)
 {
-  return StringBeginsWith(uri, placesURIPrefix);
+  return StringBeginsWith(uri, NS_LITERAL_CSTRING(PLACES_URI_PREFIX));
 }
 
 /* Extracts the query string from a query URI. */
 inline const nsDependentCSubstring QueryURIToQuery(const nsCString &uri)
 {
   NS_ASSERTION(IsQueryURI(uri), "should only be called for query URIs");
-  return Substring(uri, placesURIPrefix.Length());
+  return Substring(uri, NS_LITERAL_CSTRING(PLACES_URI_PREFIX).Length());
 }
 
 #endif // nsNavHistory_h_

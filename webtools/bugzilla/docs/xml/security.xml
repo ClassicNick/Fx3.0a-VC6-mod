@@ -1,5 +1,5 @@
 <!-- <!DOCTYPE chapter PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"> -->
-<!-- $Id: security.xml,v 1.8 2005/11/08 13:34:37 wurblzap%gmail.com Exp $ -->
+<!-- $Id: security.xml,v 1.14 2006/03/01 13:03:27 jocuri%softhome.net Exp $ -->
 
 <chapter id="security">
 <title>Bugzilla Security</title>
@@ -49,8 +49,8 @@
       <quote>SYSTEM</quote> introduces obvious security concerns, the
       problems introduced by running everything as <quote>nobody</quote> may
       not be so obvious. Basically, if you run every daemon as
-      <quote>nobody</quote> and one of them gets comprimised it can
-      comprimise every other daemon running as <quote>nobody</quote> on your
+      <quote>nobody</quote> and one of them gets compromised it can
+      compromise every other daemon running as <quote>nobody</quote> on your
       machine. For this reason, it is recommended that you create a user
       account for each daemon.
       </para>
@@ -90,7 +90,7 @@
     <title>The MySQL System Account</title>
     
       <para>As mentioned in <xref linkend="security-os-accounts"/>, the MySQL
-      daemon should run as a non-privleged, unique user. Be sure to consult
+      daemon should run as a non-privileged, unique user. Be sure to consult
       the MySQL documentation or the documentation that came with your system
       for instructions.
       </para>
@@ -141,7 +141,7 @@
       have no other reason to access MySQL remotely, then you should disable
       the network access. This, along with the suggestion in
       <xref linkend="security-os-ports"/>, will help protect your system from
-      any remote vulnerabilites in MySQL.
+      any remote vulnerabilities in MySQL.
       </para>
       
       <example id="security-mysql-network-ex">
@@ -293,7 +293,7 @@ skip-networking
       </itemizedlist>
 
       <para>Be sure to test that data that should not be accessed remotely is
-      properly blocked. Of particular intrest is the localconfig file which
+      properly blocked. Of particular interest is the localconfig file which
       contains your database password. Also, be aware that many editors
       create temporary and backup files in the working directory and that
       those should also not be accessable. For more information, see 

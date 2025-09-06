@@ -11,15 +11,13 @@
  * @subpackage pub
  */
 
+startProcessing('update.tpl', $cacheLiteId, $compileId, 'xml');
 
-
-/*
+/**
  *  VARIABLES
  *
  *  Initialize, set up and clean variables.
  */
-
-
 
 // Map the mysql main.type enum into the right type.
 $ext_typemap = array('T' => 'theme',
@@ -51,28 +49,6 @@ foreach ($required_vars as $var) {
     }
 }
 
-// Determine a cache_id based on params.
-$cache_id = md5( $sql['os_id'] . implode('',$sql) );
-
-
-
-/**
- * CHECK CACHE
- *
- * Check to see if we already have a matching cache_id.
- * If it exists, we can pull from it and exit; and avoid recompiling.
- */
-$tpl = new AMO_Smarty();
-
-// Set our cache timeout to 1 hour.
-$tpl->caching = true;
-$tpl->cache_timeout = 3600;
-
-if ($tpl->is_cached('update.tpl',$cache_id)) {
-    $tpl->display('update.tpl',$cache_id);
-    exit;
-}
-
 
 
 // If we have all of our data, clean it up for our queries.
@@ -92,6 +68,15 @@ if (empty($errors)) {
     $os_query = ($sql['os_id']) ? " OR version.OSID = '{$sql['os_id']}' " : '';  // Set up os_id.
 
     // Query for possible updates.
+    //
+    // The query sorts by version.vid, which is an auto_increment primary key for that table.
+    //
+    // The reason why this was used is that the version.version column was a varchar and
+    // it was failing to sort correctly in some cases.
+    //
+    // There is a possibility that the version.vid sort could be incorrect, but only in edge
+    // cases where the version was added retroactively, and I've actually _never_ seen such
+    // a case.
     $query = "
         SELECT
             main.guid AS extguid,
@@ -103,14 +88,8 @@ if (empty($errors)) {
             applications.guid AS appguid
         FROM
             main
-        INNER JOIN
-            version
-        ON
-            main.id = version.id
-        INNER JOIN
-            applications
-        ON
-            version.appid = applications.appid
+        INNER JOIN version ON main.id = version.id
+        INNER JOIN applications ON version.appid = applications.appid
         WHERE
             main.guid = '{$sql['id']}' AND
             applications.guid = '{$sql['appID']}' AND
@@ -119,9 +98,7 @@ if (empty($errors)) {
             '{$sql['appVersion']}+' >= version.minappver AND
             '{$sql['version']}' <= version.version
         ORDER BY
-            extversion DESC,
-            version.MaxAppVer_int DESC,
-            version.OSID DESC 
+            version.vid DESC
         LIMIT 1       
     ";
 
@@ -136,7 +113,7 @@ if (empty($errors)) {
         
         // An update exists.  Retrieve it.
         foreach ($db->record as $key=>$val) {
-            $update[$key] = $db->record;
+            $update[$key] = $val;
         }
 
         $update['exttype'] = $ext_typemap[$update['exttype']];
@@ -144,24 +121,6 @@ if (empty($errors)) {
         $tpl->assign('update',$update);
     }
 } 
-
-
-
-
-/*
- *  DISPLAY OUTPUT
- *
- *  If we have valid RDF output set, our template will display it to the client.
- *
- *  If we do not have a full RDF, clients will see a blank RDF that is 
- *  properly formatted.
- */
-if ($debug!=true) {
-    header("Content-type: text/xml");
-    $tpl->display('update.tpl'); 
-    exit;
-}
-
 
 
 

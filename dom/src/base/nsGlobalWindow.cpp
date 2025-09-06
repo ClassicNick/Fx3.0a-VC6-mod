@@ -191,7 +191,13 @@ PRInt32 gTimeoutCnt                                    = 0;
 #define DEBUG_PAGE_CACHE
 #endif
 
+// The shortest interval/timeout we permit
 #define DOM_MIN_TIMEOUT_VALUE 10 // 10ms
+
+// The longest interval (as PRIntervalTime) we permit, or that our
+// timer code can handle, really. See DELAY_INTERVAL_LIMIT in
+// nsTimerImpl.h for details.
+#define DOM_MAX_TIMEOUT_VALUE    PR_BIT(8 * sizeof(PRIntervalTime) - 1)
 
 #define FORWARD_TO_OUTER(method, args, err_rval)                              \
   PR_BEGIN_MACRO                                                              \
@@ -593,12 +599,6 @@ nsGlobalWindow::GetContext()
 PRBool
 nsGlobalWindow::WouldReuseInnerWindow(nsIDocument *aNewDocument)
 {
-  return WouldReuseInnerWindow(aNewDocument, PR_TRUE);
-}
-
-PRBool
-nsGlobalWindow::WouldReuseInnerWindow(nsIDocument *aNewDocument, PRBool useDocURI)
-{
   // We reuse the inner window when:
   // a. We are currently at about:blank
   // b. At least one of the following conditions are true:
@@ -613,22 +613,17 @@ nsGlobalWindow::WouldReuseInnerWindow(nsIDocument *aNewDocument, PRBool useDocUR
     return PR_FALSE;
   }
 
-  nsCOMPtr<nsIURI> newURI;
-  if (useDocURI) {
-    newURI = aNewDocument->GetDocumentURI();
-  } else {
-    nsCOMPtr<nsIWebNavigation> webNav(do_QueryInterface(mDocShell));
-
-    if (webNav) {
-      webNav->GetCurrentURI(getter_AddRefs(newURI));
-    }
-  }
-
   nsIURI* curURI = mDoc->GetDocumentURI();
-  if (!curURI || !newURI) {
+  if (!curURI) {
     return PR_FALSE;
   }
 
+  nsIPrincipal* newPrincipal = aNewDocument->GetNodePrincipal();
+  if (!newPrincipal) {
+    // This really should not be happening.... play it safe.
+    return PR_FALSE;
+  }
+    
   PRBool isAbout;
   if (NS_FAILED(curURI->SchemeIs("about", &isAbout)) || !isAbout) {
     return PR_FALSE;
@@ -647,18 +642,11 @@ nsGlobalWindow::WouldReuseInnerWindow(nsIDocument *aNewDocument, PRBool useDocUR
     return PR_TRUE;
   }
 
-  if (mOpenerScriptURL) {
-    if (sSecMan) {
-      PRBool isSameOrigin = PR_FALSE;
-      // XXXbz shouldn't we store the opener _principal_ and use
-      // CheckSameOriginPrincipal here instead?  That would make a lot more
-      // sense to me...
-      sSecMan->SecurityCompareURIs(mOpenerScriptURL, newURI, &isSameOrigin);
-      if (isSameOrigin) {
-        // The origin is the same.
-        return PR_TRUE;
-      }
-    }
+  if (mOpenerScriptPrincipal && sSecMan &&
+      NS_SUCCEEDED(sSecMan->CheckSameOriginPrincipal(mOpenerScriptPrincipal,
+                                                     newPrincipal))) {
+    // The origin is the same.
+    return PR_TRUE;
   }
 
   nsCOMPtr<nsIDocShellTreeItem> treeItem(do_QueryInterface(mDocShell));
@@ -676,11 +664,11 @@ nsGlobalWindow::WouldReuseInnerWindow(nsIDocument *aNewDocument, PRBool useDocUR
 }
 
 void
-nsGlobalWindow::SetOpenerScriptURL(nsIURI* aURI)
+nsGlobalWindow::SetOpenerScriptPrincipal(nsIPrincipal* aPrincipal)
 {
-  FORWARD_TO_OUTER_VOID(SetOpenerScriptURL, (aURI));
+  FORWARD_TO_OUTER_VOID(SetOpenerScriptPrincipal, (aPrincipal));
 
-  mOpenerScriptURL = aURI;
+  mOpenerScriptPrincipal = aPrincipal;
 }
 
 PopupControlState
@@ -961,7 +949,7 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
   // check xpc here.
   nsIXPConnect *xpc = nsContentUtils::XPConnect();
 
-  PRBool reUseInnerWindow = WouldReuseInnerWindow(aDocument, PR_FALSE);
+  PRBool reUseInnerWindow = WouldReuseInnerWindow(aDocument);
 
   // Remember the old document's principal.
   nsIPrincipal *oldPrincipal = nsnull;
@@ -4113,13 +4101,6 @@ nsGlobalWindow::CheckOpenAllow(PopupControlState aAbuseLevel)
   return allowWindow;
 }
 
-OpenAllowValue
-nsGlobalWindow::GetOpenAllow(const nsAString &aName)
-{
-  NS_ENSURE_TRUE(GetDocShell(), allowNot);
-  return CheckOpenAllow(CheckForAbusePoint());
-}
-
 /* If a window open is blocked, fire the appropriate DOM events.
    aBlocked signifies we just blocked a popup.
    aWindow signifies we just opened what is probably a popup.
@@ -5413,7 +5394,6 @@ nsGlobalWindow::GetComputedStyle(nsIDOMElement* aElt,
   *aReturn = nsnull;
 
   if (!aElt) {
-    NS_ERROR("Don't call getComputedStyle with a null DOMElement reference!");
     return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
   }
 
@@ -5720,19 +5700,15 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
     // Save the principal of the calling script
     // We need it to decide whether to clear the scope in SetNewDocument
     NS_ASSERTION(sSecMan, "No Security Manager Found!");
-    // Note that the opener script URL is not relevant for openDialog
+    // Note that the opener script principal is not relevant for openDialog
     // callers, since those already have chrome privileges.  So we
     // only want to do this wen aDoJSFixups is true.
     if (aDoJSFixups && sSecMan) {
       nsCOMPtr<nsIPrincipal> principal;
       sSecMan->GetSubjectPrincipal(getter_AddRefs(principal));
       if (principal) {
-        nsCOMPtr<nsIURI> subjectURI;
-        principal->GetURI(getter_AddRefs(subjectURI));
-        if (subjectURI) {
-          nsCOMPtr<nsPIDOMWindow> domReturnPrivate(do_QueryInterface(domReturn));
-          domReturnPrivate->SetOpenerScriptURL(subjectURI);
-        }
+        nsCOMPtr<nsPIDOMWindow> domReturnPrivate(do_QueryInterface(domReturn));
+        domReturnPrivate->SetOpenerScriptPrincipal(principal);
       }
     }
 
@@ -5901,6 +5877,12 @@ nsGlobalWindow::SetTimeoutOrInterval(PRBool aIsInterval, PRInt32 *aReturn)
     interval = DOM_MIN_TIMEOUT_VALUE;
   }
 
+  // Make sure we don't proceed with a interval larger than our timer
+  // code can handle.
+  if (interval > PR_IntervalToMilliseconds(DOM_MAX_TIMEOUT_VALUE)) {
+    interval = PR_IntervalToMilliseconds(DOM_MAX_TIMEOUT_VALUE);
+  }
+
   timeout = new nsTimeout();
   if (!timeout)
     return NS_ERROR_OUT_OF_MEMORY;
@@ -5977,14 +5959,14 @@ nsGlobalWindow::SetTimeoutOrInterval(PRBool aIsInterval, PRInt32 *aReturn)
     return NS_ERROR_FAILURE;
   }
 
-  PRIntervalTime delta = PR_MillisecondsToInterval((PRUint32)interval);
+  PRTime delta = (PRTime)interval * PR_USEC_PER_MSEC;
 
   if (!IsFrozen()) {
     // If we're not currently frozen, then we set timeout->mWhen to be the
     // actual firing time of the timer (i.e., now + delta). We also actually
     // create a timer and fire it off.
 
-    timeout->mWhen = PR_IntervalNow() + delta;
+    timeout->mWhen = PR_Now() + delta;
 
     timeout->mTimer = do_CreateInstance("@mozilla.org/timer;1", &rv);
     if (NS_FAILED(rv)) {
@@ -6089,8 +6071,8 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
 
   // A native timer has gone off. See which of our timeouts need
   // servicing
-  PRIntervalTime now = PR_IntervalNow();
-  PRIntervalTime deadline;
+  PRTime now = PR_Now();
+  PRTime deadline;
 
   if (aTimeout && aTimeout->mWhen > now) {
     // The OS timer fired early (yikes!), and possibly out of order
@@ -6194,9 +6176,10 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
     } else {
       // Add a "secret" final argument that indicates timeout lateness
       // in milliseconds
-      PRIntervalTime lateness =
-        PR_IntervalToMilliseconds(now - timeout->mWhen);
-      timeout->mArgv[timeout->mArgc] = INT_TO_JSVAL((jsint) lateness);
+      PRTime lateness = now - timeout->mWhen;
+
+      timeout->mArgv[timeout->mArgc] =
+        INT_TO_JSVAL((jsint)(lateness / PR_USEC_PER_MSEC));
 
       jsval dummy;
       scx->CallEventHandler(mJSObject, timeout->mFunObj, timeout->mArgc + 1,
@@ -6242,34 +6225,28 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
     if (timeout->mInterval) {
       // Compute time to next timeout for interval timer.
       // XXX Units?
-      PRIntervalTime nextInterval =
-        timeout->mWhen + PR_MillisecondsToInterval(timeout->mInterval);
-      PRInt32 delay = nextInterval - PR_IntervalNow();
+      PRTime nextInterval = timeout->mWhen +
+        ((PRTime)timeout->mInterval * PR_USEC_PER_MSEC);
+      PRTime delay = nextInterval - PR_Now();
 
       // If the next interval timeout is already supposed to have
-      // happened then run the timeout immediately.
-      if (delay < 0) {
-        delay = 0;
-      }
-
-      delay = PR_IntervalToMilliseconds(delay);
-
-      if (delay < DOM_MIN_TIMEOUT_VALUE) {
-        // Don't let intervals starve the message pump, no matter
-        // what. Just like we do for non-interval timeouts.
-
-        delay = DOM_MIN_TIMEOUT_VALUE;
+      // happened then run the timeout as soon as we can (meaning
+      // after DOM_MIN_TIMEOUT_VALUE time has passed).
+      if (delay < ((PRTime)DOM_MIN_TIMEOUT_VALUE * PR_USEC_PER_MSEC)) {
+        delay = (PRTime)DOM_MIN_TIMEOUT_VALUE * PR_USEC_PER_MSEC;
       }
 
       if (timeout->mTimer) {
         timeout->mWhen = nextInterval;
 
         // Reschedule the OS timer. Don't bother returning any error
-        // codes if this fails since nobody who cares about them is
-        // listening anyways.
-        nsresult rv =
-          timeout->mTimer->InitWithFuncCallback(TimerCallback, timeout, delay,
-                                                nsITimer::TYPE_ONE_SHOT);
+        // codes if this fails since the callers of this method
+        // doesn't care about them nobody who cares about them
+        // anyways.
+        nsresult rv = timeout->mTimer->
+          InitWithFuncCallback(TimerCallback, timeout,
+                               (PRInt32)(delay / PR_USEC_PER_MSEC),
+                               nsITimer::TYPE_ONE_SHOT);
 
         if (NS_FAILED(rv)) {
           NS_ERROR("Error initializing timer for DOM timeout!");
@@ -6883,7 +6860,7 @@ nsGlobalWindow::SuspendTimeouts()
 {
   FORWARD_TO_INNER_VOID(SuspendTimeouts, ());
 
-  PRIntervalTime now = PR_IntervalNow();
+  PRTime now = PR_Now();
   for (nsTimeout *t = mTimeouts; t; t = t->mNext) {
     // Change mWhen to be the time remaining for this timer.    
     if (t->mWhen > now)
@@ -6932,14 +6909,19 @@ nsGlobalWindow::ResumeTimeouts()
 {
   FORWARD_TO_INNER(ResumeTimeouts, (), NS_ERROR_NOT_INITIALIZED);
 
-  // Restore all of the timeouts, using the stored time remaining.
+  // Restore all of the timeouts, using the stored time remaining
+  // (stored in timeout->mWhen).
 
-  PRIntervalTime now = PR_IntervalNow();
+  PRTime now = PR_Now();
   nsresult rv;
 
   for (nsTimeout *t = mTimeouts; t; t = t->mNext) {
-    PRUint32 delay = PR_MAX(PR_IntervalToMilliseconds(t->mWhen),
-                            DOM_MIN_TIMEOUT_VALUE);
+    PRUint32 delay =
+      PR_MAX(((PRUint32)(t->mWhen / PR_USEC_PER_MSEC)),
+              DOM_MIN_TIMEOUT_VALUE);
+
+    // Set mWhen back to the time when the timer is supposed to
+    // fire.
     t->mWhen += now;
 
     t->mTimer = do_CreateInstance("@mozilla.org/timer;1");

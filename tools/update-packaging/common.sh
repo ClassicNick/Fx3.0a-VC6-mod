@@ -18,8 +18,8 @@ notice() {
 }
 
 get_file_size() {
-  info=($(ls -l "$1"))
-  echo ${info[4]}
+  info=($(ls -gG "$1"))
+  echo ${info[2]}
 }
 
 copy_perm() {
@@ -95,5 +95,6 @@ list_files() {
   find . -type f \
     ! -name "channel-prefs.js" \
     ! -name "update.manifest" \
-    | sed 's/\.\/\(.*\)/"\1"/'
+    | sed 's/\.\/\(.*\)/"\1"/' \
+    | sort
 }

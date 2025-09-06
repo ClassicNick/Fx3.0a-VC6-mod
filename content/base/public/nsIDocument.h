@@ -793,7 +793,7 @@ public:
    * Associate an object aData to aKey on node aObject. Should only be used to
    * implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsINode pointer of the node to add aData to
+   * @param aObject canonical nsINode pointer of the node to add aData to
    * @param aKey the key to associate the object to
    * @param aData the object to associate to aKey on aObject
    * @param aHandler the UserDataHandler to call when the node is
@@ -820,7 +820,7 @@ public:
    * aObject will be removed. Should only be used to implement the DOM Level 3
    * UserData API.
    *
-   * @param aObject cannonical nsINode pointer of the node to add aData to
+   * @param aObject canonical nsINode pointer of the node to add aData to
    * @param aKey the key to associate the object to
    * @param aData the object to associate to aKey on aObject (may be nulll)
    * @param aHandler the UserDataHandler to call when the node is
@@ -839,7 +839,7 @@ public:
    * if no object was associated to aKey on aObject. Should only be used to
    * implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsINode pointer of the node to get the
+   * @param aObject canonical nsINode pointer of the node to get the
    *                object for
    * @param aKey the key the object is associated to
    * @param aResult [out] the registered object for aKey on aObject, if any
@@ -861,7 +861,7 @@ public:
    * if no object was associated to aKey on aObject. Should only be used to
    * implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsINode pointer of the node to get the
+   * @param aObject canonical nsINode pointer of the node to get the
    *                object for
    * @param aKey the key the object is associated to
    * @param aResult [out] the registered object for aKey on aObject, if any
@@ -876,7 +876,7 @@ public:
    *
    * @param aOperation the type of operation that is being performed on the
    *                   node. @see nsIDOMUserDataHandler
-   * @param aObject cannonical nsINode pointer of the node to call the
+   * @param aObject canonical nsINode pointer of the node to call the
    *                UserDataHandler for
    * @param aSource the node that aOperation is being performed on, or null if
    *                the operation is a deletion
@@ -890,7 +890,7 @@ public:
    * Copy the objects and UserDataHandlers for node aObject to a new document.
    * Should only be used to implement the DOM Level 3 UserData API.
    *
-   * @param aObject cannonical nsINode pointer of the node to copy objects
+   * @param aObject canonical nsINode pointer of the node to copy objects
    *                and UserDataHandlers for
    * @param aDestination the new document
    */
@@ -1004,12 +1004,18 @@ NS_NewImageDocument(nsIDocument** aInstancePtrResult);
 nsresult
 NS_NewDocumentFragment(nsIDOMDocumentFragment** aInstancePtrResult,
                        nsNodeInfoManager *aNodeInfoManager);
+
+// Note: it's the caller's responsibility to create or get aPrincipal as needed
+// -- this method will not attempt to get a principal based on aDocumentURI.
+// Also, both aDocumentURI and aBaseURI must not be null.
 nsresult
 NS_NewDOMDocument(nsIDOMDocument** aInstancePtrResult,
                   const nsAString& aNamespaceURI, 
                   const nsAString& aQualifiedName, 
                   nsIDOMDocumentType* aDoctype,
-                  nsIURI* aBaseURI);
+                  nsIURI* aDocumentURI,
+                  nsIURI* aBaseURI,
+                  nsIPrincipal* aPrincipal);
 nsresult
 NS_NewPluginDocument(nsIDocument** aInstancePtrResult);
 

@@ -35,10 +35,90 @@ define('COMPILE_DIR',ROOT_PATH.'/templates_c');
 define('CACHE_DIR',ROOT_PATH.'/cache');
 define('CONFIG_DIR',ROOT_PATH.'/configs');
 
-// Database information.
+// DB configuration.
+// This database has read/write capabilities.
 define('DB_USER','');
 define('DB_PASS','');
 define('DB_HOST','');
 define('DB_NAME','');
-define('DB_PORT', '');
+define('DB_PORT', '3306');
+
+// Shadow DB configuration.
+// This database has read-only access.
+define('SHADOW_USER','');
+define('SHADOW_PASS','');
+define('SHADOW_HOST','');
+define('SHADOW_NAME','');
+define('SHADOW_PORT', '3306');
+
+/**
+ * Config arrays.
+ *
+ * These arrays are for shadow database and cache configuration.  The goal here is to
+ * adjust application behavior based on membership in these arrays.
+ *
+ * Not only should we be able to control these behaviors, but we wanted to do so from
+ * a central config file that would be external to the CVS checkout.
+ *
+ * This gives us flexibility in production to make on-the-fly adjustments under duress,
+ * and lets sysadmins tweak things without creating CVS conflicts in production.
+ */
+
+// Shadow array defines which pages are going to use the shadow database.
+// Filenames found in this array must work with read-only access to the database.
+//
+// Array contains [script name] values.  For example, we could set the main page to
+// use the shadow database:
+//     'index.php'
+//
+// In the case where the PHP script is in a subdirectory, use the relative path from webroot:
+//     'somedirectory/index.php'
+$shadow_config = array(
+    'addon.php',
+    'author.php',
+    'comments.php',
+    'extensions.php',
+    'faq.php',
+    'feeds.php',
+    'history.php',
+    'index.php',
+    'policy.php',
+    'recommended.php',
+    'rss.php',
+    'search-engines.php',
+    'search.php',
+    'themes.php',
+    'update.php'
+);
+
+// Array contains [script name] => [timeout] entries.  For example, we could set 
+// a timeout of 1800 for index.php:
+//     'index.php' => '1800'
+//
+// In the case where the PHP script is in a subdirectory, use the relative path from webroot:
+//     'somedirectory/index.php' => '1800'
+$cache_config = array(
+    'addon.php' => 900,
+    'author.php' => 900,
+    'comments.php' => 900,
+    'extensions.php' => 900,
+    'faq.php' => 900,
+    'feeds.php' => 900,
+    'history.php' => 900,
+    'index.php' => 20,
+    'policy.php' => 900,
+    'recommended.php' => 900,
+    'rss.php' => 900,
+    'search-engines.php' => 900,
+    'search.php' => 900,
+    'themes.php' => 900,
+    'update.php' => 900
+);
+
+// Array contains [script name] => [content type string] entries.  These entries flag files that need to have a specific
+//     content-type that is not text/html.
+$contentType_config = array(
+    'update.php' => 'text/xml; charset=utf-8',
+    'rss.php'    => 'text/xml; charset=utf-8'
+);
 ?>

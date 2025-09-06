@@ -41,6 +41,7 @@ use Bugzilla;
 use Bugzilla::Constants;
 use Bugzilla::Bug;
 use Bugzilla::User;
+use Bugzilla::Hook;
 use Bugzilla::Product;
 require "globals.pl";
 
@@ -53,7 +54,6 @@ use vars qw(
   @legal_keywords
   %versions
   %target_milestone
-  $proddesc
 );
 
 # If we're using bug groups to restrict bug entry, we need to know who the 
@@ -115,11 +115,13 @@ if (!defined $product || $product eq "") {
     }
 
     my %products;
+    # XXX - This loop should work in some more sensible, efficient way.
     foreach my $p (@enterable_products) {
         if (Bugzilla->user->can_enter_product($p)) {
             if (IsInClassification(scalar $cgi->param('classification'),$p) ||
                 $cgi->param('classification') eq "__all") {
-                $products{$p} = $::proddesc{$p};
+                my $product_object = new Bugzilla::Product({name => $p});
+                $products{$p} = $product_object->description;
             }
         }
     }
@@ -587,6 +589,8 @@ foreach my $row (@$grouplist) {
 }
 
 $vars->{'group'} = \@groups;
+
+Bugzilla::Hook::process("enter_bug-entrydefaultvars");
 
 $vars->{'default'} = \%default;
 

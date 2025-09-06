@@ -42,6 +42,7 @@
 #include "blapi.h"
 #include "nss.h"
 #include "secerr.h"
+#include "secdert.h"
 #include "secoidt.h"
 #include "keythi.h"
 #include "ec.h"
@@ -57,6 +58,9 @@
 #ifdef NSS_ENABLE_ECC
 extern SECStatus
 EC_DecodeParams(const SECItem *encodedParams, ECParams **ecparams);
+extern SECStatus
+EC_CopyParams(PRArenaPool *arena, ECParams *dstParams,
+              const ECParams *srcParams);
 #endif
 
 #define ENCRYPT 1
@@ -65,7 +69,8 @@ EC_DecodeParams(const SECItem *encodedParams, ECParams **ecparams);
 #define DEFAULT_RSA_PUBLIC_EXPONENT   0x10001
 #define RSA_MAX_TEST_MODULUS_BITS     4096
 #define RSA_MAX_TEST_MODULUS_BYTES    RSA_MAX_TEST_MODULUS_BITS/8
-#define RSA_MAX_TEST_EXPONENT_BYTES    8         /* rsa.c */
+#define RSA_MAX_TEST_EXPONENT_BYTES   8
+#define PQG_TEST_SEED_BYTES           20
 
 SECStatus
 hex_from_2char(const char *c2, unsigned char *byteval)
@@ -2103,7 +2108,7 @@ ecdsa_keypair_test(char *reqfn)
 		fputc('\n', ecdsaresp);
 		PORT_FreeArena(ecpriv->ecParams.arena, PR_TRUE);
 	    }
-	    PORT_FreeArena(ecparams->arena, PR_TRUE);
+	    PORT_FreeArena(ecparams->arena, PR_FALSE);
 	    continue;
 	}
     }
@@ -2159,7 +2164,7 @@ ecdsa_pkv_test(char *reqfn)
 	    *dst++ = *src++;
 	    *dst = '\0';
 	    if (ecparams != NULL) {
-		PORT_FreeArena(ecparams->arena, PR_TRUE);
+		PORT_FreeArena(ecparams->arena, PR_FALSE);
 		ecparams = NULL;
 	    }
 	    encodedparams = getECParams(curve);
@@ -2221,7 +2226,7 @@ ecdsa_pkv_test(char *reqfn)
     }
 loser:
     if (ecparams != NULL) {
-	PORT_FreeArena(ecparams->arena, PR_TRUE);
+	PORT_FreeArena(ecparams->arena, PR_FALSE);
     }
     if (pubkey.data != NULL) {
 	PORT_Free(pubkey.data);
@@ -2280,7 +2285,7 @@ ecdsa_siggen_test(char *reqfn)
 	    *dst++ = *src++;
 	    *dst = '\0';
 	    if (ecparams != NULL) {
-		PORT_FreeArena(ecparams->arena, PR_TRUE);
+		PORT_FreeArena(ecparams->arena, PR_FALSE);
 		ecparams = NULL;
 	    }
 	    encodedparams = getECParams(curve);
@@ -2364,7 +2369,7 @@ ecdsa_siggen_test(char *reqfn)
     }
 loser:
     if (ecparams != NULL) {
-	PORT_FreeArena(ecparams->arena, PR_TRUE);
+	PORT_FreeArena(ecparams->arena, PR_FALSE);
     }
     fclose(ecdsareq);
 }
@@ -2386,7 +2391,6 @@ ecdsa_sigver_test(char *reqfn)
     FILE *ecdsareq;     /* input stream from the REQUEST file */
     FILE *ecdsaresp;    /* output stream to the RESPONSE file */
     char curve[16];     /* "nistxddd" */
-    ECParams *ecparams = NULL;
     ECPublicKey ecpub;
     unsigned int i, j;
     unsigned int flen;  /* length in bytes of the field size */
@@ -2401,9 +2405,7 @@ ecdsa_sigver_test(char *reqfn)
 
     ecdsareq = fopen(reqfn, "r");
     ecdsaresp = stdout;
-    ecpub.publicValue.type = siBuffer;
-    ecpub.publicValue.data = NULL;
-    ecpub.publicValue.len = 0;
+    ecpub.ecParams.arena = NULL;
     strcpy(curve, "nist");
     while (fgets(buf, sizeof buf, ecdsareq) != NULL) {
 	/* a comment or blank line */
@@ -2416,6 +2418,7 @@ ecdsa_sigver_test(char *reqfn)
 	    const char *src;
 	    char *dst;
 	    SECKEYECParams *encodedparams;
+	    ECParams *ecparams;
 
 	    src = &buf[1];
 	    dst = &curve[4];
@@ -2425,10 +2428,6 @@ ecdsa_sigver_test(char *reqfn)
 	    *dst++ = *src++;
 	    *dst++ = *src++;
 	    *dst = '\0';
-	    if (ecparams != NULL) {
-		PORT_FreeArena(ecparams->arena, PR_TRUE);
-		ecparams = NULL;
-	    }
 	    encodedparams = getECParams(curve);
 	    if (encodedparams == NULL) {
 		goto loser;
@@ -2437,16 +2436,28 @@ ecdsa_sigver_test(char *reqfn)
 		goto loser;
 	    }
 	    SECITEM_FreeItem(encodedparams, PR_TRUE);
-	    ecpub.ecParams = *ecparams;
-	    flen = (ecparams->fieldID.size + 7) >> 3;
-	    olen = ecparams->order.len;
+	    if (ecpub.ecParams.arena != NULL) {
+		PORT_FreeArena(ecpub.ecParams.arena, PR_FALSE);
+	    }
+	    ecpub.ecParams.arena = PORT_NewArena(DER_DEFAULT_CHUNKSIZE);
+	    if (ecpub.ecParams.arena == NULL) {
+		goto loser;
+	    }
+	    if (EC_CopyParams(ecpub.ecParams.arena, &ecpub.ecParams, ecparams)
+		!= SECSuccess) {
+		goto loser;
+	    }
+	    PORT_FreeArena(ecparams->arena, PR_FALSE);
+	    flen = (ecpub.ecParams.fieldID.size + 7) >> 3;
+	    olen = ecpub.ecParams.order.len;
 	    if (2*olen > sizeof sig) {
 		goto loser;
 	    }
-	    if (ecpub.publicValue.data != NULL) {
-		SECITEM_FreeItem(&ecpub.publicValue, PR_FALSE);
-	    }
-	    SECITEM_AllocItem(NULL, &ecpub.publicValue, 2*flen+1);
+	    ecpub.publicValue.type = siBuffer;
+	    ecpub.publicValue.data = NULL;
+	    ecpub.publicValue.len = 0;
+	    SECITEM_AllocItem(ecpub.ecParams.arena,
+			      &ecpub.publicValue, 2*flen+1);
 	    if (ecpub.publicValue.data == NULL) {
 		goto loser;
 	    }
@@ -2501,7 +2512,7 @@ ecdsa_sigver_test(char *reqfn)
 	    if (!keyvalid) {
 		continue;
 	    }
-	    if (EC_ValidatePublicKey(ecparams, &ecpub.publicValue)
+	    if (EC_ValidatePublicKey(&ecpub.ecParams, &ecpub.publicValue)
 		!= SECSuccess) {
 		if (PORT_GetError() == SEC_ERROR_BAD_KEY) {
 		    keyvalid = PR_FALSE;
@@ -2547,11 +2558,8 @@ ecdsa_sigver_test(char *reqfn)
 	}
     }
 loser:
-    if (ecparams != NULL) {
-	PORT_FreeArena(ecparams->arena, PR_TRUE);
-    }
-    if (ecpub.publicValue.data != NULL) {
-	SECITEM_FreeItem(&ecpub.publicValue, PR_FALSE);
+    if (ecpub.ecParams.arena != NULL) {
+	PORT_FreeArena(ecpub.ecParams.arena, PR_FALSE);
     }
     fclose(ecdsareq);
 }
@@ -2899,7 +2907,7 @@ SECStatus sha_mct_test(unsigned int MDLen, unsigned char *seed, FILE *resp)
  */
 void sha_test(char *reqfn) 
 {
-    int i, j;
+    unsigned int i, j;
     unsigned int MDlen;   /* the length of the Message Digest in Bytes  */
     unsigned int msgLen;  /* the length of the input Message in Bytes */
     unsigned char *msg = NULL; /* holds the message to digest.*/
@@ -3068,7 +3076,7 @@ hmac_calc(unsigned char *hmac_computed,
  */
 void hmac_test(char *reqfn) 
 {
-    int i, j;
+    unsigned int i, j;
     size_t bufSize =      288;    /* MAX buffer size */
     char *buf = NULL;  /* holds one line from the input REQUEST file.*/
     unsigned int keyLen;          /* Key Length */  
@@ -3252,7 +3260,7 @@ dsa_keypair_test(char *reqfn)
             fputc('\n', dsaresp);
 
             /*****************************************************************
-             * PQG_ParamGen doesn't take a key size, it takes an index
+             * PQG_ParamGenSeedLen doesn't take a key size, it takes an index
              * that points to a valid key size.
              */
             keySizeIndex = PQG_PBITS_TO_INDEX(modulus);
@@ -3264,7 +3272,8 @@ dsa_keypair_test(char *reqfn)
             }
 
             /* Generate the parameters P, Q, and G */
-            if (PQG_ParamGen(keySizeIndex, &pqg, &vfy) != SECSuccess) {
+            if (PQG_ParamGenSeedLen(keySizeIndex, PQG_TEST_SEED_BYTES,
+                &pqg, &vfy) != SECSuccess) {
                 fprintf(dsaresp, "ERROR: Unable to generate PQG parameters");
                 goto loser;
             }
@@ -3328,7 +3337,6 @@ dsa_pqgver_test(char *reqfn)
     unsigned int i, j;
     PQGParams pqg;
     PQGVerify vfy;
-    unsigned int keySizeIndex;   /* index for valid key sizes */
     unsigned int pghSize;        /* size for p, g, and h */
 
     dsareq = fopen(reqfn, "r");
@@ -3367,18 +3375,6 @@ dsa_pqgver_test(char *reqfn)
             }
 
             fputs(buf, dsaresp);
-
-            /************************************************************
-             * PQG_ParamGen doesn't take a key size, it takes an index
-             * that points to a valid key size.
-             */
-            keySizeIndex = PQG_PBITS_TO_INDEX(modulus);
-            if(keySizeIndex == -1 || modulus<512 || modulus>1024) {
-               fprintf(dsaresp,
-                    "DSA key size must be a multiple of 64 between 512 "
-                    "and 1024, inclusive");
-                goto loser;
-            }
 
             /*calculate the size of p, g, and h then allocate items  */
             pghSize = modulus/8;
@@ -3474,9 +3470,12 @@ dsa_pqgver_test(char *reqfn)
             }
             fputs(buf, dsaresp);
 
-            rv = PQG_VerifyParams(&pqg, &vfy, &result);
             /* Verify the Parameters */
-            if ((rv == SECSuccess) && (result == SECSuccess)) {
+            rv = PQG_VerifyParams(&pqg, &vfy, &result);
+            if (rv != SECSuccess) {
+                goto loser;
+            }
+            if (result == SECSuccess) {
                 fprintf(dsaresp, "Result = P\n");
             } else {
                 fprintf(dsaresp, "Result = F\n");
@@ -3523,6 +3522,7 @@ dsa_pqggen_test(char *reqfn)
     int N;            /* number of times to generate parameters */
     int modulus; 
     int i;
+    unsigned int j;
     PQGParams *pqg = NULL;
     PQGVerify *vfy = NULL;
     unsigned int keySizeIndex;
@@ -3547,7 +3547,7 @@ dsa_pqggen_test(char *reqfn)
             fputc('\n', dsaresp);
 
             /****************************************************************
-             * PQG_ParamGen doesn't take a key size, it takes an index
+             * PQG_ParamGenSeedLen doesn't take a key size, it takes an index
              * that points to a valid key size.
              */
             keySizeIndex = PQG_PBITS_TO_INDEX(modulus);
@@ -3567,7 +3567,8 @@ dsa_pqggen_test(char *reqfn)
                 goto loser;
             }
             for (i = 0; i < N; i++) {
-                if (PQG_ParamGen(keySizeIndex, &pqg, &vfy) != SECSuccess) {
+                if (PQG_ParamGenSeedLen(keySizeIndex, PQG_TEST_SEED_BYTES,
+                    &pqg, &vfy) != SECSuccess) {
                     fprintf(dsaresp,
                             "ERROR: Unable to generate PQG parameters");
                     goto loser;
@@ -3582,7 +3583,11 @@ dsa_pqggen_test(char *reqfn)
                 fprintf(dsaresp, "Seed = %s\n", buf);
                 fprintf(dsaresp, "c = %d\n", vfy->counter);
                 to_hex_str(buf, vfy->h.data, vfy->h.len);
-                fprintf(dsaresp, "H = %s\n", buf);
+                fputs("H = ", dsaresp);
+                for (j=vfy->h.len; j<pqg->prime.len; j++) {
+                    fprintf(dsaresp, "00");
+                }
+                fprintf(dsaresp, "%s\n", buf);
                 fputc('\n', dsaresp);
                 if(pqg!=NULL) {
                     PQG_DestroyParams(pqg);
@@ -3666,7 +3671,7 @@ dsa_siggen_test(char *reqfn)
             fputc('\n', dsaresp);
 
             /****************************************************************
-            * PQG_ParamGen doesn't take a key size, it takes an index
+            * PQG_ParamGenSeedLen doesn't take a key size, it takes an index
             * that points to a valid key size.
             */
             keySizeIndex = PQG_PBITS_TO_INDEX(modulus);
@@ -3678,7 +3683,8 @@ dsa_siggen_test(char *reqfn)
             }
 
             /* Generate PQG and output PQG */
-            if (PQG_ParamGen(keySizeIndex, &pqg, &vfy) != SECSuccess) {
+            if (PQG_ParamGenSeedLen(keySizeIndex, PQG_TEST_SEED_BYTES,
+                &pqg, &vfy) != SECSuccess) {
                 fprintf(dsaresp, "ERROR: Unable to generate PQG parameters");
                 goto loser;
             }
@@ -3784,7 +3790,6 @@ dsa_sigver_test(char *reqfn)
     unsigned int i, j;
     SECItem digest, signature;
     DSAPublicKey pubkey;
-    unsigned int keySizeIndex;   /* index for valid key sizes */
     unsigned int pgySize;        /* size for p, g, and y */
     unsigned char sha1[20];  /* SHA-1 hash (160 bits) */
     unsigned char sig[DSA_SIGNATURE_LEN];
@@ -3821,17 +3826,6 @@ dsa_sigver_test(char *reqfn)
             }
             fputs(buf, dsaresp);
 
-            /****************************************************************
-             * PQG_ParamGen doesn't take a key size, it takes an index
-             * that points to a valid key size.
-             */
-            keySizeIndex = PQG_PBITS_TO_INDEX(modulus);
-            if (keySizeIndex == -1 || modulus<512 || modulus>1024) {
-                fprintf(dsaresp,
-                        "DSA key size must be a multiple of 64 between 512 "
-                        "and 1024, inclusive");
-                goto loser;
-            }
             /* calculate the size of p, g, and y then allocate items */
             pgySize = modulus/8;
             SECITEM_AllocItem(NULL, &pubkey.params.prime, pgySize);
@@ -4136,7 +4130,7 @@ rsa_siggen_test(char *reqfn)
             while (isspace(buf[i]) || buf[i] == '=') {
                 i++;
             }
-            for (j=0; isxdigit(buf[i]) && j >= sizeof(msg); i+=2,j++) {
+            for (j=0; isxdigit(buf[i]) && j < sizeof(msg); i+=2,j++) {
                 hex_from_2char(&buf[i], &msg[j]);
             }
 
@@ -4341,7 +4335,7 @@ rsa_sigver_test(char *reqfn)
             }
         
             /* get the exponent */
-            for (j=0; isxdigit(buf[i]) && j <= sizeof RSA_MAX_TEST_EXPONENT_BYTES; i+=2,j++) {
+            for (j=0; isxdigit(buf[i]) && j < sizeof data; i+=2,j++) {
                 hex_from_2char(&buf[i], &data[j]);
             }
 
@@ -4372,7 +4366,7 @@ rsa_sigver_test(char *reqfn)
                 i++;
             }
 
-            for (j=0; isxdigit(buf[i]) && j <= sizeof msg; i+=2,j++) {
+            for (j=0; isxdigit(buf[i]) && j < sizeof msg; i+=2,j++) {
                 hex_from_2char(&buf[i], &msg[j]);
             }
 
@@ -4427,7 +4421,7 @@ rsa_sigver_test(char *reqfn)
                 i++;
             }
 
-            for (j=0; isxdigit(buf[i]) && j <= sizeof signature; i+=2,j++) {
+            for (j=0; isxdigit(buf[i]) && j < sizeof signature; i+=2,j++) {
                 hex_from_2char(&buf[i], &signature[j]);
             }
 

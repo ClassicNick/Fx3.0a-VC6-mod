@@ -390,7 +390,6 @@ nsSeamonkeyProfileMigrator::PrefTransform gTransforms[] = {
   MAKESAMETYPEPREFTRANSFORM("browser.underline_anchors",                Bool),
   MAKESAMETYPEPREFTRANSFORM("browser.display.use_system_colors",        Bool),
   MAKESAMETYPEPREFTRANSFORM("browser.display.use_document_colors",      Bool),
-  MAKESAMETYPEPREFTRANSFORM("browser.display.screen_resolution",        Int),
   MAKESAMETYPEPREFTRANSFORM("browser.display.use_document_fonts",       Bool),
   MAKESAMETYPEPREFTRANSFORM("intl.charset.default",                     String),
   MAKESAMETYPEPREFTRANSFORM("intl.accept_languages",                    String),
@@ -489,6 +488,9 @@ nsSeamonkeyProfileMigrator::TransformPreferences(const nsAString& aSourcePrefFil
   mTargetProfile->Clone(getter_AddRefs(targetPrefsFile));
   targetPrefsFile->Append(aTargetPrefFileName);
   psvc->SavePrefFile(targetPrefsFile);
+
+  psvc->ResetPrefs();
+  psvc->ReadUserPrefs(nsnull);
 
   return NS_OK;
 }

@@ -82,6 +82,10 @@
 // This is 15 minutes           m    s/m  us/s
 #define RECENT_EVENT_THRESHOLD (15 * 60 * 1000000)
 
+// Microseconds ago to look for redirects when updating bookmarks. Used to
+// compute the threshold for nsNavBookmarks::AddBookmarkToHash
+#define BOOKMARK_REDIRECT_TIME_THRESHOLD (2 * 60 * 100000)
+
 // The maximum number of things that we will store in the recent events list
 // before calling ExpireNonrecentEvents. This number should be big enough so it
 // is very difficult to get that many unconsumed events (for example, typed but
@@ -95,10 +99,14 @@
 #define PREF_AUTOCOMPLETE_ONLY_TYPED            "urlbar.matchOnlyTyped"
 #define PREF_AUTOCOMPLETE_MAX_COUNT             "urlbar.autocomplete.maxCount"
 #define PREF_AUTOCOMPLETE_ENABLED               "urlbar.autocomplete.enabled"
-#define PREF_LAST_PAGE_VISITED                  "last_url"
 
 // the value of mLastNow expires every 3 seconds
 #define HISTORY_EXPIRE_NOW_TIMEOUT (3 * PR_MSEC_PER_SEC)
+
+// see bug #319004 -- clamp title and URL to generously-large but not too large
+// length
+#define HISTORY_URI_LENGTH_MAX 65536
+#define HISTORY_TITLE_LENGTH_MAX 4096
 
 NS_IMPL_ADDREF(nsNavHistory)
 NS_IMPL_RELEASE(nsNavHistory)
@@ -119,6 +127,7 @@ static void GetReversedHostname(const nsString& aForward, nsAString& aReversed);
 static void GetSubstringFromNthDot(const nsCString& aInput, PRInt32 aStartingSpot,
                                    PRInt32 aN, PRBool aIncludeDot,
                                    nsACString& aSubstr);
+static nsresult GenerateTitleFromURI(nsIURI* aURI, nsAString& aTitle);
 static PRInt32 GetTLDCharCount(const nsCString& aHost);
 static PRInt32 GetTLDType(const nsCString& aHostTail);
 static void GetUnreversedHostname(const nsString& aBackward,
@@ -179,6 +188,7 @@ const PRInt32 nsNavHistory::kAutoCompleteIndex_Typed = 3;
 
 static nsDataHashtable<nsCStringHashKey, int>* gTldTypes;
 static const char* gQuitApplicationMessage = "quit-application";
+static const char* gXpcomShutdown = "xpcom-shutdown";
 
 // annotation names
 const char nsNavHistory::kAnnotationPreviousEncoding[] = "history/encoding";
@@ -212,10 +222,6 @@ nsNavHistory::nsNavHistory() : mNowValid(PR_FALSE),
 
 nsNavHistory::~nsNavHistory()
 {
-  if (gObserverService) {
-    gObserverService->RemoveObserver(this, gQuitApplicationMessage);
-  }
-
   // remove the static reference to the service. Check to make sure its us
   // in case somebody creates an extra instance of the service.
   NS_ASSERTION(gHistoryService == this, "YOU CREATED 2 COPIES OF THE HISTORY SERVICE.");
@@ -276,12 +282,11 @@ nsNavHistory::Init()
   }
 
   // prefs
-  if (!gPrefService || !gPrefBranch) {
-    gPrefService = do_GetService(NS_PREFSERVICE_CONTRACTID, &rv);
-    NS_ENSURE_SUCCESS(rv, rv);
-    rv = gPrefService->GetBranch(PREF_BRANCH_BASE, getter_AddRefs(gPrefBranch));
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
+  nsCOMPtr<nsIPrefService> prefService =
+    do_GetService(NS_PREFSERVICE_CONTRACTID, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = prefService->GetBranch(PREF_BRANCH_BASE, getter_AddRefs(mPrefBranch));
+  NS_ENSURE_SUCCESS(rv, rv);
 
   // string bundle for localization
   nsCOMPtr<nsIStringBundleService> bundleService =
@@ -322,22 +327,28 @@ nsNavHistory::Init()
   NS_ENSURE_TRUE(mRecentBookmark.Init(128), NS_ERROR_OUT_OF_MEMORY);
   NS_ENSURE_TRUE(mRecentRedirects.Init(128), NS_ERROR_OUT_OF_MEMORY);
 
+  rv = CreateLookupIndexes();
+  if (NS_FAILED(rv))
+    return rv;
+
   // The AddObserver calls must be the last lines in this function, because
   // this function may fail, and thus, this object would be not completely
   // initialized), but the observerservice would still keep a reference to us
   // and notify us about shutdown, which may cause crashes.
 
-  gObserverService = do_GetService("@mozilla.org/observer-service;1", &rv);
+  nsCOMPtr<nsIObserverService> observerService =
+    do_GetService("@mozilla.org/observer-service;1", &rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsIPrefBranch2> pbi = do_QueryInterface(gPrefBranch);
+  nsCOMPtr<nsIPrefBranch2> pbi = do_QueryInterface(mPrefBranch);
   if (pbi) {
     pbi->AddObserver(PREF_AUTOCOMPLETE_ONLY_TYPED, this, PR_FALSE);
     pbi->AddObserver(PREF_BROWSER_HISTORY_EXPIRE_DAYS, this, PR_FALSE);
     pbi->AddObserver(PREF_AUTOCOMPLETE_MAX_COUNT, this, PR_FALSE);
   }
 
-  gObserverService->AddObserver(this, gQuitApplicationMessage, PR_FALSE);
+  observerService->AddObserver(this, gQuitApplicationMessage, PR_FALSE);
+  observerService->AddObserver(this, gXpcomShutdown, PR_FALSE);
 
   if (doImport) {
     nsCOMPtr<nsIMorkHistoryImporter> importer = new nsMorkHistoryImporter();
@@ -351,11 +362,25 @@ nsNavHistory::Init()
     }
   }
 
-  return CreateLookupIndexes();
+  // Don't add code that can fail here! Do it up above, before we add our
+  // observers.
+
+  return NS_OK;
 }
 
 
 // nsNavHistory::InitDB
+//
+//    sqlite page caches are discarded when a statement is complete. This sucks
+//    for things like history queries where we do many small reads. This means
+//    that for every small transaction, we have to re-read from disk (or the OS
+//    cache) all pages associated with that transaction.
+//
+//    To get around this, we keep a different connection. This dummy connection
+//    has a statement that stays open and thus keeps is pager cache in memory.
+//    When the shared pager cache is enabled before either connection has been
+//    opened (this is done by the storage service on DB init), our main
+//    connection will get the same pager cache, which will be persisted.
 
 nsresult
 nsNavHistory::InitDB(PRBool *aDoImport)
@@ -377,7 +402,17 @@ nsNavHistory::InitDB(PRBool *aDoImport)
   rv = mDBService->OpenDatabase(dbFile, getter_AddRefs(mDBConn));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  
+  // dummy DB (see comment above function) and statement that stays open
+  rv = mDBService->OpenDatabase(dbFile, getter_AddRefs(mDummyDBConn));
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = mDummyDBConn->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT rowid FROM sqlite_master LIMIT 1"), getter_AddRefs(mDummyStatement));
+  NS_ENSURE_SUCCESS(rv, rv);
+  PRBool dummyHasResults;
+  rv = mDummyStatement->ExecuteStep(&dummyHasResults);
+  NS_ENSURE_SUCCESS(rv, rv);
+  // ...now forget about that statement, keeping it open
+
   // the favicon tables must be initialized, since we depend on those in
   // some of our queries
   rv = nsFaviconService::InitTables(mDBConn);
@@ -526,8 +561,8 @@ nsNavHistory::InitDB(PRBool *aDoImport)
   // mDBAddNewPage (see InternalAddNewPage)
   rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
       "INSERT INTO moz_history "
-      "(url, rev_host, hidden, typed, visit_count) "
-      "VALUES (?1, ?2, ?3, ?4, ?5)"),
+      "(url, title, rev_host, hidden, typed, visit_count) "
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6)"),
     getter_AddRefs(mDBAddNewPage));
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -577,7 +612,6 @@ nsNavHistory::InitDB(PRBool *aDoImport)
 nsresult
 nsNavHistory::InitMemDB()
 {
-  printf("Initializing history in-memory DB\n");
   nsresult rv = mDBService->OpenSpecialDatabase("memory", getter_AddRefs(mMemDBConn));
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -618,7 +652,6 @@ nsNavHistory::InitMemDB()
   }
   transaction.Commit();
 
-  printf("DONE initializing history in-memory DB\n");
   return NS_OK;
 }
 #endif
@@ -668,7 +701,9 @@ nsNavHistory::GetUrlIdFor(nsIURI* aURI, PRInt64* aEntryID,
     // create a new hidden, untyped, unvisited entry
     mDBGetURLPageInfo->Reset();
     statementResetter.Abandon();
-    rv = InternalAddNewPage(aURI, PR_TRUE, PR_FALSE, 0, aEntryID);
+    nsString voidString;
+    voidString.SetIsVoid(PR_TRUE);
+    rv = InternalAddNewPage(aURI, voidString, PR_TRUE, PR_FALSE, 0, aEntryID);
     if (NS_SUCCEEDED(rv))
       transaction.Commit();
     return rv;
@@ -701,11 +736,25 @@ nsNavHistory::SaveCollapseItem(const nsAString& aTitle)
 //    If non-null, the new page ID will be placed into aPageID.
 
 nsresult
-nsNavHistory::InternalAddNewPage(nsIURI* aURI, PRBool aHidden, PRBool aTyped,
+nsNavHistory::InternalAddNewPage(nsIURI* aURI, const nsAString& aTitle,
+                                 PRBool aHidden, PRBool aTyped,
                                  PRInt32 aVisitCount, PRInt64* aPageID)
 {
   mozStorageStatementScoper scoper(mDBAddNewPage);
   nsresult rv = BindStatementURI(mDBAddNewPage, 0, aURI);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // title
+  if (aTitle.IsVoid()) {
+    // if no title is specified, make up a title based on the filename
+    nsAutoString title;
+    GenerateTitleFromURI(aURI, title);
+    rv = mDBAddNewPage->BindStringParameter(1,
+        StringHead(title, HISTORY_TITLE_LENGTH_MAX));
+  } else {
+    rv = mDBAddNewPage->BindStringParameter(1,
+        StringHead(aTitle, HISTORY_TITLE_LENGTH_MAX));
+  }
   NS_ENSURE_SUCCESS(rv, rv);
 
   // host (reversed with trailing period)
@@ -713,22 +762,22 @@ nsNavHistory::InternalAddNewPage(nsIURI* aURI, PRBool aHidden, PRBool aTyped,
   rv = GetReversedHostname(aURI, revHost);
   // Not all URI types have hostnames, so this is optional.
   if (NS_SUCCEEDED(rv)) {
-    rv = mDBAddNewPage->BindStringParameter(1, revHost);
+    rv = mDBAddNewPage->BindStringParameter(2, revHost);
   } else {
-    rv = mDBAddNewPage->BindNullParameter(1);
+    rv = mDBAddNewPage->BindNullParameter(2);
   }
   NS_ENSURE_SUCCESS(rv, rv);
 
   // hidden
-  rv = mDBAddNewPage->BindInt32Parameter(2, aHidden);
+  rv = mDBAddNewPage->BindInt32Parameter(3, aHidden);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // typed
-  rv = mDBAddNewPage->BindInt32Parameter(3, aTyped);
+  rv = mDBAddNewPage->BindInt32Parameter(4, aTyped);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // visit count
-  rv = mDBAddNewPage->BindInt32Parameter(4, aVisitCount);
+  rv = mDBAddNewPage->BindInt32Parameter(5, aVisitCount);
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = mDBAddNewPage->Execute();
@@ -828,15 +877,14 @@ PRBool nsNavHistory::IsURIStringVisited(const nsACString& aURIString)
   PRBool hasMore = PR_FALSE;
   rv = mDBGetURLPageInfo->ExecuteStep(&hasMore);
   NS_ENSURE_SUCCESS(rv, PR_FALSE);
+  if (! hasMore)
+    return PR_FALSE;
 
   // Actually get the result to make sure the visit count > 0.  there are
   // several ways that we can get pages with visit counts of 0, and those
   // should not count.
-  nsCOMPtr<mozIStorageValueArray> row = do_QueryInterface(
-      mDBGetURLPageInfo, &rv);
-  NS_ENSURE_SUCCESS(rv, PR_FALSE);
   PRInt32 visitCount;
-  rv = row->GetInt32(kGetInfoIndex_VisitCount, &visitCount);
+  rv = mDBGetURLPageInfo->GetInt32(kGetInfoIndex_VisitCount, &visitCount);
   NS_ENSURE_SUCCESS(rv, PR_FALSE);
 
   return visitCount > 0;
@@ -872,13 +920,20 @@ PRBool nsNavHistory::IsURIStringVisited(const nsACString& aURIString)
 //    In some cases, you can get dangling ones, (referencing a folder that
 //    was deleted, for example) but that should be rare and insignificant.
 //
-//    Compressing space is extremely slow, so it is optional. I don't think
-//    it's very critical. Maybe we should just do it every X times the app
-//    exits. I'm unsure if the freed up space is always lost, or whether it
-//    will be used when new stuff is added.
+//    Some times we may want to vacuum which will defragment the database and
+//    return any unused space to the filesystem. This operation can be
+//    extremely slow (sometimes 1 minute) and we don't do it now. Deleted data
+//    is overwritten with 0s by sqlite since we use SQLITE_SECURE_DELETE
+//    (in the sqlite makefile). Perhaps we should expose a way to do that.
+//
+//    Implementation note if we do a vacuum: There can not be any active
+//    statements for the vacuuming to work. This includes the dummy database.
+//    To make this work you would have to complete the dummy statement (and
+//    possibly detach the connection), do the vacuum, and then re-attach
+//    everything.
 
 nsresult
-nsNavHistory::VacuumDB(PRTime aTimeAgo, PRBool aCompress)
+nsNavHistory::VacuumDB(PRTime aTimeAgo)
 {
   nsresult rv;
 
@@ -930,18 +985,6 @@ nsNavHistory::VacuumDB(PRTime aTimeAgo, PRBool aCompress)
 
   transaction.Commit();
 
-  // compress the tables
-  if (aCompress) {
-#ifdef DEBUG
-    PRBool inProgress = PR_FALSE;
-    rv = mDBConn->GetTransactionInProgress(&inProgress);
-    NS_ASSERTION(NS_SUCCEEDED(rv), "Can't get transaction status");
-    NS_ASSERTION(! inProgress, "You must not have a transaction in progress to vacuum!");
-#endif
-    rv = mDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("VACUUM"));
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
-
   return NS_OK;
 }
 
@@ -951,10 +994,13 @@ nsNavHistory::VacuumDB(PRTime aTimeAgo, PRBool aCompress)
 nsresult
 nsNavHistory::LoadPrefs()
 {
-  gPrefBranch->GetIntPref(PREF_BROWSER_HISTORY_EXPIRE_DAYS, &mExpireDays);
-  gPrefBranch->GetBoolPref(PREF_AUTOCOMPLETE_ONLY_TYPED,
+  if (! mPrefBranch)
+    return NS_OK;
+
+  mPrefBranch->GetIntPref(PREF_BROWSER_HISTORY_EXPIRE_DAYS, &mExpireDays);
+  mPrefBranch->GetBoolPref(PREF_AUTOCOMPLETE_ONLY_TYPED,
                            &mAutoCompleteOnlyTyped);
-  if (NS_FAILED(gPrefBranch->GetIntPref(PREF_AUTOCOMPLETE_MAX_COUNT, &mAutoCompleteMaxCount))) {
+  if (NS_FAILED(mPrefBranch->GetIntPref(PREF_AUTOCOMPLETE_MAX_COUNT, &mAutoCompleteMaxCount))) {
     mAutoCompleteMaxCount = 2000; // FIXME: add this to default prefs.js
   }
   return NS_OK;
@@ -1390,10 +1436,20 @@ nsNavHistory::SetPageDetails(nsIURI* aURI, const nsAString& aTitle,
   NS_ENSURE_SUCCESS(rv, rv);
   rv = statement->BindInt64Parameter(0, pageID);
   NS_ENSURE_SUCCESS(rv, rv);
-  statement->BindStringParameter(1, aTitle);
+
+  // for the titles, be careful to interpret isVoid as NULL SQL command so that
+  // we can tell the difference between "set to empty" and "unset"
+  if (aTitle.IsVoid())
+    statement->BindNullParameter(1);
+  else
+    statement->BindStringParameter(1, StringHead(aTitle, HISTORY_TITLE_LENGTH_MAX));
   NS_ENSURE_SUCCESS(rv, rv);
-  statement->BindStringParameter(2, aUserTitle);
+  if (aUserTitle.IsVoid())
+    statement->BindNullParameter(2);
+  else
+    statement->BindStringParameter(2, StringHead(aUserTitle, HISTORY_TITLE_LENGTH_MAX));
   NS_ENSURE_SUCCESS(rv, rv);
+
   statement->BindInt32Parameter(3, aVisitCount);
   NS_ENSURE_SUCCESS(rv, rv);
   statement->BindInt32Parameter(4, aHidden ? 1 : 0);
@@ -1516,25 +1572,15 @@ nsNavHistory::AddVisit(nsIURI* aURI, PRTime aTime, PRInt64 aReferringVisit,
     // See the hidden computation code above for a little more explanation.
     hidden = (aTransitionType == TRANSITION_EMBED || aIsRedirect);
 
-    // set as not typed, visited once
-    rv = InternalAddNewPage(aURI, hidden, PR_FALSE, 1, &pageID);
+    // set as not typed, visited once, no title
+    nsString voidString;
+    voidString.SetIsVoid(PR_TRUE);
+    rv = InternalAddNewPage(aURI, voidString, hidden, PR_FALSE, 1, &pageID);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
   rv = InternalAddVisit(pageID, aReferringVisit, aSessionID, aTime,
                         aTransitionType, aVisitID);
-
-  // Set the most recently visited page, which is necessary when you have
-  // your "new window" page set to the most recent.
-  if (! hidden) {
-    nsCAutoString utf8URISpec;
-    rv = aURI->GetSpec(utf8URISpec);
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    rv = gPrefBranch->SetCharPref(PREF_LAST_PAGE_VISITED,
-                                  PromiseFlatCString(utf8URISpec).get());
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
 
   // Notify observers
   // FIXME bug 325241: make a way to observe hidden URLs
@@ -1811,7 +1857,7 @@ nsNavHistory::GetQueryResults(const nsCOMArray<nsNavHistoryQuery>& aQueries,
     queryString.AppendLiteral(" ");
   }
 
-  printf("Constructed the query: %s\n", PromiseFlatCString(queryString).get());
+  //printf("Constructed the query: %s\n", PromiseFlatCString(queryString).get());
 
   // Put this in a transaction. Even though we are only reading, this will
   // speed up the grouped queries to the annotation service for titles and
@@ -1951,15 +1997,30 @@ nsNavHistory::AddPageWithDetails(nsIURI *aURI, const PRUnichar *aTitle,
 
 
 // nsNavHistory::GetLastPageVisited
+//
+//    This was once used when the new window is set to "previous page." It
+//    doesn't seem to be used anymore, so we don't spend any time precompiling
+//    the statement.
 
 NS_IMETHODIMP
 nsNavHistory::GetLastPageVisited(nsACString & aLastPageVisited)
 {
-  nsXPIDLCString lastPage;
-  nsresult rv = gPrefBranch->GetCharPref(PREF_LAST_PAGE_VISITED,
-                                         getter_Copies(lastPage));
+  nsCOMPtr<mozIStorageStatement> statement;
+  nsresult rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT h.url "
+      "FROM moz_history h LEFT OUTER JOIN moz_historyvisit v ON h.id = v.page_id "
+      "WHERE v.visit_date IN "
+      "(SELECT MAX(visit_date) "
+       "FROM moz_historyvisit v2 LEFT JOIN moz_history h2 ON v2.page_id = h2.id "
+        "WHERE h2.hidden != 1)"),
+    getter_AddRefs(statement));
   NS_ENSURE_SUCCESS(rv, rv);
-  aLastPageVisited = lastPage;
+
+  PRBool hasMatch = PR_FALSE;
+  if (NS_SUCCEEDED(statement->ExecuteStep(&hasMatch)) && hasMatch) {
+    return statement->GetUTF8String(0, aLastPageVisited);
+  }
+  aLastPageVisited.Truncate(0);
   return NS_OK;
 }
 
@@ -2196,7 +2257,7 @@ nsNavHistory::RemoveAllPages()
 {
   // expire everything, compress DB (compression is slow, but since the user
   // requested it, they either want the disk space or to cover their tracks).
-  VacuumDB(0, PR_TRUE);
+  VacuumDB(0);
 
   // notify observers
   ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryObserver, OnClearHistory())
@@ -2322,13 +2383,31 @@ nsNavHistory::AddURI(nsIURI *aURI, PRBool aRedirect,
 {
   mozStorageTransaction transaction(mDBConn, PR_FALSE);
 
+  PRInt64 redirectBookmark = 0;
   PRInt64 visitID, sessionID;
   nsresult rv = AddVisitChain(aURI, aToplevel, aRedirect, aReferrer,
-                              &visitID, &sessionID);
+                              &visitID, &sessionID, &redirectBookmark);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  transaction.Commit();
-  return NS_OK;
+  // The bookmark cache of redirects may be out-of-date with this addition, so
+  // we need to update it. The issue here is if they bookmark "mozilla.org" by
+  // typing it in without ever having visited "www.mozilla.org". They will then
+  // get redirected to the latter, and we need to add mozilla.org ->
+  // www.mozilla.org to the bookmark hashtable.
+  //
+  // AddVisitChain will put the spec of a bookmarked URI if it encounters one
+  // into bookmarkURI. If this is non-empty, we know that something has happened
+  // with a bookmark and we should probably go update it.
+  if (redirectBookmark) {
+    nsNavBookmarks* bookmarkService = nsNavBookmarks::GetBookmarksService();
+    if (bookmarkService) {
+      PRTime now = GetNow();
+      bookmarkService->AddBookmarkToHash(redirectBookmark,
+                                         now - BOOKMARK_REDIRECT_TIME_THRESHOLD);
+    }
+  }
+
+  return transaction.Commit();
 }
 
 
@@ -2345,11 +2424,17 @@ nsNavHistory::AddURI(nsIURI *aURI, PRBool aRedirect,
 //    save them in mRecentRedirects. This function will add all of them for a
 //    given destination page when that page is actually visited.)
 //    See GetRedirectFor for more information about how redirects work.
+//
+//    aRedirectBookmark should be empty when this function is first called. If
+//    there are any redirects that are bookmarks the specs will be placed in
+//    this buffer. The caller can then determine if any bookmarked items were
+//    visited so it knows whether to update the bookmark service's redirect
+//    hashtable.
 
 nsresult
 nsNavHistory::AddVisitChain(nsIURI* aURI, PRBool aToplevel, PRBool aIsRedirect,
                             nsIURI* aReferrer, PRInt64* aVisitID,
-                            PRInt64* aSessionID)
+                            PRInt64* aSessionID, PRInt64* aRedirectBookmark)
 {
   PRUint32 transitionType = 0;
   PRInt64 referringVisit = 0;
@@ -2362,13 +2447,22 @@ nsNavHistory::AddVisitChain(nsIURI* aURI, PRBool aToplevel, PRBool aIsRedirect,
   nsCAutoString redirectSource;
   if (GetRedirectFor(spec, redirectSource, &visitTime, &transitionType)) {
     // this was a redirect: See GetRedirectFor for info on how this works
-
-    // Find the visit for the source
     nsCOMPtr<nsIURI> redirectURI;
     rv = NS_NewURI(getter_AddRefs(redirectURI), redirectSource);
     NS_ENSURE_SUCCESS(rv, rv);
+
+    // remember if any redirect sources were bookmarked
+    nsNavBookmarks* bookmarkService = nsNavBookmarks::GetBookmarksService();
+    PRBool isBookmarked;
+    if (bookmarkService &&
+        NS_SUCCEEDED(bookmarkService->IsBookmarked(redirectURI, &isBookmarked))
+        && isBookmarked) {
+      GetUrlIdFor(redirectURI, aRedirectBookmark, PR_FALSE);
+    }
+
+    // Find the visit for the source
     rv = AddVisitChain(redirectURI, aToplevel, PR_TRUE, aReferrer,
-                       &referringVisit, aSessionID);
+                       &referringVisit, aSessionID, aRedirectBookmark);
     NS_ENSURE_SUCCESS(rv, rv);
 
   } else if (aReferrer) {
@@ -2443,11 +2537,23 @@ nsNavHistory::IsVisited(nsIURI *aURI, PRBool *_retval)
 //
 //    This sets the page "real" title. Use nsINavHistory::SetPageUserTitle to
 //    set any user-defined title.
+//
+//    Note that we do not allow empty real titles and will silently ignore such
+//    requests. When a URL is added we give it a default title based on the
+//    URL. Most pages provide a title and it gets replaced to something better.
+//    Some pages don't: some say <title></title>, and some don't have any title
+//    element. In BOTH cases, we get SetPageTitle(URI, ""), but in both cases,
+//    our default title is more useful to the user than "(no title)".
+//
+//    User titles will accept empty strings so the user can still manually
+//    override it.
 
 NS_IMETHODIMP
 nsNavHistory::SetPageTitle(nsIURI *aURI,
                            const nsAString & aTitle)
 {
+  if (aTitle.IsEmpty())
+    return NS_OK;
   return SetPageTitleInternal(aURI, PR_FALSE, aTitle);
 }
 
@@ -2547,7 +2653,11 @@ nsNavHistory::Observe(nsISupports *aSubject, const char *aTopic,
       delete gTldTypes;
       gTldTypes = nsnull;
     }
-    gPrefService->SavePrefFile(nsnull);
+    nsresult rv;
+    nsCOMPtr<nsIPrefService> prefService =
+      do_GetService(NS_PREFSERVICE_CONTRACTID, &rv);
+    if (NS_SUCCEEDED(rv))
+      prefService->SavePrefFile(nsnull);
 
     // compute how long ago to expire from
     const PRInt64 secsPerDay = 24*60*60;
@@ -2557,7 +2667,14 @@ nsNavHistory::Observe(nsISupports *aSubject, const char *aTopic,
 
     // FIXME: should we compress sometimes? It's slow, so we shouldn't do it
     // every time.
-    VacuumDB(expireUsecsAgo, PR_FALSE);
+    VacuumDB(expireUsecsAgo);
+  } else if (nsCRT::strcmp(aTopic, gXpcomShutdown) == 0) {
+    nsresult rv;
+    nsCOMPtr<nsIObserverService> observerService =
+      do_GetService("@mozilla.org/observer-service;1", &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+    observerService->RemoveObserver(this, gXpcomShutdown);
+    observerService->RemoveObserver(this, gQuitApplicationMessage);
   } else if (nsCRT::strcmp(aTopic, "nsPref:changed") == 0) {
     LoadPrefs();
   }
@@ -3415,7 +3532,7 @@ nsNavHistory::SetPageTitleInternal(nsIURI* aURI, PRBool aIsUserTitle,
   if (aTitle.IsVoid())
     dbModStatement->BindNullParameter(0);
   else
-    dbModStatement->BindStringParameter(0, aTitle);
+    dbModStatement->BindStringParameter(0, StringHead(aTitle, HISTORY_TITLE_LENGTH_MAX));
   NS_ENSURE_SUCCESS(rv, rv);
 
   // url
@@ -3473,6 +3590,90 @@ nsNavHistory::CreateLookupIndexes()
   NS_ENSURE_SUCCESS(rv, rv);
 #endif
 
+  return NS_OK;
+}
+
+nsresult
+nsNavHistory::AddPageWithVisit(nsIURI *aURI,
+                               const nsString &aTitle,
+                               const nsString &aUserTitle,
+                               PRBool aHidden, PRBool aTyped,
+                               PRInt32 aVisitCount,
+                               PRInt32 aLastVisitTransition,
+                               PRTime aLastVisitDate)
+{
+  PRBool canAdd = PR_FALSE;
+  nsresult rv = CanAddURI(aURI, &canAdd);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (!canAdd) {
+    return NS_OK;
+  }
+
+  PRInt64 pageID;
+  rv = InternalAddNewPage(aURI, aTitle, aHidden, aTyped, aVisitCount, &pageID);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (aLastVisitDate != -1) {
+    PRInt64 visitID;
+    rv = InternalAddVisit(pageID, 0, 0,
+                          aLastVisitDate, aLastVisitTransition, &visitID);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  return NS_OK;  
+}
+
+nsresult
+nsNavHistory::RemoveDuplicateURIs()
+{
+  nsCOMPtr<mozIStorageStatement> statement;
+  nsresult rv = mDBConn->CreateStatement(
+      NS_LITERAL_CSTRING("SELECT id, url FROM moz_history ORDER BY url"),
+      getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsTArray<PRInt64> duplicates;
+  nsCAutoString lastURI;
+  PRBool hasMore;
+  while (NS_SUCCEEDED(statement->ExecuteStep(&hasMore)) && hasMore) {
+    nsCAutoString uri;
+    statement->GetUTF8String(1, uri);
+    if (uri.Equals(lastURI)) {
+      duplicates.AppendElement(statement->AsInt64(0));
+    } else {
+      lastURI = uri;
+    }
+  }
+
+  // Now remove all of the duplicates from the history and visit tables.
+  rv = mDBConn->CreateStatement(
+      NS_LITERAL_CSTRING("DELETE FROM moz_history WHERE id = ?1"),
+      getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<mozIStorageStatement> visitDelete;
+  rv = mDBConn->CreateStatement(
+      NS_LITERAL_CSTRING("DELETE FROM moz_historyvisit WHERE page_id = ?1"),
+      getter_AddRefs(visitDelete));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  for (PRUint32 i = 0; i < duplicates.Length(); ++i) {
+    PRInt64 id = duplicates[i];
+    {
+      mozStorageStatementScoper scope(statement);
+      rv = statement->BindInt64Parameter(0, id);
+      NS_ENSURE_SUCCESS(rv, rv);
+      rv = statement->Execute();
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+    {
+      mozStorageStatementScoper scope(visitDelete);
+      rv = visitDelete->BindInt64Parameter(0, id);
+      NS_ENSURE_SUCCESS(rv, rv);
+      rv = visitDelete->Execute();
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
   return NS_OK;
 }
 
@@ -3655,6 +3856,33 @@ void ParseSearchQuery(const nsString& aQuery, nsStringArray* aTerms)
 }
 
 
+// GenerateTitleFromURI
+//
+//    Given a URL, we try to get a reasonable title for this page. We try
+//    to use a filename out of the URI, then fall back on the path, then fall
+//    back on the whole hostname.
+
+nsresult // static
+GenerateTitleFromURI(nsIURI* aURI, nsAString& aTitle)
+{
+  nsCAutoString name;
+  nsCOMPtr<nsIURL> url(do_QueryInterface(aURI));
+  if (url)
+    url->GetFileName(name);
+  if (name.IsEmpty()) {
+    // path
+    nsresult rv = aURI->GetPath(name);
+    if (NS_FAILED(rv) || (name.Length() == 1 && name[0] == '/')) {
+      // empty path name, use hostname
+      rv = aURI->GetHost(name);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+  aTitle = NS_ConvertUTF8toUTF16(name);
+  return NS_OK;
+}
+
+
 // GetTLDCharCount
 //
 //    Given a normal, forward host name ("bugzilla.mozilla.org")
@@ -3785,7 +4013,8 @@ nsresult BindStatementURI(mozIStorageStatement* statement, PRInt32 index,
   nsresult rv = aURI->GetSpec(utf8URISpec);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = statement->BindUTF8StringParameter(index, utf8URISpec);
+  rv = statement->BindUTF8StringParameter(index,
+      StringHead(utf8URISpec, HISTORY_URI_LENGTH_MAX));
   NS_ENSURE_SUCCESS(rv, rv);
   return NS_OK;
 }

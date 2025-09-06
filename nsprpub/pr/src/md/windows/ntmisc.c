@@ -42,6 +42,11 @@
 
 #include "primpl.h"
 
+#if defined (_MSC_VER) && _MSC_VER <= 1100
+typedef VOID WINAPI GetSystemTimeAsFileTimeProc(LPFILETIME lpSystemTimeAsFileTime);
+static GetSystemTimeAsFileTimeProc *getSystemTimeAsFileTimeFunc = NULL;
+#endif
+
 char *_PR_MD_GET_ENV(const char *name)
 {
     return getenv(name);
@@ -88,7 +93,18 @@ PR_Now(void)
     PRTime prt;
     FILETIME ft;
 
+	#if defined (_MSC_VER) && _MSC_VER <= 1100
+	HMODULE kernel = GetModuleHandle("kernel32.dll");
+    if (kernel) {
+      getSystemTimeAsFileTimeFunc = (GetSystemTimeAsFileTimeProc*)GetProcAddress(kernel, "GetSystemTimeAsFileTime");
+    }
+#endif
+
+#if !defined (_MSC_VER) || _MSC_VER >= 1200
     GetSystemTimeAsFileTime(&ft);
+#else
+	getSystemTimeAsFileTimeFunc(&ft);
+#endif
     _PR_FileTimeToPRTime(&ft, &prt);
     return prt;       
 }

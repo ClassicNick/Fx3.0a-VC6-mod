@@ -231,19 +231,19 @@ nsViewManager::~nsViewManager()
 
   // Make sure to RevokeEvents for all viewmanagers, since some events
   // are posted by a non-root viewmanager.
-  nsCOMPtr<nsIEventQueue> eventQueue;
-  mEventQueueService->GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
-                                           getter_AddRefs(eventQueue));
-  NS_ASSERTION(eventQueue, "Event queue is null"); 
-  eventQueue->RevokeEvents(this);
+  if (mInvalidateEventQueue) {
+    mInvalidateEventQueue->RevokeEvents(this);
+    mInvalidateEventQueue = nsnull;  
+  }
+  if (mSynthMouseMoveEventQueue) {
+    mSynthMouseMoveEventQueue->RevokeEvents(this);
+    mSynthMouseMoveEventQueue = nsnull;  
+  }
   
   if (!IsRootVM()) {
     // We have a strong ref to mRootViewManager
     NS_RELEASE(mRootViewManager);
   }
-  
-  mInvalidateEventQueue = nsnull;  
-  mSynthMouseMoveEventQueue = nsnull;  
 
   mRootScrollable = nsnull;
 
@@ -610,46 +610,19 @@ void nsViewManager::Refresh(nsView *aView, nsIRenderingContext *aContext,
   float t2p = mContext->AppUnitsToDevUnits();
 
 #ifdef MOZ_CAIRO_GFX
-  nsRefPtr<gfxContext> ctx = (gfxContext*) localcx->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
-  PRBool usingDoubleBuffer = (aUpdateFlags & NS_VMREFRESH_DOUBLE_BUFFER);
+  nsRefPtr<gfxContext> ctx =
+    (gfxContext*) localcx->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
 
   ctx->Save();
 
-  ctx->Translate(gfxPoint(NSToIntRound(viewRect.x * t2p), NSToIntRound(viewRect.y * t2p)));
-  ctx->NewPath();
-
-  if (aRegion) {
-    nsRegionRectSet *rs = nsnull;
-    aRegion->GetRects(&rs);
-    for (int i = 0; i < rs->mNumRects; i++) {
-      ctx->Rectangle(gfxRect(rs->mRects[i].x,
-                             rs->mRects[i].y,
-                             rs->mRects[i].width,
-                             rs->mRects[i].height));
-    }
-    aRegion->FreeRects(rs);
-  }
-
-  ctx->Rectangle(gfxRect(NSToIntRound(damageRect.x * t2p),
-                         NSToIntRound(damageRect.y * t2p),
-                         NSToIntRound(damageRect.width * t2p),
-                         NSToIntRound(damageRect.height * t2p)));
-  ctx->Clip();
-
-  if (usingDoubleBuffer)
-    ctx->PushGroup(gfxContext::CONTENT_COLOR);
+  ctx->Translate(gfxPoint(NSToIntRound(viewRect.x * t2p),
+                          NSToIntRound(viewRect.y * t2p)));
 
   nsRegion opaqueRegion;
   AddCoveringWidgetsToOpaqueRegion(opaqueRegion, mContext, aView);
   damageRegion.Sub(damageRegion, opaqueRegion);
 
   RenderViews(aView, *localcx, damageRegion, ds);
-
-  if (usingDoubleBuffer) {
-    ctx->PopGroupToSource();
-    ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
-    ctx->Paint();
-  }
 
   ctx->Restore();
 #else
@@ -773,14 +746,16 @@ void nsViewManager::Refresh(nsView *aView, nsIRenderingContext *aContext,
 
 }
 
-void nsViewManager::DefaultRefresh(nsView* aView, const nsRect* aRect)
+void nsViewManager::DefaultRefresh(nsView* aView, nsIRenderingContext *aContext, const nsRect* aRect)
 {
   NS_PRECONDITION(aView, "Must have a view to work with!");
   nsIWidget* widget = aView->GetNearestWidget(nsnull);
   if (! widget)
     return;
 
-  nsCOMPtr<nsIRenderingContext> context = CreateRenderingContext(*aView);
+  nsCOMPtr<nsIRenderingContext> context = aContext;
+  if (! aContext)
+    context = CreateRenderingContext(*aView);
 
   if (! context)
     return;
@@ -857,6 +832,7 @@ void nsViewManager::AddCoveringWidgetsToOpaqueRegion(nsRegion &aRgn, nsIDeviceCo
 void nsViewManager::RenderViews(nsView *aView, nsIRenderingContext& aRC,
                                 const nsRegion& aRegion, nsIDrawingSurface* aRCSurface)
 {
+#ifndef MOZ_CAIRO_GFX
   nsIWidget* widget = aView->GetWidget();
   PRBool translucentWindow = PR_FALSE;
   if (widget) {
@@ -873,6 +849,7 @@ void nsViewManager::RenderViews(nsView *aView, nsIRenderingContext& aRC,
   NS_ASSERTION(buffers, "Failed to create rendering buffers");
   if (!buffers)
     return;
+#endif
 
   if (mObserver) {
     nsView* displayRoot = GetDisplayRootFor(aView);
@@ -886,6 +863,7 @@ void nsViewManager::RenderViews(nsView *aView, nsIRenderingContext& aRC,
     aRC.PopState();
   }
 
+#ifndef MOZ_CAIRO_GFX
   if (translucentWindow) {
     // Get the alpha channel into an array so we can send it to the widget
     nsRect r = aRegion.GetBounds();
@@ -902,6 +880,7 @@ void nsViewManager::RenderViews(nsView *aView, nsIRenderingContext& aRC,
   }
 
   delete buffers;
+#endif
 }
 
 static nsresult NewOffscreenContext(nsIDeviceContext* deviceContext, nsIDrawingSurface* surface,
@@ -1241,6 +1220,7 @@ nsViewManager::UpdateWidgetArea(nsView *aWidgetView, const nsRegion &aDamagedReg
        childWidget;
        childWidget = childWidget->GetNextSibling()) {
     nsView* view = nsView::GetViewFor(childWidget);
+    NS_ASSERTION(view != aWidgetView, "will recur infinitely");
     if (view && view->GetVisibility() == nsViewVisibility_kShow) {
       // Don't mess with views that are in completely different view
       // manager trees
@@ -1487,7 +1467,7 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
           float p2t;
           p2t = mContext->DevUnitsToAppUnits();
           damRect.ScaleRoundOut(p2t);
-          DefaultRefresh(view, &damRect);
+          DefaultRefresh(view, event->renderingContext, &damRect);
         
           // Clients like the editor can trigger multiple
           // reflows during what the user perceives as a single

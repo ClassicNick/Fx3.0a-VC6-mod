@@ -1,4 +1,4 @@
-#
+#!/usr/bin/perl
 # ***** BEGIN LICENSE BLOCK *****
 # Version: MPL 1.1/GPL 2.0/LGPL 2.1
 #
@@ -39,12 +39,14 @@ my $java;
 
 # dist <dist_dir>
 # release <java release dir> <nss release dir> <nspr release dir>
+# auto   (test the current build directory)
 
 sub usage {
     print "Usage:\n";
     print "$0 dist <dist_dir>\n";
     print "$0 release <jss release dir> <nss release dir> "
         . "<nspr release dir>\n";
+    print "$0 auto\n";
     exit(1);
 }
 
@@ -58,15 +60,16 @@ my $testrun = 0;
 my $testpass = 0;
 my $nss_lib_dir;
 my $dist_dir;
-my $pathsep       = ":";
-my $scriptext     = "sh";
-my $exe_suffix    = "";
-my $lib_suffix    = ".so";
-my $lib_jss       = "libjss";
-my $jss_rel_dir   = "";
-my $jss_classpath = "";
+my $pathsep        = ":";
+my $scriptext      = "sh";
+my $exe_suffix     = "";
+my $lib_suffix     = ".so";
+my $lib_jss        = "libjss";
+my $jss_rel_dir    = "";
+my $jss_classpath  = "";
 my $portJSSEServer = 2876;
-my $portJSSServer = 2877;
+my $portJSSServer  = 2877;
+my $hostname       = localhost;
 
 sub setup_vars {
     my $argv = shift;
@@ -77,6 +80,7 @@ sub setup_vars {
     if( $osname =~ /HP/ ) {
         $ld_lib_path = "SHLIB_PATH";
         $scriptext = "sh";
+        $lib_suffix = ".sl";
     } elsif( $osname =~ /win/i ) {
         $ld_lib_path = "PATH";
         $truncate_lib_path = 0;
@@ -114,6 +118,24 @@ sub setup_vars {
         $testdir = `cd $dist_dir;pwd`;
         # take the last part (can be overriden if not <OS><VERSION>_<OPT|DBG>.OBJ
         $testdir = `basename $testdir`;
+        chomp $testdir;
+    } elsif( $$argv[0] eq "auto" ) {
+        my $dist_dir = `make dist_dir`;
+        my $obj_dir = `make obj_dir`;
+        chomp($dist_dir);
+        chomp($obj_dir);
+        chomp( $dist_dir = `(cd $dist_dir ; pwd)`);
+        chomp( $obj_dir = `(cd $obj_dir ; pwd)`);
+
+        $nss_lib_dir   = "$obj_dir/lib";
+        $jss_rel_dir   = "$dist_dir/classes$dbg_suffix/org";
+        $jss_classpath = "$dist_dir/xpclass$jar_dbg_suffix.jar";
+
+        $ENV{CLASSPATH} .= "$dist_dir/xpclass$jar_dbg_suffix.jar";
+        ( -f $ENV{CLASSPATH} ) or die "$ENV{CLASSPATH} does not exist";
+        #$ENV{$ld_lib_path} = $ENV{$ld_lib_path} . $pathsep . "$obj_dir/lib";
+        $ENV{$ld_lib_path} = "$obj_dir/lib";
+        $testdir = `basename $obj_dir`;
         chomp $testdir;
     } elsif( $$argv[0] eq "release" ) {
         shift @$argv;
@@ -377,7 +399,7 @@ $result and print "JSSE servers returned $result\n";
 # Test JSS client communication
 #
 print "============= Start JSS client tests\n";
-$result = system("$java org.mozilla.jss.tests.JSS_SSLClient $testdir $pwfile $portJSSEServer bypassOff");
+$result = system("$java org.mozilla.jss.tests.JSS_SSLClient $testdir $pwfile $hostname $portJSSEServer bypassOff");
 $result >>=8;
 $result and print "JSS client returned $result\n";
 print_case_result ($result,"JSSE server / JSS client");
@@ -451,7 +473,7 @@ $result and print "JSSE servers testing JSS client in bypassPKCS11 test returned
 # Test JSS in bypassPKCS11 mode client communication
 #
 print "============= Start JSS client tests in bypassPKCS11 mode\n";
-$result = system("$java org.mozilla.jss.tests.JSS_SSLClient $testdir $pwfile $portJSSEServer bypass");
+$result = system("$java org.mozilla.jss.tests.JSS_SSLClient $testdir $pwfile $hostname $portJSSEServer bypass");
 $result >>=8;
 $result and print "JSS client in bypassPKCS11 mode returned $result\n";
 print_case_result ($result,"JSSE server / JSS client in bypassPKCS11 mode");
@@ -485,11 +507,17 @@ my $LIB = "$lib_jss"."4"."$lib_suffix";
 my $strings_exist = `which strings`;
 chomp($strings_exist);
 if ($strings_exist ne "") {
+    (-f "$nss_lib_dir/$LIB") or die "$nss_lib_dir/$LIB does not exist\n";
     my $jsslibver = `strings $nss_lib_dir/$LIB | grep Header`;
     chomp($jsslibver);
-    print "$LIB = $jsslibver\n";
+    if ($jsslibver ne "") {
+        print "$LIB = $jsslibver\n";
+    } else {
+        print "Could not fetch Header information from $nss_lib_dir/$LIB\n";
+    }
 } else {
-    print "Could not fetch Header information from $LIB\n";
+    print "Could not fetch Header information from $nss_lib_dir/$LIB\n";
+    $result=1;
 }
 $result and print "JSS jar package information test returned $result\n";
 print_case_result ($result,"Check JSS jar version");

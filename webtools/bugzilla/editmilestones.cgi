@@ -6,7 +6,7 @@
 # the editversions.cgi script, since the two fields were set up in a
 # very similar fashion.
 #
-# (basically replace each occurance of 'milestone' with 'version', and
+# (basically replace each occurrence of 'milestone' with 'version', and
 # you'll have the original script)
 #
 # Matt Masson <matthew@zeroknowledge.com>
@@ -21,6 +21,7 @@ use lib ".";
 
 require "globals.pl";
 
+use Bugzilla;
 use Bugzilla::Constants;
 use Bugzilla::Config qw(:DEFAULT $datadir);
 use Bugzilla::Product;

@@ -63,23 +63,6 @@ sub get_param_list {
   },
 
   {
-   name => 'passwordmail',
-   type => 'l',
-   default => 'From: bugzilla-daemon
-To: %mailaddress%
-Subject: Your Bugzilla password.
-
-To use the wonders of Bugzilla, you can use the following:
-
- E-mail address: %login%
-       Password: %password%
-
- To change your password, go to:
- %urlbase%userprefs.cgi
-'
-  },
-
-  {
    name => 'newchangedmail',
    type => 'l',
    default => 'From: bugzilla-daemon
@@ -91,6 +74,7 @@ X-Bugzilla-Product: %product%
 X-Bugzilla-Component: %component%
 X-Bugzilla-Keywords: %keywords%
 X-Bugzilla-Severity: %severity%
+X-Bugzilla-Who: %changer%
 
 %urlbase%show_bug.cgi?id=%bugid%
 
@@ -104,7 +88,8 @@ Configure bugmail: %urlbase%userprefs.cgi?tab=email
   {
    name => 'whinedays',
    type => 't',
-   default => 7
+   default => 7,
+   checker => \&check_numeric
   },
 
   {

@@ -53,12 +53,23 @@ REQUIRES	= xpcom \
 		  necko \
 		  pref \
 		  update \
+		  uriloader \
+		  dom \
+		  docshell \
+		  layout \
+		  widget \
+		  xmlextras \
+		  libbz2 \
 		  $(NULL)
 
 CPPSRCS		= \
 		nsMetricsService.cpp \
+		nsLoadCollector.cpp \
+		nsWindowCollector.cpp \
 		nsMetricsModule.cpp \
 		$(NULL)
+
+SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)bz2.$(LIB_SUFFIX)
 
 EXTRA_DSO_LDOPTS = $(MOZ_COMPONENT_LIBS) \
 		   $(NULL)

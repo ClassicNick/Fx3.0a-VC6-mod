@@ -225,6 +225,10 @@ pref("print.print_edge_left", 0); // 1/100 of an inch
 pref("print.print_edge_right", 0); // 1/100 of an inch
 pref("print.print_edge_bottom", 0); // 1/100 of an inch
 
+// Pref used by the spellchecker extension to control the 
+// maximum number of misspelled words that will be underlined
+// in a document.
+pref("extensions.spellcheck.inline.max-misspellings", 250);
 
 // Prefs used by libeditor. Prefs specific to seamonkey composer
 // belong in mozilla/editor/ui/composer.js
@@ -1518,7 +1522,7 @@ pref("network.dns.disableIPv6", true);
 #if XP_OS2
 
 pref("ui.key.menuAccessKeyFocuses", true);
-pref("browser.display.screen_resolution", -1); // max(96dpi, System setting)
+pref("layout.css.dpi", -1); // max(96dpi, System setting)
 
 /* Fonts only needs lists if we have a default that might not be available. */
 /* Tms Rmn, Helv and Courier are ALWAYS available on OS/2 */
@@ -1791,7 +1795,7 @@ pref("browser.download.dir", "/boot/home/Downloads");
 pref("network.hosts.smtp_server", "localhost");
 pref("network.hosts.pop_server", "pop");
 pref("network.protocol-handler.warn-external.file", false);
-pref("browser.display.screen_resolution", -1); // max(96dpi, System setting)
+pref("layout.css.dpi", -1); // max(96dpi, System setting)
 pref("browser.drag_out_of_frame_style", 1);
 pref("editor.singleLine.pasteNewlines", 0);
 

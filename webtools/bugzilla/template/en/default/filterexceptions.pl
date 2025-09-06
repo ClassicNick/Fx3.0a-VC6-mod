@@ -29,7 +29,7 @@
 # Simple literals                 - [% " selected" ...
 # Values always used for numbers  - [% (i|j|k|n|count) %]
 # Params                          - [% Param(...
-# Safe functions                  - [% (time2str|GetBugLink)...
+# Safe functions                  - [% (time2str)...
 # Safe vmethods                   - [% foo.size %] [% foo.length %]
 #                                   [% foo.push() %]
 # TT loop variables               - [% loop.count %]
@@ -313,10 +313,8 @@
 'bug/dependency-tree.html.tmpl' => [
   'bugid', 
   'maxdepth', 
-  'dependson_ids.join(",")', 
-  'blocked_ids.join(",")', 
-  'dep_id', 
   'hide_resolved', 
+  'ids.join(",")',
   'maxdepth + 1', 
   'maxdepth > 0 && maxdepth <= realdepth ? maxdepth : ""',
   'maxdepth == 1 ? 1
@@ -354,7 +352,9 @@
 
 'bug/show-multiple.html.tmpl' => [
   'bug.bug_id', 
-  'bug.deadline',
+  'depbug FILTER bug_link(depbug)',
+  'attachment.id', 
+  'flag.status',
 ],
 
 'bug/show.html.tmpl' => [

@@ -202,6 +202,7 @@ public:
   virtual PRBool IsVisibleInSelection(nsISelection* aSelection);
 
   virtual PRBool IsEmpty();
+  virtual PRBool CachedIsEmpty();
   virtual PRBool IsSelfEmpty();
 
   // nsIHTMLReflow
@@ -324,8 +325,11 @@ public:
     * @param aDestroyFrames if false then we don't actually destroy the
     * frame or its next in flows, we just remove them. This does NOT work
     * on out of flow frames so always use PR_TRUE for out of flows.
+    * @param aRemoveOnlyFluidContinuations if true, only in-flows are removed;
+    * if false, all continuations are removed.
     */
-  nsresult DoRemoveFrame(nsIFrame* aDeletedFrame, PRBool aDestroyFrames = PR_TRUE);
+  nsresult DoRemoveFrame(nsIFrame* aDeletedFrame, PRBool aDestroyFrames = PR_TRUE, 
+                         PRBool aRemoveOnlyFluidContinuations = PR_TRUE);
 protected:
 
   /** grab overflow lines from this block's prevInFlow, and make them

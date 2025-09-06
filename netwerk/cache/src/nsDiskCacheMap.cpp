@@ -730,7 +730,7 @@ nsDiskCacheMap::WriteDiskCacheEntry(nsDiskCacheBinding *  binding)
             (fileIndex == 0)) {  // keeping the separate file
             // just decrement total
             // XXX if bindRecord.MetaFileSize == USHRT_MAX, stat the file to see how big it is
-            DecrementTotalSize(binding->mRecord.MetaFileSize() * 1024);
+            DecrementTotalSize(binding->mRecord.MetaFileSize());
             NS_ASSERTION(binding->mRecord.MetaFileGeneration() == binding->mGeneration,
                          "generations out of sync");
         } else {
@@ -773,7 +773,7 @@ nsDiskCacheMap::WriteDiskCacheEntry(nsDiskCacheBinding *  binding)
             goto exit;
         }
         // XXX handle metaFileSizeK == USHRT_MAX
-        IncrementTotalSize(metaFileSizeK * 1024);
+        IncrementTotalSize(metaFileSizeK);
         
     } else {
         PRUint32  blockSize = GetBlockSizeForIndex(fileIndex);
@@ -797,7 +797,7 @@ nsDiskCacheMap::WriteDiskCacheEntry(nsDiskCacheBinding *  binding)
         rv = mBlockFile[fileIndex - 1].WriteBlocks(diskEntry, startBlock, blocks);
         if (NS_FAILED(rv))  goto exit;
         
-        IncrementTotalSize(blocks * blockSize);
+        IncrementTotalSize(blocks, blockSize);
     }
 
 exit:
@@ -845,23 +845,13 @@ nsDiskCacheMap::WriteDataCacheBlocks(nsDiskCacheBinding * binding, char * buffer
         rv = mBlockFile[fileIndex - 1].WriteBlocks(buffer, startBlock, blockCount);
         if (NS_FAILED(rv))  return rv;
         
-        IncrementTotalSize(blockCount * blockSize);
+        IncrementTotalSize(blockCount, blockSize);
     }
     
     
     // update binding and cache map record
     binding->mRecord.SetDataBlocks(fileIndex, startBlock, blockCount);
     rv = UpdateRecord(&binding->mRecord);
-
-    return rv;
-}
-
-
-nsresult
-nsDiskCacheMap::DoomRecord(nsDiskCacheRecord * record)
-{
-    nsresult  rv = DeleteRecord(record);
-    // XXX future: add record to doomed record journal
 
     return rv;
 }
@@ -892,29 +882,20 @@ nsDiskCacheMap::DeleteStorage(nsDiskCacheRecord * record, PRBool metaData)
         if (NS_SUCCEEDED(rv)) {
             rv = file->Remove(PR_FALSE);    // false == non-recursive
         }
-        DecrementTotalSize(sizeK * 1024);
+        DecrementTotalSize(sizeK);
         
     } else if (fileIndex < 4) {
         // deallocate blocks
-        PRInt32  startBlock = metaData ? record->MetaStartBlock() : record->DataStartBlock();
-        PRInt32  blockCount = metaData ? record->MetaBlockCount() : record->DataBlockCount();
+        PRUint32  startBlock = metaData ? record->MetaStartBlock() : record->DataStartBlock();
+        PRUint32  blockCount = metaData ? record->MetaBlockCount() : record->DataBlockCount();
         
         rv = mBlockFile[fileIndex - 1].DeallocateBlocks(startBlock, blockCount);
-        DecrementTotalSize(blockCount * GetBlockSizeForIndex(fileIndex));
+        DecrementTotalSize(blockCount, GetBlockSizeForIndex(fileIndex));
     }
     if (metaData)  record->ClearMetaLocation();
     else           record->ClearDataLocation();
     
     return rv;
-}
-
-
-nsresult
-nsDiskCacheMap::DeleteRecordAndStorage(nsDiskCacheRecord * record)
-{
-    nsresult  rv1 = DeleteStorage(record);
-    nsresult  rv2 = DeleteRecord(record);
-    return NS_FAILED(rv1) ? rv1 : rv2;
 }
 
 
@@ -986,3 +967,4 @@ nsDiskCacheMap::CalculateFileIndex(PRUint32 size)
     if (size <= 16384)  return 3;
     return 0;  
 }
+

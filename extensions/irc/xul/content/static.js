@@ -39,11 +39,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-const __cz_version   = "0.9.70";
+const __cz_version   = "0.9.71";
 const __cz_condition = "green";
 const __cz_suffix    = "";
 const __cz_guid      = "59c81df5-4b7a-477b-912d-4e0fdf64e5f2";
-const __cz_locale    = "0.9.70.0";
+const __cz_locale    = "0.9.71.0";
 
 var warn;
 var ASSERT;
@@ -161,7 +161,7 @@ function init()
     initApplicationCompatibility();
     initMessages();
     if (client.host == "")
-        showErrorDlg(getMsg(MSG_ERR_UNKNOWN_HOST, getBrowserURL()));
+        showErrorDlg(getMsg(MSG_ERR_UNKNOWN_HOST, client.unknownUID));
 
     initRDF();
     initCommands();
@@ -225,7 +225,7 @@ function initStatic()
     }
     catch (ex)
     {
-        dd("IO service failed to initalize: " + ex);
+        dd("IO service failed to initialize: " + ex);
     }
 
     try
@@ -238,7 +238,7 @@ function initStatic()
     }
     catch (ex)
     {
-        dd("Sound failed to initalize: " + ex);
+        dd("Sound failed to initialize: " + ex);
     }
 
     try
@@ -250,7 +250,7 @@ function initStatic()
     }
     catch (ex)
     {
-        dd("Global History failed to initalize: " + ex);
+        dd("Global History failed to initialize: " + ex);
     }
 
     try
@@ -274,7 +274,7 @@ function initStatic()
     }
     catch (ex)
     {
-        dd("Locale-correct date formatting failed to initalize: " + ex);
+        dd("Locale-correct date formatting failed to initialize: " + ex);
     }
 
     multilineInputMode(client.prefs["multiline"]);
@@ -423,7 +423,12 @@ function initApplicationCompatibility()
                 client.host = "Mozilla";
                 client.hostCompat.typeChromeBrowser = true;
                 break;
+            case "{a463f10c-3994-11da-9945-000d60ca027b}": // Flock
+                client.host = "Flock";
+                client.hostCompat.typeChromeBrowser = true;
+                break;
             default:
+                client.unknownUID = app.ID;
                 client.host = ""; // Unknown host, show an error later.
         }
     }
@@ -431,11 +436,18 @@ function initApplicationCompatibility()
     {
         var url = getBrowserURL();
         if (url == "chrome://navigator/content/navigator.xul")
+        {
             client.host = "Mozilla";
+        }
         else if (url == "chrome://browser/content/browser.xul")
+        {
             client.host = "Firefox";
+        }
         else
+        {
             client.host = ""; // We don't know this host. Show an error later.
+            client.unknownUID = url;
+        }
     }
 
     client.platform = "Unknown";
@@ -491,7 +503,7 @@ function initIcons()
      * In XULRunner, things are more fun, as we're not an extension.
      */
     var sourceDir;
-    if (client.host == "Firefox")
+    if ((client.host == "Firefox") || (client.host == "Flock"))
     {
         sourceDir = getSpecialDirectory("ProfD");
         sourceDir.append("extensions");

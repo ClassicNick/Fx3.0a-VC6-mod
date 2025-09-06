@@ -45,6 +45,7 @@ org.mozilla.jss.pkcs11.PK11KeyPairGenerator
 org.mozilla.jss.pkcs11.SigContextProxy
 org.mozilla.jss.pkcs11.PK11RSAPublicKey
 org.mozilla.jss.pkcs11.PK11DSAPublicKey
+org.mozilla.jss.pkcs11.PK11ECPublicKey
 org.mozilla.jss.pkcs11.PK11SecureRandom 
 org.mozilla.jss.provider.java.security.JSSKeyStoreSpi
 org.mozilla.jss.SecretDecoderRing.KeyManager
@@ -115,6 +116,7 @@ sub setup_vars {
     dump_cmdline_vars();
 
     $ENV{JAVA_HOME} or die "Must specify JAVA_HOME environment variable";
+    $jar = "$ENV{JAVA_HOME}/bin/jar";
     $javac = "$ENV{JAVA_HOME}/bin/javac";
     $javah = "$ENV{JAVA_HOME}/bin/javah";
     $javadoc = "$ENV{JAVA_HOME}/bin/javadoc";
@@ -226,7 +228,7 @@ MyLabel
         ensure_dir_exists($class_dir);
         print_do("$javac $javac_opt_flag -sourcepath . -d $class_dir " .
             "$classpath " . join(" ",@source_list));
-        print_do("sh -c 'pwd && cd $class_dir && pwd && rm -f $class_jar && pwd && ls -al && ls -al ../../dist && jar -cvmf ../../security/jss/$manifest_file $class_jar *'");
+        print_do("sh -c 'pwd && cd $class_dir && pwd && rm -f $class_jar && pwd && ls -al && ls -al ../../dist && $jar -cvmf ../../security/jss/$manifest_file $class_jar *'");
         print_do("rm -f $manifest_file");
         print "Exit status was " . ($?>>8) . "\n";
     }

@@ -298,3 +298,11 @@ Java_org_mozilla_jss_ssl_SSLSocket_getSSLDefaultOption;
 ;+    local:
 ;+       *;
 ;+};
+;+JSS_4.2.3 {     # JSS 4.2.3 release
+;+    global:
+Java_org_mozilla_jss_pkcs11_PK11ECPublicKey_getCurveByteArray;
+Java_org_mozilla_jss_pkcs11_PK11ECPublicKey_getWByteArray;
+Java_org_mozilla_jss_pkcs11_PK11KeyPairGenerator_generateECKeyPair;
+;+    local:
+;+       *;
+;+};

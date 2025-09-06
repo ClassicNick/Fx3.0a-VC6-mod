@@ -38,14 +38,13 @@
 #include "prtypes.h"
 #include "gfxTypes.h"
 
-#include "nsPromiseFlatString.h"
-
 #include "gfxContext.h"
-#include "gfxWindowsSurface.h"
 #include "gfxWindowsFonts.h"
-#include <math.h>
-#include <Usp10.h>
+#include "gfxWindowsSurface.h"
+#include "gfxWindowsPlatform.h"
 
+#include <math.h>
+#include <mlang.h>
 
 #define NSToCoordRound(x) (floor((x) + 0.5))
 
@@ -56,7 +55,10 @@
  *
  **********************************************************************/
 
+THEBES_IMPL_REFCOUNTING(gfxWindowsFont)
+
 gfxWindowsFont::gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup, HDC aDC)
+    : mFont(nsnull), mScriptCache(nsnull), mIsMLangFont(PR_FALSE)
 {
     mName = aName;
     mGroup = aFontGroup;
@@ -76,10 +78,42 @@ gfxWindowsFont::gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFont
         ReleaseDC((HWND)nsnull, dc);
 }
 
+gfxWindowsFont::gfxWindowsFont(HFONT aFont, const gfxFontGroup *aFontGroup, PRBool aIsMLangFont)
+    : mScriptCache(nsnull), mIsMLangFont(aIsMLangFont)
+{
+    mFont = aFont;
+    mGroup = aFontGroup;
+    mStyle = mGroup->GetStyle();
+
+    mFontFace = MakeCairoFontFace();
+    NS_ASSERTION(mFontFace, "Failed to make font face");
+
+    mScaledFont = MakeCairoScaledFont(nsnull);
+    NS_ASSERTION(mScaledFont, "Failed to make scaled font");
+
+    // don't bother creating the metrics.
+}
+
 gfxWindowsFont::~gfxWindowsFont()
 {
     cairo_font_face_destroy(mFontFace);
     cairo_scaled_font_destroy(mScaledFont);
+
+    if (mIsMLangFont) {
+        IMultiLanguage *ml = gfxWindowsPlatform::GetPlatform()->GetMLangService();
+        if (ml) {
+            nsRefPtr<IMLangFontLink2> fl;
+            HRESULT rv = ml->QueryInterface(IID_IMLangFontLink2, getter_AddRefs(fl));
+            if (SUCCEEDED(rv))
+                fl->ReleaseFont(mFont);
+        }
+        mFont = nsnull;
+    }
+
+    if (mFont)
+        DeleteObject(mFont);
+
+    ScriptFreeCache(&mScriptCache);
 }
 
 void
@@ -97,13 +131,44 @@ gfxWindowsFont::UpdateFonts(cairo_t *cr)
 cairo_font_face_t *
 gfxWindowsFont::MakeCairoFontFace()
 {
-    cairo_font_face_t *fontFace = nsnull;
+    if (!mFont) {
+        /* XXX split this code out some, make it a bit more CSS2 15.5.1 compliant */
+        PRInt16 baseWeight, weightDistance;
+        mStyle->ComputeWeightAndOffset(&baseWeight, &weightDistance);
 
-    FillLogFont();
+        HDC dc = GetDC((HWND)nsnull);
 
-    fontFace = cairo_win32_font_face_create_for_logfontw(&mLogFont);
+        int i = 0;
+        do {
+            const PRInt16 targetWeight = (baseWeight * 100) + (weightDistance ? i + 1 : 0) * 100;
 
-    return fontFace;
+            FillLogFont(targetWeight);
+            mFont = CreateFontIndirectW(&mLogFont);
+
+            HGDIOBJ oldFont = SelectObject(dc, mFont);
+            TEXTMETRIC metrics;
+            GetTextMetrics(dc, &metrics);
+            if (metrics.tmWeight == targetWeight) {
+                SelectObject(dc, oldFont);
+                break;
+            }
+
+            SelectObject(dc, oldFont);
+            DeleteObject(mFont);
+            mFont = nsnull;
+
+            i++;
+        } while (i < (10 - baseWeight));
+
+        if (!mFont) {
+            FillLogFont(baseWeight * 100);
+            mFont = CreateFontIndirectW(&mLogFont);
+        }
+
+        ReleaseDC((HWND)nsnull, dc);
+    }
+
+    return cairo_win32_font_face_create_for_hfont(mFont);
 }
 
 cairo_scaled_font_t *
@@ -134,9 +199,8 @@ gfxWindowsFont::ComputeMetrics(HDC aDC)
 
     cairo_win32_scaled_font_select_font(mScaledFont, aDC);
 
-    double cairofontfactor = cairo_win32_scaled_font_get_metrics_factor(mScaledFont);
-    double multiplier = cairofontfactor * mStyle->size;
-
+    const double cairofontfactor = cairo_win32_scaled_font_get_metrics_factor(mScaledFont);
+    const double multiplier = cairofontfactor * mStyle->size;
 
     // Get font metrics
     OUTLINETEXTMETRIC oMetrics;
@@ -192,7 +256,7 @@ gfxWindowsFont::ComputeMetrics(HDC aDC)
     mMetrics.aveCharWidth = PR_MAX(1, NSToCoordRound(metrics.tmAveCharWidth * multiplier));
     
     // Cache the width of a single space.
-    SIZE  size;
+    SIZE size;
     ::GetTextExtentPoint32(aDC, " ", 1, &size);
     //size.cx -= font->mOverhangCorrection;
     mMetrics.spaceWidth = NSToCoordRound(size.cx * multiplier);
@@ -203,11 +267,11 @@ gfxWindowsFont::ComputeMetrics(HDC aDC)
 }
 
 void
-gfxWindowsFont::FillLogFont()
+gfxWindowsFont::FillLogFont(PRInt16 currentWeight)
 {
 #define CLIP_TURNOFF_FONTASSOCIATION 0x40
 
-    mLogFont.lfHeight = -NSToCoordRound(mStyle->size);
+    mLogFont.lfHeight = -NSToCoordRound(mStyle->size * 32);
 
     if (mLogFont.lfHeight == 0)
         mLogFont.lfHeight = -1;
@@ -227,8 +291,8 @@ gfxWindowsFont::FillLogFont()
     mLogFont.lfClipPrecision  = CLIP_TURNOFF_FONTASSOCIATION;
     mLogFont.lfQuality        = DEFAULT_QUALITY;
     mLogFont.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-    mLogFont.lfWeight = mStyle->weight;
-    mLogFont.lfItalic = (mStyle->style & (FONT_STYLE_ITALIC | FONT_STYLE_OBLIQUE)) ? TRUE : FALSE;
+    mLogFont.lfItalic         = (mStyle->style & (FONT_STYLE_ITALIC | FONT_STYLE_OBLIQUE)) ? TRUE : FALSE;
+    mLogFont.lfWeight         = currentWeight;
 
     int len = PR_MIN(mName.Length(), LF_FACESIZE);
     memcpy(mLogFont.lfFaceName, mName.get(), len * 2);
@@ -246,7 +310,8 @@ PRBool
 gfxWindowsFontGroup::MakeFont(const nsAString& aName, const nsAString& aGenericName, void *closure)
 {
     gfxWindowsFontGroup *fg = NS_STATIC_CAST(gfxWindowsFontGroup*, closure);
-    fg->mFonts.push_back(new gfxWindowsFont(aName, fg, (HDC)fg->mDC));
+    gfxFont *font = new gfxWindowsFont(aName, fg, fg->mDC);
+    fg->mFonts.AppendElement(font);
     return PR_TRUE;
 }
 
@@ -268,6 +333,12 @@ gfxWindowsFontGroup::MakeTextRun(const nsAString& aString)
     return new gfxWindowsTextRun(aString, this);
 }
 
+gfxTextRun *
+gfxWindowsFontGroup::MakeTextRun(const nsACString& aString)
+{
+    return new gfxWindowsTextRun(aString, this);
+}
+
 /**********************************************************************
  *
  * class gfxWindowsTextRun
@@ -277,7 +348,12 @@ gfxWindowsFontGroup::MakeTextRun(const nsAString& aString)
 THEBES_IMPL_REFCOUNTING(gfxWindowsTextRun)
 
 gfxWindowsTextRun::gfxWindowsTextRun(const nsAString& aString, gfxWindowsFontGroup *aFontGroup)
-    : mString(aString), mGroup(aFontGroup)
+    : mGroup(aFontGroup), mString(aString), mCString(EmptyCString()), mIsASCII(PR_FALSE)
+{
+}
+
+gfxWindowsTextRun::gfxWindowsTextRun(const nsACString& aString, gfxWindowsFontGroup *aFontGroup)
+    : mGroup(aFontGroup), mString(EmptyString()), mCString(aString), mIsASCII(PR_TRUE)
 {
 }
 
@@ -288,38 +364,216 @@ gfxWindowsTextRun::~gfxWindowsTextRun()
 void
 gfxWindowsTextRun::DrawString(gfxContext *aContext, gfxPoint pt)
 {
-    MeasureOrDrawUniscribe(aContext, mString.get(), mString.Length(), PR_TRUE, pt.x, pt.y, nsnull);
+    if (mIsASCII) {
+        PRInt32 ret = MeasureOrDrawAscii(aContext, PR_TRUE, pt.x, pt.y, nsnull);
+        if (ret != -1) {
+            return;
+        }
+    }
+
+    MeasureOrDrawUniscribe(aContext, PR_TRUE, pt.x, pt.y, nsnull);
 }
 
+//#define TIME_MEASURE 1
 gfxFloat
 gfxWindowsTextRun::MeasureString(gfxContext *aContext)
 {
-    return MeasureOrDrawUniscribe(aContext, mString.get(), mString.Length(), PR_FALSE, 0, 0, nsnull);
+#ifdef TIME_MEASURE
+    if (mIsASCII) {
+        PRInt32 ret;
+        LARGE_INTEGER start, end;
+
+        nsCString foo(mCString);
+        printf("%s\n", foo.get());
+
+        QueryPerformanceCounter(&start);
+        ret = MeasureOrDrawAscii(aContext, PR_FALSE, 0, 0, nsnull);
+        QueryPerformanceCounter(&end);
+        printf("ascii: %d\n", end.QuadPart - start.QuadPart);
+
+        QueryPerformanceCounter(&start);
+        ret = MeasureOrDrawUniscribe(aContext, PR_FALSE, 0, 0, nsnull);
+        QueryPerformanceCounter(&end);
+        printf("utf16: %d\n\n", end.QuadPart - start.QuadPart);
+
+        return ret;
+    }
+#else
+    if (mIsASCII) {
+        PRInt32 ret = MeasureOrDrawAscii(aContext, PR_FALSE, 0, 0, nsnull);
+        if (ret != -1) {
+            return ret;
+        }
+    }
+#endif
+    return MeasureOrDrawUniscribe(aContext, PR_FALSE, 0, 0, nsnull);
+}
+
+gfxWindowsFont *
+gfxWindowsTextRun::FindFallbackFont(HDC aDC, const PRUnichar *aString, PRUint32 aLength, gfxWindowsFont *aFont)
+{
+    HRESULT rv;
+    IMultiLanguage *multiLanguage = gfxWindowsPlatform::GetPlatform()->GetMLangService();
+    if (!multiLanguage)
+        return nsnull;
+
+    // yes, that is right. we're using nsRefPtr's on MSCOM objects.
+    nsRefPtr<IMLangFontLink2> langFontLink;
+    rv = multiLanguage->QueryInterface(IID_IMLangFontLink2, getter_AddRefs(langFontLink));
+    if (FAILED(rv))
+        return nsnull;
+
+    DWORD fontCodePages;
+    langFontLink->GetFontCodePages(aDC, aFont->GetHFONT(), &fontCodePages);
+
+    DWORD actualCodePages;
+    long cchActual;
+    rv = langFontLink->GetStrCodePages(aString, aLength, fontCodePages, &actualCodePages, &cchActual);
+
+    HFONT retFont;
+    rv = langFontLink->MapFont(aDC, actualCodePages, aString[0], &retFont);
+    if (FAILED(rv))
+        return nsnull;
+
+    return new gfxWindowsFont(retFont, mGroup, PR_TRUE);
+}
+
+PRInt32
+gfxWindowsTextRun::MeasureOrDrawAscii(gfxContext *aContext,
+                                      PRBool aDraw,
+                                      PRInt32 aX, PRInt32 aY,
+                                      const PRInt32 *aSpacing)
+{
+    PRInt32 length = 0;
+
+    if (IsRightToLeft()) {
+        NS_WARNING("Trying to draw ASCII text with RTL set.");
+        return -1;
+    }
+
+    nsRefPtr<gfxASurface> surf = aContext->CurrentGroupSurface();
+    if (!surf)
+        surf = aContext->CurrentSurface();
+
+    HDC aDC = cairo_win32_surface_get_dc(surf->CairoSurface());
+    NS_ASSERTION(aDC, "No DC");
+
+    const char *aString = mCString.BeginReading();
+    const PRUint32 aLength = mCString.Length();
+
+    // cairo munges it underneath us
+    XFORM savedxform;
+    GetWorldTransform(aDC, &savedxform);
+
+    cairo_t *cr = aContext->GetCairo();
+
+    nsRefPtr<gfxWindowsFont> currentFont = mGroup->GetFontAt(0);
+    cairo_font_face_t *fontFace = currentFont->CairoFontFace();
+    cairo_scaled_font_t *scaledFont = currentFont->CairoScaledFont();
+
+    cairo_set_font_face(cr, fontFace);
+    cairo_set_font_size(cr, mGroup->mStyle.size);
+
+    SaveDC(aDC);
+
+    cairo_win32_scaled_font_select_font(scaledFont, aDC);
+
+    const double cairofontfactor = cairo_win32_scaled_font_get_metrics_factor(scaledFont);
+    const double cairoToPixels = cairofontfactor * mGroup->mStyle.size;
+
+    LPWORD glyphs = (LPWORD)malloc(aLength * sizeof(WORD));
+    DWORD ret = GetGlyphIndicesA(aDC, aString, aLength, glyphs, GGI_MARK_NONEXISTING_GLYPHS);
+    for (PRInt32 i = 0; i < ret; ++i) {
+        if (glyphs[i] == 0xffff) {
+            free(glyphs);
+            cairo_win32_scaled_font_done_font(scaledFont);
+            RestoreDC(aDC, -1);
+            return -1;
+        }
+    }
+
+    if (!aDraw) {
+        SIZE len;
+        GetTextExtentPoint32A(aDC, aString, aLength, &len);
+        length = NSToCoordRound(len.cx * cairoToPixels);
+    } else {
+        GCP_RESULTSA results;
+        memset(&results, 0, sizeof(GCP_RESULTS));
+        results.lStructSize = sizeof(GCP_RESULTS);
+        int stackBuf[1024];
+        int *dxBuf = stackBuf;
+        if (aLength > sizeof(stackBuf))
+            dxBuf = (int *)malloc(aLength * sizeof(int));
+
+        results.nGlyphs = aLength;
+        results.lpDx = dxBuf;
+
+        length = GetCharacterPlacementA(aDC, aString, aLength, 0, &results, GCP_USEKERNING);
+
+        const PRInt32 numGlyphs = results.nGlyphs;
+        cairo_glyph_t *cglyphs = (cairo_glyph_t*)malloc(numGlyphs*sizeof(cairo_glyph_t));
+        double offset = 0;
+        for (PRInt32 k = 0; k < numGlyphs; k++) {
+            cglyphs[k].index = glyphs[k];
+            cglyphs[k].x = aX + offset;
+            cglyphs[k].y = aY;
+            offset += NSToCoordRound(results.lpDx[k] * cairoToPixels);
+        }
+
+        SetWorldTransform(aDC, &savedxform);
+
+        cairo_show_glyphs(cr, cglyphs, numGlyphs);
+
+        if (dxBuf != stackBuf)
+            free(dxBuf);
+    }
+
+    free(glyphs);
+
+    cairo_win32_scaled_font_done_font(scaledFont);
+
+    RestoreDC(aDC, -1);
+
+    if (aDraw)
+        surf->MarkDirty();
+
+    return length;
 }
 
 
 PRInt32
 gfxWindowsTextRun::MeasureOrDrawUniscribe(gfxContext *aContext,
-                                          const PRUnichar *aString, PRUint32 aLength,
-                                          PRBool aDraw, PRInt32 aX, PRInt32 aY, const PRInt32 *aSpacing)
+                                          PRBool aDraw,
+                                          PRInt32 aX, PRInt32 aY,
+                                          const PRInt32 *aSpacing)
 {
-    HDC aDC = static_cast<gfxWindowsSurface*>(aContext->CurrentSurface())->GetDC();
+    nsRefPtr<gfxASurface> surf = aContext->CurrentGroupSurface();
+    if (!surf)
+        surf = aContext->CurrentSurface();
 
-    int loops = 0;
+    HDC aDC = cairo_win32_surface_get_dc(surf->CairoSurface());
+    NS_ASSERTION(aDC, "No DC");
+
+    const nsAString& theString = (mIsASCII) ? NS_STATIC_CAST(nsAString&, NS_ConvertASCIItoUTF16(mCString)) : mString;
+    const PRUnichar *aString = theString.BeginReading();
+    const PRUint32 aLength = theString.Length();
+    const PRBool isComplex = (::ScriptIsComplex(aString, aLength, SIC_COMPLEX) == S_OK);
+
+    // save the xform so that we can restore to it while cairo
+    // munges it underneath us
+    XFORM savedxform;
+    GetWorldTransform(aDC, &savedxform);
 
     cairo_t *cr = aContext->GetCairo();
 
-    PRBool isComplex = (::ScriptIsComplex(aString, aLength, SIC_COMPLEX) == S_OK);
-
     PRInt32 length = 0;
     HRESULT rv;
-    int numItems, maxItems = 2;
+    int numItems, maxItems = 5;
 
-    SCRIPT_CACHE sc = NULL;
     SCRIPT_CONTROL *control = nsnull;
     SCRIPT_STATE *state = nsnull;
 
-    PRBool rtl = IsRightToLeft();
+    const PRBool rtl = IsRightToLeft();
     if (rtl) {
         control = (SCRIPT_CONTROL *)malloc(sizeof(SCRIPT_CONTROL));
         state = (SCRIPT_STATE *)malloc(sizeof(SCRIPT_STATE));
@@ -350,80 +604,147 @@ gfxWindowsTextRun::MeasureOrDrawUniscribe(gfxContext *aContext,
         cairo_font_face_t *fontFace = nsnull;
         cairo_scaled_font_t *scaledFont = nsnull;
 
-TRY_AGAIN:
+        PRBool fontSelected = PR_FALSE;
+
+        nsRefPtr<gfxWindowsFont> currentFont;
+        nsRefPtr<gfxWindowsFont> fallbackFont;
+
+DO_TRY_AGAIN:
         int fontIndex = 0;
 
 TRY_AGAIN_SAME_SCRIPT:
-        loops++;
+        currentFont = mGroup->GetFontAt(fontIndex);
+
+TRY_AGAIN_HOPE_FOR_THE_BEST:
+        if (fallbackFont)
+            currentFont = fallbackFont;
+
         SaveDC(aDC);
 
-        gfxWindowsFont *currentFont = static_cast<gfxWindowsFont*>(mGroup->mFonts[fontIndex]);
         //currentFont->UpdateFonts(cr);
         fontFace = currentFont->CairoFontFace();
         scaledFont = currentFont->CairoScaledFont();
 
         cairo_set_font_face(cr, fontFace);
         cairo_set_font_size(cr, mGroup->mStyle.size);
+        fontSelected = PR_TRUE;
+
         cairo_win32_scaled_font_select_font(scaledFont, aDC);
+
         const double cairofontfactor = cairo_win32_scaled_font_get_metrics_factor(scaledFont);
         const double cairoToPixels = cairofontfactor * mGroup->mStyle.size;
 
-        if (!isComplex)
+        if (!isComplex) {
+            // disable shaping for non-complex scripts
             items[i].a.eScript = SCRIPT_UNDEFINED;
+        } else {
+            rv = ScriptGetCMap(aDC, currentFont->ScriptCache(),
+                               itemChars, itemLength,
+                               0, glyphs);
 
-        while ((rv = ScriptShape(aDC, &sc, itemChars, itemLength,
+            if (rv == S_FALSE) {
+                // Some of the Unicode code points were mapped to the default glyph.
+                SCRIPT_FONTPROPERTIES scriptProperties;
+                ScriptGetFontProperties(aDC, currentFont->ScriptCache(), &scriptProperties);
+                
+
+                if (glyphs[0] == scriptProperties.wgDefault) {
+                    // ...
+                }
+            }
+        }
+
+        HDC scriptShapeDC = nsnull;
+TRY_AGAIN_JUST_SHAPE:
+        while ((rv = ScriptShape(scriptShapeDC, currentFont->ScriptCache(),
+                                 itemChars, itemLength,
                                  maxGlyphs, &items[i].a,
                                  glyphs, clusters,
                                  attr, &numGlyphs)) == E_OUTOFMEMORY) {
+
             maxGlyphs *= 2;
             glyphs = (WORD *)realloc(glyphs, maxGlyphs*sizeof(WORD));
             attr = (SCRIPT_VISATTR *)realloc(attr, maxGlyphs*sizeof(SCRIPT_VISATTR));
         }
 
+        if (rv == E_PENDING) {
+            scriptShapeDC = aDC;
+            if (!fontSelected) {
+                cairo_win32_scaled_font_select_font(scaledFont, aDC);
+                fontSelected = PR_TRUE;
+            }
+            goto TRY_AGAIN_JUST_SHAPE;
+        }
+
         if (rv == USP_E_SCRIPT_NOT_IN_FONT) {
-            if (fontIndex < mGroup->mFonts.size() - 1) {
+            if (fontIndex < mGroup->mFonts.Length() - 1) {
                 fontIndex++;
-                cairo_win32_scaled_font_done_font(scaledFont);
+                if (fontSelected)
+                    cairo_win32_scaled_font_done_font(scaledFont);
+                fontSelected = PR_FALSE;
                 RestoreDC(aDC, -1);
                 goto TRY_AGAIN_SAME_SCRIPT;
             } else {
                 // try again with SCRIPT_UNDEFINED
                 items[i].a.eScript = SCRIPT_UNDEFINED;
-                cairo_win32_scaled_font_done_font(scaledFont);
+                if (fontSelected)
+                    cairo_win32_scaled_font_done_font(scaledFont);
+                fontSelected = PR_FALSE;
                 RestoreDC(aDC, -1);
-                goto TRY_AGAIN;
+                goto DO_TRY_AGAIN;
             }
         }
 
         if (numGlyphs > 0 && glyphs[0] == 0) {
-            if (fontIndex < mGroup->mFonts.size() - 1) {
+            if (fontIndex < mGroup->mFonts.Length() - 1) {
                 fontIndex++;
                 cairo_win32_scaled_font_done_font(scaledFont);
                 RestoreDC(aDC, -1);
                 goto TRY_AGAIN_SAME_SCRIPT;
             }
+
+            if (!fallbackFont) {
+                // only look for a fallback font once
+                fallbackFont = FindFallbackFont(aDC, itemChars, itemLength, mGroup->GetFontAt(0));
+
+                if (fallbackFont) {
+                    RestoreDC(aDC, -1);
+                    goto TRY_AGAIN_HOPE_FOR_THE_BEST;
+                }
+            }
+
             // otherwise we fail to draw the characters so give up and continue on.
 #ifdef DEBUG_pavlov
             printf("failed to render glyphs :(\n");
 #endif
         }
 
-        if (rv == 0) {
-      
+        if (FAILED(rv)) {
+            printf("you lose!\n");
+        }
+
+        if (SUCCEEDED(rv)) {
             ABC abc;
             GOFFSET *offsets = (GOFFSET *)malloc(numGlyphs*sizeof(GOFFSET));
             int *advance = (int *)malloc(numGlyphs*sizeof(int));
-            rv = ScriptPlace(aDC, &sc, glyphs, numGlyphs, attr, &items[i].a,
+
+            HDC scriptPlaceDC = scriptShapeDC;
+TRY_AGAIN_JUST_PLACE:
+            rv = ScriptPlace(scriptPlaceDC, currentFont->ScriptCache(),
+                             glyphs, numGlyphs,
+                             attr, &items[i].a,
                              advance, offsets, &abc);
 
-            if (rv != S_OK)
+            if (rv == E_PENDING) {
+                scriptPlaceDC = aDC;
+                goto TRY_AGAIN_JUST_PLACE;
+            }
+
+            if (FAILED(rv))
                 printf("error ScriptPlacing\n");
-#ifdef DEBUG_tor
-            fprintf(stderr, "ABC[%d]: %d %d %d\n", i, abc.abcA, abc.abcB, abc.abcC);
-#endif
 
             if (!aDraw) {
-                length += NSToCoordRound((abs(abc.abcA) + abc.abcB + abs(abc.abcC)) * cairoToPixels);
+                length += NSToCoordRound((abc.abcA + abc.abcB + abc.abcC) * cairoToPixels);
             } else {
                 PRInt32 *spacing = 0;
                 PRInt32 justTotal = 0;
@@ -500,35 +821,54 @@ TRY_AGAIN_SAME_SCRIPT:
                 xform.eDy  = dm[5];
                 SetWorldTransform (aDC, &xform);
 
-                ScriptTextOut(aDC, &sc, aX, aY, 0, NULL, &items->a,
+                ScriptTextOut(aDC, currentFont->ScriptCache(), aX, aY, 0, NULL, &items->a,
                               NULL, 0, glyphs, numGlyphs,
                               advance, NULL, offsets);
 
                 RestoreDC(aDC, -1);
 #else
                 /* Draw using cairo */
+
+                /* XXX cairo sets a world transform in order to get subpixel accuracy in some cases;
+                 * this breaks it there's a surface fallback that happens with clipping, because
+                 * the clip gets applied with the world transform and the world breaks.
+                 * We restore the transform to the start of this function while we're drawing.
+                 * Need to investigate this further.
+                 */
+
+                if (!fontSelected) {
+                    cairo_win32_scaled_font_select_font(scaledFont, aDC);
+                    fontSelected = PR_TRUE;
+                }
+
+                SaveDC(aDC);
+                SetWorldTransform(aDC, &savedxform);
+
                 cairo_show_glyphs(cr, cglyphs, numGlyphs);
+
+                RestoreDC(aDC, -1);
 #endif
                 free(cglyphs);
 
-                aX += NSToCoordRound((abs(abc.abcA) + abc.abcB + abs(abc.abcC) + justTotal) * cairoToPixels);
+                aX += NSToCoordRound((abc.abcA + abc.abcB + abc.abcC + justTotal) * cairoToPixels);
                 free(spacing);
             }
             free(offsets);
             free(advance);
 
-           cairo_win32_scaled_font_done_font(scaledFont);
+            cairo_win32_scaled_font_done_font(scaledFont);
 
-           RestoreDC(aDC, -1);
+            RestoreDC(aDC, -1);
 
-           /* There's a (good) chance that something set a new clip
-            * region while inside the SaveDC/RestoreDC; cairo will get
-            * very confused, because its clip caching will tell it
-            * that the clip is up to date, when in fact it will have
-            * been reset.  MarkDirty resets a surface's clip serial,
-            * such that it will be reset the next time clipping is
-            * necessary. */
-           aContext->CurrentSurface()->MarkDirty();
+            /* There's a (good) chance that something set a new clip
+             * region while inside the SaveDC/RestoreDC; cairo will get
+             * very confused, because its clip caching will tell it
+             * that the clip is up to date, when in fact it will have
+             * been reset.  MarkDirty resets a surface's clip serial,
+             * such that it will be reset the next time clipping is
+             * necessary. */
+            if (aDraw)
+                surf->MarkDirty();
 
         }
         free(glyphs);
@@ -543,6 +883,5 @@ TRY_AGAIN_SAME_SCRIPT:
     if (state)
         free(state);
 
-    //    printf("loops: %d\n", loops - numItems);
     return length;
 }

@@ -88,6 +88,8 @@ protected:
   static bool NP_SetProperty(NPObject *obj, NPIdentifier property,
                              const NPVariant *value);
   static bool NP_RemoveProperty(NPObject *obj, NPIdentifier property);
+  static bool NP_Enumerate(NPObject *npobj, NPIdentifier **identifier,
+                           uint32_t *count);
 
 public:
   static NPClass sJSObjWrapperNPClass;
@@ -102,8 +104,5 @@ public:
 bool
 JSValToNPVariant(NPP npp, JSContext *cx, jsval val, NPVariant *variant);
 
-bool
-CreateNPObjectMember(NPP npp, JSContext *cx, JSObject *obj,
-                     NPObject *npobj, jsval id, jsval *vp);
 
 #endif // nsJSNPRuntime_h__

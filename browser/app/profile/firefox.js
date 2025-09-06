@@ -267,13 +267,11 @@ pref("dom.disable_window_open_feature.status",    true);
 // cannot do it by default because it affects UE for web applications.
 pref("dom.disable_window_open_feature.location",  false);
 pref("dom.disable_window_status_change",          true);
-// prevent JS from moving/resizing existing windows
-pref("dom.disable_window_move_resize",            true);
+// allow JS to move and resize existing windows
+pref("dom.disable_window_move_resize",            false);
 // prevent JS from monkeying with window focus, etc
 pref("dom.disable_window_flip",                   true);
  
-pref("browser.trim_user_and_password",            true);
-
 // popups.policy 1=allow,2=reject
 pref("privacy.popups.policy",               1);
 pref("privacy.popups.usecustom",            true);
@@ -296,7 +294,6 @@ pref("network.proxy.share_proxy_settings",  false); // use the same proxy settin
 
 pref("network.cookie.cookieBehavior",       0); // cookies enabled
 pref("network.cookie.enableForCurrentSessionOnly", false);
-pref("network.cookie.denyRemovedCookies", false);
 
 // l12n and i18n
 pref("intl.accept_languages", "chrome://global/locale/intl.properties");

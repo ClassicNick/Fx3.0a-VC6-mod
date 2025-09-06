@@ -59,11 +59,6 @@
 #include <pango/pango.h>
 #include <pango/pangox.h>
 #include <pango/pango-fontmap.h>
-
-
-#ifdef MOZ_ENABLE_GLITZ
-#include "glitz-glx.h"
-#endif /* GLITZ */
 #endif /* GTK2 */
 
 #ifdef MOZ_ENABLE_GTK2
@@ -77,6 +72,9 @@ static nsSystemFontsGTK2 *gSystemFonts = nsnull;
 #include "gfxWindowsSurface.h"
 static nsSystemFontsWin *gSystemFonts = nsnull;
 #include <Usp10.h>
+#elif XP_MACOSX
+#include "nsSystemFontsMac.h"
+static nsSystemFontsMac *gSystemFonts = nsnull;
 #else
 #error Need to declare gSystemFonts!
 #endif
@@ -130,7 +128,7 @@ nsThebesDeviceContext::~nsThebesDeviceContext()
     nsresult rv;
     nsCOMPtr<nsIPref> prefs = do_GetService(kPrefCID, &rv);
     if (NS_SUCCEEDED(rv)) {
-        prefs->UnregisterCallback("browser.display.screen_resolution",
+        prefs->UnregisterCallback("layout.css.dpi",
                                   prefChanged, (void *)this);
     }
 }
@@ -203,7 +201,7 @@ nsThebesDeviceContext::Init(nsNativeWidget aWidget)
     PRInt32 prefVal = -1;
 
     // Set prefVal the value of the preference
-    // "browser.display.screen_resolution"
+    // "layout.css.dpi"
     // or -1 if we can't get it.
     // If it's negative, we pretend it's not set.
     // If it's 0, it means force use of the operating system's logical
@@ -213,11 +211,11 @@ nsThebesDeviceContext::Init(nsNativeWidget aWidget)
 
     nsCOMPtr<nsIPref> prefs(do_GetService(kPrefCID, &res));
     if (NS_SUCCEEDED(res) && prefs) {
-        res = prefs->GetIntPref("browser.display.screen_resolution", &prefVal);
+        res = prefs->GetIntPref("layout.css.dpi", &prefVal);
         if (NS_FAILED(res)) {
             prefVal = -1;
         }
-        prefs->RegisterCallback("browser.display.screen_resolution", prefChanged,
+        prefs->RegisterCallback("layout.css.dpi", prefChanged,
                                 (void *)this);
     }
 
@@ -361,21 +359,6 @@ nsThebesDeviceContext::SupportsNativeWidgets(PRBool &aSupportsWidgets)
 }
 
 NS_IMETHODIMP
-nsThebesDeviceContext::GetCanonicalPixelScale(float &aScale) const
-{
-    aScale = mPixelScale;
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsThebesDeviceContext::SetCanonicalPixelScale(float aScale)
-{
-    DeviceContextImpl::SetCanonicalPixelScale(aScale);
-    mPixelScale = aScale;
-    return NS_OK;
-}
-
-NS_IMETHODIMP
 nsThebesDeviceContext::GetScrollBarDimensions(float &aWidth, float &aHeight) const
 {
 #ifdef XP_WIN
@@ -403,49 +386,14 @@ nsThebesDeviceContext::GetSystemFont(nsSystemFontID aID, nsFont *aFont) const
         gSystemFonts = new nsSystemFontsGTK2(mPixelsToTwips);
 #elif XP_WIN
         gSystemFonts = new nsSystemFontsWin(mPixelsToTwips);
+#elif XP_MACOSX
+        gSystemFonts = new nsSystemFontsMac(mPixelsToTwips);
 #else
 #error Need to know how to create gSystemFonts, fix me!
 #endif
     }
 
-#ifdef XP_WIN
-    gSystemFonts->GetSystemFont(aID, aFont);
-    return NS_OK;
-
-#else
-    switch (aID) {
-    case eSystemFont_Menu:         // css2
-    case eSystemFont_PullDownMenu: // css3
-        *aFont = gSystemFonts->GetMenuFont();
-        break;
-
-    case eSystemFont_Field:        // css3
-    case eSystemFont_List:         // css3
-        *aFont = gSystemFonts->GetFieldFont();
-        break;
-
-    case eSystemFont_Button:       // css3
-        *aFont = gSystemFonts->GetButtonFont();
-        break;
-
-    case eSystemFont_Caption:      // css2
-    case eSystemFont_Icon:         // css2
-    case eSystemFont_MessageBox:   // css2
-    case eSystemFont_SmallCaption: // css2
-    case eSystemFont_StatusBar:    // css2
-    case eSystemFont_Window:       // css3
-    case eSystemFont_Document:     // css3
-    case eSystemFont_Workspace:    // css3
-    case eSystemFont_Desktop:      // css3
-    case eSystemFont_Info:         // css3
-    case eSystemFont_Dialog:       // css3
-    case eSystemFont_Tooltips:     // moz
-    case eSystemFont_Widget:       // moz
-        *aFont = gSystemFonts->GetDefaultFont();
-        break;
-    }
-#endif
-    return status;
+    return gSystemFonts->GetSystemFont(aID, aFont);
 }
 
 NS_IMETHODIMP
@@ -676,7 +624,7 @@ nsThebesDeviceContext::prefChanged(const char *aPref, void *aClosure)
     nsThebesDeviceContext *context = (nsThebesDeviceContext*)aClosure;
     nsresult rv;
   
-    if (nsCRT::strcmp(aPref, "browser.display.screen_resolution") == 0) {
+    if (nsCRT::strcmp(aPref, "layout.css.dpi") == 0) {
         PRInt32 dpi;
         nsCOMPtr<nsIPref> prefs(do_GetService(kPrefCID, &rv));
         rv = prefs->GetIntPref(aPref, &dpi);
@@ -772,6 +720,10 @@ nsThebesDeviceContext::FindScreen(nsIScreen** outScreen)
         return;
     }
 
+#endif
+
+#ifdef XP_MACOSX
+    // ???
 #endif
 
     mScreenManager->GetPrimaryScreen(outScreen);

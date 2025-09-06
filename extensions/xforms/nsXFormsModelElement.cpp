@@ -75,7 +75,6 @@
 #include "nsAutoPtr.h"
 #include "nsArray.h"
 #include "nsIDOMDocumentXBL.h"
-#include "nsIEventStateManager.h"
 
 #define XFORMS_LAZY_INSTANCE_BINDING \
   "chrome://xforms/content/xforms.xml#xforms-lazy-instance"
@@ -167,6 +166,14 @@ GetModelList(nsIDOMDocument *domDoc)
 
   return NS_STATIC_CAST(nsVoidArray *,
                         doc->GetProperty(nsXFormsAtoms::modelListProperty));
+}
+
+static void
+SupportsDtorFunc(void *aObject, nsIAtom *aPropertyName,
+                 void *aPropertyValue, void *aData)
+{
+  nsISupports *propertyValue = NS_STATIC_CAST(nsISupports*, aPropertyValue);
+  NS_IF_RELEASE(propertyValue);
 }
 
 //------------------------------------------------------------------------------
@@ -604,6 +611,10 @@ nsXFormsModelElement::OnCreated(nsIXTFGenericElementWrapper *aWrapper)
   mInstanceDocuments = new nsXFormsModelInstanceDocuments();
   NS_ASSERTION(mInstanceDocuments, "could not create mInstanceDocuments?!");
 
+  // Initialize hash tables
+  NS_ENSURE_TRUE(mNodeToType.Init(), NS_ERROR_OUT_OF_MEMORY);
+  NS_ENSURE_TRUE(mNodeToP3PType.Init(), NS_ERROR_OUT_OF_MEMORY);
+
   return NS_OK;
 }
 
@@ -640,7 +651,17 @@ nsXFormsModelElement::Rebuild()
   rv = mMDG.Clear();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // 2. Re-attach all elements
+  // Clear any type information
+  NS_ENSURE_TRUE(mNodeToType.IsInitialized() && mNodeToP3PType.IsInitialized(),
+                 NS_ERROR_FAILURE);
+  mNodeToType.Clear();
+  mNodeToP3PType.Clear();
+
+  // 2. Process bind elements
+  rv = ProcessBindElements();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // 3. Re-attach all elements
   if (mDocumentLoaded) { // if it's not during initializing phase
     // Copy the form control list as it stands right now.
     nsVoidArray *oldFormList = new nsVoidArray();
@@ -675,10 +696,7 @@ nsXFormsModelElement::Rebuild()
     mNeedsRefresh = PR_TRUE;
   }
 
-  // 3. Rebuild graph
-  rv = ProcessBindElements();
-  NS_ENSURE_SUCCESS(rv, rv);
-
+  // 4. Rebuild graph
   return mMDG.Rebuild();
 }
 
@@ -722,31 +740,21 @@ nsXFormsModelElement::SetStatesInternal(nsIXFormsControl *aControl,
   const nsXFormsNodeState *ns = mMDG.GetNodeState(aNode);
   NS_ENSURE_STATE(ns);
 
-  // XXX nsXFormsNodeState could expose a bitmask using NS_EVENTs, to avoid
-  // most of this...
-  PRBool tmp = ns->IsValid();
-  PRUint32 state =  tmp ? NS_EVENT_STATE_VALID : NS_EVENT_STATE_INVALID;
-  if (aAllStates || ns->ShouldDispatchValid()) {
-    SetSingleState(element, tmp, eEvent_Valid);
-  }
-  tmp = ns->IsReadonly();
-  state |= tmp ? NS_EVENT_STATE_MOZ_READONLY : NS_EVENT_STATE_MOZ_READWRITE;
-  if (aAllStates || ns->ShouldDispatchReadonly()) {
-    SetSingleState(element, tmp, eEvent_Readonly);
-  }
-  tmp = ns->IsRequired();
-  state |= tmp ? NS_EVENT_STATE_REQUIRED : NS_EVENT_STATE_OPTIONAL;
-  if (aAllStates || ns->ShouldDispatchRequired()) {
-    SetSingleState(element, tmp, eEvent_Required);
-  }
-  tmp = ns->IsRelevant();
-  state |= tmp ? NS_EVENT_STATE_ENABLED : NS_EVENT_STATE_DISABLED;
-  if (aAllStates || ns->ShouldDispatchRelevant()) {
-    SetSingleState(element, tmp, eEvent_Enabled);
-  }
-
-  nsresult rv = xtfWrap->SetIntrinsicState(state);
+  nsresult rv = xtfWrap->SetIntrinsicState(ns->GetIntrinsicState());
   NS_ENSURE_SUCCESS(rv, rv);
+
+  if (aAllStates || ns->ShouldDispatchValid()) {
+    SetSingleState(element, ns->IsValid(), eEvent_Valid);
+  }
+  if (aAllStates || ns->ShouldDispatchReadonly()) {
+    SetSingleState(element, ns->IsReadonly(), eEvent_Readonly);
+  }
+  if (aAllStates || ns->ShouldDispatchRequired()) {
+    SetSingleState(element, ns->IsRequired(), eEvent_Required);
+  }
+  if (aAllStates || ns->ShouldDispatchRelevant()) {
+    SetSingleState(element, ns->IsRelevant(), eEvent_Enabled);
+  }
 
   if (ns->ShouldDispatchValueChanged()) {
     nsXFormsUtils::DispatchEvent(element, eEvent_ValueChanged);
@@ -813,12 +821,22 @@ nsXFormsModelElement::Refresh()
       if (mNeedsRefresh) {
         refresh = PR_TRUE;
       } else {
-        // Get dependencies
-        nsCOMArray<nsIDOMNode> *deps = nsnull;
-        control->GetDependencies(&deps);    
+        PRBool usesModelBinding = PR_FALSE;
+        control->GetUsesModelBinding(&usesModelBinding);
 
-#ifdef DEBUG_MODEL
+        nsCOMArray<nsIDOMNode> *deps = nsnull;
+        if (usesModelBinding) {
+          if (!boundNode)
+          // If a control uses a model binding, but has no bound node a
+          // rebuild is the only thing that'll (eventually) change it
+          continue;
+        } else {
+          // Get dependencies
+          control->GetDependencies(&deps);    
+        }
         PRUint32 depCount = deps ? deps->Count() : 0;
+        
+#ifdef DEBUG_MODEL
         nsCOMPtr<nsIDOMElement> controlElement;
         control->GetElement(getter_AddRefs(controlElement));
         if (controlElement) {
@@ -854,16 +872,25 @@ nsXFormsModelElement::Refresh()
           // control (get updated node value from the bound node)
           if (!refresh && boundNode) {
             curChanged->IsSameNode(boundNode, &refresh);
-        
-            if (refresh)
-              // We need to refresh the control. We cannot break out of the loop
-              // as we need to check dependencies
+
+            // Two ways to go here. Keep in mind that controls using model
+            // binding expressions never needs to have dependencies checked as
+            // they only rebind on xforms-rebuild
+            if (refresh && usesModelBinding) {
+              // 1) If the control needs a refresh, and uses model bindings,
+              // we can stop checking here
+              break;
+            }
+            if (refresh || usesModelBinding) {
+              // 2) If either the control needs a refresh or it uses a model
+              // binding we can continue to next changed node
               continue;
+            }
           }
 
           // Check whether any dependencies are dirty. If so, we need to rebind
           // the control (re-evaluate it's binding expression)
-          for (PRInt32 k = 0; k < deps->Count(); ++k) {
+          for (PRUint32 k = 0; k < depCount; ++k) {
             /// @note beaufour: I'm not to happy about this ...
             /// O(mChangedNodes.Count() * deps->Count()), but using the pointers
             /// for sorting and comparing does not work...
@@ -1004,9 +1031,9 @@ nsXFormsModelElement::GetTypeForControl(nsIXFormsControl  *aControl,
 nsXFormsModelElement::GetTypeAndNSFromNode(nsIDOMNode *aInstanceData,
                                            nsAString &aType, nsAString &aNSUri)
 {
-  nsresult rv = nsXFormsUtils::ParseTypeFromNode(aInstanceData, aType, aNSUri);
+  nsresult rv = GetTypeFromNode(aInstanceData, aType, aNSUri);
 
-  if(rv == NS_ERROR_NOT_AVAILABLE) {
+  if (rv == NS_ERROR_NOT_AVAILABLE) {
     // if there is no type assigned, then assume that the type is 'string'
     aNSUri.Assign(NS_LITERAL_STRING(NS_NAMESPACE_XML_SCHEMA));
     aType.Assign(NS_LITERAL_STRING("string"));
@@ -1185,6 +1212,79 @@ nsXFormsModelElement::GetIsReady(PRBool *aIsReady)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsXFormsModelElement::GetTypeFromNode(nsIDOMNode *aInstanceData,
+                                      nsAString  &aType,
+                                      nsAString  &aNSUri)
+{
+  // aInstanceData could be an instance data node or it could be an attribute
+  // on an instance data node (basically the node that a control is bound to).
+
+  nsString *typeVal = nsnull;
+
+  // Get type stored directly on instance node
+  nsAutoString typeAttribute;
+  nsCOMPtr<nsIDOMElement> nodeElem(do_QueryInterface(aInstanceData));
+  if (nodeElem) {
+    nodeElem->GetAttributeNS(NS_LITERAL_STRING(NS_NAMESPACE_XML_SCHEMA_INSTANCE),
+                             NS_LITERAL_STRING("type"), typeAttribute);
+    if (!typeAttribute.IsEmpty()) {
+      typeVal = &typeAttribute;
+    }
+  }
+
+  // If there was no type information on the node itself, check for a type
+  // bound to the node via \<xforms:bind\>
+  if (!typeVal && !mNodeToType.Get(aInstanceData, &typeVal)) {
+    // No type information found
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  // split type (ns:type) into namespace and type.
+  nsAutoString prefix;
+  PRInt32 separator = typeVal->FindChar(':');
+  if ((PRUint32) separator == (typeVal->Length() - 1)) {
+    const PRUnichar *strings[] = { typeVal->get() };
+    nsXFormsUtils::ReportError(NS_LITERAL_STRING("missingTypeName"), strings, 1,
+                               mElement, nsnull);
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  if (separator == kNotFound) {
+    // no namespace prefix, which is valid;
+    prefix = EmptyString();
+    aType.Assign(*typeVal);
+  } else {
+    prefix.Assign(Substring(*typeVal, 0, separator));
+    aType.Assign(Substring(*typeVal, ++separator, typeVal->Length()));
+  }
+
+  if (prefix.IsEmpty()) {
+    aNSUri = EmptyString();
+    return NS_OK;
+  }
+
+  // get the namespace url from the prefix using instance data node
+  nsresult rv;
+  nsCOMPtr<nsIDOM3Node> domNode3 = do_QueryInterface(aInstanceData, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = domNode3->LookupNamespaceURI(prefix, aNSUri);
+
+  if (DOMStringIsNull(aNSUri)) {
+    // if not found using instance data node, use <xf:instance> node
+    nsCOMPtr<nsIDOMNode> instanceNode;
+    rv = nsXFormsUtils::GetInstanceNodeForData(aInstanceData,
+                                               getter_AddRefs(instanceNode));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    domNode3 = do_QueryInterface(instanceNode, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = domNode3->LookupNamespaceURI(prefix, aNSUri);
+  }
+
+  return rv;
+}
+
 // nsIXFormsContextControl
 
 NS_IMETHODIMP
@@ -1295,7 +1395,8 @@ nsXFormsModelElement::ProcessBindElements()
       child->GetNamespaceURI(namespaceURI);
       if (namespaceURI.EqualsLiteral(NS_NAMESPACE_XFORMS)) {
         rv = ProcessBind(xpath, firstInstanceRoot, 1, 1,
-                         nsCOMPtr<nsIDOMElement>(do_QueryInterface(child)));
+                         nsCOMPtr<nsIDOMElement>(do_QueryInterface(child)),
+                         PR_TRUE);
         if (NS_FAILED(rv)) {
           return NS_OK;
         }
@@ -1487,21 +1588,13 @@ nsXFormsModelElement::MaybeNotifyCompletion()
   }
 }
 
-static void
-DeleteAutoString(void    *aObject,
-                 nsIAtom *aPropertyName,
-                 void    *aPropertyValue,
-                 void    *aData)
-{
-  delete NS_STATIC_CAST(nsAutoString*, aPropertyValue);
-}
-
 nsresult
 nsXFormsModelElement::ProcessBind(nsIXFormsXPathEvaluator *aEvaluator,
                                   nsIDOMNode              *aContextNode,
                                   PRInt32                 aContextPosition,
                                   PRInt32                 aContextSize,
-                                  nsIDOMElement           *aBindElement)
+                                  nsIDOMElement           *aBindElement,
+                                  PRBool                  aIsOuter)
 {
   // Get the model item properties specified by this \<bind\>.
   nsCOMPtr<nsIDOMNSXPathExpression> props[eModel__count];
@@ -1552,6 +1645,19 @@ nsXFormsModelElement::ProcessBind(nsIXFormsXPathEvaluator *aEvaluator,
   }
 
   NS_ENSURE_STATE(result);
+  
+  // If this is an outer bind, store the nodeset, as controls binding to this
+  // bind will need this.
+  if (aIsOuter) {
+    nsCOMPtr<nsIContent> content(do_QueryInterface(aBindElement));
+    NS_ASSERTION(content, "nsIDOMElement not implementing nsIContent?!");
+    rv = content->SetProperty(nsXFormsAtoms::bind, result,
+                              SupportsDtorFunc);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // addref, circumventing nsDerivedSave
+    NS_ADDREF(NS_STATIC_CAST(nsIDOMXPathResult*, result));
+  }
 
   PRUint32 snapLen;
   rv = result->GetSnapshotLength(&snapLen);
@@ -1582,32 +1688,23 @@ nsXFormsModelElement::ProcessBind(nsIXFormsXPathEvaluator *aEvaluator,
 
       // type and p3ptype are stored as properties on the instance node
       if (j == eModel_type || j == eModel_p3ptype) {
-        nsAutoPtr<nsAutoString> prop (new nsAutoString(propStrings[j]));
-        nsCOMPtr<nsIContent> content = do_QueryInterface(node);
-        if (content) {
-          rv = content->SetProperty(sModelPropsList[j],
-                                    prop,
-                                    DeleteAutoString);
-        } else {
-          nsCOMPtr<nsIAttribute> attribute = do_QueryInterface(node);
-          if (attribute) {
-            rv = attribute->SetProperty(sModelPropsList[j],
-                                        prop,
-                                        DeleteAutoString);
-          } else {
-            NS_WARNING("node is neither nsIContent or nsIAttribute");
-            continue;
-          }
-        }
-        if (NS_SUCCEEDED(rv)) {
-          prop.forget();
-        } else {
-          return rv;
-        }
-        if (rv == NS_PROPTABLE_PROP_OVERWRITTEN) {
+        nsClassHashtable<nsISupportsHashKey, nsString> *table;
+        table = j == eModel_type ? &mNodeToType : &mNodeToP3PType;
+        NS_ENSURE_TRUE(table->IsInitialized(), NS_ERROR_FAILURE);
+
+        // Check for existing value
+        if (table->Get(node, nsnull)) {
           multiMIP = PR_TRUE;
           break;
         }
+
+        // Insert value
+        nsAutoPtr<nsString> newString(new nsString(propStrings[j]));
+        NS_ENSURE_TRUE(newString, NS_ERROR_OUT_OF_MEMORY);
+        NS_ENSURE_TRUE(table->Put(node, newString), NS_ERROR_OUT_OF_MEMORY);
+
+        // string is succesfully stored in the table, we should not dealloc it
+        newString.forget();
 
         if (j == eModel_type) {
           // Inform MDG that it needs to check type. The only arguments

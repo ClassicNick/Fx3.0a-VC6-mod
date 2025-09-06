@@ -42,6 +42,7 @@
 #include "gfxTypes.h"
 #include "gfxFont.h"
 
+#include <Usp10.h>
 #include <cairo-win32.h>
 
 
@@ -52,30 +53,41 @@
  **********************************************************************/
 
 class gfxWindowsFont : public gfxFont {
+    THEBES_DECL_ISUPPORTS_INHERITED
+
 public:
     gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup, HDC aHWnd);
+    gfxWindowsFont::gfxWindowsFont(HFONT aFont, const gfxFontGroup *aFontGroup, PRBool aIsMLangFont);
+
     virtual ~gfxWindowsFont();
 
     virtual const gfxFont::Metrics& GetMetrics() { return mMetrics; }
 
     cairo_font_face_t *CairoFontFace() { return mFontFace; }
     cairo_scaled_font_t *CairoScaledFont() { return mScaledFont; }
+    SCRIPT_CACHE *ScriptCache() { return &mScriptCache; }
+    HFONT GetHFONT() { return mFont; }
     void UpdateFonts(cairo_t *cr);
 
 protected:
     cairo_font_face_t *MakeCairoFontFace();
     cairo_scaled_font_t *MakeCairoScaledFont(cairo_t *cr);
-    void FillLogFont();
+    void FillLogFont(PRInt16 weight);
 
 private:
     void ComputeMetrics(HDC dc);
 
     LOGFONTW mLogFont;
+    HFONT mFont;
 
     cairo_font_face_t *mFontFace;
     cairo_scaled_font_t *mScaledFont;
 
     gfxFont::Metrics mMetrics;
+
+    SCRIPT_CACHE mScriptCache;
+
+    PRBool mIsMLangFont;
 };
 
 
@@ -92,6 +104,11 @@ public:
     virtual ~gfxWindowsFontGroup();
 
     virtual gfxTextRun *MakeTextRun(const nsAString& aString);
+    virtual gfxTextRun *MakeTextRun(const nsACString& aString);
+
+    gfxWindowsFont *GetFontAt(PRInt32 i) {
+        return NS_STATIC_CAST(gfxWindowsFont*, NS_STATIC_CAST(gfxFont*, mFonts[i]));
+    }        
 
 protected:
     static PRBool MakeFont(const nsAString& fontName, const nsAString& genericName, void *closure);
@@ -114,19 +131,32 @@ class NS_EXPORT gfxWindowsTextRun : public gfxTextRun {
 
 public:
     gfxWindowsTextRun(const nsAString& aString, gfxWindowsFontGroup *aFontGroup);
+    gfxWindowsTextRun(const nsACString& aString, gfxWindowsFontGroup *aFontGroup);
     ~gfxWindowsTextRun();
 
     virtual void DrawString(gfxContext *aContext, gfxPoint pt);
     virtual gfxFloat MeasureString(gfxContext *aContext);
 
 private:
-    PRInt32 MeasureOrDrawUniscribe(gfxContext *aContext,
-                                   const PRUnichar *aString, PRUint32 aLength,
-                                   PRBool aDraw, PRInt32 aX, PRInt32 aY, const PRInt32 *aSpacing);
+    gfxWindowsFont *FindFallbackFont(HDC aDC,
+                                     const PRUnichar *aString, PRUint32 aLength,
+                                     gfxWindowsFont *aFont);
 
+    PRInt32 MeasureOrDrawAscii(gfxContext *aContext,
+                               PRBool aDraw,
+                               PRInt32 aX, PRInt32 aY,
+                               const PRInt32 *aSpacing);
+    PRInt32 MeasureOrDrawUniscribe(gfxContext *aContext, PRBool aDraw,
+                                   PRInt32 aX, PRInt32 aY,
+                                   const PRInt32 *aSpacing);
 
-    nsString mString;
     gfxWindowsFontGroup *mGroup;
+
+    // These should probably be in a union
+    const nsAString& mString;
+    const nsACString& mCString;
+
+    const PRBool mIsASCII;
 };
 
 #endif /* GFX_WINDOWSFONTS_H */

@@ -113,9 +113,10 @@ static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
 #define KEY_FEEDURL_LOWER "feedurl"
 #define KEY_LASTCHARSET_LOWER "last_charset"
 #define KEY_ICON_LOWER "icon"
+#define KEY_SHORTCUTURL_LOWER "shortcuturl"
 
-#define BOOKMARKS_MENU_ICON_URI "chrome://browser/skin/places/bookmarks_menu.png"
-#define BOOKMARKS_TOOLBAR_ICON_URI "chrome://browser/skin/places/bookmarks_toolbar.png"
+#define BOOKMARKS_MENU_ICON_URI "chrome://browser/skin/places/bookmarksMenu.png"
+#define BOOKMARKS_TOOLBAR_ICON_URI "chrome://browser/skin/places/bookmarksToolbar.png"
 
 static const char kWhitespace[] = " \r\n\t\b";
 
@@ -408,15 +409,40 @@ BookmarkContentSink::CloseContainer(const nsHTMLTag aTag)
   return NS_OK;
 }
 
+
+// BookmarkContentSink::AddLeaf
+//
+//    XXX on the branch, we should be calling CollectSkippedContent as in
+//    nsHTMLFragmentContentSink.cpp:AddLeaf when we encounter title, script,
+//    style, or server tags. Apparently if we don't, we'll leak the next DOM
+//    node. However, this requires that we keep a reference to the parser we'll
+//    introduce a circular reference because it has a reference to us.
+//
+//    This is annoying to fix and these elements are not allowed in bookmarks
+//    files anyway. So if somebody tries to import a crazy bookmarks file, it
+//    will leak a little bit.
+
 NS_IMETHODIMP
 BookmarkContentSink::AddLeaf(const nsIParserNode& aNode)
 {
   switch (aNode.GetNodeType()) {
   case eHTMLTag_text:
     // save any text we find
-    if (aNode.GetNodeType() == eHTMLTag_text) {
+    CurFrame().mPreviousText += aNode.GetText();
+    break;
+  case eHTMLTag_entity: {
+    nsAutoString tmp;
+    PRInt32 unicode = aNode.TranslateToUnicodeStr(tmp);
+    if (unicode < 0) {
+      // invalid entity - just use the text of it
       CurFrame().mPreviousText += aNode.GetText();
+    } else {
+      CurFrame().mPreviousText.Append(unicode);
     }
+    break;
+  }
+  case eHTMLTag_whitespace:
+    CurFrame().mPreviousText.Append(PRUnichar(' '));
     break;
   case eHTMLTag_hr:
     HandleSeparator();
@@ -557,6 +583,9 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
 {
   BookmarkImportFrame& frame = CurFrame();
 
+  // We need to make sure that the feed URIs from previous frames are emptied. 
+  frame.mPreviousFeed = nsnull;
+
   // mPreviousText will hold our link text, clear it so that can be appended to
   frame.mPreviousText.Truncate();
 
@@ -565,6 +594,7 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
   nsAutoString feedUrl;
   nsAutoString icon;
   nsAutoString lastCharset;
+  nsAutoString keyword;
   PRInt32 attrCount = node.GetAttributeCount();
   for (PRInt32 i = 0; i < attrCount; i ++) {
     const nsAString& key = node.GetKeyAt(i);
@@ -576,12 +606,15 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
       icon = node.GetValueAt(i);
     } else if (key.LowerCaseEqualsLiteral(KEY_LASTCHARSET_LOWER)) {
       lastCharset = node.GetValueAt(i);
+    } else if (key.LowerCaseEqualsLiteral(KEY_SHORTCUTURL_LOWER)) {
+      keyword = node.GetValueAt(i);
     }
   }
   href.Trim(kWhitespace);
   feedUrl.Trim(kWhitespace);
   icon.Trim(kWhitespace);
   lastCharset.Trim(kWhitespace);
+  keyword.Trim(kWhitespace);
 
   // ignore <a> tags that have no href: we don't know what to do with them
   if (href.IsEmpty()) {
@@ -612,6 +645,10 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
   // save the favicon, ignore errors
   if (! icon.IsEmpty())
     SetFaviconForURI(frame.mPreviousLink, NS_ConvertUTF16toUTF8(icon));
+
+  // save the keyword, ignore errors
+  if (! keyword.IsEmpty())
+    mBookmarksService->SetKeywordForURI(frame.mPreviousLink, keyword);
 
   // FIXME: save the last charset
 }
@@ -907,7 +944,7 @@ nsNavBookmarks::ImportBookmarksHTMLInternal(nsIURI* aURL,
   nsCOMPtr<nsIParser> parser = do_CreateInstance(kParserCID, &rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  BookmarkContentSink* sink = new BookmarkContentSink;
+  nsCOMPtr<BookmarkContentSink> sink = new BookmarkContentSink;
   NS_ENSURE_TRUE(sink, NS_ERROR_OUT_OF_MEMORY);
   rv = sink->Init(aAllowRootChanges, this, aFolder);
   NS_ENSURE_SUCCESS(rv, rv);

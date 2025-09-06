@@ -45,6 +45,7 @@
 #include "mozIStorageFunction.h"
 
 #include "mozStorageConnection.h"
+#include "mozStorageService.h"
 #include "mozStorageStatement.h"
 #include "mozStorageValueArray.h"
 
@@ -57,8 +58,9 @@ PRLogModuleInfo* gStorageLog = nsnull;
 
 NS_IMPL_ISUPPORTS1(mozStorageConnection, mozIStorageConnection)
 
-mozStorageConnection::mozStorageConnection()
-    : mDBConn(nsnull), mTransactionInProgress(PR_FALSE)
+mozStorageConnection::mozStorageConnection(mozIStorageService* aService)
+    : mDBConn(nsnull), mTransactionInProgress(PR_FALSE),
+      mStorageService(aService)
 {
     
 }
@@ -252,6 +254,42 @@ mozStorageConnection::TableExists(const nsACString& aSQLStatement, PRBool *_retv
     *_retval = exists;
     return NS_OK;
 }
+
+NS_IMETHODIMP
+mozStorageConnection::IndexExists(const nsACString& aIndexName, PRBool* _retval)
+{
+    NS_ENSURE_ARG_POINTER(mDBConn);
+
+    nsCString query("SELECT name FROM sqlite_master WHERE type = 'index' AND name ='");
+    query.Append(aIndexName);
+    query.AppendLiteral("'");
+
+    sqlite3_stmt *stmt = nsnull;
+    int srv = sqlite3_prepare(mDBConn, query.get(), query.Length(), &stmt, nsnull);
+    if (srv != SQLITE_OK) {
+        HandleSqliteError(query.get());
+        return NS_ERROR_FAILURE; // XXX error code
+    }
+
+    PRBool exists = PR_FALSE;
+
+    srv = sqlite3_step(stmt);
+    // we just care about the return value from step
+    sqlite3_finalize(stmt);
+
+    if (srv == SQLITE_ROW) {
+        exists = PR_TRUE;
+    } else if (srv == SQLITE_DONE) {
+        exists = PR_FALSE;
+    } else if (srv == SQLITE_ERROR) {
+        HandleSqliteError("IndexExists finalize");
+        return NS_ERROR_FAILURE;
+    }
+
+    *_retval = exists;
+    return NS_OK;
+}
+
 
 /**
  ** Transactions

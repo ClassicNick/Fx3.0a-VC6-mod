@@ -51,7 +51,6 @@
 #include "nsGenericHTMLElement.h"
 #include "nsHTMLParts.h"
 #include "nsHTMLAtoms.h"
-#include "nsVoidArray.h"
 #include "nsIView.h"
 #include "nsLayoutAtoms.h"
 #include "nsIPresShell.h"
@@ -194,7 +193,7 @@ nsTableCellFrame::GetRowIndex(PRInt32 &aRowIndex) const
 nsresult 
 nsTableCellFrame::GetColIndex(PRInt32 &aColIndex) const
 {  
-  if (mPrevInFlow) {
+  if (GetPrevInFlow()) {
     return ((nsTableCellFrame*)GetFirstInFlow())->GetColIndex(aColIndex);
   }
   else {
@@ -527,10 +526,10 @@ PRIntn
 nsTableCellFrame::GetSkipSides() const
 {
   PRIntn skip = 0;
-  if (nsnull != mPrevInFlow) {
+  if (nsnull != GetPrevInFlow()) {
     skip |= 1 << NS_SIDE_TOP;
   }
-  if (nsnull != mNextInFlow) {
+  if (nsnull != GetNextInFlow()) {
     skip |= 1 << NS_SIDE_BOTTOM;
   }
   return skip;

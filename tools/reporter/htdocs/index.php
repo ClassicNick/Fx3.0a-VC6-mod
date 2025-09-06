@@ -70,20 +70,17 @@ $db->SetFetchMode(ADODB_FETCH_ASSOC);
 $productDescQuery =& $db->Execute("SELECT product.product_value, product.product_description
                                    FROM product
                                    ORDER BY product.product_description desc");
-if(!$productDescQuery){
-    die("DB Error");
+if($productDescQuery){
+    $products = array();
+    while (!$productDescQuery->EOF) {
+        $products[$productDescQuery->fields['product_value']] = $productDescQuery->fields['product_description'];
+        $productDescQuery->MoveNext();
+    }
 }
-
-$products = array();
-while (!$productDescQuery->EOF) {
-    $products[$productDescQuery->fields['product_value']] = $productDescQuery->fields['product_description'];
-    $productDescQuery->MoveNext();
-}
-
-
-if(isset($config['products'])){
+if(isset($products) && sizeof($products) > 0){
     $content->assign('product_options',             $products);
 }
+$db->Close();
 if(isset($_GET['report_product'])){
     $content->assign('report_product',              $_GET['report_product']);
 }
@@ -125,7 +122,7 @@ if (isset($_GET['selected'])){
     $content->assign('selected',               	$_GET['selected']);
 }
 else {
-    $content->assign('selected',                array('report_id', 'host_hostname', 'report_file_date'));
+    $content->assign('selected',                array('host_hostname', 'report_file_date'));
 }
 
 displayPage($content, 'index', 'index.tpl');

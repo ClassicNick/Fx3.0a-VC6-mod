@@ -218,7 +218,7 @@ body
 
     #footer .label
     {
-        width: 7.2em;
+        width: 8.2em;
         display: block;
         float: left;
 
@@ -244,7 +244,7 @@ body
 
     #footer .links
     {
-        display: block;
+        display: table-cell;
 
         padding: 0.1em 0.2em;
     }
@@ -252,8 +252,6 @@ body
     /* hide from MSIE and NN4 */
     [id]#footer .links
     {
-        display: table-cell;
-
         padding-top: 0;
         
         vertical-align: baseline;
@@ -288,6 +286,17 @@ body
         color: #000;
     }
 /* generic (end) */
+
+div#docslinks {
+    float: right;
+    border: 1px solid black;
+    padding: 1ex;
+    font-size: 80%;
+}
+
+#docslinks h2 {
+    margin: 0;
+}
 
 .bz_obsolete { text-decoration: line-through; }
 .bz_inactive { text-decoration: line-through; }
@@ -336,6 +345,10 @@ td.tab.selected
 td.tab.spacer
 {
     background: white;
+}
+
+span.quote {
+    color: #65379c;
 }
 
 table#flags th, table#flags td { vertical-align: baseline; text-align: left; }

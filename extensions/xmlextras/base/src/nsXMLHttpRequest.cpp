@@ -1233,7 +1233,19 @@ nsXMLHttpRequest::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
   nsCOMPtr<nsIPrivateDOMImplementation> privImpl =
     do_QueryInterface(implementation);
   if (privImpl) {
-    privImpl->Init(GetBaseURI());
+    // XXXbz this is probably all wrong when not called from JS... and possibly
+    // even then! Fixing that requires giving XMLHttpRequest some principals
+    // when inited.  Until then, cases when we don't actually parse the
+    // document will give our mDocument he wrong principal.  I'm just not sure
+    // how wrong it can get...  Shouldn't be too bad as long as mScriptContext
+    // is sane, I guess.
+    nsCOMPtr<nsIDocument> doc = GetDocumentFromScriptContext(mScriptContext);
+    nsIURI* uri = GetBaseURI();
+    nsIPrincipal* principal = nsnull;
+    if (doc) {
+      principal = doc->GetNodePrincipal();
+    }
+    privImpl->Init(uri, uri, principal);
   }
 
   // Create an empty document from it (resets current document as well)
@@ -1633,6 +1645,9 @@ nsXMLHttpRequest::Send(nsIVariant *aBody)
     if (modalEventQueue) {
       mEventQService->PopThreadEventQueue(modalEventQueue);
     }
+
+    // Drop our ref to the channel to avoid cycles
+    mChannel = nsnull;
     return rv;
   }
 

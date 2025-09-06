@@ -23,6 +23,7 @@ use lib qw(.);
 use Date::Parse;         # strptime
 use Date::Format;        # strftime
 
+use Bugzilla;
 use Bugzilla::Bug;       # EmitDependList
 use Bugzilla::Util;      # trim
 use Bugzilla::Constants; # LOGIN_*
@@ -522,7 +523,6 @@ $vars->{'do_report'} = $do_report;
 $vars->{'do_depends'} = $do_depends;
 $vars->{'check_time'} = \&check_time;
 $vars->{'sort_bug_keys'} = \&sort_bug_keys;
-$vars->{'GetBugLink'} = \&GetBugLink;
 
 my $format = $template->get_format("bug/summarize-time", undef, $ctype);
 

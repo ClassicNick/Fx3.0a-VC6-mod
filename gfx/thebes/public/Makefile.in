@@ -41,12 +41,23 @@ endif
 endif
 
 ifeq ($(MOZ_GFX_TOOLKIT),gtk2)
-EXPORTS	+=	gfxXlibSurface.h gfxPlatformGtk.h
+EXPORTS +=      gfxXlibSurface.h gfxPlatformGtk.h gfxXlibNativeRenderer.h
 EXPORTS +=	gfxPangoFonts.h
 EXPORTS +=	gfxPDFSurface.h gfxPSSurface.h
 
 ifdef MOZ_ENABLE_GLITZ
 REQUIRES += glitzglx
+endif
+endif
+
+ifneq (,$(filter $(MOZ_GFX_TOOLKIT),mac cocoa))
+EXPORTS +=	gfxPlatformMac.h \
+		gfxQuartzSurface.h \
+		gfxAtsuiFonts.h \
+		$(NULL)
+
+ifdef MOZ_EABLE_GLITZ
+REQUIRES += glitzagl
 endif
 endif
 

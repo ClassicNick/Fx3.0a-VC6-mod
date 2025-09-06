@@ -97,10 +97,10 @@ struct nsMargin;
 typedef class nsIFrame nsIBox;
 
 // IID for the nsIFrame interface 
-// 2fb5effc-5eeb-4ccb-b9fa-325f8642200f
+// bdf02423-88d6-41ca-818a-54d7b51328c3
 #define NS_IFRAME_IID \
-{ 0x2fb5effc, 0x5eeb, 0x4ccb, \
-  { 0xb9, 0xfa, 0x32, 0x5f, 0x86, 0x42, 0x20, 0x0f } }
+{ 0xbdf02423, 0x88d6, 0x41ca, \
+  { 0x81, 0x8a, 0x54, 0xd7, 0xb5, 0x13, 0x28, 0xc3 } }
 
 /**
  * Indication of how the frame can be split. This is used when doing runaround
@@ -143,6 +143,11 @@ typedef PRUint32 nsFrameState;
 // once (during the DidReflow with a finished state) the bit is
 // cleared.
 #define NS_FRAME_FIRST_REFLOW                         0x00000002
+
+// For a continuation frame, if this bit is set, then this a "fluid" 
+// continuation, i.e., across a line boundary. Otherwise it's a "hard"
+// continuation, e.g. a bidi continuation.
+#define NS_FRAME_IS_FLUID_CONTINUATION                0x00000004
 
 // If this bit is set, then there is a child frame in the frame that
 // extends outside this frame's bounding box. The implication is that
@@ -813,20 +818,37 @@ public:
                                  nsEvent* aEvent,
                                  nsIContent** aContent) = 0;
 
+  // This structure keeps track of the content node and offsets associated with
+  // a point; there is a primary and a secondary offset associated with any
+  // point.  The primary and secondary offsets differ when the point is over a
+  // non-text object.  The primary offset is the expected position of the
+  // cursor calculated from a point; the secondary offset, when it is different,
+  // indicates that the point is in the boundaries of some selectable object.
+  // Note that the primary offset can be after the secondary offset; for places
+  // that need the beginning and end of the object, the StartOffset and 
+  // EndOffset helpers can be used.
+  struct ContentOffsets {
+    nsCOMPtr<nsIContent> content;
+    PRBool IsNull() { return !content; }
+    PRInt32 offset;
+    PRInt32 secondaryOffset;
+    // Helpers for places that need the ends of the offsets and expect them in
+    // numerical order, as opposed to wanting the primary and secondary offsets
+    PRInt32 StartOffset() { return PR_MIN(offset, secondaryOffset); }
+    PRInt32 EndOffset() { return PR_MAX(offset, secondaryOffset); }
+    // This boolean indicates whether the associated content is before or after
+    // the offset; the most visible use is to allow the caret to know which line
+    // to display on.
+    PRBool associateWithNext;
+  };
   /**
-  * Find the content offset from a point.  aPoint is in frame coordinates.
+   * This function calculates the content offsets for selection relative to
+   * a point.  Note that this should generally only be callled on the event
+   * frame associated with an event because this function does not account
+   * for frame lists other than the primary one.
+   * @param aPoint point relative to this frame
    */
-  NS_IMETHOD GetContentAndOffsetsFromPoint(nsPresContext* aCX,
-                                           const nsPoint&  aPoint,
-                                           nsIContent **   aNewContent,
-                                           PRInt32&        aContentOffset,
-                                           PRInt32&        aContentOffsetEnd,
-                                           PRBool&         aBeginFrameContent) = 0;
-  // Helper for GetContentAndOffsetsFromPoint
-  NS_IMETHOD GetPositionHelper(const nsPoint&  aPoint,
-                               nsIContent **   aNewContent,
-                               PRInt32&        aContentOffset,
-                               PRInt32&        aContentOffsetEnd) = 0;
+  ContentOffsets GetContentOffsetsFromPoint(nsPoint aPoint);
 
   /**
    * This structure holds information about a cursor. mContainer represents a
@@ -914,12 +936,29 @@ public:
   NS_IMETHOD  IsSplittable(nsSplittableType& aIsSplittable) const = 0;
 
   /**
+   * Continuation member functions
+   */
+  virtual nsIFrame* GetPrevContinuation() const = 0;
+  NS_IMETHOD SetPrevContinuation(nsIFrame*) = 0;
+  virtual nsIFrame* GetNextContinuation() const = 0;
+  NS_IMETHOD SetNextContinuation(nsIFrame*) = 0;
+  virtual nsIFrame* GetFirstContinuation() const {
+    return NS_CONST_CAST(nsIFrame*, this);
+  }
+  virtual nsIFrame* GetLastContinuation() const {
+    return NS_CONST_CAST(nsIFrame*, this);
+  }
+  
+  /**
    * Flow member functions
    */
-  virtual nsIFrame* GetPrevInFlow() const = 0;
-  NS_IMETHOD  SetPrevInFlow(nsIFrame*) = 0;
-  virtual nsIFrame* GetNextInFlow() const = 0;
-  NS_IMETHOD  SetNextInFlow(nsIFrame*) = 0;
+  virtual nsIFrame* GetPrevInFlowVirtual() const = 0;
+  nsIFrame* GetPrevInFlow() const { return GetPrevInFlowVirtual(); }
+  NS_IMETHOD SetPrevInFlow(nsIFrame*) = 0;
+
+  virtual nsIFrame* GetNextInFlowVirtual() const = 0;
+  nsIFrame* GetNextInFlow() const { return GetNextInFlowVirtual(); }
+  NS_IMETHOD SetNextInFlow(nsIFrame*) = 0;
 
   /**
    * Return the first frame in our current flow. 
@@ -1253,6 +1292,11 @@ public:
    */
   NS_IMETHOD  GetSelectionController(nsPresContext *aPresContext, nsISelectionController **aSelCon) = 0;
 
+  /**
+   *  Call to get nsIFrameSelection for this frame; does not addref
+   */
+  nsIFrameSelection* GetFrameSelection();
+
   /** EndSelection related calls
    */
 
@@ -1375,7 +1419,11 @@ public:
    * should return true.
    */
   virtual PRBool IsEmpty() = 0;
-
+  /**
+   * Return the same as IsEmpty(). This may only be called after the frame
+   * has been reflowed and before any further style or content changes.
+   */
+  virtual PRBool CachedIsEmpty();
   /**
    * Determine whether the frame is logically empty, assuming that all
    * its children are empty.

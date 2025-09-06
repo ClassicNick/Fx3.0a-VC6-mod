@@ -47,8 +47,9 @@
 #include "nsIDOMWindowInternal.h"
 #include "nsIChromeEventHandler.h"
 #include "nsIDOMDocument.h"
-#include "nsIURI.h"
 #include "nsCOMPtr.h"
+
+class nsIPrincipal;
 
 // Popup control state enum. The values in this enum must go from most
 // permissive to least permissive so that it's safe to push state in
@@ -62,21 +63,14 @@ enum PopupControlState {
   openOverridden    // disallow window open
 };
 
-// permissible values for GetOpenAllow
-enum OpenAllowValue {
-  allowNot = 0,     // the window opening is denied
-  allowNoAbuse,     // allowed: not a popup
-  allowWhitelisted  // allowed: it's whitelisted or popup blocking is disabled
-};
-
 class nsIDocShell;
 class nsIFocusController;
 class nsIDocument;
 struct nsTimeout;
 
 #define NS_PIDOMWINDOW_IID \
-{ 0xebaabeb5, 0xb5e4, 0x4cd3, \
- { 0x9e, 0xd2, 0xb9, 0xd0, 0x15, 0xd1, 0x27, 0x63 } }
+{ 0xb14e8b8b, 0x1ee2, 0x43a6, \
+ { 0xa5, 0x4a, 0x56, 0xa1, 0x88, 0xaa, 0x09, 0x98 } }
 
 class nsPIDOMWindow : public nsIDOMWindowInternal
 {
@@ -250,18 +244,12 @@ public:
     return win->mIsHandlingResizeEvent;
   }
 
-  virtual void SetOpenerScriptURL(nsIURI* aURI) = 0;
+  virtual void SetOpenerScriptPrincipal(nsIPrincipal* aPrincipal) = 0;
 
   virtual PopupControlState PushPopupControlState(PopupControlState aState,
                                                   PRBool aForce) const = 0;
   virtual void PopPopupControlState(PopupControlState state) const = 0;
   virtual PopupControlState GetPopupControlState() const = 0;
-
-  // GetOpenAllow must not be called on a window that no longer has a docshell
-  // This function is deprecated.  It will assume that there is no existing
-  // window with name aName for purposes of its answer.  Expect this function
-  // to get removed soon!
-  virtual OpenAllowValue GetOpenAllow(const nsAString &aName) = 0;
 
   // Returns an object containing the window's state.  This also suspends
   // all running timeouts in the window.
@@ -371,7 +359,6 @@ protected:
 
   // These members are only used on outer windows.
   nsIDOMElement *mFrameElement; // weak
-  nsCOMPtr<nsIURI> mOpenerScriptURL; // strong; used to determine whether to clear scope
   nsIDocShell           *mDocShell;  // Weak Reference
 
   // These variables are only used on inner windows.

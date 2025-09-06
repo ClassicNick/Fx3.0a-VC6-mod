@@ -43,6 +43,8 @@ VPATH           = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
+SUBMAKEFILES	+= cairo-features.h
+
 VISIBILITY_FLAGS =
 
 MODULE          = cairo
@@ -108,9 +110,13 @@ EXPORTS += cairo-os2.h cairo-os2-private.h
 endif
 
 ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
-CSRCS   += cairo-quartz-surface.c \
-           cairo-atsui-font.c
+CSRCS   += cairo-quartz-surface.c cairo-atsui-font.c
 EXPORTS += cairo-quartz.h cairo-atsui.h
+
+ifdef MOZ_ENABLE_CAIRO_GFX
+CSRCS   += cairo-quartz2-surface.c
+EXPORTS += cairo-quartz2.h
+endif
 endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),beos)

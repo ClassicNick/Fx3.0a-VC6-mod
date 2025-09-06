@@ -770,29 +770,26 @@ nsDocShell::LoadURI(nsIURI * aURI,
         // We need an owner (a referring principal). 3 possibilities:
         // (1) If a principal was passed in, that's what we'll use.
         // (2) If the caller has allowed inheriting from the current document,
-        //   or if we're being called from chrome (if there's system JS on the stack),
-        //   then inheritOwner should be true and InternalLoad will get an owner
-        //   from the current document. If none of these things are true, then
+        //     or if we're being called from system code (eg chrome JS or pure
+        //     C++) then inheritOwner should be true and InternalLoad will get
+        //     an owner from the current document. If none of these things are
+        //     true, then
         // (3) we pass a null owner into the channel, and an owner will be
-        //   created later from the URL.
+        //     created later from the URL.
+        //
+        // NOTE: This all only works because the only thing the owner is used
+        //       for in InternalLoad is data: and javascript: URIs.  For other
+        //       URIs this would all be dead wrong!
         if (!owner && !inheritOwner) {
             // See if there's system or chrome JS code running
             nsCOMPtr<nsIScriptSecurityManager> secMan;
 
             secMan = do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID, &rv);
             if (NS_SUCCEEDED(rv)) {
-                nsCOMPtr<nsIPrincipal> sysPrin;
-                nsCOMPtr<nsIPrincipal> subjectPrin;
-
-                // Just to compare, not to use!
-                rv = secMan->GetSystemPrincipal(getter_AddRefs(sysPrin));
-                if (NS_SUCCEEDED(rv)) {
-                    rv = secMan->GetSubjectPrincipal(getter_AddRefs(subjectPrin));
-                }
-                // If there's no subject principal, there's no JS running, so we're in system code.
-                if (NS_SUCCEEDED(rv) &&
-                    (!subjectPrin || sysPrin.get() == subjectPrin.get())) {
-                    inheritOwner = PR_TRUE;
+                rv = secMan->SubjectPrincipalIsSystem(&inheritOwner);
+                if (NS_FAILED(rv)) {
+                    // Set it back to false
+                    inheritOwner = PR_FALSE;
                 }
             }
         }
@@ -2348,6 +2345,37 @@ nsDocShell::AddChild(nsIDocShellTreeItem * aChild)
     return NS_OK;
 }
 
+/* static */ void
+nsDocShell::RemoveChildsSHEntriesFrom(nsISHEntry *aParentEntry,
+                                      nsDocShell *aChildShell)
+{
+    NS_PRECONDITION(aChildShell, "Must have child shell!");
+    
+    nsCOMPtr<nsISHContainer> container(do_QueryInterface(aParentEntry));
+    if (!container)
+        return;
+
+    PRInt32 childCount;
+    container->GetChildCount(&childCount);
+    // Iterate backwards so removals are ok
+    for (PRInt32 i = childCount - 1; i >= 0; --i) {
+        nsCOMPtr<nsISHEntry> childEntry;
+        container->GetChildAt(i, getter_AddRefs(childEntry));
+        if (!childEntry) {
+            // childEntry can be null for valid reasons, for example if the
+            // docshell at index i never loaded anything useful.
+            continue;
+        }
+
+        if (!aChildShell->HasHistoryEntry(childEntry)) {
+            // Not an SHEntry for aChildShell
+            continue;
+        }
+
+        container->RemoveChild(childEntry);
+    }
+}
+
 NS_IMETHODIMP
 nsDocShell::RemoveChild(nsIDocShellTreeItem * aChild)
 {
@@ -2361,6 +2389,11 @@ nsDocShell::RemoveChild(nsIDocShellTreeItem * aChild)
     
     aChild->SetTreeOwner(nsnull);
 
+    // Make sure to remove the child's SHEntry from our SHEntry's child list
+    nsDocShell* childAsDocshell = NS_STATIC_CAST(nsDocShell*, aChild);
+    RemoveChildsSHEntriesFrom(mOSHE, childAsDocshell);
+    RemoveChildsSHEntriesFrom(mLSHE, childAsDocshell);    
+
     return nsDocLoader::AddDocLoaderAsChildOfRoot(childAsDocLoader);
 }
 
@@ -2369,14 +2402,14 @@ nsDocShell::GetChildAt(PRInt32 aIndex, nsIDocShellTreeItem ** aChild)
 {
     NS_ENSURE_ARG_POINTER(aChild);
 
-    NS_WARN_IF_FALSE(aIndex >=0 && aIndex < mChildList.Count(),
-                     "index of child element is out of range!");
+#ifdef DEBUG
     if (aIndex < 0) {
-      printf("Don't be so negative!");
+      NS_WARNING("Negative index passed to GetChildAt");
     }
     else if (aIndex >= mChildList.Count()) {
-      printf("Don't be so unrealistic!");
+      NS_WARNING("Too large an index passed to GetChildAt");
     }
+#endif
 
     nsIDocumentLoader* child = SafeChildAt(aIndex);
     NS_ENSURE_TRUE(child, NS_ERROR_UNEXPECTED);
@@ -3001,6 +3034,17 @@ nsDocShell::LoadErrorPage(nsIURI *aURI, const PRUnichar *aURL,
     } else if (aURI) {
         mURIResultedInDocument = PR_TRUE;
         OnNewURI(aURI, nsnull, mLoadType, PR_TRUE, PR_FALSE);
+    }
+    // Be sure to have a correct mLSHE, it may have been cleared by
+    // EndPageLoad. See bug 302115.
+    if (mSessionHistory && !mLSHE) {
+        PRInt32 idx;
+        mSessionHistory->GetRequestedIndex(&idx);
+        nsCOMPtr<nsIHistoryEntry> entry;
+        mSessionHistory->GetEntryAtIndex(idx, PR_FALSE,
+                                         getter_AddRefs(entry));
+        mLSHE = do_QueryInterface(entry);
+
     }
 
     nsCAutoString url;
@@ -6729,6 +6773,11 @@ nsDocShell::DoURILoad(nsIURI * aURI,
     //
     // XXX: Is seems wrong that the owner is ignored - even if one is
     //      supplied) unless the URI is javascript or data.
+    // XXX: If this is ever changed, check all callers for what owners they're
+    //      passing in.  In particular, see the code and comments in LoadURI
+    //      where we get the current document principal as the owner if called
+    //      from chrome.  That would be very wrong if this code changed
+    //      anything but javascript: and data:
     //
     //      (Currently chrome URIs set the owner when they are created!
     //      So setting a NULL owner would be bad!)

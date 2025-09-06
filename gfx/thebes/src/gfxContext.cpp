@@ -41,6 +41,10 @@
 #endif
 #include <math.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include "gfxContext.h"
 
 #include "gfxColor.h"
@@ -76,12 +80,6 @@ gfxASurface *gfxContext::CurrentGroupSurface()
         return NULL;
 
     return new gfxUnknownSurface(s);
-}
-
-void gfxContext::SetTarget(gfxASurface *target)
-{
-    moz_cairo_set_target (mCairo, target->CairoSurface());
-    mSurface = target;
 }
 
 void gfxContext::Save()
@@ -370,7 +368,7 @@ void gfxContext::SetAntialiasMode(AntialiasMode mode)
     // XXX implement me
 }
 
-gfxContext::AntialiasMode gfxContext::CurrentAntialiasMode()
+gfxContext::AntialiasMode gfxContext::CurrentAntialiasMode() const
 {
     return MODE_COVERAGE;
 }
@@ -468,6 +466,12 @@ void gfxContext::ResetClip()
     cairo_reset_clip(mCairo);
 }
 
+void gfxContext::UpdateSurfaceClip()
+{
+    NewPath();
+    Rectangle(gfxRect(0,0,0,0));
+    Fill();
+}
 
 // rendering sources
 
@@ -525,17 +529,6 @@ gfxPattern *gfxContext::PopGroup()
 void gfxContext::PopGroupToSource()
 {
     cairo_pop_group_to_source(mCairo);
-}
-
-// filters
-void gfxContext::PushFilter(gfxFilter& filter, FilterHints hints, gfxRect& maxArea)
-{
-
-}
-
-void gfxContext::PopFilter()
-{
-
 }
 
 void gfxContext::BeginPrinting(const nsAString& aTitle, const nsAString& aPrintToFileName)

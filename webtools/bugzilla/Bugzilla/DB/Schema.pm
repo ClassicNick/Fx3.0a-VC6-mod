@@ -36,6 +36,7 @@ package Bugzilla::DB::Schema;
 use strict;
 use Bugzilla::Error;
 use Bugzilla::Util;
+use Bugzilla::Constants;
 
 use Safe;
 # Historical, needed for SCHEMA_VERSION = '1.00'
@@ -255,6 +256,8 @@ use constant ABSTRACT_SCHEMA => {
 
     longdescs => {
         FIELDS => [
+            comment_id      => {TYPE => 'MEDIUMSERIAL',  NOTNULL => 1,
+                                PRIMARYKEY => 1},
             bug_id          => {TYPE => 'INT3',  NOTNULL => 1},
             who             => {TYPE => 'INT3', NOTNULL => 1},
             bug_when        => {TYPE => 'DATETIME', NOTNULL => 1},
@@ -453,6 +456,10 @@ use constant ABSTRACT_SCHEMA => {
             fieldid     => {TYPE => 'MEDIUMSERIAL', NOTNULL => 1,
                             PRIMARYKEY => 1},
             name        => {TYPE => 'varchar(64)', NOTNULL => 1},
+            type        => {TYPE => 'INT2', NOTNULL => 1,
+                            DEFAULT => FIELD_TYPE_UNKNOWN},
+            custom      => {TYPE => 'BOOLEAN', NOTNULL => 1,
+                            DEFAULT => 'FALSE'},
             description => {TYPE => 'MEDIUMTEXT', NOTNULL => 1},
             mailhead    => {TYPE => 'BOOLEAN', NOTNULL => 1,
                             DEFAULT => 'FALSE'},

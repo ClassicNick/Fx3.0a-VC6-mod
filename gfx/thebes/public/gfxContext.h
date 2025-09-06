@@ -86,13 +86,6 @@ public:
     gfxASurface* CurrentGroupSurface();
 
     /**
-     * Set a new surface to render to; the previous
-     * surface is lost, but the current graphics state
-     * is maintained.
-     */
-    void SetTarget(gfxASurface *surface);
-
-    /**
      * Return the raw cairo_t object.
      * XXX this should go away at some point.
      */
@@ -457,7 +450,7 @@ public:
         MODE_COVERAGE
     };
     void SetAntialiasMode(AntialiasMode mode);
-    AntialiasMode CurrentAntialiasMode();
+    AntialiasMode CurrentAntialiasMode() const;
 
     /**
      ** Clipping
@@ -483,6 +476,12 @@ public:
     void Clip(const gfxRegion& region); // will clip to a region
 
     /**
+     * This will ensure that the surface actually has its clip set.
+     * Useful if you are doing native drawing.
+     */
+    void UpdateSurfaceClip();
+    
+    /**
      * Groups
      */
     enum SurfaceContent {
@@ -494,26 +493,6 @@ public:
     void PushGroup(SurfaceContent content = CONTENT_COLOR_ALPHA);
     gfxPattern *PopGroup();
     void PopGroupToSource();
-
-    /**
-     ** Filters/Group Rendering
-     ** XXX these aren't really "filters" and should be renamed properly.
-     **/
-    enum FilterHints {
-        // Future drawing will completely cover the specified maxArea
-        FILTER_OPAQUE_DRAW
-    };
-
-    /**
-     * Start rendering under the filter. We guarantee not to draw outside 'maxArea'.
-     */
-    void PushFilter(gfxFilter& filter, FilterHints hints, gfxRect& maxArea);
-
-    /**
-     * Completed rendering under the filter, composite what we rendered back to the
-     * underlying surface using the filter.
-     */
-    void PopFilter();
 
     /**
      * Printing functions

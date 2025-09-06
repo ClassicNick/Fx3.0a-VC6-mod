@@ -42,7 +42,6 @@
 #include "nsString.h"
 #include "nsAutoBuffer.h"
 #include <stdio.h>
-#include <malloc.h>
 
 NS_IMPL_ISUPPORTS1(nsThebesFontMetrics, nsIFontMetrics)
 
@@ -52,6 +51,8 @@ NS_IMPL_ISUPPORTS1(nsThebesFontMetrics, nsIFontMetrics)
 #include "gfxWindowsFonts.h"
 #elif defined(MOZ_ENABLE_GTK2)
 #include "gfxPangoFonts.h"
+#elif defined(XP_MACOSX)
+#include "gfxAtsuiFonts.h"
 #endif
 
 nsThebesFontMetrics::nsThebesFontMetrics()
@@ -97,6 +98,8 @@ nsThebesFontMetrics::Init(const nsFont& aFont, nsIAtom* aLangGroup,
     mFontGroup = new gfxWindowsFontGroup(aFont.name, mFontStyle, (HDC)mDeviceContext->GetHDC());
 #elif defined(MOZ_ENABLE_GTK2)
     mFontGroup = new gfxPangoFontGroup(aFont.name, mFontStyle);
+#elif defined(XP_MACOSX)
+    mFontGroup = new gfxAtsuiFontGroup(aFont.name, mFontStyle);
 #else
 #error implement me
 #endif
@@ -271,19 +274,25 @@ nsThebesFontMetrics::GetNormalLineHeight(nscoord& aLineHeight)
 
 nsresult 
 nsThebesFontMetrics::GetWidth(const char* aString, PRUint32 aLength, nscoord& aWidth,
-                           nsThebesRenderingContext *aContext)
+                              nsThebesRenderingContext *aContext)
 {
-    PRInt32 aFontID = 0;
-    return GetWidth(PromiseFlatString(NS_ConvertUTF8toUTF16(aString, aLength)).get(),
-                    aLength, aWidth, &aFontID, aContext);
+    const nsDependentCSubstring& theString = nsDependentCSubstring(aString, aString+aLength);
+    nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(theString);
+
+    textrun->SetRightToLeft(mIsRTL);
+
+    aWidth = ROUND_TO_TWIPS(textrun->MeasureString(aContext->Thebes()));
+
+    return NS_OK;
 }
 
 nsresult
 nsThebesFontMetrics::GetWidth(const PRUnichar* aString, PRUint32 aLength,
-                           nscoord& aWidth, PRInt32 *aFontID,
-                           nsThebesRenderingContext *aContext)
+                              nscoord& aWidth, PRInt32 *aFontID,
+                              nsThebesRenderingContext *aContext)
 {
-    nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(nsDependentSubstring(aString, aString+aLength));
+    const nsDependentSubstring& theString = nsDependentSubstring(aString, aString+aLength);
+    nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(theString);
 
     textrun->SetRightToLeft(mIsRTL);
 
@@ -333,12 +342,20 @@ nsThebesFontMetrics::GetTextDimensions(const PRUnichar*    aString,
 // Draw a string using this font handle on the surface passed in.  
 nsresult
 nsThebesFontMetrics::DrawString(const char *aString, PRUint32 aLength,
-                            nscoord aX, nscoord aY,
-                            const nscoord* aSpacing,
-                            nsThebesRenderingContext *aContext)
+                                nscoord aX, nscoord aY,
+                                const nscoord* aSpacing,
+                                nsThebesRenderingContext *aContext)
 {
-    return DrawString(PromiseFlatString(NS_ConvertUTF8toUTF16(aString, aLength)).get(),
-                      aLength, aX, aY, 0, aSpacing, aContext);
+    float app2dev = mDeviceContext->AppUnitsToDevUnits();
+
+    const nsDependentCSubstring& theString = nsDependentCSubstring(aString, aString+aLength);
+    nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(theString);
+
+    textrun->SetRightToLeft(mIsRTL);
+
+    textrun->DrawString(aContext->Thebes(), gfxPoint(NSToIntRound(aX * app2dev), NSToIntRound(aY * app2dev)));
+
+    return NS_OK;
 }
 
 // aCachedOffset will be updated with a new offset.
@@ -351,7 +368,8 @@ nsThebesFontMetrics::DrawString(const PRUnichar* aString, PRUint32 aLength,
 {
     float app2dev = mDeviceContext->AppUnitsToDevUnits();
 
-    nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(nsDependentSubstring(aString, aString+aLength));
+    const nsDependentSubstring& theString = nsDependentSubstring(aString, aString+aLength);
+    nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(theString);
 
     textrun->SetRightToLeft(mIsRTL);
 

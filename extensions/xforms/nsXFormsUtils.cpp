@@ -470,15 +470,17 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
                                    PRUint16                 aResultType,
                                    nsIModelElementPrivate **aModel,
                                    nsIDOMXPathResult      **aResult,
+                                   PRBool                  *aUsesModelBind,
                                    nsCOMArray<nsIDOMNode>  *aDeps,
                                    nsStringArray           *aIndexesUsed)
 {
-  if (!aElement || !aModel || !aResult) {
-    return NS_OK;
+  if (!aElement || !aModel || !aResult || !aUsesModelBind) {
+    return NS_ERROR_FAILURE;
   }
 
   *aModel = nsnull;
   *aResult = nsnull;
+  *aUsesModelBind = PR_FALSE;
 
   nsCOMPtr<nsIDOMNode>    contextNode;
   nsCOMPtr<nsIDOMElement> bindElement;
@@ -500,30 +502,44 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
     return NS_OK;   // this will happen if the doc is still loading
   }
 
-  nsAutoString expr;
+  ////////////////////
+  // STEP 1: Handle @bind'ings
   if (bindElement) {
-    if (!outerBind) {
+    if (outerBind) {
+      // If there is an outer bind element, we retrieve its nodeset.
+      nsCOMPtr<nsIContent> content(do_QueryInterface(bindElement));
+      NS_ASSERTION(content, "nsIDOMElement not implementing nsIContent?!");
+
+      NS_IF_ADDREF(*aResult =
+                   NS_STATIC_CAST(nsIDOMXPathResult*,
+                                  content->GetProperty(nsXFormsAtoms::bind)));
+      *aUsesModelBind = PR_TRUE;
+    } else {
+      // References to inner binds are not defined.
       // "When you refer to @id on a nested bind it returns an emtpy nodeset
       // because it has no meaning. The XForms WG will assign meaning in the
       // future."
       // @see http://www.w3.org/MarkUp/Group/2004/11/f2f/2004Nov11#resolution6
+      nsXFormsUtils::ReportError(NS_LITERAL_STRING("innerBindRefError"),
+                                 aElement);
+    }
 
+    return NS_OK;
+  }
+
+
+  ////////////////////
+  // STEP 2: No bind attribute
+  // If there's no bind attribute, we expect there to be a |aBindingAttr|
+  // attribute.
+  nsAutoString expr;
+  aElement->GetAttribute(aBindingAttr, expr);
+  if (expr.IsEmpty()) {
+    // if there's no default binding, bail out
+    if (aDefaultRef.IsEmpty())
       return NS_OK;
-    } else {
-      // If there is a (outer) bind element, we retrieve its nodeset.
-      bindElement->GetAttribute(NS_LITERAL_STRING("nodeset"), expr);
-    }
-  } else {
-    // If there's no bind element, we expect there to be a |aBindingAttr| attribute.
-    aElement->GetAttribute(aBindingAttr, expr);
 
-    if (expr.IsEmpty())
-    {
-      if (aDefaultRef.IsEmpty())
-        return NS_OK;
-
-      expr.Assign(aDefaultRef);
-    }
+    expr.Assign(aDefaultRef);
   }
 
   // Evaluate |expr|
@@ -535,6 +551,9 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
                                                   contextSize,
                                                   aDeps,
                                                   aIndexesUsed);
+
+  ////////////////////
+  // STEP 3: Check for lazy binding
 
   // If the evaluation failed because the node wasn't there and we should be
   // lazy authoring, then create it (if the situation qualifies, of course).
@@ -769,6 +788,7 @@ nsXFormsUtils::GetSingleNodeBinding(nsIDOMElement* aElement,
     return PR_FALSE;
   nsCOMPtr<nsIModelElementPrivate> model;
   nsCOMPtr<nsIDOMXPathResult> result;
+  PRBool usesModelBind;
   
   nsresult rv = EvaluateNodeBinding(aElement,
                                     nsXFormsUtils::ELEMENT_WITH_MODEL_ATTR,
@@ -776,13 +796,18 @@ nsXFormsUtils::GetSingleNodeBinding(nsIDOMElement* aElement,
                                     EmptyString(),
                                     nsIDOMXPathResult::FIRST_ORDERED_NODE_TYPE,
                                     getter_AddRefs(model),
-                                    getter_AddRefs(result));
+                                    getter_AddRefs(result),
+                                    &usesModelBind);
 
   if (NS_FAILED(rv) || !result)
     return PR_FALSE;
 
   nsCOMPtr<nsIDOMNode> singleNode;
-  result->GetSingleNodeValue(getter_AddRefs(singleNode));
+  if (usesModelBind) {
+    result->SnapshotItem(0, getter_AddRefs(singleNode));
+  } else {
+    result->GetSingleNodeValue(getter_AddRefs(singleNode));
+  }
   if (!singleNode)
     return PR_FALSE;
 
@@ -1260,89 +1285,26 @@ nsXFormsUtils::GetInstanceNodeForData(nsIDOMNode             *aInstanceDataNode,
 }
 
 /* static */ nsresult
-nsXFormsUtils::ParseTypeFromNode(nsIDOMNode *aInstanceData,
-                                 nsAString &aType, nsAString &aNSUri)
+nsXFormsUtils::ParseTypeFromNode(nsIDOMNode             *aInstanceData,
+                                 nsAString              &aType,
+                                 nsAString              &aNSUri)
 {
-  nsresult rv = NS_OK;
+  nsresult rv;
 
-  // aInstanceData could be an instance data node or it could be an attribute
-  // on an instance data node (basically the node that a control is bound to).
+  // Find the model for the instance data node
+  nsCOMPtr<nsIDOMNode> instanceNode;
+  rv = nsXFormsUtils::GetInstanceNodeForData(aInstanceData,
+                                             getter_AddRefs(instanceNode));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  nsAutoString *typeVal = nsnull;
+  nsCOMPtr<nsIDOMNode> modelNode;
+  rv = instanceNode->GetParentNode(getter_AddRefs(modelNode));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  // Get type stored directly on instance node
-  nsAutoString typeAttribute;
-  nsCOMPtr<nsIDOMElement> nodeElem(do_QueryInterface(aInstanceData));
-  if (nodeElem) {
-    nodeElem->GetAttributeNS(NS_LITERAL_STRING(NS_NAMESPACE_XML_SCHEMA_INSTANCE),
-                             NS_LITERAL_STRING("type"), typeAttribute);
-    if (!typeAttribute.IsEmpty()) {
-      typeVal = &typeAttribute;
-    }
-  }
+  nsCOMPtr<nsIModelElementPrivate> model(do_QueryInterface(modelNode));
+  NS_ENSURE_STATE(model);
 
-  if (!typeVal) {
-    // Get MIP type bound to node
-    nsCOMPtr<nsIContent> nodeContent(do_QueryInterface(aInstanceData));
-    if (nodeContent) {
-      typeVal =
-        NS_STATIC_CAST(nsAutoString*,
-                       nodeContent->GetProperty(nsXFormsAtoms::type, &rv));
-    } else {
-      nsCOMPtr<nsIAttribute> nodeAttribute(do_QueryInterface(aInstanceData));
-      if (!nodeAttribute)
-        // node is neither content or attribute!
-        return NS_ERROR_FAILURE;
-
-      typeVal =
-        NS_STATIC_CAST(nsAutoString*,
-                       nodeAttribute->GetProperty(nsXFormsAtoms::type, &rv));
-    }
-  }
-
-  if (NS_FAILED(rv) || !typeVal) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  // split type (ns:type) into namespace and type.
-  nsAutoString prefix;
-  PRInt32 separator = typeVal->FindChar(':');
-  if ((PRUint32) separator == (typeVal->Length() - 1)) {
-    const PRUnichar *strings[] = { typeVal->get() };
-    // XXX: get an element from the document this came from
-    ReportError(NS_LITERAL_STRING("missingTypeName"), strings, 1, nsnull, nsnull);
-    return NS_ERROR_UNEXPECTED;
-  } else if (separator == kNotFound) {
-    // no namespace prefix, which is valid;
-    prefix.AssignLiteral("");
-    aType.Assign(*typeVal);
-  } else {
-    prefix.Assign(Substring(*typeVal, 0, separator));
-    aType.Assign(Substring(*typeVal, ++separator, typeVal->Length()));
-  }
-
-  if (prefix.IsEmpty()) {
-    aNSUri.AssignLiteral("");
-  } else {
-    // get the namespace url from the prefix using instance data node
-    nsCOMPtr<nsIDOM3Node> domNode3 = do_QueryInterface(aInstanceData, &rv);
-    NS_ENSURE_SUCCESS(rv, rv);
-    rv = domNode3->LookupNamespaceURI(prefix, aNSUri);
-
-    if (DOMStringIsNull(aNSUri)) {
-      // if not found using instance data node, use <xf:instance> node
-      nsCOMPtr<nsIDOMNode> instanceNode;
-      rv = nsXFormsUtils::GetInstanceNodeForData(aInstanceData,
-                                                 getter_AddRefs(instanceNode));
-      NS_ENSURE_SUCCESS(rv, rv);
-
-      domNode3 = do_QueryInterface(instanceNode, &rv);
-      NS_ENSURE_SUCCESS(rv, rv);
-      rv = domNode3->LookupNamespaceURI(prefix, aNSUri);
-    }
-  }
-
-  return rv;
+  return model->GetTypeFromNode(aInstanceData, aType, aNSUri);
 }
 
 /* static */ void

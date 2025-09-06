@@ -45,6 +45,7 @@
 <?xul-overlay href="chrome://minimo/content/toolbars/toolbar-rss.xul"?>
 <?xul-overlay href="chrome://minimo/content/toolbars/toolbar-search.xul"?>
 <?xul-overlay href="chrome://minimo/content/toolbars/toolbar-find.xul"?>
+<?xul-overlay href="chrome://minimo/content/toolbars/toolbar-pan.xul"?>
 <?xul-overlay href="chrome://minimo/content/toolbars/toolbar-download.xul"?>
 
 <!DOCTYPE window [
@@ -85,17 +86,16 @@
          Everytime you edit these keys, you may also consider
          to check/edit the key assignment on minimo.js/MenuHandleMenuEscape
          -->
-    <key id="minimo-key"  keycode="VK_F23" oncommand="BrowserMenuSpin()"/>
-    <key id="minimo-key2" keycode="VK_F11" oncommand="BrowserMenuSpin()"/>
-
-    <key id="minimo-key3" keycode="VK_F24" oncommand="DoToggleSoftwareKeyboard()"/>
-    <key id="minimo-key4" keycode="VK_F12" oncommand="BrowserNavMenuPopup()"/>
+    <key id="minimo-key"  keycode="VK_F9"  oncommand="BrowserMenuSpin()"/>
+    <key id="minimo-key3" keycode="VK_F10" oncommand="DoToggleSoftwareKeyboard()"/>
 
   </keyset>
   
+  
+
   <hbox flex="1">
     <hbox id="appcontent" flex="100%">
-      <vbox id="browserleftbar" onclick="BrowserHomeBar()">
+      <vbox id="browserleftbar">
          <vbox id="homebarcontainer">
          </vbox>
       </vbox>
@@ -113,11 +113,11 @@
       </vbox>
     </hbox>
   </hbox>
-  
-  <statusbar id="statusbar" hidden="false">
+
+    <statusbar id="statusbar" hidden="false">
     <statusbarpanel id="statusbar-text" label="Minimo" flex="1"/>
   </statusbar>
-  
+
   <toolbox id="mini-toolbars">
     
 
@@ -151,7 +151,8 @@
     <command id="cmd_BrowserBookmark"         oncommand="BrowserBookmark()" />
     <command id="cmd_BrowserBookmarkThis"     oncommand="BrowserBookmarkThis()" />
     <command id="cmd_BrowserHomeBar"          oncommand="BrowserHomeBar()" />
-    
+    <command id="cmd_Pan"                     oncommand="BrowserPan()" />
+
     <!-- Keyboard Focus Handler Controls --> 
     <!-- This entire focusnavigation set is not XBLized yet, 
          Minimo JS code will look into it anyways.  --> 
@@ -200,7 +201,7 @@
           <image id="lock-icon" class="security-na" />
         </hbox>
       </textbox>
-      
+
       <toolbarbutton tabindex="2" accessrule="focus_nav-bar" class="menu-button"  id="nav-menu-button" command="cmd_BrowserNavMenu" />  
       
     </toolbar>
@@ -227,12 +228,21 @@
         <menuitem id="link_as_new_tab"  label="&linknewtab.label;"   command="cmd_BrowserOpenLinkAsNewTab" hidden="true"/>
 	  <menuitem id="item-copy"        label="&contextCopy.label;"  oncommand="DoClipCopy()"              hidden="true"/>
 	  <menuitem id="item-paste"       label="&contextPaste.label;" oncommand="DoClipPaste()"             hidden="true"/>
+	  <menuitem id="item-find"        label="&findToolbar.label;"  command="cmd_ViewFind" />
 
         <menuseparator/>
 
 	  <menuitem id="full_screen" 
                   label="&toggleFullScreen.label;" 
                   oncommand="DoFullScreen()"/>     
+
+
+        <menuseparator/>
+
+        <menuitem id="item-back"    hidden="true"  label="&backCmd.label;"      command="cmd_BrowserBack" />
+        <menuitem id="item-forward" hidden="true"  label="&forwardCmd.label;"   command="cmd_BrowserForward"/>
+        <menuitem id="item-reload"  hidden="false" label="&reloadCmd.label;"    command="cmd_BrowserReload"/>
+
 
 	</popup>
     
@@ -322,9 +332,11 @@
                 command="cmd_ViewFind" 
                 label="&findToolbar.label;"  /> 
 
+<!--
       <menuitem id="command_ViewDownload"
                 command="cmd_ViewDownload" 
                 label="&downloadText.label;"  /> 
+-->
             
       <menuseparator/>
       
@@ -374,6 +386,10 @@
       <menuitem id="command_go"
                 command="cmd_BrowserGo" 
                 label="&goCmd.label;"  /> 
+
+      <menuitem id="command_pan"
+                command="cmd_Pan" 
+                label="&panCmd.label;"  /> 
       
     </menupopup>  
     

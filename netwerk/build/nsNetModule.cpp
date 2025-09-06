@@ -72,7 +72,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "nsIOService.h"
-NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsIOService, Init)
+NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIOService, nsIOService::GetInstance)
 
 #include "nsDNSService2.h"
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsDNSService, Init)
@@ -838,6 +838,12 @@ static const nsModuleComponentInfo gNetModuleInfo[] = {
     { "Unknown Content-Type Decoder",
       NS_UNKNOWNDECODER_CID,
       NS_ISTREAMCONVERTER_KEY UNKNOWN_CONTENT,
+      CreateNewUnknownDecoderFactory
+    },
+
+    { "Unknown Content-Type Decoder",
+      NS_UNKNOWNDECODER_CID,
+      NS_GENERIC_CONTENT_SNIFFER,
       CreateNewUnknownDecoderFactory
     },
 

@@ -60,7 +60,6 @@
 #include "nsIURL.h"
 #include "nsNetUtil.h"
 #include "nsIPluginInstanceOwner.h"
-#include "nsISupportsArray.h"
 #include "plstr.h"
 #include "nsILinkHandler.h"
 #ifdef OJI
@@ -118,6 +117,10 @@
 #include "nsPluginNativeWindow.h"
 #include "nsPIPluginHost.h"
 #include "nsIPluginDocument.h"
+
+#ifdef MOZ_CAIRO_GFX
+#include "gfxContext.h"
+#endif
 
 // accessibility support
 #ifdef ACCESSIBILITY
@@ -1095,8 +1098,27 @@ nsObjectFrame::PaintPlugin(nsIRenderingContext& aRenderingContext,
       PRBool doupdatewindow = PR_FALSE;
 
       // check if we need to update hdc
-      void* hdc;
-      hdc = aRenderingContext.GetNativeGraphicData(nsIRenderingContext::NATIVE_WINDOWS_DC);
+      HDC hdc = (HDC)aRenderingContext.GetNativeGraphicData(nsIRenderingContext::NATIVE_WINDOWS_DC);
+
+#ifdef MOZ_CAIRO_GFX
+      SaveDC(hdc);
+
+      nsRefPtr<gfxContext> ctx = (gfxContext*)aRenderingContext.GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+      nsRefPtr<gfxASurface> surf = ctx->CurrentGroupSurface();
+      if (!surf)
+        surf = ctx->CurrentSurface();
+
+      /* Need to force the clip to be set */
+      ctx->UpdateSurfaceClip();
+
+      /* Set the device offsets as appropriate */
+      gfxFloat xoff, yoff;
+      POINT origViewportOrigin;
+      surf->GetDeviceOffset(&xoff, &yoff);
+      GetViewportOrgEx(hdc, &origViewportOrigin);
+      SetViewportOrgEx(hdc, origViewportOrigin.x + (int) xoff, origViewportOrigin.y + (int) yoff, NULL);
+#endif
+
       if (NS_REINTERPRET_CAST(PRUint32, window->window) != (PRUint32)(HDC)hdc) {
         window->window = NS_REINTERPRET_CAST(nsPluginPort*, hdc);
         doupdatewindow = PR_TRUE;
@@ -1178,6 +1200,12 @@ nsObjectFrame::PaintPlugin(nsIRenderingContext& aRenderingContext,
       // XXX I wonder if this breaks if we give the frame a border so the
       // frame origin and plugin origin are not the same
       mInstanceOwner->Paint(aDirtyRect, (PRUint32)(HDC)hdc);
+
+#ifdef MOZ_CAIRO_GFX
+      RestoreDC(hdc, -1);
+
+      surf->MarkDirty();
+#endif
     }
   }
 #endif /* !XP_MAC */
@@ -2260,13 +2288,11 @@ nsresult nsPluginInstanceOwner::EnsureCachedAttrParamArrays()
   // to only round up the param tags that coorespond with THIS
   // instance. And also, weed out any bogus tags that may get in the
   // way, see bug 39609. Then, with any param tag that meet our
-  // qualification, temporarly cache them in an nsISupportsArray until
+  // qualification, temporarly cache them in an nsCOMArray until
   // we can figure out what size to make our fixed char* array.
 
   mNumCachedParams = 0;
-  nsCOMPtr<nsISupportsArray> ourParams;
-  nsresult rv = NS_NewISupportsArray(getter_AddRefs(ourParams));
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsCOMArray<nsIDOMElement> ourParams;
  
   // use the DOM to get us ALL our dependent PARAM tags, even if not
   // ours
@@ -2339,7 +2365,7 @@ nsresult nsPluginInstanceOwner::EnsureCachedAttrParamArrays()
 
             nsCOMPtr<nsIDOMNode> mydomNode = do_QueryInterface(mydomElement);
             if (parent == mydomNode) {
-              ourParams->AppendElement(pnode);
+              ourParams.AppendObject(domelement);
             }
           }
         }
@@ -2350,8 +2376,7 @@ nsresult nsPluginInstanceOwner::EnsureCachedAttrParamArrays()
   // We're done with DOM method calls now; make sure we still have a frame.
   NS_ENSURE_TRUE(mOwner, NS_ERROR_OUT_OF_MEMORY);
 
-  PRUint32 cparams;
-  ourParams->Count(&cparams); // unsigned 32 bits to unsigned 16 bits conversion
+  PRUint32 cparams = ourParams.Count(); // unsigned 32 bits to unsigned 16 bits conversion
   if (cparams < 0x0000FFFF)
     mNumCachedParams = NS_STATIC_CAST(PRUint16, cparams);
   else 
@@ -2426,7 +2451,7 @@ nsresult nsPluginInstanceOwner::EnsureCachedAttrParamArrays()
   // now fill in the PARAM name/value pairs from the cached DOM nodes
   c = 0;
   for (PRInt16 idx = 0; idx < mNumCachedParams; idx++) {
-    nsCOMPtr<nsIDOMElement> param = do_QueryElementAt(ourParams, idx);
+    nsIDOMElement* param = ourParams.ObjectAt(idx);
     if (param) {
      nsAutoString name;
      nsAutoString value;

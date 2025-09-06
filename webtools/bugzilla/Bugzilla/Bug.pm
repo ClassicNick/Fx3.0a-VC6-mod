@@ -23,7 +23,7 @@
 #                 Bradley Baetz  <bbaetz@acm.org>
 #                 Dave Miller    <justdave@bugzilla.org>
 #                 Max Kanat-Alexander <mkanat@bugzilla.org>
-#                 Frédéric Buclin <LpSolit@gmail.com>
+#                 FrÃ©dÃ©ric Buclin <LpSolit@gmail.com>
 #                 Lance Larsh <lance.larsh@oracle.com>
 
 package Bugzilla::Bug;
@@ -38,7 +38,6 @@ use vars qw($legal_keywords @legal_platform
 use CGI::Carp qw(fatalsToBrowser);
 
 use Bugzilla::Attachment;
-use Bugzilla::BugMail;
 use Bugzilla::Config;
 use Bugzilla::Constants;
 use Bugzilla::Field;
@@ -68,41 +67,6 @@ use constant MAX_LINE_LENGTH => 254;
 use constant MAX_COMMENT_LENGTH => 65535;
 
 #####################################################################
-
-sub fields {
-    # Keep this ordering in sync with bugzilla.dtd
-    my @fields = qw(bug_id alias creation_ts short_desc delta_ts
-                    reporter_accessible cclist_accessible
-                    classification_id classification
-                    product component version rep_platform op_sys
-                    bug_status resolution
-                    bug_file_loc status_whiteboard keywords
-                    priority bug_severity target_milestone
-                    dependson blocked votes everconfirmed
-                    reporter assigned_to cc
-                   );
-
-    if (Param('useqacontact')) {
-        push @fields, "qa_contact";
-    }
-
-    if (Param('timetrackinggroup')) {
-        push @fields, qw(estimated_time remaining_time actual_time deadline);
-    }
-
-    return @fields;
-}
-
-my %ok_field;
-foreach my $key (qw(error groups
-                    longdescs milestoneurl attachments
-                    isopened isunconfirmed
-                    flag_types num_attachment_flag_types
-                    show_attachment_flags use_keywords any_flags_requesteeble
-                   ),
-                 fields()) {
-    $ok_field{$key}++;
-}
 
 # create a new empty bug
 #
@@ -162,6 +126,11 @@ sub initBug  {
 
   $self->{'who'} = new Bugzilla::User($user_id);
 
+    my $custom_fields = "";
+    if (scalar(Bugzilla->custom_field_names) > 0) {
+        $custom_fields = ", " . join(", ", Bugzilla->custom_field_names);
+    }
+
   my $query = "
     SELECT
       bugs.bug_id, alias, products.classification_id, classifications.name,
@@ -175,7 +144,8 @@ sub initBug  {
       delta_ts, COALESCE(SUM(votes.vote_count), 0), everconfirmed,
       reporter_accessible, cclist_accessible,
       estimated_time, remaining_time, " .
-      $dbh->sql_date_format('deadline', '%Y-%m-%d') . "
+      $dbh->sql_date_format('deadline', '%Y-%m-%d') .
+      $custom_fields . "
     FROM bugs
        LEFT JOIN votes
               ON bugs.bug_id = votes.bug_id
@@ -212,7 +182,8 @@ sub initBug  {
                        "target_milestone", "qa_contact_id", "status_whiteboard",
                        "creation_ts", "delta_ts", "votes", "everconfirmed",
                        "reporter_accessible", "cclist_accessible",
-                       "estimated_time", "remaining_time", "deadline")
+                       "estimated_time", "remaining_time", "deadline",
+                       Bugzilla->custom_field_names)
       {
         $fields{$field} = shift @row;
         if (defined $fields{$field}) {
@@ -290,8 +261,41 @@ sub remove_from_db {
     return $self;
 }
 
+
 #####################################################################
-# Accessors
+# Class Accessors
+#####################################################################
+
+sub fields {
+    my $class = shift;
+
+    return (
+        # Standard Fields
+        # Keep this ordering in sync with bugzilla.dtd.
+        qw(bug_id alias creation_ts short_desc delta_ts
+           reporter_accessible cclist_accessible
+           classification_id classification
+           product component version rep_platform op_sys
+           bug_status resolution
+           bug_file_loc status_whiteboard keywords
+           priority bug_severity target_milestone
+           dependson blocked votes
+           reporter assigned_to cc),
+    
+        # Conditional Fields
+        Param('useqacontact') ? "qa_contact" : (),
+        Param('timetrackinggroup') ? qw(estimated_time remaining_time
+                                        actual_time deadline)
+                                   : (),
+    
+        # Custom Fields
+        Bugzilla->custom_field_names
+    );
+}
+
+
+#####################################################################
+# Instance Accessors
 #####################################################################
 
 # These subs are in alphabetical order, as much as possible.
@@ -717,7 +721,7 @@ sub AppendComment {
 
     # Use the date/time we were given if possible (allowing calling code
     # to synchronize the comment's timestamp with those of other records).
-    $timestamp =  "NOW()" unless $timestamp;
+    $timestamp ||= $dbh->selectrow_array('SELECT NOW()');
 
     $comment =~ s/\r\n/\n/g;     # Handle Windows-style line endings.
     $comment =~ s/\r/\n/g;       # Handle Mac-style line endings.
@@ -737,7 +741,6 @@ sub AppendComment {
     $dbh->do("UPDATE bugs SET delta_ts = ? WHERE bug_id = ?",
              undef, $timestamp, $bugid);
 }
-
 # This method is private and is not to be used outside of the Bug class.
 sub EmitDependList {
     my ($myfield, $targetfield, $bug_id) = (@_);
@@ -1015,6 +1018,11 @@ sub RemoveVotes {
     while (my ($name, $userid, $oldvotes, $votesperuser, $maxvotesperbug) = $sth->fetchrow_array()) {
         push(@list, [$name, $userid, $oldvotes, $votesperuser, $maxvotesperbug]);
     }
+
+    # @messages stores all emails which have to be sent, if any.
+    # This array is passed to the caller which will send these emails itself.
+    my @messages = ();
+
     if (scalar(@list)) {
         foreach my $ref (@list) {
             my ($name, $userid, $oldvotes, $votesperuser, $maxvotesperbug) = (@$ref);
@@ -1075,7 +1083,7 @@ sub RemoveVotes {
             $substs{"count"} = $removedvotes . "\n    " . $newvotestext;
 
             my $msg = perform_substs(Param("voteremovedmail"), \%substs);
-            Bugzilla::BugMail::MessageToMTA($msg);
+            push(@messages, $msg);
         }
         my $votes = $dbh->selectrow_array("SELECT SUM(vote_count) " .
                                           "FROM votes WHERE bug_id = ?",
@@ -1083,6 +1091,8 @@ sub RemoveVotes {
         $dbh->do("UPDATE bugs SET votes = ? WHERE bug_id = ?",
                  undef, ($votes, $id));
     }
+    # Now return the array containing emails to be sent.
+    return \@messages;
 }
 
 # If a user votes for a bug, or the number of votes required to
@@ -1144,9 +1154,11 @@ sub ValidateBugID {
     my $dbh = Bugzilla->dbh;
     my $user = Bugzilla->user;
 
-    # Get rid of white-space around the ID.
+    # Get rid of leading '#' (number) mark, if present.
+    $id =~ s/^\s*#//;
+    # Remove whitespace
     $id = trim($id);
-    
+
     # If the ID isn't a number, it might be an alias, so try to convert it.
     my $alias = $id;
     if (!detaint_natural($id)) {
@@ -1209,7 +1221,7 @@ sub ValidateBugAlias {
     my $vars = {};
     $vars->{'alias'} = $alias;
     if ($id) {
-        $vars->{'bug_link'} = &::GetBugLink($id, $id);
+        $vars->{'bug_id'} = $id;
         ThrowUserError("alias_in_use", $vars);
     }
 
@@ -1282,21 +1294,47 @@ sub ValidateDependencies {
 
     my @deps   = @{$deptree{'dependson'}};
     my @blocks = @{$deptree{'blocked'}};
-    my @union = ();
-    my @isect = ();
     my %union = ();
     my %isect = ();
     foreach my $b (@deps, @blocks) { $union{$b}++ && $isect{$b}++ }
-    @union = keys %union;
-    @isect = keys %isect;
+    my @isect = keys %isect;
     if (scalar(@isect) > 0) {
-        my $both = "";
-        foreach my $i (@isect) {
-           $both .= &::GetBugLink($i, "#" . $i) . " ";
-        }
-        ThrowUserError("dependency_loop_multi", { both => $both });
+        ThrowUserError("dependency_loop_multi", {'deps' => \@isect});
     }
     return %deps;
+}
+
+
+#####################################################################
+# Autoloaded Accessors
+#####################################################################
+
+# Determines whether an attribute access trapped by the AUTOLOAD function
+# is for a valid bug attribute.  Bug attributes are properties and methods
+# predefined by this module as well as bug fields for which an accessor
+# can be defined by AUTOLOAD at runtime when the accessor is first accessed.
+#
+# XXX Strangely, some predefined attributes are on the list, but others aren't,
+# and the original code didn't specify why that is.  Presumably the only
+# attributes that need to be on this list are those that aren't predefined;
+# we should verify that and update the list accordingly.
+#
+sub _validate_attribute {
+    my ($attribute) = @_;
+
+    my @valid_attributes = (
+        # Miscellaneous properties and methods.
+        qw(error groups
+           longdescs milestoneurl attachments
+           isopened isunconfirmed
+           flag_types num_attachment_flag_types
+           show_attachment_flags use_keywords any_flags_requesteeble),
+
+        # Bug fields.
+        Bugzilla::Bug->fields
+    );
+
+    return grep($attribute eq $_, @valid_attributes) ? 1 : 0;
 }
 
 sub AUTOLOAD {
@@ -1305,7 +1343,7 @@ sub AUTOLOAD {
 
   $attr =~ s/.*:://;
   return unless $attr=~ /[^A-Z]/;
-  confess ("invalid bug attribute $attr") unless $ok_field{$attr};
+  confess("invalid bug attribute $attr") unless _validate_attribute($attr);
 
   no strict 'refs';
   *$AUTOLOAD = sub {

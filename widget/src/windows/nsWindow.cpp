@@ -71,6 +71,7 @@
 #include "nsRect.h"
 #include "nsTransform2D.h"
 #include "nsIEventQueue.h"
+#include "nsIObserverService.h"
 #include "imgIContainer.h"
 #include "gfxIImageFrame.h"
 #include "nsNativeCharsetUtils.h"
@@ -87,8 +88,10 @@
 #include "resource.h"
 #include <commctrl.h>
 #include "prtime.h"
-#ifdef MOZ_THEBES
+#ifdef MOZ_CAIRO_GFX
 #include "nsIThebesRenderingContext.h"
+#include "gfxContext.h"
+#include "gfxWindowsSurface.h"
 #else
 #include "nsIRenderingContextWin.h"
 #endif
@@ -103,6 +106,11 @@
 #ifndef WM_GETOBJECT
 #define WM_GETOBJECT 0x03d
 #endif
+#endif
+
+#include <pbt.h>
+#ifndef PBT_APMRESUMEAUTOMATIC
+#define PBT_APMRESUMEAUTOMATIC 0x0012
 #endif
 
 #include "nsNativeDragTarget.h"
@@ -808,11 +816,13 @@ nsWindow::~nsWindow()
     gCurrentWindow = nsnull;
   }
 
-  if (MouseTrailer::GetSingleton().GetMouseTrailerWindow() == mWnd) {
-    MouseTrailer::GetSingleton().DestroyTimer();
-  }
-  if (MouseTrailer::GetSingleton().GetCaptureWindow() == mWnd) {
-    MouseTrailer::GetSingleton().SetCaptureWindow(nsnull);
+  MouseTrailer* mtrailer = nsToolkit::gMouseTrailer;
+  if (mtrailer) {
+    if (mtrailer->GetMouseTrailerWindow() == mWnd)
+      mtrailer->DestroyTimer();
+
+    if (mtrailer->GetCaptureWindow() == mWnd)
+      mtrailer->SetCaptureWindow(nsnull);
   }
 
   // If the widget was released without calling Destroy() then the native
@@ -825,7 +835,7 @@ nsWindow::~nsWindow()
   delete mFont;
 
   if (mCursor == -1) {
-    // A sucessfull SetCursor call will destroy the custom cursor, if it's ours
+    // A successfull SetCursor call will destroy the custom cursor, if it's ours
     SetCursor(eCursor_standard);
   }
 
@@ -853,11 +863,16 @@ nsWindow::~nsWindow()
 
 NS_METHOD nsWindow::CaptureMouse(PRBool aCapture)
 {
+  if (!nsToolkit::gMouseTrailer) {
+    NS_ERROR("nsWindow::CaptureMouse called after nsToolkit destroyed");
+    return NS_OK;
+  }
+
   if (aCapture) {
-    MouseTrailer::GetSingleton().SetCaptureWindow(mWnd);
+    nsToolkit::gMouseTrailer->SetCaptureWindow(mWnd);
     ::SetCapture(mWnd);
   } else {
-    MouseTrailer::GetSingleton().SetCaptureWindow(NULL);
+    nsToolkit::gMouseTrailer->SetCaptureWindow(NULL);
     ::ReleaseCapture();
   }
   mIsInMouseCapture = aCapture;
@@ -3909,25 +3924,6 @@ static nsresult HeapDump(const char *filename, const char *heading)
 #ifdef WINCE
   return NS_ERROR_NOT_IMPLEMENTED;
 #else
-  // Make sure heapwalk() is available
-  typedef BOOL WINAPI HeapWalkProc(HANDLE hHeap, LPPROCESS_HEAP_ENTRY lpEntry);
-  typedef DWORD WINAPI GetProcessHeapsProc(DWORD NumberOfHeaps, PHANDLE ProcessHeaps);
-
-  static PRBool firstTime = PR_TRUE;
-  static HeapWalkProc *heapWalkP = NULL;
-  static GetProcessHeapsProc *getProcessHeapsP = NULL;
-
-  if (firstTime) {
-    firstTime = PR_FALSE;
-    HMODULE kernel = GetModuleHandle("kernel32.dll");
-    if (kernel) {
-      heapWalkP = (HeapWalkProc*)GetProcAddress(kernel, "HeapWalk");
-      getProcessHeapsP = (GetProcessHeapsProc*)GetProcAddress(kernel, "GetProcessHeaps");
-    }
-  }
-
-  if (!heapWalkP)
-    return NS_ERROR_NOT_AVAILABLE;
 
   PRFileDesc *prfd = PR_Open(filename, PR_CREATE_FILE | PR_APPEND | PR_WRONLY, 0777);
   if (!prfd)
@@ -3937,7 +3933,7 @@ static nsresult HeapDump(const char *filename, const char *heading)
   PRUint32 n;
   PRUint32 written = 0;
   HANDLE heapHandle[64];
-  DWORD nheap = (*getProcessHeapsP)(64, heapHandle);
+  DWORD nheap = GetProcessHeaps(64, heapHandle);
   if (nheap == 0 || nheap > 64) {
     return NS_ERROR_FAILURE;
   }
@@ -3950,7 +3946,7 @@ static nsresult HeapDump(const char *filename, const char *heading)
     n = PR_snprintf(buf, sizeof buf, "BEGIN heap %d : 0x%p\n", i+1, heapHandle[i]);
     PR_Write(prfd, buf, n);
     ent.lpData = NULL;
-    while ((*heapWalkP)(heapHandle[i], &ent)) {
+    while (HeapWalk(heapHandle[i], &ent)) {
       if (ent.wFlags & PROCESS_HEAP_REGION)
         n = PR_snprintf(buf, sizeof buf, "REGION %08p : overhead %d committed %d uncommitted %d firstblock %08p lastblock %08p\n",
                         ent.lpData, ent.cbOverhead,
@@ -4030,6 +4026,17 @@ void nsWindow::DispatchPendingEvents()
 	#endif
   }
 }
+
+#ifndef WINCE
+void nsWindow::PostSleepWakeNotification(const char* aNotification)
+{
+  nsCOMPtr<nsIObserverService> observerService = do_GetService("@mozilla.org/observer-service;1");
+  if (observerService)
+  {
+    observerService->NotifyObservers(nsnull, aNotification, nsnull);
+  }
+}
+#endif
 
 PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT *aRetValue)
 {
@@ -4149,6 +4156,26 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
       } //if (NS_SUCCEEDED(rv))
     }
     break;
+
+#ifndef WINCE
+    case WM_POWERBROADCAST:
+      // only hidden window handle this
+      // to prevent duplicate notification
+      if (mWindowType == eWindowType_invisible) {
+        switch (wParam)
+        {
+          case PBT_APMSUSPEND:
+            PostSleepWakeNotification("sleep_notification");
+            break;
+          case PBT_APMRESUMEAUTOMATIC:
+          case PBT_APMRESUMECRITICAL:
+          case PBT_APMRESUMESUSPEND:
+            PostSleepWakeNotification("wake_notification");
+            break;
+        }
+      }
+      break;
+#endif
 
     case WM_MOVE: // Window moved
     {
@@ -5662,21 +5689,56 @@ PRBool nsWindow::OnPaint(HDC aDC)
 #endif // NS_DEBUG
 
 #ifdef MOZ_CAIRO_GFX
-      nsCOMPtr<nsIRenderingContext> rc = getter_AddRefs(GetRenderingContext());
+      nsRefPtr<gfxASurface> targetSurface = new gfxWindowsSurface(hDC);
+      nsRefPtr<gfxContext> thebesContext = new gfxContext(targetSurface);
+
+#ifdef MOZ_XUL
+      if (mIsTranslucent && IsAlphaTranslucencySupported()) {
+        // If we're rendering with translucency, we're going to be
+        // rendering the whole window; make sure we clear it first
+        thebesContext->SetOperator(gfxContext::OPERATOR_CLEAR);
+        thebesContext->Paint();
+        thebesContext->SetOperator(gfxContext::OPERATOR_OVER);
+      } else {
+        // If we're not doing translucency, then double buffer
+        thebesContext->PushGroup(gfxContext::CONTENT_COLOR);
+      }
+#endif
+
+      nsCOMPtr<nsIRenderingContext> rc;
+      nsresult rv = mContext->CreateRenderingContextInstance (*getter_AddRefs(rc));
+      if (NS_FAILED(rv)) {
+        NS_WARNING("CreateRenderingContextInstance failed");
+        return PR_FALSE;
+      }
+
+      rv = rc->Init(mContext, thebesContext);
+      if (NS_FAILED(rv)) {
+        NS_WARNING("RC::Init failed");
+        return PR_FALSE;
+      }
+
       event.renderingContext = rc;
       result = DispatchWindowEvent(&event, eventStatus);
       event.renderingContext = nsnull;
 
-      if (mIsTranslucent && IsAlphaTranslucencySupported())
-      {
+#ifdef MOZ_XUL
+      if (mIsTranslucent && IsAlphaTranslucencySupported()) {
         // Data from offscreen drawing surface was copied to memory bitmap of transparent
         // bitmap. Now it can be read from memory bitmap to apply alpha channel and after
         // that displayed on the screen.
         UpdateTranslucentWindow();
+      } else if (result) {
+        // Only update if DispatchWindowEvent returned TRUE; otherwise, nothing handled
+        // this, and we'll just end up painting with black.
+        thebesContext->PopGroupToSource();
+        thebesContext->SetOperator(gfxContext::OPERATOR_SOURCE);
+        thebesContext->Paint();
       }
-      rc = nsnull;
-#else
+#endif
 
+#else
+      /* Non-cairo GFX */
       if (NS_SUCCEEDED(CallCreateInstance(kRenderingContextCID, &event.renderingContext)))
       {
         nsIRenderingContextWin *winrc;
@@ -5942,10 +6004,11 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
 
   // call the event callback
   if (nsnull != mEventCallback) {
-    MouseTrailer::GetSingleton().Disable();
+    if (nsToolkit::gMouseTrailer)
+      nsToolkit::gMouseTrailer->Disable();
     if (aEventType == NS_MOUSE_MOVE) {
-      if (!mIsInMouseCapture) {
-        MouseTrailer::GetSingleton().SetMouseTrailerWindow(mWnd);
+      if (nsToolkit::gMouseTrailer && !mIsInMouseCapture) {
+        nsToolkit::gMouseTrailer->SetMouseTrailerWindow(mWnd);
       }
       nsRect rect;
       GetBounds(rect);
@@ -5973,7 +6036,8 @@ PRBool nsWindow::DispatchMouseEvent(PRUint32 aEventType, WPARAM wParam, LPARAM l
 
     result = DispatchWindowEvent(&event);
 
-    MouseTrailer::GetSingleton().Enable();
+    if (nsToolkit::gMouseTrailer)
+      nsToolkit::gMouseTrailer->Enable();
 
     // Release the widget with NS_IF_RELEASE() just in case
     // the context menu key code in nsEventListenerManager::HandleEvent()
@@ -8062,8 +8126,6 @@ nsWindow* nsWindow::GetTopLevelWindow()
 }
 
 #ifdef MOZ_CAIRO_GFX
-#include "gfxWindowsSurface.h"
-
 gfxASurface *nsWindow::GetThebesSurface()
 {
   if (mPaintDC)
@@ -8073,11 +8135,12 @@ gfxASurface *nsWindow::GetThebesSurface()
 }
 #endif
 
-void nsWindow::ResizeTranslucentWindow(PRInt32 aNewWidth, PRInt32 aNewHeight)
+void nsWindow::ResizeTranslucentWindow(PRInt32 aNewWidth, PRInt32 aNewHeight, PRBool force)
 {
-  if (aNewWidth == mBounds.width && aNewHeight == mBounds.height)
+  if (!force && aNewWidth == mBounds.width && aNewHeight == mBounds.height)
     return;
 
+#ifndef MOZ_CAIRO_GFX
   // resize the alpha mask
   PRUint8* pBits;
 
@@ -8085,7 +8148,7 @@ void nsWindow::ResizeTranslucentWindow(PRInt32 aNewWidth, PRInt32 aNewHeight)
   {
     pBits = new PRUint8 [aNewWidth * aNewHeight];
 
-    if (pBits)
+    if (pBits && mAlphaMask)
     {
       PRInt32 copyWidth, copyHeight;
       PRInt32 growWidth, growHeight;
@@ -8132,15 +8195,23 @@ void nsWindow::ResizeTranslucentWindow(PRInt32 aNewWidth, PRInt32 aNewHeight)
 
   delete [] mAlphaMask;
   mAlphaMask = pBits;
-
+#endif
 
   if (IsAlphaTranslucencySupported())
   {
-    // Always use at least 24-bit bitmaps regardless of the device context.
+    if (!w2k.mMemoryDC)
+      w2k.mMemoryDC = ::CreateCompatibleDC(NULL);
+
+    // Always use at least 24-bit (32 with cairo) bitmaps regardless of the device context.
     int depth = ::GetDeviceCaps(w2k.mMemoryDC, BITSPIXEL);
+#ifdef MOZ_CAIRO_GFX
+    if (depth < 32)
+      depth = 32;
+#else
     if (depth < 24)
       depth = 24;
-    
+#endif
+
     // resize the memory bitmap
     BITMAPINFO bi = { 0 };
     bi.bmiHeader.biSize = sizeof (BITMAPINFOHEADER);
@@ -8252,52 +8323,26 @@ nsresult nsWindow::SetWindowTranslucencyInner(PRBool aTranslucent)
 
 nsresult nsWindow::SetupTranslucentWindowMemoryBitmap(PRBool aTranslucent)
 {
-  nsresult rv = NS_ERROR_FAILURE;
-
-  if (aTranslucent)
-  {
-    w2k.mMemoryDC = ::CreateCompatibleDC(NULL);
-
+  if (aTranslucent) {
+    ResizeTranslucentWindow(mBounds.width, mBounds.height, PR_TRUE);
+  } else {
     if (w2k.mMemoryDC)
-    {
-      // Always use at least 24-bit bitmaps regardless of the device context.
-      int depth = ::GetDeviceCaps(w2k.mMemoryDC, BITSPIXEL);
-      if (depth < 24)
-        depth = 24;
-
-      BITMAPINFO bi = { 0 };
-      bi.bmiHeader.biSize = sizeof (BITMAPINFOHEADER);
-      bi.bmiHeader.biWidth = mBounds.width;
-      bi.bmiHeader.biHeight = -mBounds.height;
-      bi.bmiHeader.biPlanes = 1;
-      bi.bmiHeader.biBitCount = depth;
-      bi.bmiHeader.biCompression = BI_RGB;
-
-      w2k.mMemoryBitmap = ::CreateDIBSection(w2k.mMemoryDC, &bi, DIB_RGB_COLORS, (void**)&w2k.mMemoryBits, NULL, 0);
-
-      if (w2k.mMemoryBitmap)
-      {
-        ::SelectObject(w2k.mMemoryDC, w2k.mMemoryBitmap);
-
-        rv = NS_OK;
-      }
-    }
-  } else
-  {
-    ::DeleteDC(w2k.mMemoryDC);
-    ::DeleteObject(w2k.mMemoryBitmap);
+      ::DeleteDC(w2k.mMemoryDC);
+    if (w2k.mMemoryBitmap)
+      ::DeleteObject(w2k.mMemoryBitmap);
 
     w2k.mMemoryDC = NULL;
     w2k.mMemoryBitmap = NULL;
-
-    rv = NS_OK;
   }
 
-  return rv;
+  return NS_OK;
 }
 
 void nsWindow::UpdateTranslucentWindowAlphaInner(const nsRect& aRect, PRUint8* aAlphas)
 {
+#ifdef MOZ_CAIRO_GFX
+  NS_ERROR("nsWindow::UpdateTranslucentWindowAlphaInner called, when it sholdn't be!");
+#else
   NS_ASSERTION(mIsTranslucent, "Window is not transparent");
   NS_ASSERTION(aRect.x >= 0 && aRect.y >= 0 &&
                aRect.XMost() <= mBounds.width && aRect.YMost() <= mBounds.height,
@@ -8352,6 +8397,7 @@ void nsWindow::UpdateTranslucentWindowAlphaInner(const nsRect& aRect, PRUint8* a
     if (transparencyMaskChanged)
       SetWindowRegionToAlphaMask();
   }
+#endif
 }
 
 nsresult nsWindow::UpdateTranslucentWindow()
@@ -8363,13 +8409,24 @@ nsresult nsWindow::UpdateTranslucentWindow()
 
   ::GdiFlush();
 
+  HDC hMemoryDC;
+  HBITMAP hAlphaBitmap;
+  PRBool needConversion;
+
+#ifdef MOZ_CAIRO_GFX
+
+  hMemoryDC = w2k.mMemoryDC;
+  needConversion = PR_FALSE;
+
+  rv = NS_OK;
+
+#else
+
   int depth = ::GetDeviceCaps(w2k.mMemoryDC, BITSPIXEL);
   if (depth < 24)
     depth = 24;
 
-  HDC hMemoryDC;
-  HBITMAP hAlphaBitmap;
-  PRBool needConversion = (depth == 24);
+  needConversion = (depth == 24);
 
   if (needConversion)
   {
@@ -8432,7 +8489,7 @@ nsresult nsWindow::UpdateTranslucentWindow()
       rv = NS_OK;
     }
   }
-
+#endif /* MOZ_CAIRO_GFX */
 
   if (rv == NS_OK)
   {

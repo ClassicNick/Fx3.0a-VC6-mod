@@ -800,6 +800,8 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA_WITH_NAME(XULAttr, Attr, nsDOMGenericSH,
                                      DOM_DEFAULT_SCRIPTABLE_FLAGS)
 #endif
+  NS_DEFINE_CLASSINFO_DATA(XULControllers, nsNonDOMObjectSH,
+                           DEFAULT_SCRIPTABLE_FLAGS)
 #ifdef MOZ_XUL
   NS_DEFINE_CLASSINFO_DATA(BoxObject, nsDOMGenericSH,
                            DEFAULT_SCRIPTABLE_FLAGS)
@@ -1779,6 +1781,7 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(DocumentType, nsIDOMDocumentType)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMDocumentType)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOM3Node)
   DOM_CLASSINFO_MAP_END
 
@@ -2360,6 +2363,10 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMAttr)
   DOM_CLASSINFO_MAP_END
 #endif
+
+  DOM_CLASSINFO_MAP_BEGIN_NO_CLASS_IF(XULControllers, nsIControllers)
+    DOM_CLASSINFO_MAP_ENTRY(nsIControllers)
+  DOM_CLASSINFO_MAP_END
 
 #ifdef MOZ_XUL
   DOM_CLASSINFO_MAP_BEGIN(BoxObject, nsIBoxObject)
@@ -3226,7 +3233,7 @@ NS_IMETHODIMP
 nsDOMClassInfo::Create(nsIXPConnectWrappedNative *wrapper,
                        JSContext *cx, JSObject *obj)
 {
-  NS_ERROR("nsDOMClassInfo::Create Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Create Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3257,9 +3264,15 @@ nsDOMClassInfo::PostCreate(nsIXPConnectWrappedNative *wrapper,
   wrapper->GetJSObjectPrototype(&proto);
 
   JSObject *proto_proto = ::JS_GetPrototype(cx, proto);
+  if (!proto_proto) {
+    // If our prototype doesn't have a proto, then we've probably already
+    // wrapped this object and someone's done something evil, like set
+    // our prototype's proto to null, so bail.
+
+    return NS_OK;
+  }
 
   JSClass *proto_proto_class = JS_GET_CLASS(cx, proto_proto);
-
   if (proto_proto_class != sObjectClass) {
     // We've just wrapped an object of a type that has been wrapped on
     // this scope already so the prototype of the xpcwrapped native's
@@ -3304,7 +3317,7 @@ nsDOMClassInfo::AddProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                             JSObject *obj, jsval id, jsval *vp,
                             PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::AddProperty Don't call me!");
+  NS_WARNING("nsDOMClassInfo::AddProperty Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3314,7 +3327,7 @@ nsDOMClassInfo::DelProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                             JSObject *obj, jsval id, jsval *vp,
                             PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::DelProperty Don't call me!");
+  NS_WARNING("nsDOMClassInfo::DelProperty Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3324,7 +3337,7 @@ nsDOMClassInfo::GetProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                             JSObject *obj, jsval id, jsval *vp,
                             PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::GetProperty Don't call me!");
+  NS_WARNING("nsDOMClassInfo::GetProperty Don't call me!");
 
   return NS_OK;
 }
@@ -3334,7 +3347,7 @@ nsDOMClassInfo::SetProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                             JSObject *obj, jsval id, jsval *vp,
                             PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::SetProperty Don't call me!");
+  NS_WARNING("nsDOMClassInfo::SetProperty Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3364,7 +3377,7 @@ nsDOMClassInfo::NewEnumerate(nsIXPConnectWrappedNative *wrapper,
                              JSContext *cx, JSObject *obj, PRUint32 enum_op,
                              jsval *statep, jsid *idp, PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::NewEnumerate Don't call me!");
+  NS_WARNING("nsDOMClassInfo::NewEnumerate Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3415,7 +3428,7 @@ nsDOMClassInfo::Convert(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                         JSObject *obj, PRUint32 type, jsval *vp,
                         PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::Convert Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Convert Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3424,7 +3437,7 @@ NS_IMETHODIMP
 nsDOMClassInfo::Finalize(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                          JSObject *obj)
 {
-  NS_ERROR("nsDOMClassInfo::Finalize Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Finalize Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3463,7 +3476,7 @@ nsDOMClassInfo::Call(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                      JSObject *obj, PRUint32 argc, jsval *argv, jsval *vp,
                      PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::Call Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Call Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3473,7 +3486,7 @@ nsDOMClassInfo::Construct(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                           JSObject *obj, PRUint32 argc, jsval *argv,
                           jsval *vp, PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::Construct Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Construct Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3483,7 +3496,7 @@ nsDOMClassInfo::HasInstance(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                             JSObject *obj, jsval val, PRBool *bp,
                             PRBool *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::HasInstance Don't call me!");
+  NS_WARNING("nsDOMClassInfo::HasInstance Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3492,7 +3505,7 @@ NS_IMETHODIMP
 nsDOMClassInfo::Mark(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                      JSObject *obj, void *arg, PRUint32 *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::Mark Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Mark Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3501,7 +3514,7 @@ NS_IMETHODIMP
 nsDOMClassInfo::Equality(nsIXPConnectWrappedNative *wrapper, JSContext * cx,
                          JSObject * obj, jsval val, PRBool *bp)
 {
-  NS_ERROR("nsDOMClassInfo::Equality Don't call me!");
+  NS_WARNING("nsDOMClassInfo::Equality Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3510,7 +3523,7 @@ NS_IMETHODIMP
 nsDOMClassInfo::OuterObject(nsIXPConnectWrappedNative *wrapper, JSContext * cx,
                             JSObject * obj, JSObject * *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::OuterObject Don't call me!");
+  NS_WARNING("nsDOMClassInfo::OuterObject Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -3519,7 +3532,7 @@ NS_IMETHODIMP
 nsDOMClassInfo::InnerObject(nsIXPConnectWrappedNative *wrapper, JSContext * cx,
                             JSObject * obj, JSObject * *_retval)
 {
-  NS_ERROR("nsDOMClassInfo::InnerObject Don't call me!");
+  NS_WARNING("nsDOMClassInfo::InnerObject Don't call me!");
 
   return NS_ERROR_UNEXPECTED;
 }
@@ -5640,7 +5653,7 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
       // We're resolving a property on an outer window for which there
       // is no inner window yet, and the window is not frozen
       // (i.e. we're not in the middle of initializing XPConnect
-      // classes on it). If the context is already initalized, force
+      // classes on it). If the context is already initialized, force
       // creation of a new inner window. This will create a synthetic
       // about:blank document, and an inner window which may be reused
       // by the actual document being loaded into this outer
@@ -9583,4 +9596,14 @@ nsDOMConstructorSH::HasInstance(nsIXPConnectWrappedNative *wrapper,
 #endif
 
   return wrapped->HasInstance(wrapper, cx, obj, val, bp, _retval);
+}
+
+NS_IMETHODIMP
+nsNonDOMObjectSH::GetFlags(PRUint32 *aFlags)
+{
+  // This is NOT a DOM Object.  Use this helper class for cases when you need
+  // to do something like implement nsISecurityCheckedComponent in a meaningful
+  // way.
+  *aFlags = nsIClassInfo::MAIN_THREAD_ONLY;
+  return NS_OK;
 }

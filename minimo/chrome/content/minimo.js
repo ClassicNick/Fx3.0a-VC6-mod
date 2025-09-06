@@ -65,6 +65,7 @@ const nsITransfer              = Components.interfaces.nsITransfer;
 
 const NS_BINDING_ABORTED = 0x804b0002;
 
+var gPanMode = null;
 var appCore = null;
 var gBrowser = null;
 var gBookmarksDoc=null; 
@@ -244,6 +245,9 @@ nsBrowserStatusHandler.prototype =
     BrowserUpdateBackForwardState();
     
     BrowserUpdateFeeds();
+
+    BrowserPanRefresh();
+
   },
   
   onStatusChange : function(aWebProgress, aRequest, aStatus, aMessage)
@@ -403,7 +407,19 @@ nsBrowserStatusHandler.prototype =
    
   bmInitXUL(document,document.getElementById("homebarcontainer"));
   document.getElementById("browserleftbar").style.display="block";
-  
+
+  document.getElementById("browserleftbar").addEventListener("mousedown",HomebarHandler,true);  
+
+}
+
+function HomebarHandler(e) {
+
+  if(e.target.nodeName=="toolbarbutton") {
+
+  } else {
+	BrowserHomeBar();
+  }
+
 }
 
 /* 
@@ -524,6 +540,25 @@ function BrowserUpdateFeeds() {
  * For now, this updates via DOM the top menu. Context menu should be here as well. 
  */
 function BrowserUpdateBackForwardState() {
+
+       if(gBrowser.webNavigation.canGoBack) {
+            document.getElementById("command_back").setAttribute("disabled","false");
+            document.getElementById("item-back").setAttribute("hidden","false");
+        } else {
+            document.getElementById("command_back").setAttribute("disabled","true");
+            document.getElementById("item-back").setAttribute("hidden","true");
+
+
+        }
+        
+        if(gBrowser.webNavigation.canGoForward) {
+            document.getElementById("command_forward").setAttribute("disabled","false");
+            document.getElementById("item-forward").setAttribute("hidden","false");
+        } else {
+            document.getElementById("command_forward").setAttribute("disabled","true");
+            document.getElementById("item-forward").setAttribute("hidden","true");
+        }
+
 }
 
 
@@ -1121,6 +1156,12 @@ function URLBarEntered()
     
     /* Trap to RSS 'protocol' */ 
     
+    if(gURLBar.value.substring(0,4)=="pan:") {
+      gPanMode=true;
+      document.getElementById("button-icon-pan").hidden=false;
+      return;
+    }
+
     if(gURLBar.value.substring(0,4)=="rss:") {
       DoBrowserRSS(gURLBar.value.split("rss:")[1]);
       return;
@@ -1279,7 +1320,7 @@ function MenuDisableEscapeKeys() {
 
 function MenuHandleMenuEscape(e) {
   /* This applies because our <key /> handlers would not work when Menu popups are active */ 
-  if( gShowingMenuCurrent &&  (e.keyCode==e.DOM_VK_F11||e.keyCode==e.DOM_VK_F23) ) {
+  if( gShowingMenuCurrent &&  e.keyCode==e.DOM_VK_F9 ) {
     BrowserMenuSpin();
   }
 }
@@ -1403,7 +1444,7 @@ TransferItem.prototype = {
     document.getElementById("toolbar-download-tag").setAttribute("reveal",aTarget.spec);
     document.getElementById("toolbar-download-tag").setAttribute("sourcelocation",aSource.spec);
     document.getElementById("toolbar-download-tag").inputField.style.backgroundColor="lightgreen";
-
+    document.getElementById("download-close").hidden=true;
 
   },
   
@@ -1414,6 +1455,7 @@ TransferItem.prototype = {
           document.getElementById("download-button-stop").label=document.getElementById("minimo_properties").getString("downloadButtonReveal");
           document.getElementById("download-button-stop").setAttribute("oncommand","DownloadReveal()");
           document.getElementById("toolbar-download-tag").inputField.style.backgroundColor="lightgreen";
+          document.getElementById("download-close").hidden=false;
 
        }
     
@@ -1460,3 +1502,77 @@ function BrowserHomeBar()  {
     else document.getElementById("homebarcontainer").style.display="none";
 
 }
+
+
+/* Prototype PAN */ 
+
+  
+function BrowserPan() {
+
+	if(!gBrowser.contentWindow.gInPan) {  
+
+		gBrowser.contentDocument.addEventListener("mousedown",BrowserPanMouseHandler,true);
+		gBrowser.contentDocument.addEventListener("mouseup",BrowserPanMouseHandlerDestroy,true);
+		gBrowser.contentDocument.addEventListener("click",BrowserPanMouseHandlerPanNull,true);
+		document.getElementById("toolbar-pan").collapsed=false;
+		gBrowser.contentWindow.gInPan=true;
+	} else {
+		gBrowser.contentDocument.removeEventListener("mousedown",BrowserPanMouseHandler,true);
+		gBrowser.contentDocument.removeEventListener("mouseup",BrowserPanMouseHandlerDestroy,true);
+		gBrowser.contentDocument.removeEventListener("click",BrowserPanMouseHandlerPanNull,true);
+		document.getElementById("toolbar-pan").collapsed=true;
+		gBrowser.contentWindow.gInPan=false;
+	}
+}
+
+function BrowserPanRefresh() {
+  if(gBrowser.contentWindow.gInPan) {
+		document.getElementById("toolbar-pan").collapsed=false;
+
+  } else {
+		document.getElementById("toolbar-pan").collapsed=true;
+  }
+}
+var gInPan=false;
+var gPanY=-1;
+var gPanX=-1;
+var gInitialPanX=null;
+var gInitialPanY=null;
+
+function BrowserPanMouseHandler(e) {
+
+  gBrowser.contentDocument.addEventListener("mousemove",BrowserPanMouseHandlerPan,true); 
+  gPanY=e.clientY;
+  gPanX=e.clientX;
+  e.preventDefault();
+  e.stopPropagation();
+  gInitialPanY=gPanY;
+  gInitialPanX=gPanX;
+
+}
+
+function BrowserPanMouseHandlerPan(e) {
+  panDeltaY=gPanY-e.clientY;
+  panDeltaX=gPanX-e.clientX;
+  
+  /* Workaround to bug 327934 */
+  gBrowser.contentWindow.scrollBy(0,panDeltaY);
+  gBrowser.contentWindow.scrollBy(panDeltaX,0);
+
+  gPanY=e.clientY;
+  gPanX=e.clientX;
+}
+
+function BrowserPanMouseHandlerPanNull(e) {
+    e.preventDefault();
+}
+
+function BrowserPanMouseHandlerDestroy(e) {
+  gBrowser.contentDocument.removeEventListener("mousemove",BrowserPanMouseHandlerPan,true);
+  e.preventDefault();
+  e.stopPropagation();
+  if(e.clientY==gInitialPanY || e.clientX==gInitialPanX) {
+	BrowserPan();
+  }
+}
+

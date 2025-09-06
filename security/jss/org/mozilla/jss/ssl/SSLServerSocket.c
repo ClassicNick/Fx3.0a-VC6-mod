@@ -118,15 +118,20 @@ Java_org_mozilla_jss_ssl_SSLServerSocket_socketAccept
             /* Clean up after PR_interrupt. */
             PR_NT_CancelIo(sock->fd);
 #endif
-            JSSL_throwSSLSocketException(env, "Accept operation interrupted");
+            JSSL_throwSSLSocketException(env, 
+                "Accept operation interrupted with error code " + err);
         } else if( err == PR_IO_TIMEOUT_ERROR ) {
 #ifdef WINNT
             PR_NT_CancelIo(sock->fd);
 #endif
-            JSSL_throwSSLSocketException(env, "Accept operation timed out");
+            JSSL_throwSSLSocketException(env, 
+                "Accept operation timed out with error code " + err);
+        } else if( err == PR_IO_ERROR ) {
+            JSSL_throwSSLSocketException(env, 
+                "Accept operation received IO error with error code " + err);
         } else {
-            JSSL_throwSSLSocketException
-                (env, "Error accepting connection on server socket");
+            JSSL_throwSSLSocketException(env, 
+                "Accept operation failed with error code " + err);
         }
         goto finish;
     }
@@ -244,6 +249,7 @@ Java_org_mozilla_jss_ssl_SSLServerSocket_setServerCert(
     CERTCertificate* cert=NULL;
     PK11SlotInfo* slot=NULL;
     SECKEYPrivateKey* privKey=NULL;
+    SSLKEAType certKEA;
     SECStatus status;
 
     if( certObj == NULL ) {
@@ -264,7 +270,8 @@ Java_org_mozilla_jss_ssl_SSLServerSocket_setServerCert(
 
     privKey = PK11_FindPrivateKeyFromCert(slot, cert, NULL);
     if (privKey != NULL) {
-        status = SSL_ConfigSecureServer(sock->fd, cert, privKey, kt_rsa);
+        certKEA = NSS_FindCertKEAType(cert);
+        status = SSL_ConfigSecureServer(sock->fd, cert, privKey, certKEA); 
         if( status != SECSuccess) {
             JSSL_throwSSLSocketException(env,
                 "Failed to configure secure server certificate and key");

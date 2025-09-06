@@ -42,7 +42,7 @@
 #include "gfxTypes.h"
 #include "nsString.h"
 #include "gfxPoint.h"
-#include <vector>
+#include "nsTArray.h"
 
 class gfxContext;
 class gfxTextRun;
@@ -111,12 +111,17 @@ struct NS_EXPORT gfxFontStyle {
     // rendering or measuring a string. A value of 0 means no adjustment
     // needs to be done.
     float sizeAdjust;
+
+    void ComputeWeightAndOffset(PRInt16 *outBaseWeight,
+                                PRInt16 *outOffset) const;
 };
 
 
 
 /* a SPECIFIC single font family */
 class NS_EXPORT gfxFont {
+    THEBES_DECL_REFCOUNTING_ABSTRACT
+
 public:
     virtual ~gfxFont() {}
 
@@ -155,21 +160,25 @@ protected:
     const gfxFontStyle *mStyle;
 };
 
-typedef std::vector<gfxFont*> gfxFontVector;
+typedef nsTArray< nsRefPtr<gfxFont> > gfxFontVector;
 
 class NS_EXPORT gfxFontGroup {
 public:
     gfxFontGroup(const nsAString& aFamilies, const gfxFontStyle *aStyle);
 
     virtual ~gfxFontGroup() {
-        for (gfxFontVector::iterator it = mFonts.begin(); it!=mFonts.end(); ++it)
-            delete *it;
+        mFonts.Clear();
     }
 
-    gfxFontVector &GetFontList() { return mFonts; } // XXX this should really be const..
+    gfxFontVector GetFontList() { return mFonts; }
     const gfxFontStyle *GetStyle() const { return &mStyle; }
 
+    /* unicode method */
     virtual gfxTextRun *MakeTextRun(const nsAString& aString) = 0;
+    /* ASCII text only, not UTF-8 */
+    virtual gfxTextRun *MakeTextRun(const nsACString& aString) {
+        return MakeTextRun(NS_ConvertASCIItoUTF16(aString));
+    }
 
 protected:
     /* helper function for splitting font families on commas and
@@ -196,7 +205,7 @@ public:
     virtual gfxFloat MeasureString(gfxContext *aContext) = 0;
 
     virtual void SetRightToLeft(PRBool aIsRTL) { mIsRTL = aIsRTL; }
-    virtual PRBool IsRightToLeft() { return mIsRTL; }
+    virtual PRBool IsRightToLeft() const { return mIsRTL; }
 
 private:
     PRBool mIsRTL;

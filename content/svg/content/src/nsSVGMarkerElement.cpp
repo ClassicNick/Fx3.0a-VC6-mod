@@ -53,6 +53,7 @@
 #include "nsSVGPreserveAspectRatio.h"
 #include "nsSVGMatrix.h"
 #include "nsDOMError.h"
+#include "nsSVGUtils.h"
 
 typedef nsSVGGraphicElement nsSVGMarkerElementBase;
 
@@ -96,8 +97,7 @@ protected:
   nsCOMPtr<nsIDOMSVGAnimatedEnumeration> mMarkerUnits;
   nsCOMPtr<nsIDOMSVGAnimatedLength>      mMarkerWidth;
   nsCOMPtr<nsIDOMSVGAnimatedLength>      mMarkerHeight;
-  nsCOMPtr<nsIDOMSVGAnimatedEnumeration> mOrientType;
-  nsCOMPtr<nsIDOMSVGAnimatedAngle>       mOrientAngle;
+  nsCOMPtr<nsIDOMSVGAnimatedAngle>       mOrient;
 
   nsCOMPtr<nsIDOMSVGAnimatedRect>        mViewBox;
   nsCOMPtr<nsIDOMSVGAnimatedPreserveAspectRatio> mPreserveAspectRatio;
@@ -132,15 +132,6 @@ NS_INTERFACE_MAP_END_INHERITING(nsSVGMarkerElementBase)
 
 nsSVGMarkerElement::~nsSVGMarkerElement()
 {
-  if (mPreserveAspectRatio) {
-    NS_REMOVE_SVGVALUE_OBSERVER(mPreserveAspectRatio);
-  }
-  if (mViewBox) {
-    NS_REMOVE_SVGVALUE_OBSERVER(mViewBox);
-  }
-  if (mOrientType) {
-    NS_REMOVE_SVGVALUE_OBSERVER(mOrientType);
-  }
 }
 
 nsresult
@@ -156,11 +147,6 @@ nsSVGMarkerElement::Init()
     {nsnull, 0}
   };
   
-  static struct nsSVGEnumMapping gOrientType[] = {
-    {&nsSVGAtoms::_auto, SVG_MARKER_ORIENT_AUTO},
-    {nsnull, 0}
-  };
-
   // Create mapped properties:
 
   // DOM property: refX
@@ -218,26 +204,15 @@ nsSVGMarkerElement::Init()
     NS_ENSURE_SUCCESS(rv,rv);
   }
 
-  // DOM property: orient (enum)
+  // DOM property: orient
   {
-    nsCOMPtr<nsISVGEnum> orient;
-    rv = NS_NewSVGEnum(getter_AddRefs(orient), SVG_MARKER_ORIENT_ANGLE, gOrientType);
-    NS_ENSURE_SUCCESS(rv,rv);
-    rv = NS_NewSVGAnimatedEnumeration(getter_AddRefs(mOrientType), orient);
-    NS_ENSURE_SUCCESS(rv,rv);
-    rv = AddMappedSVGValue(nsSVGAtoms::orient, mOrientType);
-    NS_ENSURE_SUCCESS(rv,rv);
-  }
-
-  // DOM property: orient (angle)
-  {
-    nsCOMPtr<nsISVGAngle> angle;
+    nsCOMPtr<nsIDOMSVGAngle> angle;
     rv = NS_NewSVGAngle(getter_AddRefs(angle), 0.0f);
     NS_ENSURE_SUCCESS(rv,rv);
-    rv = NS_NewSVGAnimatedAngle(getter_AddRefs(mOrientAngle), angle);
+    rv = NS_NewSVGAnimatedAngle(getter_AddRefs(mOrient), angle);
     NS_ENSURE_SUCCESS(rv,rv);
-    // Can't map two values to the same attribute, so we take care
-    // of keeping mOrientAngle updated in DidModifySVGObservable
+    rv = AddMappedSVGValue(nsSVGAtoms::orient, mOrient);
+    NS_ENSURE_SUCCESS(rv,rv);
   }
 
   // DOM property: viewBox
@@ -270,11 +245,6 @@ nsSVGMarkerElement::Init()
     NS_ENSURE_SUCCESS(rv,rv);
   }
   
-  // add observers -------------------------- :
-  NS_ADD_SVGVALUE_OBSERVER(mViewBox);
-  NS_ADD_SVGVALUE_OBSERVER(mPreserveAspectRatio);
-  NS_ADD_SVGVALUE_OBSERVER(mOrientType);
-
   return NS_OK;
 }
 
@@ -349,7 +319,30 @@ NS_IMETHODIMP nsSVGMarkerElement::GetMarkerHeight(nsIDOMSVGAnimatedLength * *aMa
 /* readonly attribute nsIDOMSVGAnimatedEnumeration orientType; */
 NS_IMETHODIMP nsSVGMarkerElement::GetOrientType(nsIDOMSVGAnimatedEnumeration * *aOrientType)
 {
-  *aOrientType = mOrientType;
+  static struct nsSVGEnumMapping gOrientType[] = {
+    {&nsSVGAtoms::_auto, SVG_MARKER_ORIENT_AUTO},
+    {nsnull, 0}
+  };
+
+  nsresult rv;
+  nsCOMPtr<nsISVGEnum> orient;
+  rv = NS_NewSVGEnum(getter_AddRefs(orient), SVG_MARKER_ORIENT_ANGLE, gOrientType);
+  NS_ENSURE_SUCCESS(rv,rv);
+  nsCOMPtr<nsIDOMSVGAnimatedEnumeration> orientType;
+  rv = NS_NewSVGAnimatedEnumeration(getter_AddRefs(orientType), orient);
+  NS_ENSURE_SUCCESS(rv,rv);
+
+  nsIDOMSVGAngle *a;
+  mOrient->GetBaseVal(&a);
+  nsAutoString value;
+  a->GetValueAsString(value);
+  if (value.EqualsLiteral("auto")) {
+    orientType->SetBaseVal(SVG_MARKER_ORIENT_AUTO);
+  } else {
+    orientType->SetBaseVal(SVG_MARKER_ORIENT_ANGLE);
+  }
+
+  *aOrientType = orientType;
   NS_IF_ADDREF(*aOrientType);
   return NS_OK;
 }
@@ -357,7 +350,7 @@ NS_IMETHODIMP nsSVGMarkerElement::GetOrientType(nsIDOMSVGAnimatedEnumeration * *
 /* readonly attribute nsIDOMSVGAnimatedLength orientAngle; */
 NS_IMETHODIMP nsSVGMarkerElement::GetOrientAngle(nsIDOMSVGAnimatedAngle * *aOrientAngle)
 {
-  *aOrientAngle = mOrientAngle;
+  *aOrientAngle = mOrient;
   NS_IF_ADDREF(*aOrientAngle);
   return NS_OK;
 }
@@ -365,7 +358,9 @@ NS_IMETHODIMP nsSVGMarkerElement::GetOrientAngle(nsIDOMSVGAnimatedAngle * *aOrie
 /* void setOrientToAuto (); */
 NS_IMETHODIMP nsSVGMarkerElement::SetOrientToAuto()
 {
-  mOrientType->SetBaseVal(SVG_MARKER_ORIENT_AUTO);
+  nsIDOMSVGAngle *a;
+  mOrient->GetBaseVal(&a);
+  a->SetValueAsString(NS_LITERAL_STRING("auto"));
   return NS_OK;
 }
 
@@ -375,10 +370,8 @@ NS_IMETHODIMP nsSVGMarkerElement::SetOrientToAngle(nsIDOMSVGAngle *angle)
   if (!angle)
     return NS_ERROR_DOM_SVG_WRONG_TYPE_ERR;
 
-  mOrientType->SetBaseVal(SVG_MARKER_ORIENT_ANGLE);
-
   nsIDOMSVGAngle *a;
-  mOrientAngle->GetBaseVal(&a);
+  mOrient->GetBaseVal(&a);
   float f;
   angle->GetValue(&f);
   a->SetValue(f);
@@ -396,12 +389,12 @@ nsSVGMarkerElement::GetMarkerTransform(float aStrokeWidth,
   if (val == SVG_MARKERUNITS_STROKEWIDTH)
     scale = aStrokeWidth;
 
-  mOrientType->GetAnimVal(&val);
-  if (val == SVG_MARKER_ORIENT_ANGLE) {
-    nsCOMPtr<nsIDOMSVGAngle> a;
-    mOrientAngle->GetAnimVal(getter_AddRefs(a));
-    a->GetValue(&aAngle);
-  }
+  nsCOMPtr<nsIDOMSVGAngle> a;
+  mOrient->GetAnimVal(getter_AddRefs(a));
+  nsAutoString value;
+  a->GetValueAsString(value);
+  if (!value.EqualsLiteral("auto"))
+     a->GetValue(&aAngle);
 
   nsCOMPtr<nsIDOMSVGMatrix> matrix;
   NS_NewSVGMatrix(getter_AddRefs(matrix),
@@ -450,48 +443,6 @@ nsSVGMarkerElement::GetViewboxToViewportTransform(nsIDOMSVGMatrix **_retval)
       viewboxWidth = 1.0f;
       viewboxHeight = 1.0f;
     }
-    
-    PRUint16 align, meetOrSlice;
-    {
-      nsCOMPtr<nsIDOMSVGPreserveAspectRatio> par;
-      mPreserveAspectRatio->GetAnimVal(getter_AddRefs(par));
-      NS_ASSERTION(par, "could not get preserveAspectRatio");
-      par->GetAlign(&align);
-      par->GetMeetOrSlice(&meetOrSlice);
-    }
-
-    // default to the defaults
-    if (align == nsIDOMSVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_UNKNOWN)
-      align = nsIDOMSVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_XMIDYMID;
-    if (meetOrSlice == nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_UNKNOWN)
-      meetOrSlice = nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_MEET;
-    
-    float a, d, e, f;
-    a = viewportWidth/viewboxWidth;
-    d = viewportHeight/viewboxHeight;
-    e = 0.0f;
-    f = 0.0f;
-
-    if (align != nsIDOMSVGPreserveAspectRatio::SVG_PRESERVEASPECTRATIO_NONE &&
-        a != d) {
-      if (meetOrSlice == nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_MEET &&
-          a < d ||
-          meetOrSlice == nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_SLICE &&
-          d < a) {
-        d = a;
-      }
-      else if (
-        meetOrSlice == nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_MEET &&
-        d < a ||
-        meetOrSlice == nsIDOMSVGPreserveAspectRatio::SVG_MEETORSLICE_SLICE &&
-        a < d) {
-        a = d;
-      }
-      else NS_NOTREACHED("Unknown value for meetOrSlice");
-    }
-
-    if (viewboxX) e += -a * viewboxX;
-    if (viewboxY) f += -d * viewboxY;
 
     float refX;
     {
@@ -499,7 +450,6 @@ nsSVGMarkerElement::GetViewboxToViewportTransform(nsIDOMSVGMatrix **_retval)
       mRefX->GetAnimVal(getter_AddRefs(l));
       l->GetValue(&refX);
     }
-
     float refY;
     {
       nsCOMPtr<nsIDOMSVGLength> l;
@@ -507,20 +457,12 @@ nsSVGMarkerElement::GetViewboxToViewportTransform(nsIDOMSVGMatrix **_retval)
       l->GetValue(&refY);
     }
 
-    e -= refX * a;
-    f -= refY * d;
-    
-#ifdef DEBUG
-    printf("Marker Viewport=(0?,0?,%f,%f)\n", viewportWidth, viewportHeight);
-    printf("Marker Viewbox=(%f,%f,%f,%f)\n", viewboxX, viewboxY, viewboxWidth, viewboxHeight);
-    printf("Marker Viewbox->Viewport xform [a c e] = [%f,   0, %f]\n", a, e);
-    printf("                            [b d f] = [   0,  %f, %f]\n", d, f);
-#endif
-    
-    rv = NS_NewSVGMatrix(getter_AddRefs(mViewBoxToViewportTransform),
-                         a,     0.0f,
-                         0.0f,  d,
-                         e,     f);
+    mViewBoxToViewportTransform =
+      nsSVGUtils::GetViewBoxTransform(viewportWidth, viewportHeight,
+                                      viewboxX + refX, viewboxY + refY,
+                                      viewboxWidth, viewboxHeight,
+                                      mPreserveAspectRatio,
+                                      PR_TRUE);
   }
 
   *_retval = mViewBoxToViewportTransform;
@@ -535,29 +477,23 @@ NS_IMETHODIMP
 nsSVGMarkerElement::WillModifySVGObservable(nsISVGValue* observable,
                                             nsISVGValue::modificationType aModType)
 {
-#ifdef DEBUG
-  printf("markerelement - viewport/viewbox/preserveAspectRatio will be changed\n");
-#endif
   return NS_OK;
 }
 
 
 NS_IMETHODIMP
-nsSVGMarkerElement::DidModifySVGObservable (nsISVGValue* observable,
-                                            nsISVGValue::modificationType aModType)
+nsSVGMarkerElement::DidModifySVGObservable(nsISVGValue* observable,
+                                           nsISVGValue::modificationType aModType)
 {
-#ifdef DEBUG
-  printf("markerelement - viewport/viewbox/preserveAspectRatio have been changed\n");
-#endif
-
   mViewBoxToViewportTransform = nsnull;
 
-  // need to sync mOrientAngle
-  nsAutoString value;
-  nsresult rv = GetAttribute(NS_LITERAL_STRING("orient"), value);
-  if (NS_SUCCEEDED(rv)) {
-    nsCOMPtr<nsISVGValue> target = do_QueryInterface(mOrientAngle);
-    target->SetValueString(value);
+  nsCOMPtr<nsIDOMSVGAnimatedLength> l = do_QueryInterface(observable);
+  nsCOMPtr<nsIDOMSVGAnimatedRect> r = do_QueryInterface(observable);
+  if ((l && (l == mMarkerWidth || l == mMarkerHeight)) || (r && (r == mViewBox))) {
+    // sync coordinate context with viewbox:
+    nsIDOMSVGRect *viewbox;
+    mViewBox->GetBaseVal(&viewbox);
+    SetCoordCtxRect(viewbox);
   }
 
   return NS_OK;

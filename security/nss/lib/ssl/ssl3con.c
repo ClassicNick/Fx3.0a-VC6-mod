@@ -39,7 +39,7 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-/* $Id: ssl3con.c,v 1.77 2005/12/14 01:49:39 wtchang%redhat.com Exp $ */
+/* $Id: ssl3con.c,v 1.80 2006/03/01 05:45:45 nelson%bolyard.com Exp $ */
 
 #include "nssrenam.h"
 #include "cert.h"
@@ -472,6 +472,26 @@ SSL_GetStatistics(void)
     return &ssl3stats;
 }
 
+typedef struct tooLongStr {
+#if defined(IS_LITTLE_ENDIAN)
+    PRInt32 low;
+    PRInt32 high;
+#else
+    PRInt32 high;
+    PRInt32 low;
+#endif
+} tooLong;
+
+static void SSL_AtomicIncrementLong(long * x)
+{
+    if ((sizeof *x) == sizeof(PRInt32)) {
+        PR_AtomicIncrement((PRInt32 *)x);
+    } else {
+    	tooLong * tl = (tooLong *)x;
+	PR_AtomicIncrement(&tl->low) || PR_AtomicIncrement(&tl->high);
+    }
+}
+
 /* return pointer to ssl3CipherSuiteDef for suite, or NULL */
 /* XXX This does a linear search.  A binary search would be better. */
 static const ssl3CipherSuiteDef *
@@ -558,7 +578,15 @@ ssl3_config_match_init(sslSocket *ss)
 	     */
 	    switch (cipher_def->key_exchange_alg) {
 	    case kea_ecdhe_rsa:
+#if NSS_SERVER_DHE_IMPLEMENTED
+	    /* XXX NSS does not yet implement the server side of _DHE_
+	     * cipher suites.  Correcting the computation for svrAuth,
+	     * as the case below does, causes NSS SSL servers to begin to
+	     * negotiate cipher suites they do not implement.  So, until
+	     * server side _DHE_ is implemented, keep this disabled.
+	     */
 	    case kea_dhe_rsa:
+#endif
 		svrAuth = ss->serverCerts + kt_rsa;
 		break;
 	    case kea_ecdh_ecdsa:
@@ -3291,7 +3319,7 @@ ssl3_SendClientHello(sslSocket *ss)
 	}
 
 	if (!sidOK) {
-	    ++ssl3stats.sch_sid_cache_not_ok;
+	    SSL_AtomicIncrementLong(& ssl3stats.sch_sid_cache_not_ok );
 	    (*ss->sec.uncache)(sid);
 	    ssl_FreeSID(sid);
 	    sid = NULL;
@@ -3299,7 +3327,7 @@ ssl3_SendClientHello(sslSocket *ss)
     }
 
     if (sid) {
-	++ssl3stats.sch_sid_cache_hits;
+	SSL_AtomicIncrementLong(& ssl3stats.sch_sid_cache_hits );
 
 	rv = ssl3_NegotiateVersion(ss, sid->version);
 	if (rv != SECSuccess)
@@ -3310,7 +3338,7 @@ ssl3_SendClientHello(sslSocket *ss)
 
 	ss->ssl3.policy = sid->u.ssl3.policy;
     } else {
-	++ssl3stats.sch_sid_cache_misses;
+	SSL_AtomicIncrementLong(& ssl3stats.sch_sid_cache_misses );
 
 	rv = ssl3_NegotiateVersion(ss, SSL_LIBRARY_VERSION_3_1_TLS);
 	if (rv != SECSuccess)
@@ -4282,7 +4310,7 @@ ssl3_HandleServerHello(sslSocket *ss, SSL3Opaque *b, PRUint32 length)
 	}
 
 	/* Got a Match */
-	++ssl3stats.hsh_sid_cache_hits;
+	SSL_AtomicIncrementLong(& ssl3stats.hsh_sid_cache_hits );
 	ss->ssl3.hs.ws         = wait_change_cipher;
 	ss->ssl3.hs.isResuming = PR_TRUE;
 
@@ -4301,9 +4329,9 @@ ssl3_HandleServerHello(sslSocket *ss, SSL3Opaque *b, PRUint32 length)
     } while (0);
 
     if (sid_match)
-	++ssl3stats.hsh_sid_cache_not_ok;
+	SSL_AtomicIncrementLong(& ssl3stats.hsh_sid_cache_not_ok );
     else
-	++ssl3stats.hsh_sid_cache_misses;
+	SSL_AtomicIncrementLong(& ssl3stats.hsh_sid_cache_misses );
 
     /* throw the old one away */
     sid->u.ssl3.keys.resumable = PR_FALSE;
@@ -4597,6 +4625,14 @@ ssl3_HandleCertificateRequest(sslSocket *ss, SSL3Opaque *b, PRUint32 length)
     if (ss->ssl3.clientCertChain != NULL) {
        CERT_DestroyCertificateList(ss->ssl3.clientCertChain);
        ss->ssl3.clientCertChain = NULL;
+    }
+    if (ss->ssl3.clientCertificate != NULL) {
+       CERT_DestroyCertificate(ss->ssl3.clientCertificate);
+       ss->ssl3.clientCertificate = NULL;
+    }
+    if (ss->ssl3.clientPrivateKey != NULL) {
+       SECKEY_DestroyPrivateKey(ss->ssl3.clientPrivateKey);
+       ss->ssl3.clientPrivateKey = NULL;
     }
 
     isTLS = (PRBool)(ss->ssl3.prSpec->version > SSL_LIBRARY_VERSION_3_0);
@@ -5143,7 +5179,7 @@ ssl3_HandleClientHello(sslSocket *ss, SSL3Opaque *b, PRUint32 length)
 	     ((ss->opt.requireCertificate == SSL_REQUIRE_FIRST_HANDSHAKE) 
 	      && !ss->firstHsDone))) {
 
-	    ++ssl3stats.hch_sid_cache_not_ok;
+	    SSL_AtomicIncrementLong(& ssl3stats.hch_sid_cache_not_ok );
 	    ss->sec.uncache(sid);
 	    ssl_FreeSID(sid);
 	    sid = NULL;
@@ -5316,7 +5352,7 @@ compression_found:
 	 *
 	 * XXX make sure compression still matches
 	 */
-	++ssl3stats.hch_sid_cache_hits;
+	SSL_AtomicIncrementLong(& ssl3stats.hch_sid_cache_hits );
 	ss->ssl3.hs.isResuming = PR_TRUE;
 
         ss->sec.authAlgorithm = sid->authAlgorithm;
@@ -5378,12 +5414,12 @@ compression_found:
     }
 
     if (sid) { 	/* we had a sid, but it's no longer valid, free it */
-	++ssl3stats.hch_sid_cache_not_ok;
+	SSL_AtomicIncrementLong(& ssl3stats.hch_sid_cache_not_ok );
 	ss->sec.uncache(sid);
 	ssl_FreeSID(sid);
 	sid = NULL;
     }
-    ++ssl3stats.hch_sid_cache_misses;
+    SSL_AtomicIncrementLong(& ssl3stats.hch_sid_cache_misses );
 
     sid = ssl3_NewSessionID(ss, PR_TRUE);
     if (sid == NULL) {
@@ -5546,7 +5582,7 @@ suite_found:
     ss->sec.send            = ssl3_SendApplicationData;
 
     /* we don't even search for a cache hit here.  It's just a miss. */
-    ++ssl3stats.hch_sid_cache_misses;
+    SSL_AtomicIncrementLong(& ssl3stats.hch_sid_cache_misses );
     sid = ssl3_NewSessionID(ss, PR_TRUE);
     if (sid == NULL) {
     	errCode = PORT_GetError();

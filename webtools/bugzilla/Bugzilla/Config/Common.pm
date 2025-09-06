@@ -60,7 +60,7 @@ use Bugzilla::Constants;
 
 use base qw(Exporter);
 @Bugzilla::Config::Common::EXPORT =
-    qw(check_multi check_numeric check_regexp
+    qw(check_multi check_numeric check_regexp check_url
        check_sslbase check_priority check_severity check_platform
        check_opsys check_shadowdb check_urlbase check_webdotbase
        check_netmask check_user_verify_class check_image_converter
@@ -189,10 +189,19 @@ sub check_shadowdb {
 
 sub check_urlbase {
     my ($url) = (@_);
-    if ($url !~ m:^http.*/$:) {
+    if ($url && $url !~ m:^http.*/$:) {
         return "must be a legal URL, that starts with http and ends with a slash.";
     }
     return "";
+}
+
+sub check_url {
+    my ($url) = (@_);
+    return '' if $url eq ''; # Allow empty URLs
+    if ($url !~ m:/$:) {
+        return 'must be a legal URL, absolute or relative, ending with a slash.';
+    }
+    return '';
 }
 
 sub check_webdotbase {

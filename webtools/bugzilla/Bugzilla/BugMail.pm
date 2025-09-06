@@ -32,6 +32,7 @@ use strict;
 
 package Bugzilla::BugMail;
 
+use Bugzilla::Error;
 use Bugzilla::User;
 use Bugzilla::Constants;
 use Bugzilla::Config qw(:DEFAULT $datadir);
@@ -187,6 +188,8 @@ sub ProcessOneBug {
     }
     
     # Convert to names, for later display
+    $values{'changer'} = $changer;
+    $values{'changername'} = Bugzilla::User->new_from_login($changer)->name;
     $values{'assigned_to'} = &::DBID_to_name($values{'assigned_to'});
     $values{'reporter'} = &::DBID_to_name($values{'reporter'});
     if ($values{'qa_contact'}) {
@@ -610,6 +613,8 @@ sub sendMail {
     $substs{"reasonsheader"} = join(" ", map { $rel_names{$_} } @$relRef);
     $substs{"reasonsbody"} = $reasonsbody;
     $substs{"space"} = " ";
+    $substs{"changer"} = $values{'changer'};
+    $substs{"changername"} = $values{'changername'};
     if ($isnew) {
         $substs{'threadingmarker'} = "Message-ID: <bug-$id-" . 
                                      $user->id . "$sitespec>";
@@ -789,11 +794,14 @@ sub encode_message_entity {
 # Send the login name and password of the newly created account to the user.
 sub MailPassword {
     my ($login, $password) = (@_);
-    my $template = Param("passwordmail");
-    my $msg = perform_substs($template,
-                            {"mailaddress" => $login . Param('emailsuffix'),
-                             "login" => $login,
-                             "password" => $password});
+    my $template = Bugzilla->template;
+    my $vars = {
+      mailaddress => $login . Param('emailsuffix'),
+      login => $login,
+      password => $password };
+    my $msg;
+    $template->process("email/password.txt.tmpl", $vars, \$msg)
+      || ThrowTemplateError($template->error());
     MessageToMTA($msg);
 }
 

@@ -27,7 +27,6 @@ CPPSRCS	= \
 	gfxPlatform.cpp \
 	$(NULL)
 
-
 SHARED_LIBRARY_LIBS += \
 	$(DIST)/lib/$(LIB_PREFIX)mozcairo.$(LIB_SUFFIX) \
 	$(DIST)/lib/$(LIB_PREFIX)mozlibpixman.$(LIB_SUFFIX) \
@@ -44,16 +43,26 @@ CPPSRCS	+= 	gfxWindowsFonts.cpp \
 		gfxWindowsSurface.cpp \
 		$(NULL)
 
-_OS_LIBS	= usp10
+_OS_LIBS	= usp10 ole32
 OS_LIBS		+= $(call EXPAND_LIBNAME,$(_OS_LIBS))
 
+ACDEFINES +=	-UWIN32_LEAN_AND_MEAN
 endif
 
 ifeq ($(MOZ_GFX_TOOLKIT),gtk2)
-CPPSRCS	+= 	gfxXlibSurface.cpp gfxPlatformGtk.cpp
+CPPSRCS +=      gfxXlibSurface.cpp gfxPlatformGtk.cpp gfxXlibNativeRenderer.cpp
 CPPSRCS +=	gfxPangoFonts.cpp 
 CPPSRCS +=	gfxPDFSurface.cpp gfxPSSurface.cpp
+CSRCS = cairo-xlib-utils.c
 EXTRA_DSO_LDOPTS += $(MOZ_PANGO_LIBS) $(ZLIB_LIBS)
+endif
+
+ifneq (,$(filter $(MOZ_GFX_TOOLKIT),mac cocoa))
+CPPSRCS	+= 	gfxQuartzSurface.cpp gfxPlatformMac.cpp gfxAtsuiFonts.cpp
+#CPPSRCS +=	gfxPDFSurface.cpp
+
+# Always link with OpenGL/AGL
+EXTRA_DSO_LDOPTS += -framework OpenGL -framework AGL
 endif
 
 ifdef MOZ_ENABLE_GLITZ
@@ -65,6 +74,11 @@ SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)mozglitz.$(LIB_SUFFIX)
 ifeq ($(MOZ_GFX_TOOLKIT),gtk2)
 REQUIRES +=	glitzglx
 SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)mozglitzglx.$(LIB_SUFFIX)
+endif
+
+ifneq (,$(filter $(MOZ_GFX_TOOLKIT),mac cocoa))
+REQUIRES +=	glitzagl
+SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)mozglitzagl.$(LIB_SUFFIX)
 endif
 endif
 

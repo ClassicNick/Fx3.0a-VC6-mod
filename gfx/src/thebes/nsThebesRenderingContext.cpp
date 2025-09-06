@@ -113,6 +113,22 @@ nsThebesRenderingContext::Init(nsIDeviceContext* aContext, gfxASurface *aThebesS
 }
 
 NS_IMETHODIMP
+nsThebesRenderingContext::Init(nsIDeviceContext* aContext, gfxContext *aThebesContext)
+{
+    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG, ("## %p nsTRC::Init ctx %p thebesContext %p\n", this, aContext, aThebesContext));
+
+    mDeviceContext = aContext;
+    mWidget = nsnull;
+
+    mLocalDrawingSurface = nsnull;
+    mDrawingSurface = nsnull;
+
+    mThebes = aThebesContext;
+
+    return (CommonInit());
+}
+
+NS_IMETHODIMP
 nsThebesRenderingContext::Init(nsIDeviceContext* aContext, nsIWidget *aWidget)
 {
     PR_LOG(gThebesGFXLog, PR_LOG_DEBUG, ("## %p nsTRC::Init ctx %p widget %p\n", this, aContext, aWidget));
@@ -123,7 +139,13 @@ nsThebesRenderingContext::Init(nsIDeviceContext* aContext, nsIWidget *aWidget)
     mWidget = aWidget;
 
     mLocalDrawingSurface = new nsThebesDrawingSurface();
-    mLocalDrawingSurface->Init(thebesDC, aWidget);
+
+    nsRefPtr<gfxASurface> surface(aWidget->GetThebesSurface());
+    if (surface) {
+        mLocalDrawingSurface->Init(thebesDC, surface);
+    } else {
+        mLocalDrawingSurface->Init(thebesDC, aWidget);
+    }
     mDrawingSurface = mLocalDrawingSurface;
 
     mThebes = new gfxContext(mLocalDrawingSurface->GetThebesSurface());
@@ -160,11 +182,8 @@ nsThebesRenderingContext::CommonInit(void)
 NS_IMETHODIMP
 nsThebesRenderingContext::Reset(void)
 {
-    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG, ("## %p nsTRC::Reset\n", this));
-
-    mThebes = new gfxContext(mDrawingSurface->GetThebesSurface());
-
-    return (CommonInit());
+    NS_ERROR("nsThebesRenderingContext::Reset called!\n");
+    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
@@ -178,22 +197,15 @@ nsThebesRenderingContext::GetDeviceContext(nsIDeviceContext *& aDeviceContext)
 NS_IMETHODIMP
 nsThebesRenderingContext::SelectOffScreenDrawingSurface(nsIDrawingSurface *aSurface)
 {
-    if (aSurface)
-        mDrawingSurface = NS_STATIC_CAST(nsThebesDrawingSurface*, aSurface);
-    else
-        mDrawingSurface = mLocalDrawingSurface;
-
-    mThebes->SetTarget(mDrawingSurface->GetThebesSurface());
-
-    return NS_OK;
+    NS_ERROR("nsThebesRenderingContext::SelectOffScreenDrawingSurface called!");
+    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
 nsThebesRenderingContext::GetDrawingSurface(nsIDrawingSurface **aSurface)
 {
-    *aSurface = mDrawingSurface;
-    // don't addref! this isn't an xpcom call even though it sure looks like one
-    return NS_OK;
+    NS_ERROR("nsThebesRenderingContext::GetDrawingSurface called!");
+    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP 
@@ -773,7 +785,7 @@ nsThebesRenderingContext::GetNativeGraphicData(GraphicDataType aType)
     if (aType == NATIVE_WINDOWS_DC) {
         nsRefPtr<gfxASurface> surf = mThebes->CurrentGroupSurface();
         if (!surf)
-            mThebes->CurrentSurface();
+            surf = mThebes->CurrentSurface();
 
         return cairo_win32_surface_get_dc(surf->CairoSurface());
     }
@@ -833,7 +845,11 @@ nsThebesRenderingContext::DrawNativeWidgetPixmap(void* aSrcSurfaceBlack,
 NS_IMETHODIMP
 nsThebesRenderingContext::UseBackbuffer(PRBool* aUseBackbuffer)
 {
+#ifndef XP_MACOSX
     *aUseBackbuffer = PR_TRUE;
+#else
+    *aUseBackbuffer = PR_FALSE;
+#endif
     return NS_OK;
 }
 
@@ -1083,10 +1099,6 @@ nsThebesRenderingContext::DrawTile(imgIContainer *aImage,
     nsCOMPtr<nsIImage> img(do_GetInterface(imgFrame));
     if (!img) return NS_ERROR_FAILURE;
 
-    nsIDrawingSurface *surface = nsnull;
-    GetDrawingSurface(&surface);
-    if (!surface) return NS_ERROR_FAILURE;
-
     /* bug 113561 - frame can be smaller than container */
     nsIntRect pxImgFrameRect;
     imgFrame->GetRect(pxImgFrameRect);
@@ -1098,7 +1110,7 @@ nsThebesRenderingContext::DrawTile(imgIContainer *aImage,
                    NSToIntRound(FROM_TWIPS(twDr.width)),
                    NSToIntRound(FROM_TWIPS(twDr.height)));
 
-    return img->DrawTile(*this, surface,
+    return img->DrawTile(*this, NULL,
                          pxXOffset - pxImgFrameRect.x, pxYOffset - pxImgFrameRect.y,
                          pxPadX, pxPadY,
                          pxDr);
@@ -1451,45 +1463,7 @@ nsThebesRenderingContext::CopyOffScreenBits(nsIDrawingSurface *aSrcSurf,
                                            const nsRect &aDestBounds,
                                            PRUint32 aCopyFlags)
 {
-    PR_LOG(gThebesGFXLog, PR_LOG_DEBUG,
-           ("## %p nsTRC::CopyOffScreenBits src: %d %d dst: %d %d %d %d flags: 0x%08x\n",
-            this, aSrcX, aSrcY, aDestBounds.x, aDestBounds.y, aDestBounds.width, aDestBounds.height,
-            aCopyFlags));
-
-    // there's only one caller of this code, so this implementation is
-    // tailored to that one caller.
-    if (aCopyFlags != NS_COPYBITS_USE_SOURCE_CLIP_REGION)
-        NS_ERROR("CopyOffScreenBits called with unsupported copy flags");
-
-    nsRefPtr<gfxASurface> cursurf = mThebes->CurrentSurface();
-
-    mThebes->Save();
-    mThebes->SetTarget(mLocalDrawingSurface->GetThebesSurface());
-    mThebes->IdentityMatrix();
-
-    mThebes->Translate(gfxPoint(aDestBounds.x, aDestBounds.y));
-
-    // update debugging
-#if 0
-    mThebes->SetColor(gfxRGBA(1, 0, 0, 1));
-    mThebes->NewPath();
-    mThebes->Rectangle(gfxRect(0, 0, aDestBounds.width, aDestBounds.height), PR_TRUE);
-    mThebes->Fill();
-
-    //usleep(400000);
-    //Sleep(4);
-#endif
-
-    mThebes->SetSource(NS_STATIC_CAST(nsThebesDrawingSurface*,aSrcSurf)->GetThebesSurface(),
-                   gfxPoint(FROM_TWIPS(aSrcX), FROM_TWIPS(aSrcY)));
-
-    mThebes->NewPath();
-    mThebes->Rectangle(gfxRect(0, 0, aDestBounds.width, aDestBounds.height), PR_TRUE);
-    mThebes->Fill();
-
-    mThebes->SetTarget(cursurf);
-    mThebes->Restore();
-
-    return NS_OK;
+    NS_NOTREACHED("CopyOffScreenBits should not be called in cairo builds");
+    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
