@@ -61,10 +61,14 @@
 #include "nsSVGPoint.h"
 #include "nsIDOMSVGAnimatedInteger.h"
 #include "nsSVGUtils.h"
+#include "nsISVGValueObserver.h"
+#include "nsWeakReference.h"
 
 class nsSVGFilterFrame : public nsSVGDefsFrame,
                          public nsSVGValue,
-                         public nsISVGFilterFrame
+                         public nsISVGFilterFrame,
+                         public nsISVGValueObserver,
+                         public nsSupportsWeakReference
 {
 protected:
   friend nsIFrame*
@@ -121,6 +125,8 @@ private:
 NS_INTERFACE_MAP_BEGIN(nsSVGFilterFrame)
   NS_INTERFACE_MAP_ENTRY(nsISVGValue)
   NS_INTERFACE_MAP_ENTRY(nsISVGFilterFrame)
+  NS_INTERFACE_MAP_ENTRY(nsISVGValueObserver)
+  NS_INTERFACE_MAP_ENTRY(nsSupportsWeakReference)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsISVGValue)
 NS_INTERFACE_MAP_END_INHERITING(nsSVGDefsFrame)
 
@@ -446,13 +452,10 @@ nsSVGFilterFrame::FilterPaint(nsISVGRendererCanvas *aCanvas,
                         nsRect(0, 0, filterResX, filterResY));
 
   for (PRUint32 k=0; k<count; ++k) {
-    nsresult rv;
     nsIContent* child = mContent->GetChildAt(k);
 
     nsCOMPtr<nsISVGFilter> filter = do_QueryInterface(child);
-    if (filter)
-      rv = filter->Filter(&instance);
-    if (NS_FAILED(rv)) {
+    if (filter && NS_FAILED(filter->Filter(&instance))) {
       FilterFailCleanup(aCanvas, aTarget);
       return NS_OK;
     }

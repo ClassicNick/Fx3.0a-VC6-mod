@@ -60,6 +60,7 @@
 #include "nsSVGClipPathFrame.h"
 #include "nsSVGMaskFrame.h"
 #include "nsISVGRendererSurface.h"
+#include "nsGkAtoms.h"
 
 typedef nsContainerFrame nsSVGInnerSVGFrameBase;
 
@@ -92,15 +93,15 @@ public:
                            nsIFrame*      aFrameList);
   NS_IMETHOD  RemoveFrame(nsIAtom*       aListName,
                           nsIFrame*      aOldFrame);
-  NS_IMETHOD Init(nsPresContext*  aPresContext,
-                  nsIContent*     aContent,
+  NS_IMETHOD Init(nsIContent*     aContent,
                   nsIFrame*       aParent,
                   nsStyleContext* aContext,
                   nsIFrame*       aPrevInFlow);
 
-  NS_IMETHOD  AttributeChanged(PRInt32        aNameSpaceID,
-                               nsIAtom*       aAttribute,
-                               PRInt32        aModType);
+  // We don't define an AttributeChanged method since changes to the
+  // 'x', 'y', 'width' and 'height' attributes of our content object
+  // are handled in nsSVGSVGElement::DidModifySVGObservable
+
   /**
    * Get the "type" of the frame
    *
@@ -217,9 +218,6 @@ nsresult nsSVGInnerSVGFrame::Init()
     length->GetAnimVal(getter_AddRefs(mX));
     NS_ASSERTION(mX, "no x");
     if (!mX) return NS_ERROR_FAILURE;
-    nsCOMPtr<nsISVGValue> value = do_QueryInterface(mX);
-    if (value)
-      value->AddObserver(this);  // nsISVGValueObserver
   }
 
   {
@@ -228,9 +226,6 @@ nsresult nsSVGInnerSVGFrame::Init()
     length->GetAnimVal(getter_AddRefs(mY));
     NS_ASSERTION(mY, "no y");
     if (!mY) return NS_ERROR_FAILURE;
-    nsCOMPtr<nsISVGValue> value = do_QueryInterface(mY);
-    if (value)
-      value->AddObserver(this);
   }
 
   return NS_OK;
@@ -252,15 +247,13 @@ NS_INTERFACE_MAP_END_INHERITING(nsSVGInnerSVGFrameBase)
 // nsIFrame methods
 
 NS_IMETHODIMP
-nsSVGInnerSVGFrame::Init(nsPresContext*  aPresContext,
-                         nsIContent*     aContent,
+nsSVGInnerSVGFrame::Init(nsIContent*     aContent,
                          nsIFrame*       aParent,
                          nsStyleContext* aContext,
                          nsIFrame*       aPrevInFlow)
 {
   nsresult rv;
-  rv = nsSVGInnerSVGFrameBase::Init(aPresContext, aContent, aParent,
-                             aContext, aPrevInFlow);
+  rv = nsSVGInnerSVGFrameBase::Init(aContent, aParent, aContext, aPrevInFlow);
 
   Init();
   
@@ -327,21 +320,6 @@ nsSVGInnerSVGFrame::RemoveFrame(nsIAtom*       aListName,
 
   NS_ASSERTION(result, "didn't find frame to delete");
   return result ? NS_OK : NS_ERROR_FAILURE;
-}
-
-NS_IMETHODIMP
-nsSVGInnerSVGFrame::AttributeChanged(PRInt32        aNameSpaceID,
-                                     nsIAtom*       aAttribute,
-                                     PRInt32        aModType)
-{
-#ifdef DEBUG
-    nsAutoString str;
-    aAttribute->ToString(str);
-    printf("** nsSVGInnerSVGFrame::AttributeChanged(%s)\n",
-           NS_LossyConvertUTF16toASCII(str).get());
-#endif
-
-  return NS_OK;
 }
 
 nsIAtom *

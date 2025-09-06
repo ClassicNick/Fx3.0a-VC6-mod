@@ -1172,7 +1172,7 @@ function serv_ppline(e)
         ev.data = lines[i].replace(/\r/g, "");
         if (ev.data)
         {
-            if (ev.data.match(/^(?::[^ ]+ )?32[123] /i))
+            if (ev.data.match(/^(?::[^ ]+ )?(?:32[123]|352|315) /i))
                 this.parent.eventPump.addBulkEvent(ev);
             else
                 this.parent.eventPump.addEvent(ev);
@@ -1816,6 +1816,15 @@ function serv_348(e)
     e.channel = new CIRCChannel(this, null, e.params[2]);
     e.destObject = e.channel;
     e.set = "channel";
+    e.except = e.params[3];
+    e.user = new CIRCUser(this, null, e.params[4]);
+    e.exceptTime = new Date (Number(e.params[5]) * 1000);
+
+    if (typeof e.channel.excepts[e.except] == "undefined")
+    {
+        e.channel.excepts[e.except] = {host: e.except, user: e.user,
+                                       time: e.exceptTime };
+    }
 
     return true;
 }
@@ -2462,7 +2471,7 @@ function serv_cact (e)
 CIRCServer.prototype.onCTCPFinger =
 function serv_cfinger (e)
 {
-    e.user.ctcp("FINGER", this.parent.prefs["desc"], "NOTICE");
+    e.user.ctcp("FINGER", this.parent.INITIAL_DESC, "NOTICE");
     return true;
 }
 
@@ -2623,6 +2632,7 @@ function CIRCChannel(parent, unicodeName, encodedName)
 
     this.users = new Object();
     this.bans = new Object();
+    this.excepts = new Object();
     this.mode = new CIRCChanMode(this);
     this.usersStable = true;
     /* These next two flags represent a subtle difference in state:
@@ -3177,6 +3187,10 @@ function CIRCChanUser(parent, unicodeName, encodedName, modes)
                 }
             }
         }
+        existingUser.isFounder = (arrayContains(existingUser.modes, "q")) ?
+            true : false;
+        existingUser.isAdmin = (arrayContains(existingUser.modes, "a")) ?
+            true : false;
         existingUser.isOp = (arrayContains(existingUser.modes, "o")) ?
             true : false;
         existingUser.isHalfOp = (arrayContains(existingUser.modes, "h")) ?
@@ -3207,6 +3221,8 @@ function CIRCChanUser(parent, unicodeName, encodedName, modes)
     this.modes = new Array();
     if (typeof modes != "undefined")
         this.modes = modes;
+    this.isFounder = (arrayContains(this.modes, "q")) ? true : false;
+    this.isAdmin = (arrayContains(this.modes, "a")) ? true : false;
     this.isOp = (arrayContains(this.modes, "o")) ? true : false;
     this.isHalfOp = (arrayContains(this.modes, "h")) ? true : false;
     this.isVoice = (arrayContains(this.modes, "v")) ? true : false;

@@ -48,6 +48,7 @@
 #include "nsPIDOMWindow.h"
 #include "nsIViewManager.h"
 #include "nsGUIEvent.h"
+#include "nsEventDispatcher.h"
 #include "nsDisplayList.h"
 
 //
@@ -69,15 +70,15 @@ nsTitleBarFrame::nsTitleBarFrame(nsIPresShell* aPresShell)
 
 
 
-NS_IMETHODIMP  nsTitleBarFrame::Init(nsPresContext*  aPresContext,
-                nsIContent*      aContent,
-                nsIFrame*        aParent,
-                nsStyleContext*  aContext,
-                nsIFrame*        asPrevInFlow)
+NS_IMETHODIMP
+nsTitleBarFrame::Init(nsIContent*      aContent,
+                      nsIFrame*        aParent,
+                      nsStyleContext*  aContext,
+                      nsIFrame*        asPrevInFlow)
 {
-  nsresult rv = nsBoxFrame::Init(aPresContext, aContent, aParent, aContext, asPrevInFlow);
+  nsresult rv = nsBoxFrame::Init(aContent, aParent, aContext, asPrevInFlow);
 
-  CreateViewForFrame(aPresContext,this,aContext,PR_TRUE);
+  CreateViewForFrame(GetPresContext(), this, aContext, PR_TRUE);
 
   return rv;
 }
@@ -219,6 +220,5 @@ nsTitleBarFrame::MouseClicked(nsPresContext* aPresContext, nsGUIEvent* aEvent)
   nsMouseEvent event(aEvent ? NS_IS_TRUSTED_EVENT(aEvent) : PR_FALSE,
                      NS_XUL_COMMAND, nsnull, nsMouseEvent::eReal);
 
-  mContent->HandleDOMEvent(aPresContext, &event, nsnull, NS_EVENT_FLAG_INIT,
-                           &status);
+  nsEventDispatcher::Dispatch(mContent, aPresContext, &event, nsnull, &status);
 }

@@ -43,6 +43,7 @@ use Bugzilla::BugMail;
 use Bugzilla::Product;
 use Bugzilla::Classification;
 use Bugzilla::Milestone;
+use Bugzilla::Group;
 
 # Shut up misguided -w warnings about "used only once".  "use vars" just
 # doesn't work for me.
@@ -234,7 +235,7 @@ if ($action eq 'new') {
     if (Param("makeproductgroups")) {
         # Next we insert into the groups table
         my $productgroup = $product->name;
-        while (GroupExists($productgroup)) {
+        while (group_name_to_id($productgroup)) {
             $productgroup .= '_';
         }
         my $group_description = "Access to bugs in the " .
@@ -249,7 +250,7 @@ if ($action eq 'new') {
 
         # If we created a new group, give the "admin" group priviledges
         # initially.
-        my $admin = GroupNameToId('admin');
+        my $admin = group_name_to_id('admin');
         
         my $sth = $dbh->prepare('INSERT INTO group_group_map
                                  (member_id, grantor_id, grant_type)
@@ -293,7 +294,7 @@ if ($action eq 'new') {
 
         # For localisation reasons, we get the name of the "global" subcategory
         # and the title of the "open" query from the submitted form.
-        my @openedstatuses = OpenStates();
+        my @openedstatuses = BUG_STATE_OPEN;
         my $query = 
                join("&", map { "bug_status=" . url_quote($_) } @openedstatuses);
         push(@series, [$open_name, $query]);

@@ -51,10 +51,6 @@
   'bug.bug_id',
 ],
 
-'sidebar.xul.tmpl' => [
-  'template_version', 
-],
-
 'flag/list.html.tmpl' => [
   'flag.id', 
   'flag.status', 
@@ -557,10 +553,6 @@
   'comp.bug_count'
 ],
 
-'admin/components/deleted.html.tmpl' => [
-  'deleted_bug_count'
-],
-
 'admin/users/confirm-delete.html.tmpl' => [
   'andstring',
   'responsibilityterms.$responsibility',
@@ -589,18 +581,6 @@
 
 'admin/components/edit.html.tmpl' => [
   'comp.bug_count'
-],
-
-'admin/milestones/confirm-delete.html.tmpl' => [
-  'bug_count'
-],
-
-'admin/milestones/deleted.html.tmpl' => [
-  'bug_count'
-],
-
-'admin/versions/confirm-delete.html.tmpl' => [
-  'bug_count'
 ],
 
 'admin/settings/edit.html.tmpl' => [

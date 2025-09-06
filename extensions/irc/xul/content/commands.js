@@ -54,7 +54,7 @@ function initCommands()
          ["attach",            cmdAttach,                          CMD_CONSOLE],
          ["away",              cmdAway,                            CMD_CONSOLE],
          ["back",              cmdAway,                            CMD_CONSOLE],
-         ["ban",               cmdBan,             CMD_NEED_CHAN | CMD_CONSOLE],
+         ["ban",               cmdBanOrExcept,     CMD_NEED_CHAN | CMD_CONSOLE],
          ["cancel",            cmdCancel,           CMD_NEED_NET | CMD_CONSOLE],
          ["charset",           cmdCharset,                         CMD_CONSOLE],
          ["channel-motif",     cmdMotif,           CMD_NEED_CHAN | CMD_CONSOLE],
@@ -105,6 +105,7 @@ function initCommands()
          ["echo",              cmdEcho,                            CMD_CONSOLE],
          ["enable-plugin",     cmdAblePlugin,                      CMD_CONSOLE],
          ["eval",              cmdEval,                            CMD_CONSOLE],
+         ["except",            cmdBanOrExcept,     CMD_NEED_CHAN | CMD_CONSOLE],
          ["find",              cmdFind,                                      0],
          ["find-again",        cmdFindAgain,                                 0],
          ["focus-input",       cmdFocusInput,                                0],
@@ -188,7 +189,8 @@ function initCommands()
          ["toggle-pref",       cmdTogglePref,                                0],
          ["topic",             cmdTopic,           CMD_NEED_CHAN | CMD_CONSOLE],
          ["unignore",          cmdIgnore,           CMD_NEED_NET | CMD_CONSOLE],
-         ["unban",             cmdBan,             CMD_NEED_CHAN | CMD_CONSOLE],
+         ["unban",             cmdBanOrExcept,     CMD_NEED_CHAN | CMD_CONSOLE],
+         ["unexcept",          cmdBanOrExcept,     CMD_NEED_CHAN | CMD_CONSOLE],
          ["unstalk",           cmdUnstalk,                         CMD_CONSOLE],
          ["urls",              cmdURLs,                            CMD_CONSOLE],
          ["user",              cmdUser,                            CMD_CONSOLE],
@@ -209,6 +211,9 @@ function initCommands()
          ["j",                "join",                              CMD_CONSOLE],
          ["part",             "leave",                             CMD_CONSOLE],
          ["raw",              "quote",                             CMD_CONSOLE],
+         // Shortcuts to useful URLs:
+         ["faq",              "goto-url http://chatzilla.hacksrus.com/faq/", 0],
+         ["homepage",         "goto-url http://chatzilla.hacksrus.com/",     0],
          // Used to display a nickname in the menu only.
          ["label-user",       "echo",                                        0],
          // These are all the font family/size menu commands...
@@ -827,24 +832,24 @@ function cmdAblePlugin(e)
     }
 }
 
-function cmdBan(e)
+function cmdBanOrExcept(e)
 {
     /* If we're unbanning, or banning in odd cases, we may actually be talking
      * about a user who is not in the channel, so we need to check the server
      * for information as well.
      */
-    if (!e.user)
+    if (!e.user && e.nickname)
         e.user = e.channel.getUser(e.nickname);
-    if (!e.user)
+    if (!e.user && e.nickname)
         e.user = e.server.getUser(e.nickname);
 
-    var mask;
+    var mask = "";
     if (e.user)
     {
         // We have a real user object, so get their proper 'ban mask'.
         mask = e.user.getBanMask();
     }
-    else
+    else if (e.nickname)
     {
         /* If we have either ! or @ in the nickname assume the user has given
          * us a complete mask and pass it directly, otherwise assume it is
@@ -855,7 +860,22 @@ function cmdBan(e)
             mask = mask + "!*@*";
     }
 
-    var op = (e.command.name == "unban") ? " -b " : " +b ";
+    var op;
+    switch (e.command.name)
+    {
+        case "ban":
+            op = " +b ";
+            break;
+        case "unban":
+            op = " -b ";
+            break;
+        case "except":
+            op = " +e ";
+            break;
+        case "unexcept":
+            op = " -e ";
+            break;
+    }
     e.server.sendData("MODE " + e.channel.encodedName + op + mask + "\n");
 }
 
@@ -1454,7 +1474,16 @@ function cmdSSLServer(e)
 
 function cmdQuit(e)
 {
-    client.wantToQuit(e.reason);
+    // if we're not connected to anything, just close the window
+    if (!("getConnectionCount" in client) || (client.getConnectionCount() == 0))
+    {
+         client.userClose = true;
+         window.close();
+         return;
+    }
+
+    // Otherwise, try to close gracefully:
+    client.wantToQuit(e.reason, true);
 }
 
 function cmdDisconnect(e)
@@ -2099,7 +2128,7 @@ function cmdGotoURL(e)
         return;
     }
 
-    if (e.command.name == "goto-url-external")
+    if ((e.command.name == "goto-url-external") || (client.host == "XULrunner"))
     {
         const ioSvc = getService(IO_SVC, "nsIIOService");
         const extProtoSvc = getService(EXT_PROTO_SVC,

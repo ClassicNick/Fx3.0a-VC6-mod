@@ -116,8 +116,7 @@ public:
 
   virtual nsIAtom* GetType() const;
 
-  NS_IMETHOD Init(nsPresContext*  aPresContext,
-                  nsIContent*      aContent,
+  NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
                   nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
@@ -155,7 +154,6 @@ public:
 protected:
   nsSize GetMargin();
   PRBool IsInline() { return mIsInline; }
-  nsresult ReloadURL();
   nsresult ShowDocShell();
   nsresult CreateViewAndWidget(nsContentType aContentType);
 
@@ -211,8 +209,7 @@ nsSubDocumentFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
 }
 
 NS_IMETHODIMP
-nsSubDocumentFrame::Init(nsPresContext* aPresContext,
-                         nsIContent*     aContent,
+nsSubDocumentFrame::Init(nsIContent*     aContent,
                          nsIFrame*       aParent,
                          nsStyleContext* aContext,
                          nsIFrame*       aPrevInFlow)
@@ -223,10 +220,11 @@ nsSubDocumentFrame::Init(nsPresContext* aPresContext,
     mIsInline = frameElem ? PR_FALSE : PR_TRUE;
   }
 
-  nsresult rv =  nsLeafFrame::Init(aPresContext, aContent, aParent,
-                                   aContext, aPrevInFlow);
+  nsresult rv =  nsLeafFrame::Init(aContent, aParent, aContext, aPrevInFlow);
   if (NS_FAILED(rv))
     return rv;
+    
+  nsPresContext *aPresContext = GetPresContext();
 
   // We are going to create an inner view.  If we need a view for the
   // OuterFrame but we wait for the normal view creation path in
@@ -485,11 +483,10 @@ nsSubDocumentFrame::AttributeChanged(PRInt32 aNameSpaceID,
     return NS_OK;
   }
   
-  nsIAtom *type = mContent->Tag();
-
-  if ((type != nsHTMLAtoms::object && aAttribute == nsHTMLAtoms::src) ||
-      (type == nsHTMLAtoms::object && aAttribute == nsHTMLAtoms::data)) {
-    ReloadURL();
+  if (aAttribute == nsHTMLAtoms::src) {
+    if (mOwnsFrameLoader && mFrameLoader) {
+      mFrameLoader->LoadFrame();
+    }
   }
   // If the noResize attribute changes, dis/allow frame to be resized
   else if (aAttribute == nsHTMLAtoms::noresize) {
@@ -818,18 +815,3 @@ nsSubDocumentFrame::CreateViewAndWidget(nsContentType aContentType)
   return innerView->CreateWidget(kCChildCID, nsnull, nsnull, PR_TRUE, PR_TRUE,
                                  aContentType);
 }
-
-// load a new url
-nsresult
-nsSubDocumentFrame::ReloadURL()
-{
-  if (!mOwnsFrameLoader || !mFrameLoader) {
-    // If we don't own the frame loader, we're not in charge of what's
-    // loaded into it.
-    return NS_OK;
-  }
-
-  return mFrameLoader->LoadFrame();
-}
-
-

@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
 
+<!DOCTYPE bindings [
+<!ENTITY % browserDTD SYSTEM "chrome://browser/locale/browser.dtd" >
+%browserDTD;
+]>
+
 <bindings id="placesToolbarBindings"
           xmlns="http://www.mozilla.org/xbl"
           xmlns:xbl="http://www.mozilla.org/xbl"
@@ -17,7 +22,9 @@
           <xul:hbox class="toolbar-drop-indicator"/>
         </xul:hbox>
         <xul:hbox flex="1">
-          <children/>
+          <xul:hbox class="bookmarks-toolbar-items places-toolbar-items" flex="1">
+            <children/>
+          </xul:hbox>
           <xul:hbox mousethrough="always"
                     flex="1"
                     pack="end">
@@ -32,12 +39,16 @@
 							 />
             </xul:toolbarbutton>
           </xul:hbox>
+          <xul:toolbarbutton class="bookmark-item bookmarks-toolbar-customize"
+                             mousethrough="never"
+                             label="&bookmarksToolbarItem.label;"/>
         </xul:hbox>
       </xul:vbox>
     </content>
     
     <implementation>
-      <constructor><![CDATA[ 
+      <constructor><![CDATA[
+        // this.init(); -- causes Ts regression on windows
       ]]></constructor>
       
       <destructor><![CDATA[ 
@@ -59,19 +70,19 @@
                                 function f(e) { t.updateChevron(e); },
                                 false);
 
-        var query = this._places.getNewQuery();
-        query.setFolders([this._bms.toolbarRoot], 1);
-        var options = this._places.getNewQueryOptions();
-        options.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
-        options.expandQueries = true;
-        this._result = this._places.executeQuery(query, options);
+        var queryString = this.getAttribute("place");
+        var queries = { }, options = { };
+        this._places.queryStringToQueries(queryString, queries, { }, options);
+        if (!queries.value.length) 
+          queries.value = [this._places.getNewQuery()];
+        this._result = this._places.executeQueries(queries.value, queries.value.length, options.value);
         this._result.root.containerOpen = true;
         this._rebuild();
         ]]></body>
       </method>
 
-      <field name="_dropIndicatorBar">document.getAnonymousNodes(this)[0].firstChild</field>
-      <field name="_chevron">document.getAnonymousNodes(this)[0].childNodes[1].firstChild.firstChild</field>
+      <field name="_dropIndicatorBar">document.getAnonymousElementByAttribute(this, "class", "toolbar-drop-indicator-bar")</field>
+      <field name="_chevron">document.getAnonymousElementByAttribute(this, "class", "chevron")</field>
       
       <field name="_selection">null</field>
       
@@ -98,11 +109,14 @@
           var cc = this._result.root.childCount;
           for (var i = 0; i < cc; ++i) {
             var child = this._result.root.getChild(i);
-            var button = document.createElementNS(XULNS, "toolbarbutton");
-            button.setAttribute("label", child.title);
+            var button = null;
             if (PlacesController.nodeIsURI(child)) {
+              button = document.createElementNS(XULNS, "toolbarbutton");
               button.setAttribute("url", child.uri);
+            } else if (PlacesController.nodeIsSeparator(child)) {
+              button = document.createElementNS(XULNS, "toolbarseparator");
             } else if (PlacesController.nodeIsContainer(child)) {
+              button = document.createElementNS(XULNS, "toolbarbutton");
               button.setAttribute("type", "menu");
               button.setAttribute("container", "true");
               var popup = document.createElementNS(XULNS, "menupopup");
@@ -117,6 +131,7 @@
               popup._result = this._result;
               popup._resultNode = child;
             }
+            button.setAttribute("label", child.title);
             if (child.icon)
               button.setAttribute("image", child.icon.spec);
             button.className = "menuitem-iconic bookmark-item";
@@ -356,12 +371,12 @@
           setTimeout(hitch(this._self, this._self._rebuild), 1);
         },
         onSeparatorAdded: function TB_O_onSeparatorAdded(parent, index) {
-          if (!this._numBatches)
-            this._self.init();
+          if (parent == this._self._bms.toolbarRoot)
+            this._numBatches ? this._batchedOperation = true : this.doRebuild();
         },
         onSeparatorRemoved: function TB_O_onSeparatorRemoved(parent, index) {
-          if (!this._numBatches)
-            this._self.init();
+          if (parent == this._self._bms.toolbarRoot)
+            this._numBatches ? this._batchedOperation = true : this.doRebuild();
         }
       })]]></field>
       <field name="_DNDObserver"><![CDATA[({
@@ -588,7 +603,7 @@
           for (var i = 0; i < this._self.supportedDropTypes.length; ++i)
             flavorSet.appendFlavour(this._self.supportedDropTypes[i]);
           return flavorSet;
-        },
+        }
         
       })]]></field>
       
@@ -629,21 +644,14 @@
     <handlers>
       <handler event="mousedown"><![CDATA[
         // When the user clicks down on a button, set it as the selection and 
-        // tell the controller that we are the active view. 
-        if (event.target.localName == "toolbarbutton")
+        // tell the controller that we are the active view.
+        if (event.target.localName == "toolbarbutton" ||
+            event.target.localName == "toolbarseparator")
           this._selection = event.target.node;
         else 
           this._selection = this.getResult().root;
         PlacesController.activeView = this;
         document.commandDispatcher.updateCommands("mousedown");
-      ]]></handler>
-      <handler event="click"><![CDATA[
-        // Filter out events from non-toolbarbuttons
-        // Only left or middle clicks should load the URI
-        if (event.target.localName != "toolbarbutton" ||
-            event.button > 1)
-          return;
-        PlacesController.mouseLoadURI(event);
       ]]></handler>
       <handler event="draggesture"><![CDATA[
         if (event.target.localName == "toolbarbutton" && 

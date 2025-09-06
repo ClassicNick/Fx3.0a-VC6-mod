@@ -78,14 +78,13 @@ nsContainerFrame::~nsContainerFrame()
 }
 
 NS_IMETHODIMP
-nsContainerFrame::Init(nsPresContext*  aPresContext,
-                       nsIContent*      aContent,
+nsContainerFrame::Init(nsIContent*      aContent,
                        nsIFrame*        aParent,
                        nsStyleContext*  aContext,
                        nsIFrame*        aPrevInFlow)
 {
   nsresult rv;
-  rv = nsSplittableFrame::Init(aPresContext, aContent, aParent, aContext, aPrevInFlow);
+  rv = nsSplittableFrame::Init(aContent, aParent, aContext, aPrevInFlow);
   if (aPrevInFlow) {
     // Make sure we copy bits from our prev-in-flow that will affect
     // us. A continuation for a container frame needs to know if it
@@ -378,6 +377,7 @@ SyncFrameViewGeometryDependentProperties(nsPresContext*  aPresContext,
     if (doc) {
       nsIContent *rootElem = doc->GetRootContent();
       if (!doc->GetParentDocument() &&
+          (nsCOMPtr<nsISupports>(doc->GetContainer())) &&
           rootElem && rootElem->IsContentOfType(nsIContent::eXUL)) {
         // we're XUL at the root of the document hierarchy. Try to make our
         // window translucent.

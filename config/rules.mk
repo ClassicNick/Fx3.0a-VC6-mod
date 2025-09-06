@@ -995,18 +995,26 @@ $(DEF_FILE): $(OBJS) $(SHARED_LIBRARY_LIBS)
 	echo EXPORTS >> $@
 ifeq ($(IS_COMPONENT),1)
 ifeq ($(HAS_EXTRAEXPORTS),1)
+ifndef MOZ_OS2_USE_DECLSPEC
 	$(FILTER) $(OBJS) $(SHARED_LIBRARY_LIBS) >> $@
+endif	
 else
 	echo    _NSGetModule >> $@
 endif
 else
+ifndef MOZ_OS2_USE_DECLSPEC
 	$(FILTER) $(OBJS) $(SHARED_LIBRARY_LIBS) >> $@
+endif	
 endif
 	$(ADD_TO_DEF_FILE)
 
+ifdef MOZ_OS2_USE_DECLSPEC
+$(IMPORT_LIBRARY): $(SHARED_LIBRARY)
+else
 $(IMPORT_LIBRARY): $(DEF_FILE)
+endif
 	rm -f $@
-	$(IMPLIB) $@ $(DEF_FILE)
+	$(IMPLIB) $@ $^
 	$(RANLIB) $@
 endif # OS/2
 
@@ -1047,10 +1055,12 @@ endif # NO_LD_ARCHIVE_FLAGS
 	$(MKSHLIB) $(SHLIB_LDSTARTFILE) $(OBJS) $(LOBJS) $(SUB_SHLOBJS) $(RESFILE) $(LDFLAGS) $(EXTRA_DSO_LDOPTS) $(OS_LIBS) $(EXTRA_LIBS) $(DEF_FILE) $(SHLIB_LDENDFILE)
 ifeq (_WINNT,$(GNU_CC)_$(OS_ARCH))
 ifdef MSMANIFEST_TOOL
+ifdef EMBED_MANIFEST_AT
 	@if test -f $@.manifest; then \
-		mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;1; \
+		mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;$(EMBED_MANIFEST_AT); \
 		rm -f $@.manifest; \
 	fi
+endif   # embed manifest
 endif	# MSVC with manifest tool
 endif	# WINNT && !GCC
 	@rm -f foodummyfilefoo $(SUB_SHLOBJS) $(DELETE_AFTER_LINK)

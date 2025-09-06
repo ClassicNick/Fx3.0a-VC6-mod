@@ -43,6 +43,7 @@ use Bugzilla::Bug;
 use Bugzilla::User;
 use Bugzilla::Hook;
 use Bugzilla::Product;
+use Bugzilla::Keyword;
 require "globals.pl";
 
 use vars qw(
@@ -51,8 +52,6 @@ use vars qw(
   @legal_platform
   @legal_priority
   @legal_severity
-  @legal_keywords
-  %versions
   %target_milestone
 );
 
@@ -376,7 +375,7 @@ $vars->{'bug_severity'}          = \@legal_severity;
 $vars->{'rep_platform'}          = \@legal_platform;
 $vars->{'op_sys'}                = \@legal_opsys; 
 
-$vars->{'use_keywords'}          = 1 if (@::legal_keywords);
+$vars->{'use_keywords'}          = 1 if Bugzilla::Keyword::keyword_count();
 
 $vars->{'assigned_to'}           = formvalue('assigned_to');
 $vars->{'assigned_to_disabled'}  = !UserInGroup('editbugs');
@@ -467,7 +466,7 @@ else {
 #
 # Eventually maybe each product should have a "current version"
 # parameter.
-$vars->{'version'} = $::versions{$product} || [];
+$vars->{'version'} = [map($_->name, @{$prod_obj->versions})];
 
 if ( ($cloned_bug_id) &&
      ("$product" eq "$cloned_bug->{'product'}" ) ) {

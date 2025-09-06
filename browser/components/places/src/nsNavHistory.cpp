@@ -40,6 +40,7 @@
 #include "nsNavHistory.h"
 #include "nsNavBookmarks.h"
 #include "nsMorkHistoryImporter.h"
+#include "nsAnnotationService.h"
 
 #include "nsArray.h"
 #include "nsArrayEnumerator.h"
@@ -371,16 +372,6 @@ nsNavHistory::Init()
 
 // nsNavHistory::InitDB
 //
-//    sqlite page caches are discarded when a statement is complete. This sucks
-//    for things like history queries where we do many small reads. This means
-//    that for every small transaction, we have to re-read from disk (or the OS
-//    cache) all pages associated with that transaction.
-//
-//    To get around this, we keep a different connection. This dummy connection
-//    has a statement that stays open and thus keeps is pager cache in memory.
-//    When the shared pager cache is enabled before either connection has been
-//    opened (this is done by the storage service on DB init), our main
-//    connection will get the same pager cache, which will be persisted.
 
 nsresult
 nsNavHistory::InitDB(PRBool *aDoImport)
@@ -402,20 +393,23 @@ nsNavHistory::InitDB(PRBool *aDoImport)
   rv = mDBService->OpenDatabase(dbFile, getter_AddRefs(mDBConn));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // dummy DB (see comment above function) and statement that stays open
+  // dummy database connection
   rv = mDBService->OpenDatabase(dbFile, getter_AddRefs(mDummyDBConn));
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = mDummyDBConn->CreateStatement(NS_LITERAL_CSTRING(
-      "SELECT rowid FROM sqlite_master LIMIT 1"), getter_AddRefs(mDummyStatement));
-  NS_ENSURE_SUCCESS(rv, rv);
-  PRBool dummyHasResults;
-  rv = mDummyStatement->ExecuteStep(&dummyHasResults);
-  NS_ENSURE_SUCCESS(rv, rv);
-  // ...now forget about that statement, keeping it open
 
-  // the favicon tables must be initialized, since we depend on those in
-  // some of our queries
+  // Initialize the other places services' database tables. We do this before:
+  //
+  // - Starting the dummy statement, because once the dummy statement has
+  //   started we can't modify the schema. Stopping and re-starting the
+  //   dummy statement is pretty heavyweight
+  //
+  // - Creating our statements. Some of our statements depend on these external
+  //   tables, such as the bookmarks or favicon tables.
+  rv = nsNavBookmarks::InitTables(mDBConn);
+  NS_ENSURE_SUCCESS(rv, rv);
   rv = nsFaviconService::InitTables(mDBConn);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = nsAnnotationService::InitTables(mDBConn);
   NS_ENSURE_SUCCESS(rv, rv);
 
 // REMOVE ME FIXME TODO XXX
@@ -462,6 +456,12 @@ nsNavHistory::InitDB(PRBool *aDoImport)
         NS_LITERAL_CSTRING("CREATE INDEX moz_historyvisit_pageindex ON moz_historyvisit (page_id)"));
     NS_ENSURE_SUCCESS(rv, rv);
   }
+
+  // --- PUT SCHEMA-MODIFYING THINGS (like create table) ABOVE THIS LINE ---
+
+  // now that the schema has been finalized, we can initialize the dummy stmt.
+  rv = StartDummyStatement();
+  NS_ENSURE_SUCCESS(rv, rv);
 
   // functions (must happen after table creation)
 
@@ -655,6 +655,99 @@ nsNavHistory::InitMemDB()
   return NS_OK;
 }
 #endif
+
+
+// nsNavHistory::StartDummyStatement
+//
+//    sqlite page caches are discarded when a statement is complete. This sucks
+//    for things like history queries where we do many small reads. This means
+//    that for every small transaction, we have to re-read from disk (or the OS
+//    cache) all pages associated with that transaction.
+//
+//    To get around this, we keep a different connection. This dummy connection
+//    has a statement that stays open and thus keeps its pager cache in memory.
+//    When the shared pager cache is enabled before either connection has been
+//    opened (this is done by the storage service on DB init), our main
+//    connection will get the same pager cache, which will be persisted.
+//
+//    HOWEVER, when a statement is open on a database, it is disallowed to
+//    change the schema of the database (add or modify tables or indices).
+//    We deal with this in two ways. First, for initialization, all the
+//    services that depend on the places connection are told to create their
+//    tables using static functions. This happens before StartDummyStatement
+//    is called in InitDB so that this problem doesn't happen.
+//
+//    If some service needs to change the schema for some reason after this,
+//    they can call StopDummyStatement which will terminate the statement and
+//    clear the cache. This will allow the database schema to be modified, but
+//    will have bad performance implications (because the cache will need to
+//    be re-loaded). It is also possible for some buggy function to leave a
+//    statement open that will prevent modifictation of the DB.
+
+nsresult
+nsNavHistory::StartDummyStatement()
+{
+  nsresult rv;
+  NS_ASSERTION(mDummyDBConn, "The dummy connection should have been set up by Init");
+
+  // do nothing if the dummy statement is already running
+  if (mDBDummyStatement)
+    return NS_OK;
+
+  // Make sure the dummy table exists
+  PRBool tableExists;
+  rv = mDBConn->TableExists(NS_LITERAL_CSTRING("moz_dummy_table"), &tableExists);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (! tableExists) {
+    rv = mDBConn->ExecuteSimpleSQL(
+        NS_LITERAL_CSTRING("CREATE TABLE moz_dummy_table (id INTEGER PRIMARY KEY)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  // This table is guaranteed to have something in it and will keep the dummy
+  // statement open. If the table is empty, it won't hold the statement open.
+  // the PRIMARY KEY value on ID means that it is unique. The OR IGNORE means
+  // that if there is already a value of 1 there, this insert will be ignored,
+  // which is what we want so as to avoid growing the table infinitely.
+  rv = mDBConn->ExecuteSimpleSQL(
+      NS_LITERAL_CSTRING("INSERT OR IGNORE INTO moz_dummy_table VALUES (1)"));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = mDummyDBConn->CreateStatement(NS_LITERAL_CSTRING(
+      "SELECT id FROM moz_dummy_table LIMIT 1"),
+    getter_AddRefs(mDBDummyStatement));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // we have to step the dummy statement so that it will hold a lock on the DB
+  PRBool dummyHasResults;
+  rv = mDBDummyStatement->ExecuteStep(&dummyHasResults);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return NS_OK;
+}
+
+
+// nsNavHistory::StopDummyStatement
+//
+//    @see StartDummyStatement for how this works.
+//
+//    It is very important that if the dummy statement is ever stopped, that
+//    it is restarted as soon as possible, or else the whole browser will run
+//    without DB cache, which will slow everything down.
+
+nsresult
+nsNavHistory::StopDummyStatement()
+{
+  // do nothing if the dummy statement isn't running
+  if (! mDBDummyStatement)
+    return NS_OK;
+
+  nsresult rv = mDBDummyStatement->Reset();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  mDBDummyStatement = nsnull;
+  return NS_OK;
+}
 
 
 // nsNavHistory::SaveExpandItem
@@ -2583,7 +2676,7 @@ nsNavHistory::SetURIGeckoFlags(nsIURI* aURI, PRUint32 aFlags)
 
 // nsIGlobalHistory3 ***********************************************************
 
-// nsNavHistory::AddToplevelRedirect
+// nsNavHistory::AddDocumentRedirect
 //
 //    This adds a redirect mapping from the destination of the redirect to the
 //    source, time, and type. This mapping is used by GetRedirectFor when we
@@ -2600,8 +2693,10 @@ PLDHashOperator PR_CALLBACK nsNavHistory::ExpireNonrecentRedirects(
   return PL_DHASH_NEXT;
 }
 NS_IMETHODIMP
-nsNavHistory::AddToplevelRedirect(nsIChannel *aOldChannel,
-                                  nsIChannel *aNewChannel, PRInt32 aFlags)
+nsNavHistory::AddDocumentRedirect(nsIChannel *aOldChannel,
+                                  nsIChannel *aNewChannel,
+                                  PRInt32 aFlags,
+                                  PRBool aTopLevel)
 {
   nsresult rv;
   nsCOMPtr<nsIURI> oldURI, newURI;
@@ -3180,7 +3275,7 @@ nsNavHistory::ExpireNonrecentEvents(RecentEventHash* hashTable)
 //
 //    HOW REDIRECT TRACKING WORKS
 //    ---------------------------
-//    When we get an AddToplevelRedirect message, we store the redirect in
+//    When we get an AddDocumentRedirect message, we store the redirect in
 //    our mRecentRedirects which maps the destination URI to a source,time pair.
 //    When we get a new URI, we see if there were any redirects to this page
 //    in the hash table. If found, we know that the page came through the given
@@ -3188,8 +3283,8 @@ nsNavHistory::ExpireNonrecentEvents(RecentEventHash* hashTable)
 //
 //    Example: Page S redirects throught R1, then R2, to give page D. Page S
 //    will have been already added to history.
-//    - AddToplevelRedirect(R1, R2)
-//    - AddToplevelRedirect(R2, D)
+//    - AddDocumentRedirect(R1, R2)
+//    - AddDocumentRedirect(R2, D)
 //    - AddURI(uri=D, referrer=S)
 //
 //    When we get the AddURI(D), we see the hash table has a value for D from R2.
@@ -3200,8 +3295,8 @@ nsNavHistory::ExpireNonrecentEvents(RecentEventHash* hashTable)
 //    Alternatively, the user could have typed or followed a bookmark from S.
 //    In this case, with two redirects we'll get:
 //    - MarkPageAsTyped(S)
-//    - AddToplevelRedirect(S, R)
-//    - AddToplevelRedirect(R, D)
+//    - AddDocumentRedirect(S, R)
+//    - AddDocumentRedirect(R, D)
 //    - AddURI(uri=D, referrer=null)
 //    We need to be careful to add a visit to S in this case with an incoming
 //    transition of typed and an outgoing transition of redirect.

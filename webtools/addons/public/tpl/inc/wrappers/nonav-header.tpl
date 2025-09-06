@@ -15,6 +15,7 @@
     <link rel="icon" href="{$config.webpath}/images/favicon.ico" type="image/png">
     <script src="{$config.webpath}/js/install.js" type="text/javascript"></script>
     <script src="{$config.webpath}/js/search-plugin.js" type="text/javascript"></script>
+    <script src="{$config.webpath}/js/auth.js" type="text/javascript"></script>
 </head>
 
 <body>
@@ -37,6 +38,12 @@
     {assign var="app" value="firefox"}
         <h1><a href="{$config.webpath}/firefox/" title="Return to home page" accesskey="1"><img src="{$config.webpath}/images/title-firefox.gif" width="276" height="54" alt="Firefox Add-ons Beta"></a></h1>
 {/if}
+
+<script type="text/javascript">
+//<![CDATA[
+    addUsernameToHeader();
+//]]>
+</script>
 
 		<form id="search" method="get" action="{$config.webpath}/search.php" title="Search Mozilla Update">
 		<div>
@@ -61,7 +68,6 @@
 
 </div>
 <!-- end header -->
-
 
 <hr class="hide">
 

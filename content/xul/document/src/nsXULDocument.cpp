@@ -117,6 +117,7 @@
 #include "nsIParserService.h"
 #include "nsICSSStyleSheet.h"
 #include "nsIScriptError.h"
+#include "nsEventDispatcher.h"
 
 //----------------------------------------------------------------------
 //
@@ -685,30 +686,6 @@ nsXULDocument::OnPrototypeLoadDone()
     return ResumeWalk();
 }
 
-
-PR_STATIC_CALLBACK(PRBool)
-ClearPresentationStuff(nsHashKey *aKey, void *aData, void* aClosure)
-{
-    nsISupports *supp = NS_STATIC_CAST(nsISupports *, aData);
-    nsCOMPtr<nsPIBoxObject> boxObject(do_QueryInterface(supp));
-
-    if (boxObject) {
-        boxObject->InvalidatePresentationStuff();
-    }
-
-    return PR_TRUE;
-}
-
-NS_IMETHODIMP
-nsXULDocument::OnHide()
-{
-    if (mBoxObjectTable) {
-        mBoxObjectTable->Enumerate(ClearPresentationStuff, nsnull);
-    }
-
-    return NS_OK;
-}
-
 PR_STATIC_CALLBACK(void)
 ClearBroadcasterMapEntry(PLDHashTable* aTable, PLDHashEntryHdr* aEntry)
 {
@@ -974,8 +951,8 @@ nsXULDocument::ExecuteOnBroadcastHandlerFor(nsIContent* aBroadcaster,
 
             // Handle the DOM event
             nsEventStatus status = nsEventStatus_eIgnore;
-            child->HandleDOMEvent(aPresContext, &event, nsnull,
-                                  NS_EVENT_FLAG_INIT, &status);
+            nsEventDispatcher::Dispatch(child, aPresContext, &event, nsnull,
+                                        &status);
         }
     }
 
@@ -1451,7 +1428,7 @@ nsXULDocument::GetPixelDimensions(nsIPresShell* aShell, PRInt32* aWidth,
 
     FlushPendingNotifications(Flush_Layout);
 
-    nsIFrame* frame = aShell->GetPrimaryFrameFor(mRootContent);
+    nsIFrame* frame = aShell->GetPrimaryFrameFor(GetRootContent());
     if (frame) {
         nsIView* view = frame->GetView();
         // If we have a view check if it's scrollable. If not,
@@ -1831,7 +1808,7 @@ nsXULDocument::SetTemplateBuilderFor(nsIContent* aContent,
 
     nsISupportsKey key(aContent);
 
-    if (aContent) {
+    if (aBuilder) {
         mTemplateBuilderTable->Put(&key, aBuilder);
     }
     else {
@@ -1985,7 +1962,7 @@ nsXULDocument::Init()
 nsresult
 nsXULDocument::StartLayout(void)
 {
-    if (!mRootContent) {
+    if (!GetRootContent()) {
 #ifdef PR_LOGGING
         if (PR_LOG_TEST(gXULLog, PR_LOG_WARNING)) {
             nsCAutoString urlspec;
@@ -2972,7 +2949,9 @@ nsXULDocument::ResumeWalk()
         mDocumentLoaded = PR_TRUE;
 
         nsAutoString title;
-        mRootContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::title, title);
+        nsIContent *rootContent = GetRootContent();
+        if (rootContent)
+            rootContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::title, title);
         SetTitle(title);
 
         StartLayout();
@@ -2987,7 +2966,6 @@ nsXULDocument::ResumeWalk()
 
         DispatchContentLoadedEvents();
 
-        NS_ASSERTION(mPlaceHolderRequest, "Bug 119310, perhaps overlayinfo referenced a overlay that doesn't exist");
         if (mPlaceHolderRequest) {
             // Remove the placeholder channel; if we're the last channel in the
             // load group, this will fire the OnEndDocumentLoad() method in the
@@ -3624,7 +3602,7 @@ nsXULDocument::OverlayForwardReference::Resolve()
     mOverlay->GetAttr(kNameSpaceID_None, nsXULAtoms::id, id);
     if (id.IsEmpty()) {
         // overlay had no id, use the root element
-        mDocument->InsertElement(mDocument->mRootContent, mOverlay, notify);
+        mDocument->InsertElement(mDocument->GetRootContent(), mOverlay, notify);
         mResolved = PR_TRUE;
         return eResolve_Succeeded;
     }

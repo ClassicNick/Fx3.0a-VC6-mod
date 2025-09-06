@@ -84,7 +84,7 @@
 
 #include "nsDOMError.h"
 #include "nsRuleData.h"
-
+#include "nsEventDispatcher.h"
 
 class nsHTMLSelectElement;
 
@@ -249,15 +249,14 @@ public:
   NS_DECL_NSIDOMNSXBLFORMCONTROL
 
   // nsIContent
-  virtual nsresult HandleDOMEvent(nsPresContext* aPresContext,
-                                  nsEvent* aEvent, nsIDOMEvent** aDOMEvent,
-                                  PRUint32 aFlags,
-                                  nsEventStatus* aEventStatus);
+  virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor);
+  virtual nsresult PostHandleEvent(nsEventChainPostVisitor& aVisitor);
 
   virtual void SetFocus(nsPresContext* aPresContext);
   virtual PRBool IsFocusable(PRInt32 *aTabIndex = nsnull);
   virtual nsresult InsertChildAt(nsIContent* aKid, PRUint32 aIndex,
                                  PRBool aNotify);
+  virtual nsresult AppendChildTo(nsIContent* aKid, PRBool aNotify);
   virtual nsresult RemoveChildAt(PRUint32 aIndex, PRBool aNotify);
 
   // Overriden nsIFormControl methods
@@ -563,6 +562,12 @@ nsHTMLSelectElement::InsertChildAt(nsIContent* aKid,
 #endif
 
   return NS_OK;
+}
+
+nsresult
+nsHTMLSelectElement::AppendChildTo(nsIContent* aKid, PRBool aNotify)
+{
+  return InsertChildAt(aKid, GetChildCount(), aNotify);
 }
 
 nsresult
@@ -1810,13 +1815,11 @@ nsHTMLSelectElement::GetAttributeMappingFunction() const
 
 
 nsresult
-nsHTMLSelectElement::HandleDOMEvent(nsPresContext* aPresContext,
-                                    nsEvent* aEvent,
-                                    nsIDOMEvent** aDOMEvent,
-                                    PRUint32 aFlags,
-                                    nsEventStatus* aEventStatus)
+nsHTMLSelectElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
 {
+  aVisitor.mCanHandle = PR_FALSE;
   // Do not process any DOM events if the element is disabled
+  // XXXsmaug This is not the right thing to do. But what is?
   PRBool disabled;
   nsresult rv = GetDisabled(&disabled);
   if (NS_FAILED(rv) || disabled) {
@@ -1838,20 +1841,24 @@ nsHTMLSelectElement::HandleDOMEvent(nsPresContext* aPresContext,
     }
   }
 
+  return nsGenericHTMLElement::PreHandleEvent(aVisitor);
+}
+
+nsresult
+nsHTMLSelectElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
+{
   // Must notify the frame that the blur event occurred
   // NOTE: At this point EventStateManager has not yet set the
-  /// new content as having focus so this content is still considered
+  // new content as having focus so this content is still considered
   // the focused element. So the ComboboxControlFrame tracks the focus
   // at a class level (Bug 32920)
-  if ((nsEventStatus_eIgnore == *aEventStatus) &&
-      !(aFlags & NS_EVENT_FLAG_CAPTURE) && !(aFlags & NS_EVENT_FLAG_SYSTEM_EVENT) &&
-      (aEvent->message == NS_BLUR_CONTENT) && formControlFrame) {
+  nsIFormControlFrame* formControlFrame = GetFormControlFrame(PR_FALSE);
+  if (nsEventStatus_eIgnore == aVisitor.mEventStatus &&
+      (aVisitor.mEvent->message == NS_BLUR_CONTENT) && formControlFrame) {
     formControlFrame->SetFocus(PR_FALSE, PR_TRUE);
   }
 
-  return nsGenericHTMLFormElement::HandleDOMEvent(aPresContext, aEvent,
-                                                  aDOMEvent, aFlags,
-                                                  aEventStatus);
+  return NS_OK;
 }
 
 // nsIFormControl
@@ -2278,7 +2285,7 @@ nsHTMLOptionCollection::SetOption(PRInt32 aIndex,
     rv = mSelect->AppendChild(aOption, getter_AddRefs(ret));
   } else {
     // Find the option they're talking about and replace it
-    nsIDOMHTMLOptionElement *refChild = mElements.ObjectAt(aIndex);
+    nsIDOMHTMLOptionElement *refChild = mElements.SafeObjectAt(aIndex);
     NS_ENSURE_TRUE(refChild, NS_ERROR_UNEXPECTED);
 
     nsCOMPtr<nsIDOMNode> parent;

@@ -130,7 +130,7 @@ BEGIN {
     if ($^O =~ /MSWin32/i) {
         require 5.008001; # for CGI 2.93 or higher
     }
-    require 5.006_001;
+    require 5.008;
     use File::Basename;
     chdir dirname($0);
 }
@@ -1448,6 +1448,9 @@ import Bugzilla::Util qw(bz_crypt trim html_quote is_7bit_clean);
 
 require Bugzilla::User;
 import Bugzilla::User qw(insert_new_user);
+
+require Bugzilla::Bug;
+import Bugzilla::Bug qw(is_open_state);
 
 # globals.pl clears the PATH, but File::Find uses Cwd::cwd() instead of
 # Cwd::getcwd(), which we need to do because `pwd` isn't in the path - see
@@ -3545,7 +3548,7 @@ if (!$series_exists) {
                     $data{$fields[$i]}{$numbers[0]} = $numbers[$i + 1];
                     
                     # Keep a total of the number of open bugs for this day
-                    if (IsOpenedState($fields[$i])) {
+                    if (is_open_state($fields[$i])) {
                         $data{$open_name}{$numbers[0]} += $numbers[$i + 1];
                     }
                 }
@@ -4120,7 +4123,7 @@ if (@$broken_nonopen_series) {
         join("&", map { "bug_status=" . url_quote($_) }
                       ('UNCONFIRMED', 'NEW', 'ASSIGNED', 'REOPENED'));
     my $open_bugs_query_base_new = 
-        join("&", map { "bug_status=" . url_quote($_) } OpenStates());
+        join("&", map { "bug_status=" . url_quote($_) } BUG_STATE_OPEN);
     my $sth_openbugs_series =
         $dbh->prepare("SELECT series_id FROM series
                         WHERE query IN (?, ?)");

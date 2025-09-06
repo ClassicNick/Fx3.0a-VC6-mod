@@ -219,6 +219,28 @@ nsBaseChannel::PushStreamConverter(const char *fromType,
   return rv;
 }
 
+nsresult
+nsBaseChannel::BeginPumpingData()
+{
+  nsCOMPtr<nsIInputStream> stream;
+  nsresult rv = OpenContentStream(PR_TRUE, getter_AddRefs(stream));
+  if (NS_FAILED(rv))
+    return rv;
+
+  // By assigning mPump, we flag this channel as pending (see IsPending).  It's
+  // important that the pending flag is set when we call into the stream (the
+  // call to AsyncRead results in the stream's AsyncWait method being called)
+  // and especially when we call into the loadgroup.  Our caller takes care to
+  // release mPump if we return an error.
+ 
+  rv = nsInputStreamPump::Create(getter_AddRefs(mPump), stream, -1, -1, 0, 0,
+                                 PR_TRUE);
+  if (NS_SUCCEEDED(rv))
+    rv = mPump->AsyncRead(this, nsnull);
+
+  return rv;
+}
+
 //-----------------------------------------------------------------------------
 // nsBaseChannel::nsISupports
 
@@ -265,6 +287,10 @@ nsBaseChannel::GetStatus(nsresult *status)
 NS_IMETHODIMP
 nsBaseChannel::Cancel(nsresult status)
 {
+  // Ignore redundant cancelation
+  if (NS_FAILED(mStatus))
+    return NS_OK;
+
   mStatus = status;
 
   if (mPump)
@@ -450,28 +476,25 @@ nsBaseChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *ctxt)
   if (NS_FAILED(rv))
     return rv;
 
-  nsCOMPtr<nsIInputStream> stream;
-  rv = OpenContentStream(PR_TRUE, getter_AddRefs(stream));
-  if (NS_FAILED(rv))
-    return rv;
-
-  mPump = new nsInputStreamPump();
-  if (!mPump)
-    return NS_ERROR_OUT_OF_MEMORY;
-  rv = mPump->Init(stream, -1, -1, 0, 0, PR_TRUE);
-  if (NS_FAILED(rv)) {
-    mPump = nsnull;
-    return rv;
-  }
-
-  rv = mPump->AsyncRead(this, nsnull);
-  if (NS_FAILED(rv)) {
-    mPump = nsnull;
-    return rv;
-  }
-
+  // Store the listener and context early so that OpenContentStream and the
+  // stream's AsyncWait method (called by AsyncRead) can have access to them
+  // via PushStreamConverter and the StreamListener methods.  However, since
+  // this typically introduces a reference cycle between this and the listener,
+  // we need to be sure to break the reference if this method does not succeed.
   mListener = listener;
   mListenerContext = ctxt;
+
+  // This method assigns mPump as a side-effect.  We need to clear mPump if
+  // this method fails.
+  rv = BeginPumpingData();
+  if (NS_FAILED(rv)) {
+    mPump = nsnull;
+    mListener = nsnull;
+    mListenerContext = nsnull;
+    return rv;
+  }
+
+  // At this point, we are going to return success no matter what.
 
   SUSPEND_PUMP_FOR_SCOPE();
 
@@ -533,6 +556,25 @@ CallTypeSniffers(void *aClosure, const PRUint8 *aData, PRUint32 aCount)
 {
   nsIChannel *chan = NS_STATIC_CAST(nsIChannel*, aClosure);
 
+  const nsCOMArray<nsIContentSniffer>& sniffers =
+    gIOService->GetContentSniffers();
+  PRUint32 length = sniffers.Count();
+  for (PRUint32 i = 0; i < length; ++i) {
+    nsCAutoString newType;
+    nsresult rv =
+      sniffers[i]->GetMIMETypeFromContent(chan, aData, aCount, newType);
+    if (NS_SUCCEEDED(rv) && !newType.IsEmpty()) {
+      chan->SetContentType(newType);
+      break;
+    }
+  }
+}
+
+static void
+CallUnknownTypeSniffer(void *aClosure, const PRUint8 *aData, PRUint32 aCount)
+{
+  nsIChannel *chan = NS_STATIC_CAST(nsIChannel*, aClosure);
+
   nsCOMPtr<nsIContentSniffer> sniffer =
     do_CreateInstance(NS_GENERIC_CONTENT_SNIFFER);
   if (!sniffer)
@@ -550,8 +592,15 @@ nsBaseChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
   // If our content type is unknown, then use the content type sniffer.  If the
   // sniffer is not available for some reason, then we just keep going as-is.
   if (NS_SUCCEEDED(mStatus) && mContentType.EqualsLiteral(UNKNOWN_CONTENT_TYPE)) {
-    mPump->PeekStream(CallTypeSniffers, NS_STATIC_CAST(nsIChannel*, this));
+    mPump->PeekStream(CallUnknownTypeSniffer, NS_STATIC_CAST(nsIChannel*, this));
   }
+
+  // Now, the general type sniffers. Skip this if we have none.
+  if ((mLoadFlags & LOAD_CALL_CONTENT_SNIFFERS) &&
+      gIOService->GetContentSniffers().Count() != 0)
+    mPump->PeekStream(CallTypeSniffers, NS_STATIC_CAST(nsIChannel*, this));
+
+  SUSPEND_PUMP_FOR_SCOPE();
 
   return mListener->OnStartRequest(this, mListenerContext);
 }
@@ -593,6 +642,8 @@ nsBaseChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
                                nsIInputStream *stream, PRUint32 offset,
                                PRUint32 count)
 {
+  SUSPEND_PUMP_FOR_SCOPE();
+
   nsresult rv = mListener->OnDataAvailable(this, mListenerContext, stream,
                                            offset, count);
   if (mSynthProgressEvents && NS_SUCCEEDED(rv)) {

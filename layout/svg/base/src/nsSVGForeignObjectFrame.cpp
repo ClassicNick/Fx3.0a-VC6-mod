@@ -64,6 +64,8 @@
 #include "nsSVGPoint.h"
 #include "nsSVGRect.h"
 #include "nsSVGMatrix.h"
+#include "nsINameSpaceManager.h"
+#include "nsGkAtoms.h"
 
 //----------------------------------------------------------------------
 // Implementation
@@ -91,24 +93,6 @@ nsSVGForeignObjectFrame::nsSVGForeignObjectFrame()
 
 nsSVGForeignObjectFrame::~nsSVGForeignObjectFrame()
 {
-//   nsCOMPtr<nsIDOMSVGTransformable> transformable = do_QueryInterface(mContent);
-//   NS_ASSERTION(transformable, "wrong content element");
-//   nsCOMPtr<nsIDOMSVGAnimatedTransformList> transforms;
-//   transformable->GetTransform(getter_AddRefs(transforms));
-//   nsCOMPtr<nsISVGValue> value = do_QueryInterface(transforms);
-//   NS_ASSERTION(value, "interface not found");
-//   if (value)
-//     value->RemoveObserver(this);
-  nsCOMPtr<nsISVGValue> value;
-  if (mX && (value = do_QueryInterface(mX)))
-      value->RemoveObserver(this);
-  if (mY && (value = do_QueryInterface(mY)))
-      value->RemoveObserver(this);
-  if (mWidth && (value = do_QueryInterface(mWidth)))
-      value->RemoveObserver(this);
-  if (mHeight && (value = do_QueryInterface(mHeight)))
-      value->RemoveObserver(this);
-      
   if (mFilter) {
     NS_REMOVE_SVGVALUE_OBSERVER(mFilter);
   }
@@ -125,9 +109,6 @@ nsresult nsSVGForeignObjectFrame::Init()
     length->GetAnimVal(getter_AddRefs(mX));
     NS_ASSERTION(mX, "no x");
     if (!mX) return NS_ERROR_FAILURE;
-    nsCOMPtr<nsISVGValue> value = do_QueryInterface(mX);
-    if (value)
-      value->AddObserver(this);
   }
 
   {
@@ -136,9 +117,6 @@ nsresult nsSVGForeignObjectFrame::Init()
     length->GetAnimVal(getter_AddRefs(mY));
     NS_ASSERTION(mY, "no y");
     if (!mY) return NS_ERROR_FAILURE;
-    nsCOMPtr<nsISVGValue> value = do_QueryInterface(mY);
-    if (value)
-      value->AddObserver(this);
   }
 
   {
@@ -147,9 +125,6 @@ nsresult nsSVGForeignObjectFrame::Init()
     length->GetAnimVal(getter_AddRefs(mWidth));
     NS_ASSERTION(mWidth, "no width");
     if (!mWidth) return NS_ERROR_FAILURE;
-    nsCOMPtr<nsISVGValue> value = do_QueryInterface(mWidth);
-    if (value)
-      value->AddObserver(this);
   }
 
   {
@@ -158,21 +133,8 @@ nsresult nsSVGForeignObjectFrame::Init()
     length->GetAnimVal(getter_AddRefs(mHeight));
     NS_ASSERTION(mHeight, "no height");
     if (!mHeight) return NS_ERROR_FAILURE;
-    nsCOMPtr<nsISVGValue> value = do_QueryInterface(mHeight);
-    if (value)
-      value->AddObserver(this);
   }
   
-// XXX 
-//   nsCOMPtr<nsIDOMSVGTransformable> transformable = do_QueryInterface(mContent);
-//   NS_ASSERTION(transformable, "wrong content element");
-//   nsCOMPtr<nsIDOMSVGAnimatedTransformList> transforms;
-//   transformable->GetTransform(getter_AddRefs(transforms));
-//   nsCOMPtr<nsISVGValue> value = do_QueryInterface(transforms);
-//   NS_ASSERTION(value, "interface not found");
-//   if (value)
-//     value->AddObserver(this);
-
   // XXX for some reason updating fails when done here. Why is this too early?
   // anyway - we use a less desirable mechanism now of updating in paint().
 //  Update(); 
@@ -194,15 +156,14 @@ NS_INTERFACE_MAP_END_INHERITING(nsSVGForeignObjectFrameBase)
 //----------------------------------------------------------------------
 // nsIFrame methods
 NS_IMETHODIMP
-nsSVGForeignObjectFrame::Init(nsPresContext*  aPresContext,
+nsSVGForeignObjectFrame::Init(
                   nsIContent*      aContent,
                   nsIFrame*        aParent,
                   nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow)
 {
   nsresult rv;
-  rv = nsSVGForeignObjectFrameBase::Init(aPresContext, aContent, aParent,
-                             aContext, aPrevInFlow);
+  rv = nsSVGForeignObjectFrameBase::Init(aContent, aParent, aContext, aPrevInFlow);
 
   Init();
 
@@ -292,6 +253,22 @@ PRBool
 nsSVGForeignObjectFrame::IsFrameOfType(PRUint32 aFlags) const
 {
   return !(aFlags & ~(nsIFrame::eSVG | nsIFrame::eSVGForeignObject));
+}
+
+NS_IMETHODIMP
+nsSVGForeignObjectFrame::AttributeChanged(PRInt32         aNameSpaceID,
+                                          nsIAtom*        aAttribute,
+                                          PRInt32         aModType)
+{
+  if (aNameSpaceID == kNameSpaceID_None &&
+      (aAttribute == nsGkAtoms::x ||
+       aAttribute == nsGkAtoms::y ||
+       aAttribute == nsGkAtoms::width ||
+       aAttribute == nsGkAtoms::height ||
+       aAttribute == nsGkAtoms::transform))
+    Update();
+
+  return NS_OK;
 }
 
 //----------------------------------------------------------------------
@@ -585,13 +562,12 @@ nsSVGForeignObjectFrame::GetBBoxInternal(float* aX, float *aY, float* aWidth,
   if (!ctm)
     return;
   
-  float x, y, width, height;
-  mX->GetValue(&x);
-  mY->GetValue(&y);
-  mWidth->GetValue(&width);
-  mHeight->GetValue(&height);
+  mX->GetValue(aX);
+  mY->GetValue(aY);
+  mWidth->GetValue(aWidth);
+  mHeight->GetValue(aHeight);
   
-  TransformRect(&x, &y, &width, &height, ctm);
+  TransformRect(aX, aY, aWidth, aHeight, ctm);
 }
   
 NS_IMETHODIMP

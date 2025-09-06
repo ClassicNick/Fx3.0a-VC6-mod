@@ -75,8 +75,9 @@
 #include "nsReflowPath.h"
 #include "nsAutoPtr.h"
 #include "nsPresState.h"
-#include "nsIGlobalHistory2.h"
+#include "nsIGlobalHistory3.h"
 #include "nsDocShellCID.h"
+#include "nsEventDispatcher.h"
 #ifdef ACCESSIBILITY
 #include "nsIAccessibilityService.h"
 #endif
@@ -662,13 +663,14 @@ nsHTMLScrollFrame::PlaceScrollArea(const ScrollReflowState& aState)
   vm->ResizeView(scrollView, nsRect(nsPoint(0, 0), aState.mScrollPortRect.Size()),
                  PR_TRUE);
 
-  // set the origin of childRect to (0,0) even though we might have borders or
-  // a left-hand-side scrollbar. We've accounted for that by positioning the
-  // anonymous mScrollableView.
+  // Set the x,y of the scrolled frame to the correct value: the displacement
+  // from its origin to the origin of this frame
   nsSize childSize = mInner.mScrolledFrame->GetSize();
-  nsRect childRect = nsRect(0, 0,
-                            PR_MAX(childSize.width, aState.mScrollPortRect.width),
-                            PR_MAX(childSize.height, aState.mScrollPortRect.height));
+  nsPoint childOffset =
+    mInner.mScrolledFrame->GetView()->GetOffsetTo(GetView());
+  nsRect childRect = nsRect(childOffset,
+                            nsSize(PR_MAX(childSize.width, aState.mScrollPortRect.width),
+                                   PR_MAX(childSize.height, aState.mScrollPortRect.height)));
   mInner.mScrolledFrame->SetRect(childRect);
   
   nsRect overflowRect = mInner.mScrolledFrame->GetOverflowRect();
@@ -1743,6 +1745,10 @@ nsGfxScrollFrameInner::ScrollPositionDidChange(nsIScrollableView* aScrollable, n
 {
   NS_ASSERTION(!mViewInitiatedScroll, "Cannot reenter ScrollPositionDidChange");
 
+  // Update frame position to match view offsets
+  nsPoint childOffset = mScrolledFrame->GetView()->GetOffsetTo(mOuter->GetView());
+  mScrolledFrame->SetPosition(childOffset);
+
   mViewInitiatedScroll = PR_TRUE;
   InternalScrollPositionDidChange(aX, aY);
   mViewInitiatedScroll = PR_FALSE;
@@ -1872,12 +1878,13 @@ nsGfxScrollFrameInner::FireScrollEvent()
   if (mIsRoot) {
     nsIDocument* doc = content->GetCurrentDoc();
     if (doc) {
-      doc->HandleDOMEvent(prescontext, &event, nsnull,
-                          NS_EVENT_FLAG_INIT, &status);
+      nsEventDispatcher::Dispatch(doc, prescontext, &event, nsnull,  &status);
     }
   } else {
-    content->HandleDOMEvent(prescontext, &event, nsnull,
-                            NS_EVENT_FLAG_INIT, &status);
+    // scroll events fired at elements don't bubble (although scroll events
+    // fired at documents do, to the window)
+    event.flags |= NS_EVENT_FLAG_CANT_BUBBLE;
+    nsEventDispatcher::Dispatch(content, prescontext, &event, nsnull, &status);
   }
 }
 
@@ -2111,10 +2118,9 @@ nsXULScrollFrame::LayoutScrollArea(nsBoxLayoutState& aState, const nsRect& aRect
   vm->ResizeView(scrollView, nsRect(nsPoint(0, 0), aRect.Size()), PR_TRUE);
 
   PRUint32 oldflags = aState.LayoutFlags();
-  // set the origin of childRect to (0,0) even though we might have
-  // borders or a left-hand-side scrollbar. We've accounted for that
-  // by positioning the anonymous mScrollableView.
-  nsRect childRect = nsRect(nsPoint(0, 0), aRect.Size());
+  nsPoint childOffset =
+    mInner.mScrolledFrame->GetView()->GetOffsetTo(GetView());
+  nsRect childRect = nsRect(childOffset, aRect.Size());
 
   PRInt32 flags = NS_FRAME_NO_MOVE_VIEW;
 
@@ -2623,7 +2629,7 @@ nsGfxScrollFrameInner::SaveVScrollbarStateToGlobalHistory()
   if (!uri)
     return;
 
-  nsCOMPtr<nsIGlobalHistory2> history(do_GetService(NS_GLOBALHISTORY2_CONTRACTID));
+  nsCOMPtr<nsIGlobalHistory3> history(do_GetService(NS_GLOBALHISTORY2_CONTRACTID));
   if (!history)
     return;
   
@@ -2646,7 +2652,7 @@ nsGfxScrollFrameInner::GetVScrollbarHintFromGlobalHistory(PRBool* aVScrollbarNee
   if (!uri)
     return NS_ERROR_FAILURE;
 
-  nsCOMPtr<nsIGlobalHistory2> history(do_GetService(NS_GLOBALHISTORY2_CONTRACTID));
+  nsCOMPtr<nsIGlobalHistory3> history(do_GetService(NS_GLOBALHISTORY2_CONTRACTID));
   if (!history)
     return NS_ERROR_FAILURE;
   

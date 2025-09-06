@@ -78,6 +78,7 @@
 #include "nsIAtom.h"
 #include "nsContentUtils.h"
 #include "jscntxt.h"
+#include "nsEventDispatcher.h"
 #include "nsIDOMGCParticipant.h"
 
 // For locale aware string methods
@@ -169,6 +170,10 @@ NS_ScriptErrorReporter(JSContext *cx,
 
   nsEventStatus status = nsEventStatus_eIgnore;
 
+  // Note: we must do this before running any more code on cx (if cx is the
+  // dynamic script context).
+  ::JS_ClearPendingException(cx);
+
   if (context) {
     nsCOMPtr<nsPIDOMWindow> win(do_QueryInterface(context->GetGlobalObject()));
 
@@ -215,10 +220,10 @@ NS_ScriptErrorReporter(JSContext *cx,
           errorevent.errorMsg = msg.get();
           errorevent.lineNr = report ? report->lineno : 0;
 
-          // HandleDOMEvent() must be synchronous for the recursion block
+          // Dispatch() must be synchronous for the recursion block
           // (errorDepth) to work.
-          win->HandleDOMEvent(presContext, &errorevent, nsnull,
-                              NS_EVENT_FLAG_INIT, &status);
+          nsEventDispatcher::Dispatch(win, presContext, &errorevent, nsnull,
+                                      &status);
         }
 
         --errorDepth;
@@ -320,9 +325,6 @@ NS_ScriptErrorReporter(JSContext *cx,
     }
   }
 #endif
-
-  // XXX do we really want to be doing this?
-  ::JS_ClearPendingException(cx);
 }
 
 JS_STATIC_DLL_CALLBACK(JSBool)

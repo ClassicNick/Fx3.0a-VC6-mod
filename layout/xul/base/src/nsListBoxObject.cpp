@@ -61,7 +61,8 @@ public:
   nsListBoxObject();
   virtual ~nsListBoxObject();
 
-  NS_IMETHOD InvalidatePresentationStuff();
+  // nsPIBoxObject
+  virtual void Clear();
   
 protected:
   nsIListBoxObject* mListBoxBody;
@@ -204,16 +205,21 @@ nsListBoxObject::GetListBoxBody()
     return mListBoxBody;
   }
 
-  nsIFrame* frame = GetFrame();
+  nsIFrame* frame = GetFrame(PR_FALSE);
   if (!frame)
     return nsnull;
+
+  nsIPresShell* shell = GetPresShell(PR_FALSE);
+  if (!shell) {
+    return nsnull;
+  }
 
   // Iterate over our content model children looking for the body.
   nsCOMPtr<nsIContent> content;
   FindBodyContent(frame->GetContent(), getter_AddRefs(content));
 
   // this frame will be a nsGFXScrollFrame
-  frame = mPresShell->GetPrimaryFrameFor(content);
+  frame = shell->GetPrimaryFrameFor(content);
   if (!frame)
      return nsnull;
   nsIScrollableFrame* scrollFrame;
@@ -231,12 +237,12 @@ nsListBoxObject::GetListBoxBody()
   return mListBoxBody;
 }
 
-NS_IMETHODIMP
-nsListBoxObject::InvalidatePresentationStuff()
+void
+nsListBoxObject::Clear()
 {
   ClearCachedListBoxBody();
 
-  return nsBoxObject::InvalidatePresentationStuff();
+  nsBoxObject::Clear();
 }
 
 // Creation Routine ///////////////////////////////////////////////////////////////////////

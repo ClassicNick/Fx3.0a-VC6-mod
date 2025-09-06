@@ -49,7 +49,7 @@ NS_IMPL_ISUPPORTS1(nsThebesFontMetrics, nsIFontMetrics)
 
 #if defined(XP_WIN)
 #include "gfxWindowsFonts.h"
-#elif defined(MOZ_ENABLE_GTK2)
+#elif defined(MOZ_ENABLE_PANGO)
 #include "gfxPangoFonts.h"
 #elif defined(XP_MACOSX)
 #include "gfxAtsuiFonts.h"
@@ -95,8 +95,8 @@ nsThebesFontMetrics::Init(const nsFont& aFont, nsIAtom* aLangGroup,
                                   aFont.systemFont, aFont.familyNameQuirks);
 
 #if defined(XP_WIN)
-    mFontGroup = new gfxWindowsFontGroup(aFont.name, mFontStyle, (HDC)mDeviceContext->GetHDC());
-#elif defined(MOZ_ENABLE_GTK2)
+    mFontGroup = new gfxWindowsFontGroup(aFont.name, mFontStyle);
+#elif defined(MOZ_ENABLE_PANGO)
     mFontGroup = new gfxPangoFontGroup(aFont.name, mFontStyle);
 #elif defined(XP_MACOSX)
     mFontGroup = new gfxAtsuiFontGroup(aFont.name, mFontStyle);
@@ -117,7 +117,7 @@ nsThebesFontMetrics::Destroy()
 
 gfxFont::Metrics nsThebesFontMetrics::GetMetrics()
 {
-    return mFontGroup->GetFontList()[0]->GetMetrics();
+    return mFontGroup->GetFontAt(0)->GetMetrics();
 }
 
 NS_IMETHODIMP
@@ -276,6 +276,11 @@ nsresult
 nsThebesFontMetrics::GetWidth(const char* aString, PRUint32 aLength, nscoord& aWidth,
                               nsThebesRenderingContext *aContext)
 {
+    if (aLength == 0) {
+        aWidth = 0;
+        return NS_OK;
+    }
+
     const nsDependentCSubstring& theString = nsDependentCSubstring(aString, aString+aLength);
     nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(theString);
 
@@ -291,6 +296,11 @@ nsThebesFontMetrics::GetWidth(const PRUnichar* aString, PRUint32 aLength,
                               nscoord& aWidth, PRInt32 *aFontID,
                               nsThebesRenderingContext *aContext)
 {
+    if (aLength == 0) {
+        aWidth = 0;
+        return NS_OK;
+    }
+
     const nsDependentSubstring& theString = nsDependentSubstring(aString, aString+aLength);
     nsRefPtr<gfxTextRun> textrun = mFontGroup->MakeTextRun(theString);
 
@@ -346,6 +356,9 @@ nsThebesFontMetrics::DrawString(const char *aString, PRUint32 aLength,
                                 const nscoord* aSpacing,
                                 nsThebesRenderingContext *aContext)
 {
+    if (aLength == 0)
+        return NS_OK;
+
     float app2dev = mDeviceContext->AppUnitsToDevUnits();
 
     const nsDependentCSubstring& theString = nsDependentCSubstring(aString, aString+aLength);
@@ -366,6 +379,9 @@ nsThebesFontMetrics::DrawString(const PRUnichar* aString, PRUint32 aLength,
                             const nscoord* aSpacing,
                             nsThebesRenderingContext *aContext)
 {
+    if (aLength == 0)
+        return NS_OK;
+
     float app2dev = mDeviceContext->AppUnitsToDevUnits();
 
     const nsDependentSubstring& theString = nsDependentSubstring(aString, aString+aLength);

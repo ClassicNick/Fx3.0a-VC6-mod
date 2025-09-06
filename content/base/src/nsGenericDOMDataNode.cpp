@@ -56,6 +56,7 @@
 #include "nsLayoutAtoms.h"
 #include "nsIDOMUserDataHandler.h"
 #include "nsChangeHint.h"
+#include "nsEventDispatcher.h"
 
 #include "pldhash.h"
 #include "prprf.h"
@@ -542,10 +543,19 @@ nsGenericDOMDataNode::ReplaceData(PRUint32 aOffset, PRUint32 aCount,
 //----------------------------------------------------------------------
 
 nsresult
-nsGenericDOMDataNode::GetListenerManager(nsIEventListenerManager **aResult)
+nsGenericDOMDataNode::GetListenerManager(PRBool aCreateIfNotFound,
+                                         nsIEventListenerManager** aResult)
 {
+  // No need to call nsContentUtils::GetListenerManager if we're sure that
+  // there is no event listener manager.
+  if (!aCreateIfNotFound && !CouldHaveEventListenerManager()) {
+    *aResult = nsnull;
+    return NS_OK;
+  }
+
   PRBool created;
-  nsresult rv = nsContentUtils::GetListenerManager(this, aResult, &created);
+  nsresult rv = nsContentUtils::GetListenerManager(this, aCreateIfNotFound,
+                                                   aResult, &created);
   if (NS_SUCCEEDED(rv) && created) {
     SetHasEventListenerManager();
   }
@@ -802,104 +812,32 @@ nsGenericDOMDataNode::GetAttrCount() const
 }
 
 nsresult
-nsGenericDOMDataNode::HandleDOMEvent(nsPresContext* aPresContext,
-                                     nsEvent* aEvent, nsIDOMEvent** aDOMEvent,
-                                     PRUint32 aFlags,
-                                     nsEventStatus* aEventStatus)
+nsGenericDOMDataNode::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
 {
-  // Make sure to tell the event that dispatch has started.
-  NS_MARK_EVENT_DISPATCH_STARTED(aEvent);
-
-  nsresult ret = NS_OK;
-  nsIDOMEvent* domEvent = nsnull;
-
-  PRBool externalDOMEvent = PR_FALSE;
-
-  if (NS_EVENT_FLAG_INIT & aFlags) {
-    if (!aDOMEvent) {
-      aDOMEvent = &domEvent;
-    } else {
-      externalDOMEvent = PR_TRUE;
-    }
-
-    aEvent->flags |= aFlags;
-    aFlags &= ~(NS_EVENT_FLAG_CANT_BUBBLE | NS_EVENT_FLAG_CANT_CANCEL);
-    aFlags |= NS_EVENT_FLAG_BUBBLE | NS_EVENT_FLAG_CAPTURE;
+  //FIXME! Handle event retargeting, bug 329122.
+  aVisitor.mCanHandle = PR_TRUE;
+  aVisitor.mParentTarget = GetParent();
+  if (!aVisitor.mParentTarget) {
+    aVisitor.mParentTarget = GetCurrentDoc();
   }
+  return NS_OK;
+}
 
-  nsIContent *parent = GetParent();
+nsresult
+nsGenericDOMDataNode::PostHandleEvent(nsEventChainPostVisitor& /*aVisitor*/)
+{
+  return NS_OK;
+}
 
-  //Capturing stage evaluation
-  if (NS_EVENT_FLAG_CAPTURE & aFlags) {
-    //Initiate capturing phase.  Special case first call to document
-    if (parent) {
-      parent->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                             aFlags & NS_EVENT_CAPTURE_MASK, aEventStatus);
-    }
-    else {
-      nsIDocument *document = GetCurrentDoc();
-      if (document) {
-        document->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                                 aFlags & NS_EVENT_CAPTURE_MASK,
-                                 aEventStatus);
-      }
-    }
-  }
-
-  // Weak pointer, which is fine since the hash table owns the
-  // listener manager
-  nsIEventListenerManager *listener_manager = nsnull;
-  if (CouldHaveEventListenerManager()) {
-    listener_manager = nsContentUtils::LookupListenerManager(this);
-  }
-
-  //Local handling stage
-  //Check for null ELM, check if we're a non-bubbling event in the bubbling state (bubbling state
-  //is indicated by the presence of the NS_EVENT_FLAG_BUBBLE flag and not the NS_EVENT_FLAG_INIT), and check 
-  //if we're a no content dispatch event
-  if (listener_manager &&
-       !(NS_EVENT_FLAG_CANT_BUBBLE & aEvent->flags && NS_EVENT_FLAG_BUBBLE & aFlags && !(NS_EVENT_FLAG_INIT & aFlags)) &&
-       !(aEvent->flags & NS_EVENT_FLAG_NO_CONTENT_DISPATCH)) {
-    aEvent->flags |= aFlags;
-    listener_manager->HandleEvent(aPresContext, aEvent, aDOMEvent, nsnull,
-                                  aFlags, aEventStatus);
-    aEvent->flags &= ~aFlags;
-  }
-
-  //Bubbling stage
-  if (NS_EVENT_FLAG_BUBBLE & aFlags && parent) {
-    ret = parent->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                                 aFlags & NS_EVENT_BUBBLE_MASK, aEventStatus);
-  }
-
-  if (NS_EVENT_FLAG_INIT & aFlags) {
-    // We're leaving the DOM event loop so if we created a DOM event,
-    // release here.
-
-    if (!externalDOMEvent && *aDOMEvent) {
-      if (0 != (*aDOMEvent)->Release()) {
-        // Okay, so someone in the DOM loop (a listener, JS object)
-        // still has a ref to the DOM Event but the internal data
-        // hasn't been malloc'd.  Force a copy of the data here so the
-        // DOM Event is still valid.
-
-        nsCOMPtr<nsIPrivateDOMEvent> privateEvent =
-          do_QueryInterface(*aDOMEvent);
-
-        if (privateEvent) {
-          privateEvent->DuplicatePrivateData();
-        }
-      }
-    }
-
-    aDOMEvent = nsnull;
-
-    // Now that we're done with this event, remove the flag that says
-    // we're in the process of dispatching this event.
-    NS_MARK_EVENT_DISPATCH_DONE(aEvent);
-  }
-
-  return ret;
+nsresult
+nsGenericDOMDataNode::DispatchDOMEvent(nsEvent* aEvent,
+                                       nsIDOMEvent* aDOMEvent,
+                                       nsPresContext* aPresContext,
+                                       nsEventStatus* aEventStatus)
+{
+  return nsEventDispatcher::DispatchDOMEvent(NS_STATIC_CAST(nsINode*, this),
+                                             aEvent, aDOMEvent,
+                                             aPresContext, aEventStatus);
 }
 
 PRUint32
@@ -1128,8 +1066,7 @@ nsGenericDOMDataNode::SetText(const PRUnichar* aBuffer,
   SetBidiStatus();
 
   if (haveMutationListeners) {
-    nsCOMPtr<nsIDOMEventTarget> node(do_QueryInterface(this));
-    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_CHARACTERDATAMODIFIED, node);
+    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_CHARACTERDATAMODIFIED);
 
     mutation.mPrevAttrValue = oldValue;
     if (aLength > 0) {
@@ -1139,9 +1076,7 @@ nsGenericDOMDataNode::SetText(const PRUnichar* aBuffer,
         do_GetAtom(Substring(aBuffer, aBuffer + aLength));
     }
 
-    nsEventStatus status = nsEventStatus_eIgnore;
-    HandleDOMEvent(nsnull, &mutation, nsnull,
-                   NS_EVENT_FLAG_INIT, &status);
+    nsEventDispatcher::Dispatch(this, nsnull, &mutation);
   }
 
   // Trigger a reflow
@@ -1174,8 +1109,7 @@ nsGenericDOMDataNode::SetText(const char* aBuffer, PRUint32 aLength,
   mText.SetTo(aBuffer, aLength);
 
   if (haveMutationListeners) {
-    nsCOMPtr<nsIDOMEventTarget> node(do_QueryInterface(this));
-    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_CHARACTERDATAMODIFIED, node);
+    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_CHARACTERDATAMODIFIED);
 
     mutation.mPrevAttrValue = oldValue;
     if (aLength > 0) {
@@ -1185,9 +1119,7 @@ nsGenericDOMDataNode::SetText(const char* aBuffer, PRUint32 aLength,
         do_GetAtom(Substring(aBuffer, aBuffer + aLength));
     }
 
-    nsEventStatus status = nsEventStatus_eIgnore;
-    HandleDOMEvent(nsnull, &mutation, nsnull,
-                   NS_EVENT_FLAG_INIT, &status);
+    nsEventDispatcher::Dispatch(this, nsnull, &mutation);
   }
 
   // Trigger a reflow
@@ -1216,15 +1148,12 @@ nsGenericDOMDataNode::SetText(const nsAString& aStr,
   SetBidiStatus();
 
   if (haveMutationListeners) {
-    nsCOMPtr<nsIDOMEventTarget> node(do_QueryInterface(this));
-    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_CHARACTERDATAMODIFIED, node);
+    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_CHARACTERDATAMODIFIED);
 
     mutation.mPrevAttrValue = oldValue;
     if (!aStr.IsEmpty())
       mutation.mNewAttrValue = do_GetAtom(aStr);
-    nsEventStatus status = nsEventStatus_eIgnore;
-    HandleDOMEvent(nsnull, &mutation, nsnull,
-                   NS_EVENT_FLAG_INIT, &status);
+    nsEventDispatcher::Dispatch(this, nsnull, &mutation);
   }
 
   // Trigger a reflow

@@ -58,11 +58,11 @@ public:
   virtual ~nsBoxObject();
 
   // nsPIBoxObject
-  NS_IMETHOD Init(nsIContent* aContent, nsIPresShell* aPresShell);
-  NS_IMETHOD SetDocument(nsIDocument* aDocument);
-  NS_IMETHOD InvalidatePresentationStuff();
+  virtual void Init(nsIContent* aContent);
+  virtual void Clear();
 
-  virtual nsIFrame* GetFrame();
+  nsIFrame* GetFrame(PRBool aFlushLayout);
+  nsIPresShell* GetPresShell(PRBool aFlushLayout);
   nsresult GetOffsetRect(nsRect& aRect);
   nsresult GetScreenPosition(nsIntPoint& aPoint);
 
@@ -81,5 +81,4 @@ protected:
   nsAutoPtr<nsPresState> mPresState; // [OWNER]
 
   nsIContent* mContent; // [WEAK]
-  nsIPresShell* mPresShell; // [WEAK]
 };

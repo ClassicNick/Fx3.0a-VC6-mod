@@ -47,6 +47,7 @@ MODULE		= zlib
 LIBRARY_NAME	= mozz
 GRE_MODULE	= 1
 LIBXUL_LIBRARY = 1
+DIST_INSTALL = 1
 
 PACKAGE_FILE = zlib.pkg
 
@@ -59,7 +60,7 @@ endif
 endif
 endif
 
-ifeq (,$(filter-out WINNT WINCE,$(OS_ARCH)))
+ifeq (,$(filter-out WINNT WINCE OS2,$(OS_ARCH)))
 DEFINES	+= -DZLIB_DLL=1
 endif
 

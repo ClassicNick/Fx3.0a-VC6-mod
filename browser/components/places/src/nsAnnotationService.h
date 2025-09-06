@@ -52,6 +52,8 @@ public:
 
   nsresult Init();
 
+  static nsresult InitTables(mozIStorageConnection* aDBConn);
+
   NS_DECL_ISUPPORTS
   NS_DECL_NSIANNOTATIONSERVICE
 
@@ -64,6 +66,7 @@ protected:
 
   nsCOMPtr<mozIStorageStatement> mDBSetAnnotation;
   nsCOMPtr<mozIStorageStatement> mDBGetAnnotation;
+  nsCOMPtr<mozIStorageStatement> mDBGetAnnotationNames;
   nsCOMPtr<mozIStorageStatement> mDBGetAnnotationFromURI;
   nsCOMPtr<mozIStorageStatement> mDBAddAnnotation;
   nsCOMPtr<mozIStorageStatement> mDBRemoveAnnotation;

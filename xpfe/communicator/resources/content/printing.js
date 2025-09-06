@@ -50,6 +50,14 @@ var PrintUtils = {
       var printingPromptService = Components.classes["@mozilla.org/embedcomp/printingprompt-service;1"]
                                             .getService(Components.interfaces.nsIPrintingPromptService);
       printingPromptService.showPageSetup(window, printSettings, null);
+      if (gSavePrintSettings) {
+        // Page Setup data is a "native" setting on the Mac
+        var printService = Components.classes["@mozilla.org/gfx/printsettings-service;1"]
+                                     .getService(Components.interfaces.nsIPrintSettingsService);
+        printService.savePrintSettingsToPrefs(printSettings, true, 
+                                              printSettings.kInitSaveNativeData);
+      }
+
     } catch (e) {
       dump("showPageSetup "+e+"\n");
       return false;
@@ -146,7 +154,7 @@ var PrintUtils = {
     // First get any defaults from the printer 
     aPrintService.initPrintSettingsFromPrinter(aPrintSettings.printerName, aPrintSettings);
     // now augment them with any values from last time
-    aPrintService.initPrintSettingsFromPrefs(aPrintSettings, aPrintSettings.kInitSaveAll);
+    aPrintService.initPrintSettingsFromPrefs(aPrintSettings, true, aPrintSettings.kInitSaveAll);
   },
 
   getPrintSettings: function ()

@@ -56,38 +56,43 @@ class gfxWindowsFont : public gfxFont {
     THEBES_DECL_ISUPPORTS_INHERITED
 
 public:
-    gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup, HDC aHWnd);
-    gfxWindowsFont::gfxWindowsFont(HFONT aFont, const gfxFontGroup *aFontGroup, PRBool aIsMLangFont);
+    gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup);
+    gfxWindowsFont(HFONT aFont, const gfxFontGroup *aFontGroup, PRBool aIsMLangFont, const gfxMatrix& aMatrix);
 
     virtual ~gfxWindowsFont();
 
-    virtual const gfxFont::Metrics& GetMetrics() { return mMetrics; }
+    virtual const gfxFont::Metrics& GetMetrics();
 
     cairo_font_face_t *CairoFontFace() { return mFontFace; }
     cairo_scaled_font_t *CairoScaledFont() { return mScaledFont; }
     SCRIPT_CACHE *ScriptCache() { return &mScriptCache; }
     HFONT GetHFONT() { return mFont; }
-    void UpdateFonts(cairo_t *cr);
+    const gfxMatrix& CurrentMatrix() const { return mCTM; }
+    void UpdateCTM(const gfxMatrix& aMatrix);
 
 protected:
     cairo_font_face_t *MakeCairoFontFace();
-    cairo_scaled_font_t *MakeCairoScaledFont(cairo_t *cr);
+    cairo_scaled_font_t *MakeCairoScaledFont();
     void FillLogFont(PRInt16 weight);
 
 private:
-    void ComputeMetrics(HDC dc);
+    void Init();
+    void Destroy();
+    void ComputeMetrics();
 
-    LOGFONTW mLogFont;
     HFONT mFont;
+    SCRIPT_CACHE mScriptCache;
 
     cairo_font_face_t *mFontFace;
     cairo_scaled_font_t *mScaledFont;
 
-    gfxFont::Metrics mMetrics;
+    gfxFont::Metrics *mMetrics;
 
-    SCRIPT_CACHE mScriptCache;
+    LOGFONTW mLogFont;
 
-    PRBool mIsMLangFont;
+    PRPackedBool mIsMLangFont;
+
+    gfxMatrix mCTM;
 };
 
 
@@ -100,7 +105,7 @@ private:
 class NS_EXPORT gfxWindowsFontGroup : public gfxFontGroup {
 
 public:
-    gfxWindowsFontGroup(const nsAString& aFamilies, const gfxFontStyle* aStyle, HDC hwnd);
+    gfxWindowsFontGroup(const nsAString& aFamilies, const gfxFontStyle* aStyle);
     virtual ~gfxWindowsFontGroup();
 
     virtual gfxTextRun *MakeTextRun(const nsAString& aString);
@@ -114,8 +119,6 @@ protected:
     static PRBool MakeFont(const nsAString& fontName, const nsAString& genericName, void *closure);
 
 private:
-    HDC mDC;
-
     friend class gfxWindowsTextRun;
 };
 
@@ -142,10 +145,10 @@ private:
                                      const PRUnichar *aString, PRUint32 aLength,
                                      gfxWindowsFont *aFont);
 
-    PRInt32 MeasureOrDrawAscii(gfxContext *aContext,
-                               PRBool aDraw,
-                               PRInt32 aX, PRInt32 aY,
-                               const PRInt32 *aSpacing);
+    PRInt32 MeasureOrDrawFast(gfxContext *aContext,
+                              PRBool aDraw,
+                              PRInt32 aX, PRInt32 aY,
+                              const PRInt32 *aSpacing);
     PRInt32 MeasureOrDrawUniscribe(gfxContext *aContext, PRBool aDraw,
                                    PRInt32 aX, PRInt32 aY,
                                    const PRInt32 *aSpacing);

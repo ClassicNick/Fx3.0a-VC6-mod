@@ -142,7 +142,7 @@ calICSCalendar.prototype = {
 
     refresh: function() {
         // Lock other changes to the item list.
-        this.locked = true;
+        this.lock();
         // set to prevent writing after loading, without any changes
         this.loading = true;
 
@@ -163,10 +163,7 @@ calICSCalendar.prototype = {
             streamLoader.init(channel, this, this);
         } catch(e) {
             // File not found: a new calendar. No problem.
-            this.mObserver.onEndBatch();
-            this.mObserver.onLoad();
-            this.locked = false;
-            this.processQueue();
+            this.unlock();
         }
     },
 
@@ -180,8 +177,18 @@ calICSCalendar.prototype = {
 
     onStreamComplete: function(loader, ctxt, status, resultLength, result)
     {
+        // No need to do anything if there was no result
+        if (!resultLength) {
+            this.unlock();
+            return;
+        }
+        
         // Allow the hook to get needed data (like an etag) of the channel
-        this.mHooks.onAfterGet(loader.request.QueryInterface(Components.interfaces.nsIChannel));
+        var cont = this.mHooks.onAfterGet();
+        if (!cont) {
+            this.unlock();
+            return;
+        }
 
         // Create a new calendar, to get rid of all the old events
         this.mMemoryCalendar = Components.classes["@mozilla.org/calendar/calendar;1?type=memory"]
@@ -307,15 +314,13 @@ calICSCalendar.prototype = {
             dump("Parsing the file failed:"+e+"\n");
             this.mObserver.onError(e.result, e.toString());
         }
-
         this.mObserver.onEndBatch();
         this.mObserver.onLoad();
-        this.locked = false;
-        this.processQueue();
+        this.unlock();
     },
 
     writeICS: function () {
-        this.locked = true;
+        this.lock();
 
         if (!this.mUri)
             throw Components.results.NS_ERROR_FAILURE;
@@ -429,8 +434,7 @@ calICSCalendar.prototype = {
         // Allow the hook to grab data of the channel, like the new etag
         ctxt.mHooks.onAfterPut(channel);
 
-        ctxt.locked = false;
-        ctxt.processQueue();
+        ctxt.unlock();
     },
 
     addObserver: function (aObserver) {
@@ -479,7 +483,7 @@ calICSCalendar.prototype = {
 
     processQueue: function ()
     {
-        if (this.locked)
+        if (this.isLocked())
             return;
         var a;
         var hasItems = this.queue.length;
@@ -499,6 +503,19 @@ calICSCalendar.prototype = {
         }
         if (hasItems)
             this.writeICS();
+    },
+
+    lock: function () {
+        this.locked = true;
+    },
+
+    unlock: function () {
+        this.locked = false;
+        this.processQueue();
+    },
+    
+    isLocked: function () {
+        return this.locked;
     },
 
     startBatch: function ()
@@ -848,7 +865,13 @@ dummyHooks.prototype = {
         return true;
     },
     
-    onAfterGet: function(aChannel) {
+    /**
+     * @return
+     *     a boolean, false if the previous data should be used (the datastore
+     *     didn't change, there might be no data in this GET), true in all
+     *     other cases
+     */
+    onAfterGet: function() {
         return true;
     },
 
@@ -862,27 +885,52 @@ dummyHooks.prototype = {
 }
 
 function httpHooks() {
+    this.mChannel = null;
 }
 
 httpHooks.prototype = {
     onBeforeGet: function(aChannel) {
+        this.mChannel = aChannel;
+        if (this.mEtag) {
+            var httpchannel = aChannel.QueryInterface(Components.interfaces.nsIHttpChannel);
+            // Somehow the webdav header 'If' doesn't work on apache when
+            // passing in a Not, so use the http version here.
+            httpchannel.setRequestHeader("If-None-Match", this.mEtag, false);
+        }
+
         return true;
     },
     
-    onAfterGet: function(aChannel) {
-        var httpchannel = aChannel.QueryInterface(Components.interfaces.nsIHttpChannel);
+    onAfterGet: function() {
+        var httpchannel = this.mChannel.QueryInterface(Components.interfaces.nsIHttpChannel);
+
+        // 304: Not Modified
+        // Can use the old data, so tell the caller that it can skip parsing.
+        if (httpchannel.responseStatus == 304)
+            return false;
+
+        // 404: Not Found
+        // This is a new calendar. Shouldn't try to parse it. But it also
+        // isn't a failure, so don't throw.
+        if (httpchannel.responseStatus == 404)
+            return false;
+
         try {
             this.mEtag = httpchannel.getResponseHeader("ETag");
         } catch(e) {
             // No etag header. Now what?
             this.mEtag = null;
         }
+        this.mChannel = null;
         return true;
     },
 
     onBeforePut: function(aChannel) {
         if (this.mEtag) {
             var httpchannel = aChannel.QueryInterface(Components.interfaces.nsIHttpChannel);
+
+            // Apache doesn't work correctly with if-match on a PUT method,
+            // so use the webdav header
             httpchannel.setRequestHeader("If", '(['+this.mEtag+'])', false);
         }
         return true;
@@ -892,7 +940,6 @@ httpHooks.prototype = {
         var httpchannel = aChannel.QueryInterface(Components.interfaces.nsIHttpChannel);
         try {
             this.mEtag = httpchannel.getResponseHeader("ETag");
-            dump("new etag: "+this.mEtag+"\n");
         } catch(e) {
             // There was no ETag header on the response. This means that
             // putting is not atomic. This is bad. Race conditions can happen,

@@ -140,10 +140,9 @@ NS_METHOD nsTableColFrame::Reflow(nsPresContext*          aPresContext,
   const nsStyleVisibility* colVis = GetStyleVisibility();
   PRBool collapseCol = (NS_STYLE_VISIBILITY_COLLAPSE == colVis->mVisible);
   if (collapseCol) {
-    nsTableFrame* tableFrame = nsnull;
-    nsTableFrame::GetTableFrame(this, tableFrame);
+    nsTableFrame* tableFrame = nsTableFrame::GetTableFrame(this);
     if (tableFrame)  {
-      tableFrame->SetNeedToCollapseColumns(PR_TRUE);
+      tableFrame->SetNeedToCollapse(PR_TRUE);
     }    
   }
   if (aDesiredSize.mComputeMEW)
@@ -245,8 +244,7 @@ NS_NewTableColFrame(nsIPresShell* aPresShell)
 }
 
 NS_IMETHODIMP
-nsTableColFrame::Init(nsPresContext*  aPresContext,
-                      nsIContent*      aContent,
+nsTableColFrame::Init(nsIContent*      aContent,
                       nsIFrame*        aParent,
                       nsStyleContext*  aContext,
                       nsIFrame*        aPrevInFlow)
@@ -254,8 +252,7 @@ nsTableColFrame::Init(nsPresContext*  aPresContext,
   nsresult  rv;
 
   // Let the base class do its initialization
-  rv = nsFrame::Init(aPresContext, aContent, aParent, aContext,
-                     aPrevInFlow);
+  rv = nsFrame::Init(aContent, aParent, aContext, aPrevInFlow);
 
   // record that children that are ignorable whitespace should be excluded 
   mState |= NS_FRAME_EXCLUDE_IGNORABLE_WHITESPACE;

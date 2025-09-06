@@ -4683,14 +4683,18 @@ nsDocShell::OnRedirectStateChange(nsIChannel* aOldChannel,
         return; // not a toplevel document
 
     nsCOMPtr<nsIGlobalHistory3> history3(do_QueryInterface(mGlobalHistory));
+    nsresult result = NS_ERROR_NOT_IMPLEMENTED;
     if (history3) {
         // notify global history of this redirect
-        history3->AddToplevelRedirect(aOldChannel, aNewChannel,
-                                      aRedirectFlags);
-    } else {
-        // when there is no GlobalHistory3, we fall back to GlobalHistory2.
-        // Just notify that the redirecting page was a redirect so it will
-        // be link colored but not visible.
+        result = history3->AddDocumentRedirect(aOldChannel, aNewChannel,
+                                               aRedirectFlags, !IsFrame());
+    }
+
+    if (result == NS_ERROR_NOT_IMPLEMENTED) {
+        // when there is no GlobalHistory3, or it doesn't implement
+        // AddToplevelRedirect, we fall back to GlobalHistory2.  Just notify
+        // that the redirecting page was a redirect so it will be link colored
+        // but not visible.
         nsCOMPtr<nsIURI> oldURI;
         aOldChannel->GetURI(getter_AddRefs(oldURI));
         if (! oldURI)
@@ -6887,10 +6891,11 @@ nsresult nsDocShell::DoChannelLoad(nsIChannel * aChannel,
                                    nsIURILoader * aURILoader)
 {
     nsresult rv;
-    // Mark the channel as being a document URI...
+    // Mark the channel as being a document URI and allow content sniffing...
     nsLoadFlags loadFlags = 0;
     (void) aChannel->GetLoadFlags(&loadFlags);
-    loadFlags |= nsIChannel::LOAD_DOCUMENT_URI;
+    loadFlags |= nsIChannel::LOAD_DOCUMENT_URI |
+                 nsIChannel::LOAD_CALL_CONTENT_SNIFFERS;
 
     // Load attributes depend on load type...
     switch (mLoadType) {
@@ -8195,15 +8200,6 @@ nsDocShell::EnsureScriptEnvironment()
 
     // Note that mScriptGlobal has taken a reference to the script
     // context, so we don't have to.
-
-    // Notify observers that we've created a new outer window.
-    // The matching notification for domwindowdestroyed is in
-    // nsGlobalWindow::~nsGlobalWindow().
-    nsCOMPtr<nsIObserverService> obsSvc =
-        do_GetService("@mozilla.org/observer-service;1");
-    if (obsSvc) {
-        obsSvc->NotifyObservers(win, "domwindowcreated", nsnull);
-    }
 
     return NS_OK;
 }

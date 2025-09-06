@@ -38,7 +38,9 @@
 // Force references to all of the symbols that we want exported from
 // the dll that are located in the .lib files we link with
 
+#ifndef XP_OS2
 #include <windows.h>
+#endif
 #include "nsXPCOMGlue.h"
 #include "nsVoidArray.h"
 #include "nsValueArray.h"
@@ -95,7 +97,7 @@
 #include "nsStringBuffer.h"
 #include "nsCategoryCache.h"
 
-#ifndef WINCE
+#if !defined(WINCE) && !defined(XP_OS2)
 #include "nsWindowsRegKey.h"
 #endif
 
@@ -129,6 +131,7 @@ void XXXNeverCalled()
     NS_CopySegmentToStream(nsnull, nsnull, nsnull, 0, 0, nsnull);
     NS_CopySegmentToBuffer(nsnull, nsnull, nsnull, 0, 0, nsnull);
     NS_DiscardSegment(nsnull, nsnull, nsnull, 0, 0, nsnull);
+    NS_WriteSegmentThunk(nsnull, nsnull, nsnull, 0, 0, 0);
     NS_NewByteInputStream(nsnull, nsnull, 0, NS_ASSIGNMENT_COPY);
     NS_NewCStringInputStream(nsnull, nsCString());
     NS_NewStringInputStream(nsnull, nsString());
@@ -151,7 +154,7 @@ void XXXNeverCalled()
     NS_ProxyRelease(nsnull, nsnull, PR_FALSE);
     XPT_DoString(nsnull, nsnull, nsnull);
     XPT_DoHeader(nsnull, nsnull, nsnull);
-#if defined (DEBUG) && !defined (WINCE)
+#if defined (DEBUG) && !defined (WINCE) && !defined(XP_OS2)
     PurePrintf(0);
 #endif
     XPTC_InvokeByIndex(nsnull, 0, 0, nsnull);
@@ -260,7 +263,7 @@ void XXXNeverCalled()
       b.ToString(0, y);
     }
 
-#ifndef WINCE
+#if !defined(WINCE) && !defined(XP_OS2)
     NS_NewWindowsRegKey(nsnull);
 #endif
 }

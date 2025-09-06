@@ -105,6 +105,12 @@ pref("app.update.timer", 600000);
 // which tells users what's new in this new update.
 pref("app.update.showInstalledUI", false);
 
+// Blocklist preferences
+pref("extensions.blocklist.enabled", true);
+pref("extensions.blocklist.interval", 86400);
+pref("extensions.blocklist.url", "https://addons.mozilla.org/blocklist/1/%APP_ID%/%APP_VERSION%/");
+pref("extensions.blocklist.detailsURL", "http://www.mozilla.com/blocklist/");
+
 // Developers can set this to |true| if they are constantly changing files in their
 // extensions directory so that the extension system does not constantly think that
 // their extensions are being updated and thus reregistered every time the app is started
@@ -160,6 +166,7 @@ pref("xpinstall.whitelist.add.103", "addons.mozilla.org");
 
 pref("mail.phishing.detection.enabled", true); // enable / disable phishing detection for link clicks
 pref("mail.spellcheck.inline", true);
+pref("mail.showPreviewText", true); // enables preview text in mail alerts and folder tooltips
 
 // Folder Pane View
 // 0 == All Folders
@@ -178,6 +185,11 @@ pref("browser.preferences.animateFadeIn", true);
 #else
 pref("browser.preferences.animateFadeIn", false);
 #endif
+
+pref("accessibility.typeaheadfind", false);
+pref("accessibility.typeaheadfind.timeout", 5000);
+pref("accessibility.typeaheadfind.linksonly", false);
+pref("accessibility.typeaheadfind.flashBar", 1);
 
 /////////////////////////////////////////////////////////////////
 // Overrides of the seamonkey suite mailnews.js prefs

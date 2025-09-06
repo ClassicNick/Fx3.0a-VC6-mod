@@ -68,7 +68,7 @@
 #include "nsIEventListenerManager.h"
 
 nsSVGElement::nsSVGElement(nsINodeInfo *aNodeInfo)
-  : nsGenericElement(aNodeInfo)
+  : nsGenericElement(aNodeInfo), mSuppressNotification(PR_FALSE)
 {
 
 }
@@ -186,6 +186,11 @@ nsSVGElement::ParseAttribute(PRInt32 aNamespaceID,
   }
   
   if (svg_value) {
+    // We want to prevent DidModifySVGObservable from running if we
+    // come in this route, otherwise AttributeChanged() gets called
+    // twice (once through DidMOdifySVGObservable, once through SetAttr).
+    mSuppressNotification = PR_TRUE;
+
     if (NS_FAILED(svg_value->SetValueString(aValue))) {
       // The value was rejected. This happens e.g. in a XUL template
       // when trying to set a value like "?x" on a value object that
@@ -207,6 +212,7 @@ nsSVGElement::ParseAttribute(PRInt32 aNamespaceID,
     else {
       aResult.SetTo(svg_value);
     }
+    mSuppressNotification = PR_FALSE;
     return PR_TRUE;
   }
 
@@ -225,7 +231,7 @@ nsSVGElement::UnsetAttr(PRInt32 aNamespaceID, nsIAtom* aName,
 {
   if (aNamespaceID == kNameSpaceID_None && IsEventName(aName)) {
     nsCOMPtr<nsIEventListenerManager> manager;
-    GetListenerManager(getter_AddRefs(manager));
+    GetListenerManager(PR_FALSE, getter_AddRefs(manager));
     if (manager) {
       nsIAtom* eventName = GetEventNameForAttr(aName);
       manager->RemoveScriptEventListener(eventName);
@@ -530,6 +536,10 @@ nsSVGElement::DidModifySVGObservable(nsISVGValue* aObservable,
   // which provides a context which percentage lengths are relative to.
   // Bug 274886
   if (aModType == nsISVGValue::mod_context)
+    return NS_OK;
+
+  // Return without setting DOM attribute 
+  if (mSuppressNotification)
     return NS_OK;
 
   PRUint32 i, count = mMappedAttributes.AttrCount();

@@ -548,14 +548,20 @@ nsGlobalHistory::~nsGlobalHistory()
 //
 //   nsISupports methods
 
-NS_IMPL_ISUPPORTS7(nsGlobalHistory,
-                   nsIGlobalHistory2,
-                   nsIBrowserHistory,
-                   nsIObserver,
-                   nsISupportsWeakReference,
-                   nsIRDFDataSource,
-                   nsIRDFRemoteDataSource,
-                   nsIAutoCompleteSearch)
+NS_IMPL_ADDREF(nsGlobalHistory)
+NS_IMPL_RELEASE(nsGlobalHistory)
+
+NS_INTERFACE_MAP_BEGIN(nsGlobalHistory)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsIGlobalHistory2, nsIGlobalHistory3)
+  NS_INTERFACE_MAP_ENTRY(nsIGlobalHistory3)
+  NS_INTERFACE_MAP_ENTRY(nsIBrowserHistory)
+  NS_INTERFACE_MAP_ENTRY(nsIObserver)
+  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
+  NS_INTERFACE_MAP_ENTRY(nsIRDFDataSource)
+  NS_INTERFACE_MAP_ENTRY(nsIRDFRemoteDataSource)
+  NS_INTERFACE_MAP_ENTRY(nsIAutoCompleteSearch)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIBrowserHistory)
+NS_INTERFACE_MAP_END
 
 //----------------------------------------------------------------------
 //
@@ -1484,6 +1490,15 @@ nsGlobalHistory::MarkPageAsTyped(nsIURI *aURI)
   }
   
   return SetRowValue(row, kToken_TypedColumn, 1);
+}
+
+NS_IMETHODIMP
+nsGlobalHistory::AddDocumentRedirect(nsIChannel *aOldChannel,
+                                     nsIChannel *aNewChannel,
+                                     PRInt32 aFlags,
+                                     PRBool aTopLevel)
+{
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
@@ -4256,7 +4271,7 @@ nsGlobalHistory::StartSearch(const nsAString &aSearchString,
 
   NS_ENSURE_SUCCESS(OpenDB(), NS_ERROR_FAILURE);
   
-  nsCOMPtr<nsIAutoCompleteMdbResult> result;
+  nsCOMPtr<nsIAutoCompleteMdbResult2> result;
   if (aSearchString.IsEmpty()) {
     AutoCompleteTypedSearch(getter_AddRefs(result));
   } else {
@@ -4275,7 +4290,7 @@ nsGlobalHistory::StartSearch(const nsAString &aSearchString,
     
     // perform the actual search here
     nsresult rv = AutoCompleteSearch(filtered, &exclude,
-                                     NS_STATIC_CAST(nsIAutoCompleteMdbResult *,
+                                     NS_STATIC_CAST(nsIAutoCompleteMdbResult2 *,
                                                     aPreviousResult),
                                      getter_AddRefs(result));
     NS_ENSURE_SUCCESS(rv, rv);
@@ -4299,7 +4314,7 @@ nsGlobalHistory::StopSearch()
 //
 
 nsresult
-nsGlobalHistory::AutoCompleteTypedSearch(nsIAutoCompleteMdbResult **aResult)
+nsGlobalHistory::AutoCompleteTypedSearch(nsIAutoCompleteMdbResult2 **aResult)
 {
   mdb_count count;
   mdb_err err = mTable->GetCount(mEnv, &count);
@@ -4310,10 +4325,11 @@ nsGlobalHistory::AutoCompleteTypedSearch(nsIAutoCompleteMdbResult **aResult)
   NS_ENSURE_TRUE(!err, NS_ERROR_FAILURE);
 
   nsresult rv;
-  nsCOMPtr<nsIAutoCompleteMdbResult> result = do_CreateInstance("@mozilla.org/autocomplete/mdb-result;1", &rv);
+  nsCOMPtr<nsIAutoCompleteMdbResult2> result = do_CreateInstance("@mozilla.org/autocomplete/mdb-result;1", &rv);
   NS_ENSURE_SUCCESS(rv, rv);
   result->Init(mEnv, mTable);
-  result->SetTokens(kToken_URLColumn, nsIAutoCompleteMdbResult::kCharType, kToken_NameColumn, nsIAutoCompleteMdbResult::kUnicharType);
+  result->SetTokens(kToken_URLColumn, nsIAutoCompleteMdbResult2::kCharType, kToken_NameColumn, nsIAutoCompleteMdbResult2::kUnicharType);
+  result->SetReverseByteOrder(mReverseByteOrder);
 
   nsCOMPtr<nsIMdbRow> row;
   mdb_pos pos;
@@ -4346,8 +4362,8 @@ nsGlobalHistory::AutoCompleteTypedSearch(nsIAutoCompleteMdbResult **aResult)
 nsresult
 nsGlobalHistory::AutoCompleteSearch(const nsAString &aSearchString,
                                     AutocompleteExclude *aExclude,
-                                    nsIAutoCompleteMdbResult *aPrevResult,
-                                    nsIAutoCompleteMdbResult **aResult)
+                                    nsIAutoCompleteMdbResult2 *aPrevResult,
+                                    nsIAutoCompleteMdbResult2 **aResult)
 {
   // determine if we can skip searching the whole history and only search
   // through the previous search results
@@ -4378,10 +4394,11 @@ nsGlobalHistory::AutoCompleteSearch(const nsAString &aSearchString,
         
     // Create and initialize a new result object
     nsresult rv = NS_OK;
-    nsCOMPtr<nsIAutoCompleteMdbResult> result = do_CreateInstance("@mozilla.org/autocomplete/mdb-result;1", &rv);
+    nsCOMPtr<nsIAutoCompleteMdbResult2> result = do_CreateInstance("@mozilla.org/autocomplete/mdb-result;1", &rv);
     NS_ENSURE_SUCCESS(rv, rv);
     result->Init(mEnv, mTable);
-    result->SetTokens(kToken_URLColumn, nsIAutoCompleteMdbResult::kCharType, kToken_NameColumn, nsIAutoCompleteMdbResult::kUnicharType);
+    result->SetTokens(kToken_URLColumn, nsIAutoCompleteMdbResult2::kCharType, kToken_NameColumn, nsIAutoCompleteMdbResult2::kUnicharType);
+    result->SetReverseByteOrder(mReverseByteOrder);
     result->SetSearchString(aSearchString);
 
     // Get a cursor to iterate through all rows in the database

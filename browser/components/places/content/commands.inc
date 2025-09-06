@@ -1,5 +1,5 @@
   <commandset id="placesCommands" 
-              commandupdater="true" events="focus,select,mousedown,click" 
+              commandupdater="true" events="focus,select,mousedown,click,keypress" 
               oncommandupdate="PlacesController.onCommandUpdate()">
     <command id="placesCmd_find" label="&cmd.find.label;" accesskey="&cmd.find.accesskey;"
              oncommand="PlacesSearchBox.focus();"/>
@@ -16,10 +16,13 @@
                label="&cmd.edit_copy.label;" accesskey="&cmd.edit_copy.accesskey;"
                oncommand="PlacesController.copy();"/>
       <command id="placesCmd_show:info" 
+               oncommand="PlacesController.showBookmarkPropertiesForSelection();"
 #ifdef XP_WIN
-               label="&cmd.show_infoWin.label;" accesskey="&cmd.show_infoWin.accesskey;"/>
+               label="&cmd.show_infoWin.label;" 
+	       accesskey="&cmd.show_infoWin.accesskey;"/>
 #else
-               label="&cmd.show_infoMac.label;" accesskey="&cmd.show_infoMac.accesskey;"/>
+               label="&cmd.show_infoMac.label;" 
+               accesskey="&cmd.show_infoMac.accesskey;"/>
 #endif
     </commandset>
     <commandset>
@@ -45,7 +48,12 @@
     <commandset type="link">
     </commandset>
     <commandset type="container" readonly="true">
+      <!-- The open:tabs command gets enabled/disabled based on the current 
+           selection, and is used in the context menu for a node.  
+           The open:tabsEnabled is always enabled, and is shown in bookmarks menus. -->
       <command id="placesCmd_open:tabs" label="&cmd.open_tabs.label;" accesskey="&cmd.open_tabs.accesskey;"
+               oncommand="PlacesController.openLinksInTabs();"/>
+      <command id="placesCmd_open:tabsEnabled" label="&cmd.open_tabs.label;" accesskey="&cmd.open_tabs.accesskey;"
                oncommand="PlacesController.openLinksInTabs();"/>
       <command id="placesCmd_groupby:site" 
                label="&cmd.groupby_site.label;" accesskey="&cmd.groupby_site.accesskey;"

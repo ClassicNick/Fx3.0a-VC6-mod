@@ -45,17 +45,14 @@ use Bugzilla::Error;
 sub globals_pl_sillyness {
     my $zz;
     $zz = @main::enterable_products;
-    $zz = %main::keywordsbyname;
     $zz = @main::legal_bug_status;
     $zz = @main::legal_components;
-    $zz = @main::legal_keywords;
     $zz = @main::legal_opsys;
     $zz = @main::legal_platform;
     $zz = @main::legal_priority;
     $zz = @main::legal_product;
     $zz = @main::legal_severity;
     $zz = @main::legal_target_milestone;
-    $zz = @main::legal_versions;
     $zz = @main::milestoneurl;
     $zz = @main::prodmaxvotes;
 }
@@ -107,21 +104,7 @@ $::SIG{PIPE} = 'IGNORE';
 sub GenerateVersionTable {
     my $dbh = Bugzilla->dbh;
 
-    SendSQL("SELECT versions.value, products.name " .
-            "FROM versions, products " .
-            "WHERE products.id = versions.product_id " .
-            "ORDER BY versions.value");
-    my @line;
-    my %varray;
-    my %carray;
-    while (@line = FetchSQLData()) {
-        my ($v,$p1) = (@line);
-        if (!defined $::versions{$p1}) {
-            $::versions{$p1} = [];
-        }
-        push @{$::versions{$p1}}, $v;
-        $varray{$v} = 1;
-    }
+    my (@line, %carray);
     SendSQL("SELECT components.name, products.name " .
             "FROM components, products " .
             "WHERE products.id = components.product_id " .
@@ -202,8 +185,7 @@ sub GenerateVersionTable {
         splice(@::settable_resolution, $z, 1);
     }
 
-    my @list = sort { uc($a) cmp uc($b)} keys(%::versions);
-    @::legal_product = @list;
+    @::legal_product = map($_->name, Bugzilla::Product::get_all_products());
 
     require File::Temp;
     my ($fh, $tmpname) = File::Temp::tempfile("versioncache.XXXXX",
@@ -217,17 +199,16 @@ sub GenerateVersionTable {
     print $fh "#\n";
 
     require Data::Dumper;
-    print $fh (Data::Dumper->Dump([\@::log_columns, \%::versions],
-                                  ['*::log_columns', '*::versions']));
+    print $fh (Data::Dumper->Dump([\@::log_columns],
+                                  ['*::log_columns']));
 
-    foreach my $i (@list) {
+    foreach my $i (@::legal_product) {
         if (!defined $::components{$i}) {
             $::components{$i} = [];
         }
     }
-    @::legal_versions = sort {uc($a) cmp uc($b)} keys(%varray);
-    print $fh (Data::Dumper->Dump([\@::legal_versions, \%::components],
-                                  ['*::legal_versions', '*::components']));
+    print $fh (Data::Dumper->Dump([\%::components],
+                                  ['*::components']));
     @::legal_components = sort {uc($a) cmp uc($b)} keys(%carray);
 
     print $fh (Data::Dumper->Dump([\@::legal_components, \@::legal_product,
@@ -275,30 +256,12 @@ sub GenerateVersionTable {
                                        '*::milestoneurl']));
     }
 
-    SendSQL("SELECT id, name FROM keyworddefs ORDER BY name");
-    while (MoreSQLData()) {
-        my ($id, $name) = FetchSQLData();
-        push(@::legal_keywords, $name);
-        $name = lc($name);
-        $::keywordsbyname{$name} = $id;
-    }
-
-    print $fh (Data::Dumper->Dump([\@::legal_keywords, \%::keywordsbyname],
-                                  ['*::legal_keywords', '*::keywordsbyname']));
-
     print $fh "1;\n";
     close $fh;
 
     rename ($tmpname, "$datadir/versioncache")
         || die "Can't rename $tmpname to versioncache";
     ChmodDataFile("$datadir/versioncache", 0666);
-}
-
-
-sub GetKeywordIdFromName {
-    my ($name) = (@_);
-    $name = lc($name);
-    return $::keywordsbyname{$name};
 }
 
 
@@ -311,13 +274,6 @@ sub GetVersionTable {
         $file_generated = 1;
     }
     require "$datadir/versioncache";
-    if (!defined %::versions && !$file_generated) {
-        GenerateVersionTable();
-        do "$datadir/versioncache";
-    }
-    if (!defined %::versions) {
-        die "Can't generate file $datadir/versioncache";
-    }
     $::VersionTableLoaded = 1;
 }
 
@@ -487,36 +443,6 @@ sub get_legal_field_values {
     return @$result_ref;
 }
 
-sub BugInGroupId {
-    my ($bugid, $groupid) = (@_);
-    PushGlobalSQLState();
-    SendSQL("SELECT CASE WHEN bug_id != 0 THEN 1 ELSE 0 END
-            FROM bug_group_map
-            WHERE bug_id = $bugid
-            AND group_id = $groupid");
-    my $bugingroup = FetchOneColumn();
-    PopGlobalSQLState();
-    return $bugingroup;
-}
-
-sub GroupExists {
-    my ($groupname) = (@_);
-    PushGlobalSQLState();
-    SendSQL("SELECT id FROM groups WHERE name=" . SqlQuote($groupname));
-    my $id = FetchOneColumn();
-    PopGlobalSQLState();
-    return $id;
-}
-
-sub GroupNameToId {
-    my ($groupname) = (@_);
-    PushGlobalSQLState();
-    SendSQL("SELECT id FROM groups WHERE name=" . SqlQuote($groupname));
-    my $id = FetchOneColumn();
-    PopGlobalSQLState();
-    return $id;
-}
-
 sub GroupIdToName {
     my ($groupid) = (@_);
     PushGlobalSQLState();
@@ -524,39 +450,6 @@ sub GroupIdToName {
     my $name = FetchOneColumn();
     PopGlobalSQLState();
     return $name;
-}
-
-
-# Determines whether or not a group is active by checking 
-# the "isactive" column for the group in the "groups" table.
-# Note: This function selects groups by id rather than by name.
-sub GroupIsActive {
-    my ($groupid) = (@_);
-    $groupid ||= 0;
-    PushGlobalSQLState();
-    SendSQL("SELECT isactive FROM groups WHERE id=$groupid");
-    my $isactive = FetchOneColumn();
-    PopGlobalSQLState();
-    return $isactive;
-}
-
-# Determines if the given bug_status string represents an "Opened" bug.  This
-# routine ought to be parameterizable somehow, as people tend to introduce
-# new states into Bugzilla.
-
-sub IsOpenedState {
-    my ($state) = (@_);
-    if (grep($_ eq $state, OpenStates())) {
-        return 1;
-    }
-    return 0;
-}
-
-# This sub will return an array containing any status that
-# is considered an open bug.
-
-sub OpenStates {
-    return ('NEW', 'REOPENED', 'ASSIGNED', 'UNCONFIRMED');
 }
 
 ############# Live code below here (that is, not subroutine defs) #############

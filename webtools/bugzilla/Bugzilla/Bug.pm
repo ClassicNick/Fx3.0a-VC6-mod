@@ -30,9 +30,9 @@ package Bugzilla::Bug;
 
 use strict;
 
-use vars qw($legal_keywords @legal_platform
+use vars qw(@legal_platform
             @legal_priority @legal_severity @legal_opsys @legal_bug_status
-            @settable_resolution %components %versions %target_milestone
+            @settable_resolution %components %target_milestone
             @enterable_products %milestoneurl %prodmaxvotes);
 
 use CGI::Carp qw(fatalsToBrowser);
@@ -46,6 +46,7 @@ use Bugzilla::FlagType;
 use Bugzilla::User;
 use Bugzilla::Util;
 use Bugzilla::Error;
+use Bugzilla::Product;
 
 use base qw(Exporter);
 @Bugzilla::Bug::EXPORT = qw(
@@ -53,6 +54,7 @@ use base qw(Exporter);
     bug_alias_to_id ValidateBugAlias ValidateBugID
     RemoveVotes CheckIfVotedConfirmed
     LogActivityEntry
+    is_open_state
 );
 
 #####################################################################
@@ -202,7 +204,7 @@ sub initBug  {
   }
 
   $self->{'isunconfirmed'} = ($self->{bug_status} eq 'UNCONFIRMED');
-  $self->{'isopened'} = &::IsOpenedState($self->{bug_status});
+  $self->{'isopened'} = is_open_state($self->{bug_status});
   
   return $self;
 }
@@ -521,11 +523,6 @@ sub show_attachment_flags {
     return $self->{'show_attachment_flags'};
 }
 
-
-sub use_keywords {
-    return @::legal_keywords;
-}
-
 sub use_votes {
     my ($self) = @_;
     return 0 if $self->{'error'};
@@ -641,6 +638,7 @@ sub choices {
     &::GetVersionTable();
 
     $self->{'choices'} = {};
+    $self->{prod_obj} ||= new Bugzilla::Product({name => $self->{product}});
 
     # Fiddle the product list.
     my $seen_curr_prod;
@@ -686,7 +684,7 @@ sub choices {
        'bug_status' => \@::legal_bug_status,
        'resolution' => \@res,
        'component' => $::components{$self->{product}},
-       'version' => $::versions{$self->{product}},
+       'version' => [map($_->name, @{$self->{prod_obj}->versions})],
        'target_milestone' => $::target_milestone{$self->{product}},
       };
 
@@ -754,6 +752,12 @@ sub EmitDependList {
          ORDER BY dependencies.$targetfield",
          undef, ($bug_id));
     return $list_ref;
+}
+
+# Tells you whether or not the argument is a valid "open" state.
+sub is_open_state {
+    my ($state) = @_;
+    return (grep($_ eq $state, BUG_STATE_OPEN) ? 1 : 0);
 }
 
 sub ValidateTime {
@@ -977,7 +981,7 @@ sub CountOpenDependencies {
             "FROM bugs, dependencies " .
            "WHERE blocked IN (" . (join "," , @bug_list) . ") " .
              "AND bug_id = dependson " .
-             "AND bug_status IN ('" . (join "','", &::OpenStates())  . "') " .
+             "AND bug_status IN ('" . (join "','", BUG_STATE_OPEN)  . "') " .
           $dbh->sql_group_by('blocked'));
     $sth->execute();
 
@@ -1328,7 +1332,7 @@ sub _validate_attribute {
            longdescs milestoneurl attachments
            isopened isunconfirmed
            flag_types num_attachment_flag_types
-           show_attachment_flags use_keywords any_flags_requesteeble),
+           show_attachment_flags any_flags_requesteeble),
 
         # Bug fields.
         Bugzilla::Bug->fields

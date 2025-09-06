@@ -88,6 +88,7 @@
 
     <command id="cmd_handleBackspace" oncommand="BrowserHandleBackspace();" />
     <command id="cmd_handleShiftBackspace" oncommand="BrowserHandleShiftBackspace();" />
+
     <command id="cmd_newNavigatorTab" oncommand="BrowserOpenTab();"/>
     <command id="Browser:OpenFile"  oncommand="BrowserOpenFileWindow();"/>
     <command id="Browser:SavePage" oncommand="saveDocument(window.content.document);"/>
@@ -144,8 +145,13 @@
     <command id="cmd_find" oncommand="gFindBar.onFindCmd();" observes="isImage"/>
     <command id="cmd_findAgain" oncommand="gFindBar.onFindAgainCmd();" observes="isImage"/>
     <command id="cmd_findPrevious" oncommand="gFindBar.onFindPreviousCmd();" observes="isImage"/>    
+#ifdef MOZ_PLACES
+    <command id="Browser:AddBookmarkAs" 
+             oncommand="PlacesCommandHook.bookmarkCurrentPage();"/>
+#else
     <command id="Browser:AddBookmarkAs" oncommand="addBookmarkAs(document.getElementById('content'), false);"/>
     <command id="Browser:BookmarkAllTabs" oncommand="addBookmarkAs(document.getElementById('content'), true);"/>
+#endif
     <command id="Browser:Home"    oncommand="BrowserHome();"/>
     <command id="Browser:Back"    oncommand="BrowserBack();" disabled="true"/>
     <command id="Browser:Forward" oncommand="BrowserForward();" disabled="true"/>
@@ -166,13 +172,26 @@
     <command id="Tools:Sanitize" oncommand="gBrowserGlue.sanitize(window || null);"/>
 #ifdef MOZ_PLACES
 #include ../../components/places/content/commands.inc
-    <command id="Browser:ShowBookmarks" oncommand="PlacesBrowserShim.showBookmarks();"/>
-    <command id="Browser:ShowHistory" oncommand="PlacesBrowserShim.showHistory();"/>
+    <command id="Browser:ShowBookmarks" oncommand="PlacesCommandHook.showPlacesOrganizer('bookmarks');"/>
+    <command id="Browser:ShowHistory" oncommand="PlacesCommandHook.showPlacesOrganizer('history');"/>
+    <command id="Browser:SearchHistory" oncommand="HistoryMenu.showPlacesSearch();"/>
+    <command id="Browser:ClearHistory" oncommand="HistoryMenu.clearHistory();"/>
 #endif
   </commandset>
 
+#ifdef MOZ_PLACES
+  <commandset id="multipleTabsCommands" 
+              commandupdater="true" events="select"
+              oncommandupdate="BrowserController.onEvent(BrowserController.EVENT_TABCHANGE);">
+    <command id="Browser:BookmarkAllTabs" disabled="true"/>
+  </commandset>
+#endif
+
   <broadcasterset id="mainBroadcasterSet">
-#ifndef MOZ_PLACES
+#ifdef MOZ_PLACES
+    <broadcaster id="viewHistoryPlaces" autoCheck="false" label="&historyButton.label;"
+                 oncommand="PlacesBrowserShim.showHistory();"/>
+#else
     <broadcaster id="viewBookmarksSidebar" autoCheck="false" label="&bookmarksButton.label;"
                  type="checkbox" group="sidebar" sidebarurl="chrome://browser/content/bookmarks/bookmarksPanel.xul"
                  oncommand="toggleSidebar('viewBookmarksSidebar');"/>
@@ -308,7 +327,11 @@
 #ifndef MOZ_WIDGET_GTK2
     <key id="bookmarkAllTabsKb" key="&addCurPageAsCmd.commandkey;" command="Browser:BookmarkAllTabs" modifiers="accel,shift"/>
 #endif
+#ifdef MOZ_PLACES
+    <key id="searchBookmarksKb" key="&searchBookmarksCmd.commandkey;" command="Browser:ShowBookmarks" modifiers="accel"/>
+#else
     <key id="viewBookmarksSidebarKb" key="&bookmarksSidebarCmd.commandkey;" command="viewBookmarksSidebar" modifiers="accel"/>
+#endif
 #ifdef XP_WIN
 # Cmd+I is conventially mapped to Info on MacOS X, thus it should not be 
 # overridden for other purposes there. 
@@ -318,12 +341,26 @@
 # don't use |command="Browser:Stop"|, ESC is being used to freeze animated gifs,
 # even if the stop button and menuitem are disabled (see Bug 284140)
     <key id="key_stop" keycode="VK_ESCAPE" oncommand="BrowserStop();"/>
+    
 #ifdef XP_MACOSX
+
     <key id="key_stop_mac" modifiers="accel" key="&stopCmd.macCommandKey;" oncommand="BrowserStop();"/>
+#ifdef MOZ_PLACES
     <key id="key_gotoHistory"  key="&historySidebarCmd.commandKey;"  command="viewHistorySidebar" modifiers="accel,shift"/>
+#else
+    <key id="key_gotoHistory"  key="&historySidebarCmd.commandKey;"  command="viewHistoryPlaces" modifiers="accel,shift"/>
+#endif
+
+#else
+
+#ifdef MOZ_PLACES
+    <key id="key_gotoHistory"  key="&historySidebarCmd.commandKey;"  command="viewHistoryPlaces" modifiers="accel"/>
 #else
     <key id="key_gotoHistory"  key="&historySidebarCmd.commandKey;"  command="viewHistorySidebar" modifiers="accel"/>
 #endif
+
+#endif
+
     <key id="key_textZoomReduce"  key="&textZoomReduceCmd.commandkey;"   command="cmd_textZoomReduce"  modifiers="accel"/>
     <key id="key_textZoomEnlarge" key="&textZoomEnlargeCmd.commandkey;"  command="cmd_textZoomEnlarge" modifiers="accel"/>
     <key                          key="&textZoomEnlargeCmd.commandkey2;" command="cmd_textZoomEnlarge" modifiers="accel"/>

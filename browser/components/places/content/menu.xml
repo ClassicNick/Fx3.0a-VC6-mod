@@ -10,28 +10,32 @@
            extends="chrome://global/content/bindings/popup.xml#popup">
     <implementation>
       <constructor><![CDATA[
+        // this.init(); -- causes Ts regression on windows
       ]]></constructor>
       
       <destructor><![CDATA[
       ]]></destructor>
             
       <method name="init">
-        <body><![CDATA[ 
+        <body><![CDATA[
+          if (!this.hasAttribute("place"))
+            return;
+
+          // This function should only be called for top-level menus like the bookmarks menu.
+          // Submenus get their _result and _resultNode from their parents.
           var hist =           
               Cc["@mozilla.org/browser/nav-history-service;1"].
               getService(Ci.nsINavHistoryService);
-          
-          var bms = 
-              Cc["@mozilla.org/browser/nav-bookmarks-service;1"].
-              getService(Ci.nsINavBookmarksService);
 
-          var query = hist.getNewQuery();
-          query.setFolders([bms.bookmarksRoot], 1);
-          var options = hist.getNewQueryOptions();
-          options.setGroupingMode([Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER], 1);
-          options.expandQueries = true;
-          this._result = hist.executeQuery(query, options);
+          var queryString = this.getAttribute("place");
+          var queries = { }, options = { };
+          hist.queryStringToQueries(queryString, queries, { }, options);
+          if (!queries.value.length) 
+            queries.value = [hist.getNewQuery()];
+          this._result = hist.executeQueries(queries.value, queries.value.length, options.value);
+          this._result.root.containerOpen = true;
           this._resultNode = this._result.root;
+          this._rebuild();
         ]]></body>
       </method>
             
@@ -97,14 +101,17 @@
               this._endMarker = i;
               continue;
             }
-            if ((this._startMarker != -1) && (this._endMarker == -1)) 
+            if ((this._startMarker != -1) && (this._endMarker == -1))
               items.push(item);
           }
           
           // If static items at the beginning were found, remove all items between
           // them and the static content at the end.
-          for (var i = 0; i < items.length; ++i)
+          for (var i = 0; i < items.length; ++i) {
             items[i].parentNode.removeChild(items[i]);
+            if (this._endMarker > 0)
+              --this._endMarker;
+          }
             
           // If no static items were found at the beginning, remove all items before
           // the static items at the end.
@@ -112,9 +119,11 @@
             var end = (this._endMarker == -1) ? this.childNodes.length - 1 : this._endMarker - 1;
             for (var i = end; i >=0; i--) {
               this.removeChild(this.childNodes[i]);
+              if (this._endMarker > 0)
+                --this._endMarker;
             }
           }
-          LOG("KIDS = " + this.childNodes.length);
+          //LOG("KIDS = " + this.childNodes.length);
         ]]></body>
       </method>
       
@@ -160,8 +169,11 @@
                 element = document.createElementNS(XULNS, "menuitem");
                 element.setAttribute("label", child.title);
                 element.setAttribute("url", child.uri);
-                element.setAttribute("statustext", child.url);
+                element.setAttribute("statustext", child.uri);
                 element.className = "menuitem-iconic bookmark-item";
+              }
+              else if (PlacesController.nodeIsSeparator(child)) {
+                element = document.createElementNS(XULNS, "menuseparator");
               }
               else if (PlacesController.nodeIsContainer(child)) {
                 element = document.createElementNS(XULNS, "menu");
@@ -471,7 +483,7 @@
           // get dropped in/above/below.
           // Ignore static content at the top and bottom of the menu.
           var start = (this._self._startMarker != -1) ? (this._self._startMarker + 1) : 0;
-          var end = (this._self._endMarker != -1) ? this.self._endMarker : this._self.childNodes.length;
+          var end = (this._self._endMarker != -1) ? this._self._endMarker : this._self.childNodes.length;
           for (var i = start; i < end; i++) {
             var xulNode = this._self.childNodes[i];
             var nodeY = xulNode.boxObject.y - this._self.boxObject.y;
@@ -597,9 +609,43 @@
           for (var i = 0; i < this._self.supportedDropTypes.length; ++i)
             flavorSet.appendFlavour(this._self.supportedDropTypes[i]);
           return flavorSet;
-        },
+        }
         
       })]]></field>
+      
+      <!-- Checks whether and event should be acted on by this menu
+           (It should be if the event affects one of this menu's child
+            nodes) -->
+      <method name="eventValid">
+        <parameter name="event"/>
+        <body><![CDATA[
+          if ((event.target.localName != "menuitem" &&
+               event.target.localName != "menuseparator" &&
+               event.target.localName != "menu") ||
+              event.target.parentNode != this)
+            return false;
+          return true;
+        ]]></body>
+      </method>
+      
+      <!-- Sets the active view to this view, and sets the selection 
+           to the node from this event. -->
+      <method name="setSelectionForEvent">
+        <parameter name="event"/>
+        <body><![CDATA[
+          // Set the selection to the node that was clicked on.  If that
+          // node has a command but no data associated with it, it should
+          // act on the entire menu.
+          this._selection = event.target.node;
+          if (event.target.node == null && event.target.hasAttribute("command"))
+            this._selection = this._resultNode;
+          // Set the active view to this node.
+          PlacesController.activeView = this;
+          // When right clicking an item in a bookmarks menu the places commands
+          // need to be updated for the context menu to appear correctly.
+          document.commandDispatcher.updateCommands(event.type);
+        ]]></body>
+      </method>
       
     </implementation>
     <handlers>
@@ -620,51 +666,18 @@
           this.removeAttribute("autoopened");
         }
       </handler>
-      <handler event="command"><![CDATA[
-        // Only menu and menuitems are valid nodes.
-        // Filter out events coming from sub-containers that have bubbled up.
-        if ((event.target.localName != "menuitem" &&
-             event.target.localName != "menu") ||
-            event.target.parentNode != this)
-          return;
-        this._selection = event.target.node;
-        PlacesController.activeView = this;
-        PlacesController.mouseLoadURI(event);
-      ]]></handler>
-      <handler event="click"><![CDATA[
-        // Left-click is handled by command handler.
-        if (event.button == 0)
-          return;
-      
-        // Only menu and menuitems are valid nodes.
-        // Filter out events coming from sub-containers that have bubbled up.
-        if ((event.target.localName != "menuitem" &&
-             event.target.localName != "menu") ||
-            event.target.parentNode != this)
-          return;
-        this._selection = event.target.node;
-        PlacesController.activeView = this;
-        // When right clicking an item in a bookmarks menu the places commands
-        // need to be updated for the context menu to appear correctly.
-        document.commandDispatcher.updateCommands("click");
-        // Only middle clicks should load the URI from this function 
-        // (left clicks go through command event handler)
-        if (event.button != 1)
-          return;
-          
-        PlacesController.mouseLoadURI(event);
-        // Menus selected with middle click must be closed manually.
-        if (event.button == 1) {
-          var node = this;
-          while (node && 
-                (node.localName == "menu" || 
-                 node.localName == "menupopup")) {
-            if (node.localName == "menupopup")
-              node.hidePopup();
-            
-            node = node.parentNode;
-          }
+      <!-- Set selected node/active view on mousedown/DOMMenuItemActive events
+           so that they're set up when command and click events fire. -->
+      <handler event="mousedown"><![CDATA[
+        if (this.eventValid(event)) {
+          this.setSelectionForEvent(event);
+          // Don't let the event bubble up to a parent toolbar.
+          event.preventBubble();
         }
+      ]]></handler>
+      <handler event="DOMMenuItemActive"><![CDATA[
+        if (this.eventValid(event))
+          this.setSelectionForEvent(event);
       ]]></handler>
       <handler event="draggesture"><![CDATA[
         if (event.target.localName == "menuitem")

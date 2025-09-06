@@ -57,44 +57,46 @@
 
 THEBES_IMPL_REFCOUNTING(gfxWindowsFont)
 
-gfxWindowsFont::gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup, HDC aDC)
-    : mFont(nsnull), mScriptCache(nsnull), mIsMLangFont(PR_FALSE)
+gfxWindowsFont::gfxWindowsFont(const nsAString &aName, const gfxFontGroup *aFontGroup)
+    : mFont(nsnull), mScriptCache(nsnull), mMetrics(nsnull), mIsMLangFont(PR_FALSE)
 {
     mName = aName;
     mGroup = aFontGroup;
     mStyle = mGroup->GetStyle();
 
-    mFontFace = MakeCairoFontFace();
-    NS_ASSERTION(mFontFace, "Failed to make font face");
-
-    mScaledFont = MakeCairoScaledFont(nsnull);
-    NS_ASSERTION(mScaledFont, "Failed to make scaled font");
-
-    HDC dc = aDC ? aDC : GetDC((HWND)nsnull);
-
-    ComputeMetrics(dc);
-
-    if (dc != aDC)
-        ReleaseDC((HWND)nsnull, dc);
+    Init();
 }
 
-gfxWindowsFont::gfxWindowsFont(HFONT aFont, const gfxFontGroup *aFontGroup, PRBool aIsMLangFont)
-    : mScriptCache(nsnull), mIsMLangFont(aIsMLangFont)
+gfxWindowsFont::gfxWindowsFont(HFONT aFont,
+                               const gfxFontGroup *aFontGroup,
+                               PRBool aIsMLangFont,
+                               const gfxMatrix& aMatrix)
+    : mScriptCache(nsnull), mMetrics(nsnull), mIsMLangFont(aIsMLangFont), mCTM(aMatrix)
 {
     mFont = aFont;
     mGroup = aFontGroup;
     mStyle = mGroup->GetStyle();
 
-    mFontFace = MakeCairoFontFace();
-    NS_ASSERTION(mFontFace, "Failed to make font face");
-
-    mScaledFont = MakeCairoScaledFont(nsnull);
-    NS_ASSERTION(mScaledFont, "Failed to make scaled font");
-
-    // don't bother creating the metrics.
+    Init();
 }
 
 gfxWindowsFont::~gfxWindowsFont()
+{
+    Destroy();
+}
+
+void
+gfxWindowsFont::Init()
+{
+    mFontFace = MakeCairoFontFace();
+    NS_ASSERTION(mFontFace, "Failed to make font face");
+
+    mScaledFont = MakeCairoScaledFont();
+    NS_ASSERTION(mScaledFont, "Failed to make scaled font");
+}
+
+void
+gfxWindowsFont::Destroy()
 {
     cairo_font_face_destroy(mFontFace);
     cairo_scaled_font_destroy(mScaledFont);
@@ -114,18 +116,36 @@ gfxWindowsFont::~gfxWindowsFont()
         DeleteObject(mFont);
 
     ScriptFreeCache(&mScriptCache);
+
+    delete mMetrics;
+
+    mFont = nsnull;
+    mScriptCache = nsnull;
+    mFontFace = nsnull;
+    mScaledFont = nsnull;
+    mMetrics = nsnull;
+}
+
+const gfxFont::Metrics&
+gfxWindowsFont::GetMetrics()
+{
+    if (!mMetrics)
+        ComputeMetrics();
+
+    return *mMetrics;
 }
 
 void
-gfxWindowsFont::UpdateFonts(cairo_t *cr)
+gfxWindowsFont::UpdateCTM(const gfxMatrix& aMatrix)
 {
-    cairo_font_face_destroy(mFontFace);
-    cairo_scaled_font_destroy(mScaledFont);
-    
-    mFontFace = MakeCairoFontFace();
-    NS_ASSERTION(mFontFace, "Failed to make font face");
-    mScaledFont = MakeCairoScaledFont(nsnull);
-    NS_ASSERTION(mScaledFont, "Failed to make scaled font");
+    if (aMatrix.ToCairoMatrix().yy == mCTM.ToCairoMatrix().yy)
+        return;
+
+    Destroy();
+
+    mCTM = aMatrix;
+
+    Init();
 }
 
 cairo_font_face_t *
@@ -172,32 +192,32 @@ gfxWindowsFont::MakeCairoFontFace()
 }
 
 cairo_scaled_font_t *
-gfxWindowsFont::MakeCairoScaledFont(cairo_t *cr)
+gfxWindowsFont::MakeCairoScaledFont()
 {
     cairo_scaled_font_t *font = nsnull;
 
-    cairo_matrix_t sizeMatrix, ctm;
-
-    if (cr)
-        cairo_get_matrix(cr, &ctm);
-    else
-        cairo_matrix_init_identity(&ctm);
+    cairo_matrix_t sizeMatrix;
 
     cairo_matrix_init_scale(&sizeMatrix, mStyle->size, mStyle->size);
 
     cairo_font_options_t *fontOptions = cairo_font_options_create();
-    font = cairo_scaled_font_create(mFontFace, &sizeMatrix, &ctm, fontOptions);
+    font = cairo_scaled_font_create(mFontFace, &sizeMatrix, &mCTM.ToCairoMatrix(), fontOptions);
     cairo_font_options_destroy(fontOptions);
 
     return font;
 }
 
 void
-gfxWindowsFont::ComputeMetrics(HDC aDC)
+gfxWindowsFont::ComputeMetrics()
 {
-    SaveDC(aDC);
+    if (!mMetrics)
+        mMetrics = new gfxFont::Metrics;
 
-    cairo_win32_scaled_font_select_font(mScaledFont, aDC);
+    HDC dc = GetDC((HWND)nsnull);
+
+    SaveDC(dc);
+
+    cairo_win32_scaled_font_select_font(mScaledFont, dc);
 
     const double cairofontfactor = cairo_win32_scaled_font_get_metrics_factor(mScaledFont);
     const double multiplier = cairofontfactor * mStyle->size;
@@ -207,71 +227,75 @@ gfxWindowsFont::ComputeMetrics(HDC aDC)
     TEXTMETRIC& metrics = oMetrics.otmTextMetrics;
     gfxFloat descentPos = 0;
 
-    if (0 < ::GetOutlineTextMetrics(aDC, sizeof(oMetrics), &oMetrics)) {
+    if (0 < ::GetOutlineTextMetrics(dc, sizeof(oMetrics), &oMetrics)) {
         //    mXHeight = NSToCoordRound(oMetrics.otmsXHeight * mDev2App);  XXX not really supported on windows
-        mMetrics.xHeight = NSToCoordRound((float)metrics.tmAscent * multiplier * 0.56f); // 50% of ascent, best guess for true type
-        mMetrics.superscriptOffset = NSToCoordRound(oMetrics.otmptSuperscriptOffset.y * multiplier);
-        mMetrics.subscriptOffset = NSToCoordRound(oMetrics.otmptSubscriptOffset.y * multiplier);
+        mMetrics->xHeight = NSToCoordRound((float)metrics.tmAscent * multiplier * 0.56f); // 50% of ascent, best guess for true type
+        mMetrics->superscriptOffset = NSToCoordRound(oMetrics.otmptSuperscriptOffset.y * multiplier);
+        mMetrics->subscriptOffset = NSToCoordRound(oMetrics.otmptSubscriptOffset.y * multiplier);
         
-        mMetrics.strikeoutSize = PR_MAX(1, NSToCoordRound(oMetrics.otmsStrikeoutSize * multiplier));
-        mMetrics.strikeoutOffset = NSToCoordRound(oMetrics.otmsStrikeoutPosition * multiplier);
-        mMetrics.underlineSize = PR_MAX(1, NSToCoordRound(oMetrics.otmsUnderscoreSize * multiplier));
+        mMetrics->strikeoutSize = PR_MAX(1, NSToCoordRound(oMetrics.otmsStrikeoutSize * multiplier));
+        mMetrics->strikeoutOffset = NSToCoordRound(oMetrics.otmsStrikeoutPosition * multiplier);
+        mMetrics->underlineSize = PR_MAX(1, NSToCoordRound(oMetrics.otmsUnderscoreSize * multiplier));
 
-        mMetrics.underlineOffset = NSToCoordRound(oMetrics.otmsUnderscorePosition * multiplier);
+        mMetrics->underlineOffset = NSToCoordRound(oMetrics.otmsUnderscorePosition * multiplier);
         
         // Begin -- section of code to get the real x-height with GetGlyphOutline()
         GLYPHMETRICS gm;
         MAT2 mMat = { 1, 0, 0, 1 };    // glyph transform matrix (always identity in our context)
-        DWORD len = GetGlyphOutlineW(aDC, PRUnichar('x'), GGO_METRICS, &gm, 0, nsnull, &mMat);
+        DWORD len = GetGlyphOutlineW(dc, PRUnichar('x'), GGO_METRICS, &gm, 0, nsnull, &mMat);
 
         if (GDI_ERROR != len && gm.gmptGlyphOrigin.y > 0) {
-            mMetrics.xHeight = NSToCoordRound(gm.gmptGlyphOrigin.y * multiplier);
+            mMetrics->xHeight = NSToCoordRound(gm.gmptGlyphOrigin.y * multiplier);
         }
         // End -- getting x-height
     }
     else {
         // Make a best-effort guess at extended metrics
         // this is based on general typographic guidelines
-        ::GetTextMetrics(aDC, &metrics);
-        mMetrics.xHeight = NSToCoordRound((float)metrics.tmAscent * 0.56f); // 56% of ascent, best guess for non-true type
-        mMetrics.superscriptOffset = mMetrics.xHeight;     // XXX temporary code!
-        mMetrics.subscriptOffset = mMetrics.xHeight;     // XXX temporary code!
+        ::GetTextMetrics(dc, &metrics);
+        mMetrics->xHeight = NSToCoordRound((float)metrics.tmAscent * 0.56f); // 56% of ascent, best guess for non-true type
+        mMetrics->superscriptOffset = mMetrics->xHeight;     // XXX temporary code!
+        mMetrics->subscriptOffset = mMetrics->xHeight;     // XXX temporary code!
         
-        mMetrics.strikeoutSize = 1; // XXX this is a guess
-        mMetrics.strikeoutOffset = NSToCoordRound(mMetrics.xHeight / 2.0f); // 50% of xHeight
-        mMetrics.underlineSize = 1; // XXX this is a guess
-        mMetrics.underlineOffset = -NSToCoordRound((float)metrics.tmDescent * 0.30f); // 30% of descent
+        mMetrics->strikeoutSize = 1; // XXX this is a guess
+        mMetrics->strikeoutOffset = NSToCoordRound(mMetrics->xHeight / 2.0f); // 50% of xHeight
+        mMetrics->underlineSize = 1; // XXX this is a guess
+        mMetrics->underlineOffset = -NSToCoordRound((float)metrics.tmDescent * 0.30f); // 30% of descent
     }
     
 
-    mMetrics.internalLeading = NSToCoordRound(metrics.tmInternalLeading * multiplier);
-    mMetrics.externalLeading = NSToCoordRound(metrics.tmExternalLeading * multiplier);
-    mMetrics.emHeight = NSToCoordRound((metrics.tmHeight - metrics.tmInternalLeading) * multiplier);
-    mMetrics.emAscent = NSToCoordRound((metrics.tmAscent - metrics.tmInternalLeading) * multiplier);
-    mMetrics.emDescent = NSToCoordRound(metrics.tmDescent * multiplier);
-    mMetrics.maxHeight = NSToCoordRound(metrics.tmHeight * multiplier);
-    mMetrics.maxAscent = NSToCoordRound(metrics.tmAscent * multiplier);
-    mMetrics.maxDescent = NSToCoordRound(metrics.tmDescent * multiplier);
-    mMetrics.maxAdvance = NSToCoordRound(metrics.tmMaxCharWidth * multiplier);
-    mMetrics.aveCharWidth = PR_MAX(1, NSToCoordRound(metrics.tmAveCharWidth * multiplier));
+    mMetrics->internalLeading = NSToCoordRound(metrics.tmInternalLeading * multiplier);
+    mMetrics->externalLeading = NSToCoordRound(metrics.tmExternalLeading * multiplier);
+    mMetrics->emHeight = NSToCoordRound((metrics.tmHeight - metrics.tmInternalLeading) * multiplier);
+    mMetrics->emAscent = NSToCoordRound((metrics.tmAscent - metrics.tmInternalLeading) * multiplier);
+    mMetrics->emDescent = NSToCoordRound(metrics.tmDescent * multiplier);
+    mMetrics->maxHeight = NSToCoordRound(metrics.tmHeight * multiplier);
+    mMetrics->maxAscent = NSToCoordRound(metrics.tmAscent * multiplier);
+    mMetrics->maxDescent = NSToCoordRound(metrics.tmDescent * multiplier);
+    mMetrics->maxAdvance = NSToCoordRound(metrics.tmMaxCharWidth * multiplier);
+    mMetrics->aveCharWidth = PR_MAX(1, NSToCoordRound(metrics.tmAveCharWidth * multiplier));
     
     // Cache the width of a single space.
     SIZE size;
-    ::GetTextExtentPoint32(aDC, " ", 1, &size);
+    ::GetTextExtentPoint32(dc, " ", 1, &size);
     //size.cx -= font->mOverhangCorrection;
-    mMetrics.spaceWidth = NSToCoordRound(size.cx * multiplier);
+    mMetrics->spaceWidth = NSToCoordRound(size.cx * multiplier);
 
     cairo_win32_scaled_font_done_font(mScaledFont);
 
-    RestoreDC(aDC, -1);
+    RestoreDC(dc, -1);
+
+    ReleaseDC((HWND)nsnull, dc);
 }
 
 void
 gfxWindowsFont::FillLogFont(PRInt16 currentWeight)
 {
 #define CLIP_TURNOFF_FONTASSOCIATION 0x40
+    
+    const double yScale = mCTM.ToCairoMatrix().yy;
 
-    mLogFont.lfHeight = -NSToCoordRound(mStyle->size * 32);
+    mLogFont.lfHeight = -NSToCoordRound(mStyle->size * yScale * 32);
 
     if (mLogFont.lfHeight == 0)
         mLogFont.lfHeight = -1;
@@ -310,14 +334,14 @@ PRBool
 gfxWindowsFontGroup::MakeFont(const nsAString& aName, const nsAString& aGenericName, void *closure)
 {
     gfxWindowsFontGroup *fg = NS_STATIC_CAST(gfxWindowsFontGroup*, closure);
-    gfxFont *font = new gfxWindowsFont(aName, fg, fg->mDC);
+    gfxFont *font = new gfxWindowsFont(aName, fg);
     fg->mFonts.AppendElement(font);
     return PR_TRUE;
 }
 
 
-gfxWindowsFontGroup::gfxWindowsFontGroup(const nsAString& aFamilies, const gfxFontStyle *aStyle, HDC dc)
-    : gfxFontGroup(aFamilies, aStyle), mDC(dc)
+gfxWindowsFontGroup::gfxWindowsFontGroup(const nsAString& aFamilies, const gfxFontStyle *aStyle)
+    : gfxFontGroup(aFamilies, aStyle)
 {
     ForEachFont(MakeFont, this);
 }
@@ -330,12 +354,20 @@ gfxWindowsFontGroup::~gfxWindowsFontGroup()
 gfxTextRun *
 gfxWindowsFontGroup::MakeTextRun(const nsAString& aString)
 {
+    if (aString.IsEmpty()) {
+        NS_WARNING("It is illegal to create a gfxTextRun with empty strings");
+        return nsnull;
+    }
     return new gfxWindowsTextRun(aString, this);
 }
 
 gfxTextRun *
 gfxWindowsFontGroup::MakeTextRun(const nsACString& aString)
 {
+    if (aString.IsEmpty()) {
+        NS_WARNING("It is illegal to create a gfxTextRun with empty strings");
+        return nsnull;
+    }
     return new gfxWindowsTextRun(aString, this);
 }
 
@@ -364,11 +396,9 @@ gfxWindowsTextRun::~gfxWindowsTextRun()
 void
 gfxWindowsTextRun::DrawString(gfxContext *aContext, gfxPoint pt)
 {
-    if (mIsASCII) {
-        PRInt32 ret = MeasureOrDrawAscii(aContext, PR_TRUE, pt.x, pt.y, nsnull);
-        if (ret != -1) {
-            return;
-        }
+    PRInt32 ret = MeasureOrDrawFast(aContext, PR_TRUE, pt.x, pt.y, nsnull);
+    if (ret != -1) {
+        return;
     }
 
     MeasureOrDrawUniscribe(aContext, PR_TRUE, pt.x, pt.y, nsnull);
@@ -399,11 +429,9 @@ gfxWindowsTextRun::MeasureString(gfxContext *aContext)
         return ret;
     }
 #else
-    if (mIsASCII) {
-        PRInt32 ret = MeasureOrDrawAscii(aContext, PR_FALSE, 0, 0, nsnull);
-        if (ret != -1) {
-            return ret;
-        }
+    PRInt32 ret = MeasureOrDrawFast(aContext, PR_FALSE, 0, 0, nsnull);
+    if (ret != -1) {
+        return ret;
     }
 #endif
     return MeasureOrDrawUniscribe(aContext, PR_FALSE, 0, 0, nsnull);
@@ -430,24 +458,26 @@ gfxWindowsTextRun::FindFallbackFont(HDC aDC, const PRUnichar *aString, PRUint32 
     long cchActual;
     rv = langFontLink->GetStrCodePages(aString, aLength, fontCodePages, &actualCodePages, &cchActual);
 
-    HFONT retFont;
-    rv = langFontLink->MapFont(aDC, actualCodePages, aString[0], &retFont);
-    if (FAILED(rv))
-        return nsnull;
+    for (PRUint32 i = 0; i < aLength; ++i) {
+        HFONT retFont;
+        rv = langFontLink->MapFont(aDC, actualCodePages, aString[0], &retFont);
+        if (SUCCEEDED(rv))
+            return new gfxWindowsFont(retFont, mGroup, PR_TRUE, aFont->CurrentMatrix());
+    }
 
-    return new gfxWindowsFont(retFont, mGroup, PR_TRUE);
+    return nsnull;
 }
 
 PRInt32
-gfxWindowsTextRun::MeasureOrDrawAscii(gfxContext *aContext,
-                                      PRBool aDraw,
-                                      PRInt32 aX, PRInt32 aY,
-                                      const PRInt32 *aSpacing)
+gfxWindowsTextRun::MeasureOrDrawFast(gfxContext *aContext,
+                                     PRBool aDraw,
+                                     PRInt32 aX, PRInt32 aY,
+                                     const PRInt32 *aSpacing)
 {
     PRInt32 length = 0;
 
+    /* this function doesn't handle RTL text. */
     if (IsRightToLeft()) {
-        NS_WARNING("Trying to draw ASCII text with RTL set.");
         return -1;
     }
 
@@ -458,8 +488,19 @@ gfxWindowsTextRun::MeasureOrDrawAscii(gfxContext *aContext,
     HDC aDC = cairo_win32_surface_get_dc(surf->CairoSurface());
     NS_ASSERTION(aDC, "No DC");
 
-    const char *aString = mCString.BeginReading();
-    const PRUint32 aLength = mCString.Length();
+    const char *aCString;
+    const PRUnichar *aWString;
+    PRUint32 aLength;
+
+    if (mIsASCII) {
+        aCString = mCString.BeginReading();
+        aLength = mCString.Length();
+    } else {
+        aWString = mString.BeginReading();
+        aLength = mString.Length();
+        if (ScriptIsComplex(aWString, aLength, SIC_COMPLEX) == S_OK)
+            return -1;
+    }
 
     // cairo munges it underneath us
     XFORM savedxform;
@@ -468,6 +509,7 @@ gfxWindowsTextRun::MeasureOrDrawAscii(gfxContext *aContext,
     cairo_t *cr = aContext->GetCairo();
 
     nsRefPtr<gfxWindowsFont> currentFont = mGroup->GetFontAt(0);
+    currentFont->UpdateCTM(aContext->CurrentMatrix());
     cairo_font_face_t *fontFace = currentFont->CairoFontFace();
     cairo_scaled_font_t *scaledFont = currentFont->CairoScaledFont();
 
@@ -482,7 +524,12 @@ gfxWindowsTextRun::MeasureOrDrawAscii(gfxContext *aContext,
     const double cairoToPixels = cairofontfactor * mGroup->mStyle.size;
 
     LPWORD glyphs = (LPWORD)malloc(aLength * sizeof(WORD));
-    DWORD ret = GetGlyphIndicesA(aDC, aString, aLength, glyphs, GGI_MARK_NONEXISTING_GLYPHS);
+    DWORD ret;
+    if (mIsASCII)
+        ret = GetGlyphIndicesA(aDC, aCString, aLength, glyphs, GGI_MARK_NONEXISTING_GLYPHS);
+    else
+        ret = GetGlyphIndicesW(aDC, aWString, aLength, glyphs, GGI_MARK_NONEXISTING_GLYPHS);
+
     for (PRInt32 i = 0; i < ret; ++i) {
         if (glyphs[i] == 0xffff) {
             free(glyphs);
@@ -494,30 +541,49 @@ gfxWindowsTextRun::MeasureOrDrawAscii(gfxContext *aContext,
 
     if (!aDraw) {
         SIZE len;
-        GetTextExtentPoint32A(aDC, aString, aLength, &len);
+        if (mIsASCII)
+            GetTextExtentPoint32A(aDC, aCString, aLength, &len);
+        else
+            GetTextExtentPoint32W(aDC, aWString, aLength, &len);
         length = NSToCoordRound(len.cx * cairoToPixels);
     } else {
-        GCP_RESULTSA results;
-        memset(&results, 0, sizeof(GCP_RESULTS));
-        results.lStructSize = sizeof(GCP_RESULTS);
+        PRInt32 numGlyphs;
         int stackBuf[1024];
         int *dxBuf = stackBuf;
-        if (aLength > sizeof(stackBuf))
+        if (aLength > sizeof(stackBuf) / sizeof(int))
             dxBuf = (int *)malloc(aLength * sizeof(int));
 
-        results.nGlyphs = aLength;
-        results.lpDx = dxBuf;
+        if (mIsASCII) {
+            GCP_RESULTSA results;
+            memset(&results, 0, sizeof(GCP_RESULTSA));
+            results.lStructSize = sizeof(GCP_RESULTSA);
 
-        length = GetCharacterPlacementA(aDC, aString, aLength, 0, &results, GCP_USEKERNING);
+            results.nGlyphs = aLength;
+            results.lpDx = dxBuf;
 
-        const PRInt32 numGlyphs = results.nGlyphs;
+            length = GetCharacterPlacementA(aDC, aCString, aLength, 0, &results, GCP_USEKERNING);
+
+            numGlyphs = results.nGlyphs;
+        } else {
+            GCP_RESULTSW results;
+            memset(&results, 0, sizeof(GCP_RESULTSW));
+            results.lStructSize = sizeof(GCP_RESULTSW);
+
+            results.nGlyphs = aLength;
+            results.lpDx = dxBuf;
+
+            length = GetCharacterPlacementW(aDC, aWString, aLength, 0, &results, GCP_USEKERNING);
+
+            numGlyphs = results.nGlyphs;
+        }
+        
         cairo_glyph_t *cglyphs = (cairo_glyph_t*)malloc(numGlyphs*sizeof(cairo_glyph_t));
         double offset = 0;
         for (PRInt32 k = 0; k < numGlyphs; k++) {
             cglyphs[k].index = glyphs[k];
             cglyphs[k].x = aX + offset;
             cglyphs[k].y = aY;
-            offset += NSToCoordRound(results.lpDx[k] * cairoToPixels);
+            offset += NSToCoordRound(dxBuf[k] * cairoToPixels);
         }
 
         SetWorldTransform(aDC, &savedxform);
@@ -554,7 +620,7 @@ gfxWindowsTextRun::MeasureOrDrawUniscribe(gfxContext *aContext,
     HDC aDC = cairo_win32_surface_get_dc(surf->CairoSurface());
     NS_ASSERTION(aDC, "No DC");
 
-    const nsAString& theString = (mIsASCII) ? NS_STATIC_CAST(nsAString&, NS_ConvertASCIItoUTF16(mCString)) : mString;
+    const nsAString& theString = (mIsASCII) ? NS_STATIC_CAST(const nsAString&, NS_ConvertASCIItoUTF16(mCString)) : mString;
     const PRUnichar *aString = theString.BeginReading();
     const PRUint32 aLength = theString.Length();
     const PRBool isComplex = (::ScriptIsComplex(aString, aLength, SIC_COMPLEX) == S_OK);
@@ -621,7 +687,7 @@ TRY_AGAIN_HOPE_FOR_THE_BEST:
 
         SaveDC(aDC);
 
-        //currentFont->UpdateFonts(cr);
+        currentFont->UpdateCTM(aContext->CurrentMatrix());
         fontFace = currentFont->CairoFontFace();
         scaledFont = currentFont->CairoScaledFont();
 
@@ -809,7 +875,7 @@ TRY_AGAIN_JUST_PLACE:
                 /* Draw using ScriptTextOut() */
                 SaveDC(aDC);
 
-                gfxMatrix m = aContext->CurrentMatrix();
+                const gfxMatrix& m = aContext->CurrentMatrix();
                 XFORM xform;
                 double dm[6];
                 m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
@@ -841,12 +907,13 @@ TRY_AGAIN_JUST_PLACE:
                     fontSelected = PR_TRUE;
                 }
 
-                SaveDC(aDC);
+                XFORM currentxform;
+                GetWorldTransform(aDC, &currentxform);
                 SetWorldTransform(aDC, &savedxform);
 
                 cairo_show_glyphs(cr, cglyphs, numGlyphs);
 
-                RestoreDC(aDC, -1);
+                SetWorldTransform(aDC, &currentxform);
 #endif
                 free(cglyphs);
 

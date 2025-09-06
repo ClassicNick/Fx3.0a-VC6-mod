@@ -185,6 +185,21 @@
 #define NS_EXPORT_STATIC_MEMBER_(type) type
 #define NS_IMPORT_STATIC_MEMBER_(type) type
 
+#elif defined(XP_OS2) && defined(__declspec)
+
+#define NS_IMPORT __declspec(dllimport)
+#define NS_IMPORT_(type) type __declspec(dllimport)
+#define NS_EXPORT __declspec(dllexport)
+#define NS_EXPORT_(type) type __declspec(dllexport)
+#define NS_IMETHOD_(type) virtual type
+#define NS_IMETHODIMP_(type) type
+#define NS_METHOD_(type) type
+#define NS_CALLBACK_(_type, _name) _type (* _name)
+#define NS_STDCALL
+#define NS_FROZENCALL
+#define NS_EXPORT_STATIC_MEMBER_(type) NS_EXTERNAL_VIS_(type)
+#define NS_IMPORT_STATIC_MEMBER_(type) NS_EXTERNAL_VIS_(type)
+
 #else
 
 #define NS_IMPORT NS_EXTERNAL_VIS
@@ -242,14 +257,14 @@
  */
 
 #ifdef __cplusplus
-#define EXTERN_C extern "C"
+#define NS_EXTERN_C extern "C"
 #else
-#define EXTERN_C
+#define NS_EXTERN_C
 #endif
 
-#define EXPORT_XPCOM_API(type) EXTERN_C NS_EXPORT type NS_FROZENCALL
-#define IMPORT_XPCOM_API(type) EXTERN_C NS_IMPORT type NS_FROZENCALL
-#define GLUE_XPCOM_API(type) EXTERN_C NS_HIDDEN_(type) NS_FROZENCALL
+#define EXPORT_XPCOM_API(type) NS_EXTERN_C NS_EXPORT type NS_FROZENCALL
+#define IMPORT_XPCOM_API(type) NS_EXTERN_C NS_IMPORT type NS_FROZENCALL
+#define GLUE_XPCOM_API(type) NS_EXTERN_C NS_HIDDEN_(type) NS_FROZENCALL
 
 #ifdef _IMPL_NS_COM
 #define XPCOM_API(type) EXPORT_XPCOM_API(type)

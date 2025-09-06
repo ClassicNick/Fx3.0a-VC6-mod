@@ -47,6 +47,7 @@
 #include "nsIServiceManager.h"
 #include "nsIVariant.h"
 #include "nsString.h"
+#include "nsVariant.h"
 
 const PRInt32 nsAnnotationService::kAnnoIndex_ID = 0;
 const PRInt32 nsAnnotationService::kAnnoIndex_Page = 1;
@@ -85,15 +86,13 @@ nsAnnotationService::Init()
 {
   nsresult rv;
 
+  // The history service will normally already be created and will call our
+  // static InitTables function. It will get autocreated here if it hasn't
+  // already been created.
   nsNavHistory* history = nsNavHistory::GetHistoryService();
   if (! history)
     return NS_ERROR_FAILURE;
   mDBConn = history->GetStorageConnection();
-
-  // create the database
-  rv = mDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("CREATE TABLE moz_anno (anno_id INTEGER PRIMARY KEY, page INTEGER NOT NULL, name VARCHAR(32) NOT NULL, mime_type VARCHAR(32) DEFAULT NULL, content LONGVARCHAR, flags INTEGER DEFAULT 0, expiration INTEGER DEFAULT 0)"));
-  rv = mDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("CREATE INDEX moz_anno_pageindex ON moz_anno (page)"));
-  rv = mDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("CREATE INDEX moz_anno_nameindex ON moz_anno (name)"));
 
   // annotation statements
   rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING("UPDATE moz_anno SET mime_type = ?4, content = ?5, flags = ?6, expiration = ?7 WHERE anno_id = ?1"),
@@ -101,6 +100,9 @@ nsAnnotationService::Init()
   NS_ENSURE_SUCCESS(rv, rv);
   rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING("SELECT * FROM moz_anno WHERE page = ?1 AND name = ?2"),
                                 getter_AddRefs(mDBGetAnnotation));
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING("SELECT name FROM moz_anno WHERE page = ?1"),
+                                getter_AddRefs(mDBGetAnnotationNames));
   NS_ENSURE_SUCCESS(rv, rv);
   rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING("SELECT a.anno_id, a.page, a.name, a.mime_type, a.content, a.flags, a.expiration FROM moz_history h JOIN moz_anno a ON h.id = a.page WHERE h.url = ?1 AND a.name = ?2"),
                                 getter_AddRefs(mDBGetAnnotationFromURI));
@@ -112,6 +114,42 @@ nsAnnotationService::Init()
                                 getter_AddRefs(mDBRemoveAnnotation));
   NS_ENSURE_SUCCESS(rv, rv);
 
+  return NS_OK;
+}
+
+
+// nsAnnotationService::InitTables
+//
+//    All commands that initialize the schema of the DB go in here. This is
+//    called from history init before the dummy DB connection is started that
+//    will prevent us from modifying the schema.
+//
+//    The history service will always be created before us (we get it at the
+//    beginning of the init function which covers us if it's not).
+
+nsresult // static
+nsAnnotationService::InitTables(mozIStorageConnection* aDBConn)
+{
+  nsresult rv;
+  PRBool exists;
+  rv = aDBConn->TableExists(NS_LITERAL_CSTRING("moz_anno"), &exists);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (! exists) {
+    rv = aDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("CREATE TABLE moz_anno ("
+        "anno_id INTEGER PRIMARY KEY,"
+        "page INTEGER NOT NULL,"
+        "name VARCHAR(32) NOT NULL,"
+        "mime_type VARCHAR(32) DEFAULT NULL,"
+        "content LONGVARCHAR, flags INTEGER DEFAULT 0,"
+        "expiration INTEGER DEFAULT 0)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = aDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE INDEX moz_anno_pageindex ON moz_anno (page)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = aDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        "CREATE INDEX moz_anno_nameindex ON moz_anno (name)"));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
   return NS_OK;
 }
 
@@ -443,6 +481,79 @@ nsAnnotationService::GetPagesWithAnnotation(const nsACString& aName,
 }
 
 
+// nsAnnotationService::GetPageAnnotationNames
+
+NS_IMETHODIMP
+nsAnnotationService::GetPageAnnotationNames(nsIURI* aURI, PRUint32* aCount,
+                                            nsIVariant*** _result)
+{
+  *aCount = 0;
+  *_result = nsnull;
+
+  nsTArray<nsCString> names;
+  nsresult rv = GetPageAnnotationNamesTArray(aURI, &names);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (names.Length() == 0)
+    return NS_OK;
+
+  *_result = NS_STATIC_CAST(nsIVariant**,
+      nsMemory::Alloc(sizeof(nsIVariant*) * names.Length()));
+  NS_ENSURE_TRUE(*_result, NS_ERROR_OUT_OF_MEMORY);
+
+  for (PRUint32 i = 0; i < names.Length(); i ++) {
+    nsCOMPtr<nsIWritableVariant> var = new nsVariant;
+    if (! var) {
+      // need to release all the variants we've already created
+      for (PRUint32 j = 0; j < i; j ++)
+        NS_RELEASE((*_result)[j]);
+      nsMemory::Free(*_result);
+      *_result = nsnull;
+      return rv;
+    }
+    var->SetAsAUTF8String(names[i]);
+    NS_ADDREF((*_result)[i] = var);
+  }
+  *aCount = names.Length();
+
+  return NS_OK;
+}
+
+
+// nsAnnotationService::GetPageAnnotationNamesTArray
+
+NS_IMETHODIMP
+nsAnnotationService::GetPageAnnotationNamesTArray(nsIURI* aURI,
+                                                  nsTArray<nsCString>* aResult)
+{
+  aResult->Clear();
+
+  nsNavHistory* history = nsNavHistory::GetHistoryService();
+  NS_ENSURE_TRUE(history, NS_ERROR_FAILURE);
+
+  PRInt64 uriID;
+  nsresult rv = history->GetUrlIdFor(aURI, &uriID, PR_FALSE);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (uriID == 0) // Check if URI exists.
+    return NS_OK;
+
+  mozStorageStatementScoper scoper(mDBGetAnnotationNames);
+  rv = mDBGetAnnotationNames->BindInt64Parameter(0, uriID);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRBool hasResult;
+  nsCAutoString name;
+  while (NS_SUCCEEDED(mDBGetAnnotationNames->ExecuteStep(&hasResult)) &&
+         hasResult) {
+    rv = mDBGetAnnotationNames->GetUTF8String(0, name);
+    NS_ENSURE_SUCCESS(rv, rv);
+    if (! aResult->AppendElement(name))
+      return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  return NS_OK;
+}
+
+
 // nsAnnotationService::HasAnnotation
 
 NS_IMETHODIMP
@@ -477,7 +588,7 @@ nsAnnotationService::RemoveAnnotation(nsIURI* aURI,
   NS_ENSURE_SUCCESS(rv, rv);
   if (uriID == 0) // Check if URI exists.
     return NS_OK;
-  
+
   mozStorageStatementScoper resetter(mDBRemoveAnnotation);
 
   rv = mDBRemoveAnnotation->BindInt64Parameter(0, uriID);
@@ -490,11 +601,48 @@ nsAnnotationService::RemoveAnnotation(nsIURI* aURI,
   NS_ENSURE_SUCCESS(rv, rv);
 
   resetter.Abandon();
-  
+
   // Update observers
   for (PRInt32 i = 0; i < mObservers.Count(); i ++)
     mObservers[i]->OnAnnotationRemoved(aURI, aName);
 
+  return NS_OK;
+}
+
+
+// nsAnnotationSerivce::RemovePageAnnotations
+//
+//    I don't believe this is a common operation, so am not using a precompiled
+//    statement. If this ends up being used a lot, the statement should be
+//    precompiled and added to the class.
+
+NS_IMETHODIMP
+nsAnnotationService::RemovePageAnnotations(nsIURI* aURI)
+{
+  nsresult rv;
+  nsNavHistory* history = nsNavHistory::GetHistoryService();
+  NS_ENSURE_TRUE(history, NS_ERROR_UNEXPECTED);
+
+  PRInt64 uriID;
+  rv = history->GetUrlIdFor(aURI, &uriID, PR_FALSE);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (uriID == 0)
+    return NS_OK; // URI doesn't exist, nothing to delete
+
+  nsCOMPtr<mozIStorageStatement> statement;
+  rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
+      "DELETE FROM moz_anno WHERE page = ?1"),
+    getter_AddRefs(statement));
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = statement->BindInt64Parameter(0, uriID);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = statement->Execute();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Update observers
+  for (PRInt32 i = 0; i < mObservers.Count(); i ++)
+    mObservers[i]->OnAnnotationRemoved(aURI, EmptyCString());
   return NS_OK;
 }
 

@@ -842,7 +842,9 @@ function delayedOnLoadMessenger()
 
   //Set focus to the Thread Pane the first time the window is opened.
   SetFocusThreadPane();
-
+  
+  gFindBar.initFindBar();  
+  
   // initialize the customizeDone method on the customizeable toolbar
   var toolbox = document.getElementById("mail-toolbox");
   toolbox.customizeDone = MailToolboxCustomizeDone;
@@ -858,6 +860,8 @@ function OnUnloadMessenger()
   pref.QueryInterface(Components.interfaces.nsIPrefBranch2);
   pref.removeObserver("mail.pane_config.dynamic", MailPrefObserver);
   pref.removeObserver("mail.showFolderPaneColumns", MailPrefObserver);
+  
+  gFindBar.uninitFindBar();
 
   // FIX ME - later we will be able to use onload from the overlay
   OnUnloadMsgHeaderPane();
@@ -1112,7 +1116,11 @@ function loadFolderView(aNewFolderView)
   // add the new data sources
   var dataSourcesToAdd = folderViews[aNewFolderView].dataSources;
   for (index in dataSourcesToAdd)
+  {
     database.AddDataSource(dataSourcesToAdd[index]);
+    var msgDS = dataSourcesToAdd[index].QueryInterface(Components.interfaces.nsIMsgRDFDataSource);
+    msgDS.window = msgWindow;
+  }
 
   folderTree.setAttribute('ref', folderViews[aNewFolderView].ref);
   folderPaneHeader.label = gMessengerBundle.getString(folderViews[aNewFolderView].label);
@@ -1201,35 +1209,35 @@ function OnLoadThreadPane()
 
 function GetFolderDatasource()
 {
-    var folderTree = GetFolderTree();
-    return folderTree.database;
+  var folderTree = GetFolderTree();
+  return folderTree.database;
 }
 
 /* Functions for accessing particular parts of the window*/
 function GetFolderTree()
 {
-    if (! gFolderTree)
-        gFolderTree = document.getElementById("folderTree");
-    return gFolderTree;
+  if (! gFolderTree)
+    gFolderTree = document.getElementById("folderTree");
+  return gFolderTree;
 }
 
 function GetSearchInput()
 {
-    if (gSearchInput) return gSearchInput;
+  if (!gSearchInput)
     gSearchInput = document.getElementById("searchInput");
-    return gSearchInput;
+  return gSearchInput;
 }
 
 function GetMessagePane()
 {
-    if (gMessagePane) return gMessagePane;
+  if (!gMessagePane) 
     gMessagePane = document.getElementById("messagepanebox");
-    return gMessagePane;
+  return gMessagePane;
 }
 
 function GetMessagePaneFrame()
 {
-    return window.content;
+  return window.content;
 }
 
 function FindInSidebar(currentWindow, id)

@@ -41,7 +41,9 @@ function addAlarm(event)
   var alarmWidget = document.createElement("calendar-alarm-widget");
   alarmWidget.setAttribute("title", event.title);
   var time = event.startDate || event.entryDate || event.dueDate;
-  alarmWidget.setAttribute("time", time.toString());
+  var dateFormatter = Components.classes["@mozilla.org/calendar/datetime-formatter;1"]
+                                .getService(Components.interfaces.calIDateTimeFormatter);
+  alarmWidget.setAttribute("time", dateFormatter.formatDateTime(time));
   alarmWidget.setAttribute("location", event.getProperty("LOCATION"));
   alarmWidget.addEventListener("snooze", onSnoozeAlarm, false);
   alarmWidget.addEventListener("dismiss", onDismissAlarm, false);
@@ -55,10 +57,17 @@ function addAlarm(event)
    var playSound = calendarPrefs.getBoolPref("alarms.playsound");
    if (playSound) {
      try {
-       var soundURL = makeURL(calendarPrefs.getCharPref("alarms.soundURL"));
-       var sound = Components.classes["@mozilla.org/sound;1"].createInstance(Components.interfaces.nsISound);
-       sound.init();
-       sound.play(soundURL);
+       var soundURL = calendarPrefs.getCharPref("alarms.soundURL");
+       var sound = Components.classes["@mozilla.org/sound;1"]
+                             .createInstance(Components.interfaces.nsISound);
+       if (soundURL && soundURL.length && soundURL.length > 0) {
+         soundURL = makeURL(soundURL);
+         sound.init();
+         sound.play(soundURL);
+       } else {
+         sound.init();
+         sound.beep();
+       }
      } catch (ex) {
        dump("unable to play sound...\n" + ex + "\n");
      }
@@ -73,10 +82,13 @@ function onDismissAll()
   now = now.getInTimezone("UTC");
   var box = document.getElementById("alarmlist");
   for each (kid in box.childNodes) {
+    if (!kid.item) {
+        continue;
+    }
     // We want the parent item, otherwise we're going to accidentally create an
     // exception.  We've relnoted (for 0.1) the slightly odd behavior this can
     // cause if you move an event after dismissing an alarm
-    item = kid.item.parentItem.clone();
+    var item = kid.item.parentItem.clone();
     item.alarmLastAck = now;
     item.calendar.modifyItem(item, kid.item, null);
   }

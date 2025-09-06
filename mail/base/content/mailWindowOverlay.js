@@ -1372,26 +1372,16 @@ function MsgViewPageSource()
     ViewPageSource(messages);
 }
 
-var gFindInstData;
-function getFindInstData()
-{
-  if (!gFindInstData) {
-    gFindInstData = new nsFindInstData();
-    gFindInstData.browser = getMessageBrowser();
-    gFindInstData.__proto__.rootSearchWindow = window.top.content;
-    gFindInstData.__proto__.currentSearchWindow = window.top.content;
-  }
-  return gFindInstData;
-}
-
 function MsgFind()
 {
-  findInPage(getFindInstData());
+  gFindBar.onFindCmd();
 }
-
 function MsgFindAgain(reverse)
 {
-  findAgainInPage(getFindInstData(), reverse);
+  if (reverse)
+    gFindBar.onFindPreviousCmd();
+  else
+    gFindBar.onFindAgainCmd();
 }
 
 function MsgCanFindAgain()
@@ -2305,9 +2295,13 @@ function ClearPendingReadTimer()
 // mail message. OnMsgLoaded is called when libmime is done parsing the message
 function OnMsgParsed(aUrl)
 {
-  if ("onQuickSearchNewMsgLoaded" in this)
-    onQuickSearchNewMsgLoaded();
-  
+  // browser doesn't do this, but I thought it could be a useful thing to test out...
+  // If the find bar is visible and we just loaded a new message, re-run 
+  // the find command. This means the new message will get highlighted and
+  // we'll scroll to the first word in the message that matches the find text.
+  if (gFindBar.isFindBarVisible())
+    gFindBar.find();
+    
   gMessageNotificationBar.setPhishingMsg(aUrl);
 }
 

@@ -69,8 +69,7 @@ class nsTableRowFrame : public nsHTMLContainerFrame
 public:
   virtual ~nsTableRowFrame();
 
-  NS_IMETHOD Init(nsPresContext*  aPresContext,
-                  nsIContent*      aContent,
+  NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
                   nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
@@ -164,6 +163,20 @@ public:
                           nsTableCellFrame*        aCellFrame,
                           nscoord                  aAvailableHeight,
                           nsReflowStatus&          aStatus);
+  /**
+    * Collapse the row if required, apply col and colgroup visibility: collapse
+    * info to the cells in the row.
+    * @return he amount to shift up all following rows
+    * @param aRowOffset     - shift the row up by this amount
+    * @param aWidth         - new width of the row
+    * @param aCollapseGroup - parent rowgroup is collapsed so this row needs
+    *                         to be collapsed
+    * @param aDidCollapse   - the row has been collapsed
+    */
+  nscoord CollapseRowIfNecessary(nscoord aRowOffset,
+                                 nscoord aWidth,
+                                 PRBool  aCollapseGroup,
+                                 PRBool& aDidCollapse);
 
   void InsertCellFrame(nsTableCellFrame* aFrame, 
                        nsTableCellFrame* aPrevSibling);

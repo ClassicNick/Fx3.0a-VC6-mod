@@ -69,7 +69,7 @@ protected:
 
   nsIPopupSetFrame* GetPopupSetFrame();
   nsMenuPopupFrame* GetMenuPopupFrame()
-  { return NS_STATIC_CAST(nsMenuPopupFrame*, GetFrame()); }
+  { return NS_STATIC_CAST(nsMenuPopupFrame*, GetFrame(PR_FALSE)); }
 };
 
 NS_IMPL_ISUPPORTS_INHERITED1(nsPopupBoxObject, nsBoxObject, nsIPopupBoxObject)
@@ -77,7 +77,12 @@ NS_IMPL_ISUPPORTS_INHERITED1(nsPopupBoxObject, nsBoxObject, nsIPopupBoxObject)
 nsIPopupSetFrame*
 nsPopupBoxObject::GetPopupSetFrame()
 {
-  nsIFrame* rootFrame = mPresShell->FrameManager()->GetRootFrame();
+  nsIPresShell* shell = GetPresShell(PR_FALSE);
+  if (!shell) {
+    return nsnull;
+  }
+
+  nsIFrame* rootFrame = shell->FrameManager()->GetRootFrame();
   if (!rootFrame)
     return nsnull;
 
@@ -103,7 +108,7 @@ NS_IMETHODIMP
 nsPopupBoxObject::HidePopup()
 {
   nsIPopupSetFrame *popupSet = GetPopupSetFrame();
-  nsIFrame *ourFrame = GetFrame();
+  nsIFrame *ourFrame = GetFrame(PR_FALSE);
   if (ourFrame && popupSet) {
     popupSet->HidePopup(ourFrame);
     popupSet->DestroyPopup(ourFrame, PR_TRUE);

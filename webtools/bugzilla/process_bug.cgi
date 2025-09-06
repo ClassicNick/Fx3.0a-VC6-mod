@@ -56,6 +56,8 @@ use Bugzilla::BugMail;
 use Bugzilla::User;
 use Bugzilla::Util;
 use Bugzilla::Field;
+use Bugzilla::Product;
+use Bugzilla::Keyword;
 
 # Use the Flag module to modify flag data if the user set flags.
 use Bugzilla::Flag;
@@ -64,7 +66,6 @@ use Bugzilla::FlagType;
 # Shut up misguided -w warnings about "used only once":
 
 use vars qw(@legal_product
-          %versions
           %components
           %legal_opsys
           %legal_platform
@@ -82,8 +83,24 @@ my $cgi = Bugzilla->cgi;
 my $dbh = Bugzilla->dbh;
 my $template = Bugzilla->template;
 my $vars = {};
+$vars->{'use_keywords'} = 1 if Bugzilla::Keyword::keyword_count();
 
 my $requiremilestone = 0;
+
+######################################################################
+# Subroutines
+######################################################################
+
+sub BugInGroupId {
+    my ($bug_id, $group_id) = @_;
+    detaint_natural($bug_id);
+    detaint_natural($group_id);
+    my ($in_group) = Bugzilla->dbh->selectrow_array(
+        "SELECT CASE WHEN bug_id != 0 THEN 1 ELSE 0 END
+           FROM bug_group_map
+          WHERE bug_id = ? AND group_id = ?", undef, ($bug_id, $group_id));
+    return $in_group;
+}
 
 ######################################################################
 # Begin Data/Security Validation
@@ -293,6 +310,7 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
     }
 
     my $prod = $cgi->param('product');
+    my $prod_obj = new Bugzilla::Product({name => $prod});
     trick_taint($prod);
 
     # If at least one bug does not belong to the product we are
@@ -320,7 +338,8 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
     # pretty weird case, and not terribly unreasonable behavior, but 
     # worthy of a comment, perhaps.
     #
-    my $vok = lsearch($::versions{$prod}, $cgi->param('version')) >= 0;
+    my @version_names = map($_->name, @{$prod_obj->versions});
+    my $vok = lsearch(\@version_names, $cgi->param('version')) >= 0;
     my $cok = lsearch($::components{$prod}, $cgi->param('component')) >= 0;
 
     my $mok = 1;   # so it won't affect the 'if' statement if milestones aren't used
@@ -344,7 +363,7 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
             # We set the defaults to these fields to the old value,
             # if its a valid option, otherwise we use the default where
             # that's appropriate
-            $vars->{'versions'} = $::versions{$prod};
+            $vars->{'versions'} = \@version_names;
             if ($vok) {
                 $defaults{'version'} = $cgi->param('version');
             }
@@ -483,7 +502,7 @@ sub CheckCanChangeField {
     if ($field eq "canconfirm"
         || ($field eq "bug_status"
             && $oldvalue eq 'UNCONFIRMED'
-            && IsOpenedState($newvalue)))
+            && is_open_state($newvalue)))
     {
         $PrivilegesRequired = 3;
         return $UserInCanConfirmGroupSet;
@@ -597,11 +616,11 @@ if (defined $cgi->param('id')) {
     # values that have been changed instead of submitting all the new values.
     # (XXX those error checks need to happen too, but implementing them 
     # is more work in the current architecture of this script...)
-    check_field('product', scalar $cgi->param('product'), \@::legal_product);
+    my $prod_obj = Bugzilla::Product::check_product($cgi->param('product'));
     check_field('component', scalar $cgi->param('component'), 
                 \@{$::components{$cgi->param('product')}});
     check_field('version', scalar $cgi->param('version'),
-                \@{$::versions{$cgi->param('product')}});
+                [map($_->name, @{$prod_obj->versions})]);
     if ( Param("usetargetmilestone") ) {
         check_field('target_milestone', scalar $cgi->param('target_milestone'), 
                     \@{$::target_milestone{$cgi->param('product')}});
@@ -768,7 +787,7 @@ sub ChangeStatus {
             # confirmed or not
             $::query .= "bug_status = CASE WHEN everconfirmed = 1 THEN " .
                          SqlQuote($str) . " ELSE 'UNCONFIRMED' END";
-        } elsif (IsOpenedState($str)) {
+        } elsif (is_open_state($str)) {
             # Note that we cannot combine this with the above branch - here we
             # need to check if bugs.bug_status is open, (since we don't want to
             # reopen closed bugs when reassigning), while above the whole point
@@ -794,7 +813,7 @@ sub ChangeStatus {
             # This also relies on the fact that confirming and accepting have
             # already called DoConfirm before this is called
 
-            my @open_state = map(SqlQuote($_), OpenStates());
+            my @open_state = map(SqlQuote($_), BUG_STATE_OPEN);
             my $open_state = join(", ", @open_state);
 
             # If we are changing everconfirmed to 1, we have to take this change
@@ -1261,14 +1280,14 @@ if (defined $cgi->param('keywords')) {
         if ($keyword eq '') {
             next;
         }
-        my $i = GetKeywordIdFromName($keyword);
-        if (!$i) {
+        my $keyword_obj = new Bugzilla::Keyword({name => $keyword});
+        if (!$keyword_obj) {
             ThrowUserError("unknown_keyword",
                            { keyword => $keyword });
         }
-        if (!$keywordseen{$i}) {
-            push(@keywordlist, $i);
-            $keywordseen{$i} = 1;
+        if (!$keywordseen{$keyword_obj->id}) {
+            push(@keywordlist, $keyword_obj->id);
+            $keywordseen{$keyword_obj->id} = 1;
         }
     }
 }
@@ -1280,7 +1299,8 @@ if (!grep($keywordaction eq $_, qw(add delete makeexact))) {
 
 if ($::comma eq ""
     && (! @groupAdd) && (! @groupDel)
-    && (! @::legal_keywords || (0 == @keywordlist && $keywordaction ne "makeexact"))
+    && (!Bugzilla::Keyword::keyword_count() 
+        || (0 == @keywordlist && $keywordaction ne "makeexact"))
     && defined $cgi->param('masscc') && ! $cgi->param('masscc')
     ) {
     if (!defined $cgi->param('comment') || $cgi->param('comment') =~ /^\s*$/) {
@@ -1634,7 +1654,9 @@ foreach my $id (@idlist) {
         $bug_changed = 1;
     }
 
-    if (@::legal_keywords && defined $cgi->param('keywords')) {
+    if (Bugzilla::Keyword::keyword_count() 
+        && defined $cgi->param('keywords')) 
+    {
         # There are three kinds of "keywordsaction": makeexact, add, delete.
         # For makeexact, we delete everything, and then add our things.
         # For add, we delete things we're adding (to make sure we don't
@@ -2023,7 +2045,7 @@ foreach my $id (@idlist) {
             }
 
             if ($col eq 'bug_status' 
-                && IsOpenedState($old) ne IsOpenedState($new))
+                && is_open_state($old) ne is_open_state($new))
             {
                 $check_dep_bugs = 1;
             }

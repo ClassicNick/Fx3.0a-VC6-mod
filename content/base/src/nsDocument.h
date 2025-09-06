@@ -385,6 +385,7 @@ public:
                                      nsIDocument* aSubDoc);
   virtual nsIDocument* GetSubDocumentFor(nsIContent *aContent) const;
   virtual nsIContent* FindContentForSubDocument(nsIDocument *aDocument) const;
+  virtual nsIContent* GetRootContent() const;
 
   /**
    * Get the style sheets owned by this document.
@@ -514,11 +515,6 @@ public:
                                  nsAString& Standalone);
   virtual PRBool IsScriptEnabled();
 
-  virtual nsresult HandleDOMEvent(nsPresContext* aPresContext,
-                                  nsEvent* aEvent, nsIDOMEvent** aDOMEvent,
-                                  PRUint32 aFlags,
-                                  nsEventStatus* aEventStatus);
-
   virtual void OnPageShow(PRBool aPersisted);
   virtual void OnPageHide(PRBool aPersisted);
 
@@ -530,6 +526,15 @@ public:
                                  PRBool aNotify);
   virtual nsresult AppendChildTo(nsIContent* aKid, PRBool aNotify);
   virtual nsresult RemoveChildAt(PRUint32 aIndex, PRBool aNotify);
+  virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor);
+  virtual nsresult PostHandleEvent(nsEventChainPostVisitor& aVisitor);
+  virtual nsresult DispatchDOMEvent(nsEvent* aEvent, nsIDOMEvent* aDOMEvent,
+                                    nsPresContext* aPresContext,
+                                    nsEventStatus* aEventStatus);
+  virtual nsresult GetEventListenerManager(PRBool aCreateIfNotFound,
+                                           nsIEventListenerManager** aResult) {
+    return GetListenerManager(aCreateIfNotFound, aResult);
+  };
 
   // nsIRadioGroupContainer
   NS_IMETHOD WalkRadioGroup(const nsAString& aName,
@@ -606,7 +611,8 @@ public:
                                    const nsIID& aIID);
   NS_IMETHOD RemoveEventListenerByIID(nsIDOMEventListener *aListener,
                                       const nsIID& aIID);
-  NS_IMETHOD GetListenerManager(nsIEventListenerManager** aInstancePtrResult);
+  NS_IMETHOD GetListenerManager(PRBool aCreateIfNotFound,
+                                nsIEventListenerManager** aResult);
   NS_IMETHOD HandleEvent(nsIDOMEvent *aEvent);
   NS_IMETHOD GetSystemEventGroup(nsIDOMEventGroup** aGroup);
 
@@ -700,10 +706,6 @@ protected:
   // Dispatch an event to the ScriptGlobalObject for this document
   void DispatchEventToWindow(nsEvent *aEvent);
 
-#ifdef DEBUG
-  void VerifyRootContentState();
-#endif
-
   nsDocument();
   virtual ~nsDocument();
 
@@ -767,8 +769,6 @@ protected:
   nsString mBaseTarget;
 
 private:
-  nsresult IsAllowedAsChild(PRUint16 aNodeType, nsIContent* aRefContent);
-
   void PostUnblockOnloadEvent();
   static EventHandlerFunc HandleOnloadBlockerEvent;
   static EventDestructorFunc DestroyOnloadBlockerEvent;

@@ -59,6 +59,7 @@
 #include "nsIDeviceContext.h"
 #include "nsIView.h"
 #include "nsIScrollableView.h"
+#include "nsEventDispatcher.h"
 #include "nsIEventStateManager.h"
 #include "nsIEventListenerManager.h"
 #include "nsIDOMNode.h"
@@ -68,6 +69,7 @@
 #include "nsXPCOM.h"
 #include "nsISupportsPrimitives.h"
 #include "nsIComponentManager.h"
+#include "nsContentUtils.h"
 #include "nsITextContent.h"
 #include "nsTextFragment.h"
 #include "nsCSSFrameConstructor.h"
@@ -403,20 +405,6 @@ NS_IMETHODIMP nsComboboxControlFrame::GetAccessible(nsIAccessible** aAccessible)
   return NS_ERROR_FAILURE;
 }
 #endif
-
-
-
-NS_IMETHODIMP
-nsComboboxControlFrame::Init(nsPresContext*  aPresContext,
-              nsIContent*      aContent,
-              nsIFrame*        aParent,
-              nsStyleContext*  aContext,
-              nsIFrame*        aPrevInFlow)
-{
-  mEventQueueService = do_GetService(kEventQueueServiceCID);
-  
-  return nsAreaFrame::Init(aPresContext, aContent, aParent, aContext, aPrevInFlow);
-}
 
 void 
 nsComboboxControlFrame::SetFocus(PRBool aOn, PRBool aRepaint)
@@ -1600,12 +1588,13 @@ nsComboboxControlFrame::RedisplayText(PRInt32 aIndex)
 
   // Send reflow command because the new text maybe larger
   nsresult rv = NS_OK;
-  if (mDisplayContent && mEventQueueService) {
+  if (mDisplayContent) {
     // Don't call ActuallyDisplayText(PR_TRUE) directly here since that
     // could cause recursive frame construction. See bug 283117 and the comment in
     // HandleRedisplayTextEvent() below.
     nsCOMPtr<nsIEventQueue> eventQueue;
-    rv = mEventQueueService->GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
+    rv = nsContentUtils::EventQueueService()->
+            GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
                                                   getter_AddRefs(eventQueue));
     if (eventQueue) {
       RedisplayTextEvent* event = new RedisplayTextEvent(this);
@@ -1921,8 +1910,7 @@ nsComboboxControlFrame::CreateFrameFor(nsPresContext*   aPresContext,
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
-  nsresult rv = mDisplayFrame->Init(aPresContext, mContent, this, styleContext,
-                                    nsnull);
+  nsresult rv = mDisplayFrame->Init(mContent, this, styleContext, nsnull);
   if (NS_FAILED(rv)) {
     mDisplayFrame->Destroy(aPresContext);
     mDisplayFrame = nsnull;
@@ -1936,8 +1924,7 @@ nsComboboxControlFrame::CreateFrameFor(nsPresContext*   aPresContext,
   }
 
   // initialize the text frame
-  rv = mTextFrame->Init(aPresContext, aContent, mDisplayFrame,
-                        textStyleContext, nsnull);
+  rv = mTextFrame->Init(aContent, mDisplayFrame, textStyleContext, nsnull);
   if (NS_FAILED(rv)) {
     mDisplayFrame->Destroy(aPresContext);
     mDisplayFrame = nsnull;
@@ -1955,13 +1942,12 @@ NS_IMETHODIMP
 nsComboboxControlFrame::Destroy(nsPresContext* aPresContext)
 {
   // Revoke queued RedisplayTextEvents
-  if (mEventQueueService) {
-    nsCOMPtr<nsIEventQueue> eventQueue;
-    mEventQueueService->GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
-                                             getter_AddRefs(eventQueue));
-    if (eventQueue) {
-      eventQueue->RevokeEvents(this);
-    }
+  nsCOMPtr<nsIEventQueue> eventQueue;
+  nsContentUtils::EventQueueService()->
+    GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
+                                            getter_AddRefs(eventQueue));
+  if (eventQueue) {
+    eventQueue->RevokeEvents(this);
   }
 
   nsFormControlFrame::RegUnRegAccessKey(GetPresContext(), NS_STATIC_CAST(nsIFrame*, this), PR_FALSE);
@@ -2220,19 +2206,16 @@ void nsComboboxControlFrame::FireValueChangeEvent()
 {
   // Fire ValueChange event to indicate data value of combo box has changed
   nsCOMPtr<nsIDOMEvent> event;
-  nsCOMPtr<nsIEventListenerManager> manager;
-  mContent->GetListenerManager(getter_AddRefs(manager));
   nsPresContext* presContext = GetPresContext();
-  if (manager &&
-      NS_SUCCEEDED(manager->CreateEvent(presContext, nsnull, NS_LITERAL_STRING("Events"), getter_AddRefs(event)))) {
+  if (NS_SUCCEEDED(nsEventDispatcher::CreateEvent(presContext, nsnull,
+                                                  NS_LITERAL_STRING("Events"),
+                                                  getter_AddRefs(event)))) {
     event->InitEvent(NS_LITERAL_STRING("ValueChange"), PR_TRUE, PR_TRUE);
 
     nsCOMPtr<nsIPrivateDOMEvent> privateEvent(do_QueryInterface(event));
     privateEvent->SetTrusted(PR_TRUE);
-
-    PRBool defaultActionEnabled;
-    presContext->EventStateManager()->DispatchNewEvent(mContent, event,
-                                                       &defaultActionEnabled);
+    nsEventDispatcher::DispatchDOMEvent(mContent, nsnull, event, nsnull,
+                                        nsnull);
   }
 }
 

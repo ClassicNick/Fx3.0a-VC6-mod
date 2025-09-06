@@ -185,7 +185,7 @@ calRecurrenceInfo.prototype = {
         if (!this.mBaseItem)
             throw Components.results.NS_ERROR_NOT_INITIALIZED;
 
-        if (aIndex < 0 || aIndex >= mRecurrenceItems.length)
+        if (aIndex < 0 || aIndex >= this.mRecurrenceItems.length)
             throw Components.results.NS_ERROR_INVALID_ARG;
 
         return this.mRecurrenceItems[aIndex];
@@ -221,8 +221,15 @@ calRecurrenceInfo.prototype = {
         if (this.mImmutable)
             throw Components.results.NS_ERROR_OBJECT_IS_IMMUTABLE;
 
+        // Because xpcom objects can be wrapped in various ways, testing for
+        // mere == sometimes returns false even when it should be true.  Use
+        // the interface pointer returned by sip to avoid that problem.
+        var sip1 = Components.classes["@mozilla.org/supports-interface-pointer;1"]
+                            .createInstance(Components.interfaces.nsISupportsInterfacePointer);
+        sip1.data = aItem;
+        sip1.dataIID = Components.interfaces.calIRecurrenceItem;
         for (var i = 0; i < this.mRecurrenceItems.length; i++) {
-            if (this.mRecurrenceItems[i] == aItem) {
+            if (this.mRecurrenceItems[i] == sip1.data) {
                 this.deleteRecurrenceItemAt(i);
                 return;
             }
@@ -492,7 +499,9 @@ calRecurrenceInfo.prototype = {
         d.isNegative = true;
         d.date = aRecurrenceId.clone();
 
-        return this.appendRecurrenceItem(d);
+        this.removeExceptionFor(d.date);
+
+        this.appendRecurrenceItem(d);
     },
 
     restoreOccurrenceAt: function (aRecurrenceId) {
@@ -664,4 +673,54 @@ calRecurrenceInfo.prototype = {
         aCount.value = ids.length;
         return ids;
     },
+    
+    // changing the startdate of an item needs to take exceptions into account.
+    // in case we're about to modify a parentItem (aka 'folded' item), we need
+    // to modify the recurrenceId's of all possibly existing exceptions as well.
+    onStartDateChange: function (aNewStartTime, aOldStartTime) {
+    
+        // convert both dates to UTC since subtractDate is not timezone aware.
+        aOldStartTime = aOldStartTime.getInTimezone("UTC");
+        aNewStartTime = aNewStartTime.getInTimezone("UTC");
+        var timeDiff = aNewStartTime.subtractDate(aOldStartTime);
+        var exceptions = this.getExceptionIds({});
+        var modifiedExceptions = [];
+        for each (var exid in exceptions) {
+            var ex = this.getExceptionFor(exid, false);
+            if (ex) {
+                if (!ex.isMutable) {
+                    ex = ex.cloneShallow(this.item);
+                }
+                ex.recurrenceId.addDuration(timeDiff);
+                ex.recurrenceId.normalize();
+                
+                modifiedExceptions.push(ex);
+                this.removeExceptionFor(exid);
+            }
+        }
+        for each (var modifiedEx in modifiedExceptions) {
+            this.modifyException(modifiedEx);
+        }
+
+        // also take RDATE's and EXDATE's into account.
+        const kCalIRecurrenceDate = Components.interfaces.calIRecurrenceDate;
+        const kCalIRecurrenceDateSet = Components.interfaces.calIRecurrenceDateSet;
+        var ritems = this.getRecurrenceItems({});
+        for (var i in ritems) {
+            var ritem = ritems[i];
+            if (ritem instanceof kCalIRecurrenceDate) {
+                ritem = ritem.QueryInterface(kCalIRecurrenceDate);
+                ritem.date.addDuration(timeDiff);
+                ritem.date.normalize();
+            } else if (ritem instanceof kCalIRecurrenceDateSet) {
+                ritem = ritem.QueryInterface(kCalIRecurrenceDateSet);
+                var rdates = ritem.getDates({});
+                for each (var date in rdates) {
+                    date.addDuration(timeDiff);
+                    date.normalize();
+                }
+                ritem.setDates(rdates.length,rdates);
+            }
+        }
+    }
 };

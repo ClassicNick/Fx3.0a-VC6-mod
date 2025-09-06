@@ -41,6 +41,8 @@ use Bugzilla::Constants;
 use Bugzilla::Group;
 use Bugzilla::User;
 use Bugzilla::Field;
+use Bugzilla::Bug;
+use Bugzilla::Keyword;
 
 use Date::Format;
 use Date::Parse;
@@ -186,11 +188,11 @@ sub init {
             $params->delete('bug_status');
         }
         elsif ($bug_statuses[0] eq '__open__') {
-            $params->param('bug_status', map(&::IsOpenedState($_) ? $_ : undef, 
+            $params->param('bug_status', map(is_open_state($_) ? $_ : undef, 
                                              @::legal_bug_status));
         }
         elsif ($bug_statuses[0] eq "__closed__") {
-            $params->param('bug_status', map(&::IsOpenedState($_) ? undef : $_, 
+            $params->param('bug_status', map(is_open_state($_) ? undef : $_, 
                                              @::legal_bug_status));
         }
     }
@@ -765,11 +767,14 @@ sub init {
             push(@supptables,
                     "LEFT JOIN bug_group_map AS bug_group_map_$chartid " .
                     "ON bugs.bug_id = bug_group_map_$chartid.bug_id");
-
+            $ff = $f = "groups_$chartid.name";
+            my $ref = $funcsbykey{",$t"};
+            &$ref;
             push(@supptables,
                     "LEFT JOIN groups AS groups_$chartid " .
-                    "ON groups_$chartid.id = bug_group_map_$chartid.group_id");
-            $f = "groups_$chartid.name";
+                    "ON groups_$chartid.id = bug_group_map_$chartid.group_id " .
+                    "AND $term");
+            $term = "$ff IS NOT NULL";
          },
          "^attach_data\.thedata,changed" => sub {
             # Searches for attachment data's change must search
@@ -929,9 +934,9 @@ sub init {
                  if ($value eq '') {
                      next;
                  }
-                 my $id = &::GetKeywordIdFromName($value);
-                 if ($id) {
-                     push(@list, "$table.keywordid = $id");
+                 my $keyword = new Bugzilla::Keyword({name => $value});
+                 if ($keyword) {
+                     push(@list, "$table.keywordid = " . $keyword->id);
                  }
                  else {
                      ThrowUserError("unknown_keyword",

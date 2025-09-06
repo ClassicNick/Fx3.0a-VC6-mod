@@ -84,6 +84,7 @@ use Bugzilla::BugMail;
 use Bugzilla::User;
 use Bugzilla::Util;
 use Bugzilla::Constants;
+use Bugzilla::Keyword;
 
 use MIME::Base64;
 use MIME::Parser;
@@ -896,7 +897,7 @@ sub process_bug {
     my $valid_status = check_field('bug_status',  
                                   scalar $bug_fields{'bug_status'}, 
                                   \@::legal_bug_status, ERR_LEVEL );
-    my $is_open = IsOpenedState($bug_fields{'bug_status'}); 
+    my $is_open = is_open_state($bug_fields{'bug_status'}); 
     my $status = $bug_fields{'bug_status'} || undef;
     my $resolution = $bug_fields{'resolution'} || undef;
     
@@ -1070,14 +1071,14 @@ sub process_bug {
         );
         foreach my $keyword ( split( /[\s,]+/, $bug_fields{'keywords'} )) {
             next unless $keyword;
-            my $i = GetKeywordIdFromName($keyword);
-            if ( !$i ) {
+            my $keyword_obj = new Bugzilla::Keyword({name => $keyword});
+            if (!$keyword_obj) {
                 $err .= "Skipping unknown keyword: $keyword.\n";
                 next;
             }
-            if ( !$keywordseen{$i} ) {
-                $key_sth->execute( $id, $i );
-                $keywordseen{$i} = 1;
+            if (!$keywordseen{$keyword_obj->id}) {
+                $key_sth->execute($id, $keyword_obj->id);
+                $keywordseen{$keyword_obj->id} = 1;
             }
         }
         my ($keywordarray) = $dbh->selectcol_arrayref(

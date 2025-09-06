@@ -45,7 +45,104 @@
 #include "nsIWebProgress.h"
 #include "nsDocShellLoadTypes.h"
 #include "nsIChannel.h"
-#include "nsPIDOMWindow.h"
+#include "nsIDOMWindow.h"
+#include "nsIInterfaceRequestorUtils.h"
+
+//-----------------------------------------------------------------------------
+
+#if defined(__linux)
+#include <sys/types.h>
+#include <unistd.h>
+static FILE *sProcFP;
+static void GetMemUsage_Shutdown() {
+  if (sProcFP) {
+    fclose(sProcFP);
+    sProcFP = NULL;
+  }
+}
+#elif defined(XP_WIN)
+#include <windows.h>
+#include <psapi.h>
+typedef BOOL (WINAPI * GETPROCESSMEMORYINFO_FUNC)(
+    HANDLE process, PPROCESS_MEMORY_COUNTERS counters, DWORD cb);
+static HMODULE sPSModule;
+static HANDLE sProcess;
+static GETPROCESSMEMORYINFO_FUNC sGetMemInfo;
+static void GetMemUsage_Shutdown() {
+  if (sProcess) {
+    CloseHandle(sProcess);
+    sProcess = NULL;
+  }
+  if (sPSModule) {
+    FreeLibrary(sPSModule);
+    sPSModule = NULL;
+  }
+  sGetMemInfo = NULL;
+}
+#endif
+
+struct MemUsage {
+  PRInt64 total;
+  PRInt64 resident;
+};
+
+// This method should be incorporated into NSPR
+static PRBool GetMemUsage(MemUsage *result)
+{
+  PRBool setResult = PR_FALSE;
+#if defined(__linux)
+  // Read /proc/<pid>/statm, and look at the first and second fields, which
+  // report the program size and the number of resident pages for this process,
+  // respectively.
+ 
+  char buf[256];
+  if (!sProcFP) {
+    pid_t pid = getpid();
+    snprintf(buf, sizeof(buf), "/proc/%d/statm", pid);
+    sProcFP = fopen(buf, "rb");
+  }
+  if (sProcFP) {
+    int vmsize, vmrss;
+
+    int count = fscanf(sProcFP, "%d %d", &vmsize, &vmrss);
+    rewind(sProcFP);
+
+    if (count == 2) {
+      static int ps = getpagesize();
+      result->total = PRInt64(vmsize) * ps;
+      result->resident = PRInt64(vmrss) * ps;
+      setResult = PR_TRUE;
+    }
+  }
+#elif defined(XP_WIN)
+  // Use GetProcessMemoryInfo, which only works on WinNT and later.
+
+  if (!sGetMemInfo) {
+    sPSModule = LoadLibrary("psapi.dll");
+    if (sPSModule) {
+      sGetMemInfo = (GETPROCESSMEMORYINFO_FUNC)
+          GetProcAddress(sPSModule, "GetProcessMemoryInfo");
+      if (sGetMemInfo)
+        sProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                               FALSE, GetCurrentProcessId());
+      // Don't leave ourselves partially initialized.
+      if (!sProcess)
+        GetMemUsage_Shutdown();
+    }
+  }
+  if (sGetMemInfo) {
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (sGetMemInfo(sProcess, &pmc, sizeof(pmc))) {
+      result->total = PRInt64(pmc.PagefileUsage);
+      result->resident = PRInt64(pmc.WorkingSetSize);
+      setResult = PR_TRUE;
+    }
+  }
+#endif
+  return setResult;
+}
+
+//-----------------------------------------------------------------------------
 
 static nsLoadCollector *gLoadCollector = nsnull;
 
@@ -82,8 +179,8 @@ nsLoadCollector::OnStateChange(nsIWebProgress *webProgress,
     RequestEntry entry;
     NS_ASSERTION(!mRequestMap.Get(request, &entry), "duplicate STATE_START");
 
-    nsCOMPtr<nsIDOMWindow> window;
-    webProgress->GetDOMWindow(getter_AddRefs(window));
+    nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(webProgress);
+    nsCOMPtr<nsIDOMWindow> window = do_GetInterface(docShell);
     if (!window) {
       // We don't really care about windowless loads
       return NS_OK;
@@ -102,43 +199,38 @@ nsLoadCollector::OnStateChange(nsIWebProgress *webProgress,
       NS_ENSURE_SUCCESS(rv, rv);
     }
 
-    nsCOMPtr<nsPIDOMWindow> winPriv = do_QueryInterface(window);
-    NS_ENSURE_STATE(winPriv);
-
-    nsIDocShell *docShell = winPriv->GetDocShell();
     nsAutoString origin;
-    if (docShell) {
-      PRUint32 loadType;
-      docShell->GetLoadType(&loadType);
-      switch (loadType) {
-        case LOAD_NORMAL:
-        case LOAD_NORMAL_REPLACE:
-        case LOAD_BYPASS_HISTORY:
-          origin.AssignLiteral("typed");
-          break;
-        case LOAD_NORMAL_EXTERNAL:
-          origin.AssignLiteral("external");
-          break;
-        case LOAD_HISTORY:
-          origin.AssignLiteral("session-history");
-          break;
-        case LOAD_RELOAD_NORMAL:
-        case LOAD_RELOAD_BYPASS_CACHE:
-        case LOAD_RELOAD_BYPASS_PROXY:
-        case LOAD_RELOAD_BYPASS_PROXY_AND_CACHE:
-        case LOAD_RELOAD_CHARSET_CHANGE:
-          origin.AssignLiteral("reload");
-          break;
-        case LOAD_LINK:
-          origin.AssignLiteral("link");
-          break;
-        case LOAD_REFRESH:
-          origin.AssignLiteral("refresh");
-          break;
-        default:
-          origin.AssignLiteral("other");
-          break;
-      }
+    PRUint32 loadType;
+    docShell->GetLoadType(&loadType);
+
+    switch (loadType) {
+    case LOAD_NORMAL:
+    case LOAD_NORMAL_REPLACE:
+    case LOAD_BYPASS_HISTORY:
+      origin.AssignLiteral("typed");
+      break;
+    case LOAD_NORMAL_EXTERNAL:
+      origin.AssignLiteral("external");
+      break;
+    case LOAD_HISTORY:
+      origin.AssignLiteral("session-history");
+      break;
+    case LOAD_RELOAD_NORMAL:
+    case LOAD_RELOAD_BYPASS_CACHE:
+    case LOAD_RELOAD_BYPASS_PROXY:
+    case LOAD_RELOAD_BYPASS_PROXY_AND_CACHE:
+    case LOAD_RELOAD_CHARSET_CHANGE:
+      origin.AssignLiteral("reload");
+      break;
+    case LOAD_LINK:
+      origin.AssignLiteral("link");
+      break;
+    case LOAD_REFRESH:
+      origin.AssignLiteral("refresh");
+      break;
+    default:
+      origin.AssignLiteral("other");
+      break;
     }
     rv = props->SetPropertyAsAString(NS_LITERAL_STRING("origin"), origin);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -153,6 +245,14 @@ nsLoadCollector::OnStateChange(nsIWebProgress *webProgress,
       PRInt64 loadTime = (PR_Now() - entry.startTime) / PR_USEC_PER_MSEC;
       rv = props->SetPropertyAsUint64(NS_LITERAL_STRING("loadtime"), loadTime);
       NS_ENSURE_SUCCESS(rv, rv);
+
+      MemUsage mu;
+      if (GetMemUsage(&mu)) {
+        rv = props->SetPropertyAsUint64(NS_LITERAL_STRING("memtotal"), mu.total);
+        NS_ENSURE_SUCCESS(rv, rv);
+        rv = props->SetPropertyAsUint64(NS_LITERAL_STRING("memresident"), mu.resident);
+        NS_ENSURE_SUCCESS(rv, rv);
+      }
 
       nsMetricsService *ms = nsMetricsService::get();
       rv = ms->LogEvent(NS_LITERAL_STRING("load"), props);
@@ -224,6 +324,8 @@ nsLoadCollector::Shutdown()
   // See comments in nsWindowCollector::Shutdown about why we don't
   // null out gLoadCollector here.
   gLoadCollector->Release();
+
+  GetMemUsage_Shutdown();
 }
 
 nsLoadCollector::~nsLoadCollector()

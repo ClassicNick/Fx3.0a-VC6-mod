@@ -110,7 +110,7 @@
 
   [% ELSIF error == "auth_failure" %]
     [% title = "Authorization Required" %]
-    [% admindocslinks = {'group.html' => 'Group Security'} %]
+    [% admindocslinks = {'groups.html' => 'Group Security'} %]
     Sorry,
     [% IF group %]
       you aren't a member of the '[% group FILTER html %]' group,
@@ -180,6 +180,8 @@
       whine reports
     [% ELSIF object == "sanity_check" %]
       a sanity check
+    [% ELSIF object == "settings" %]
+      settings
     [% ELSIF object == "sudo_session" %]
       an sudo session
     [% ELSIF object == "timetracking_summaries" %]
@@ -198,7 +200,7 @@
 
   [% ELSIF error == "bug_access_denied" %]
     [% title = "Access Denied" %]
-    [% admindocslinks = {'group.html' => 'Group Security'} %]
+    [% admindocslinks = {'groups.html' => 'Group Security'} %]
     You are not authorized to access [% terms.bug %] #[% bug_id FILTER html %].
 
   [% ELSIF error == "bug_access_query" %]
@@ -357,7 +359,7 @@
   
   [% ELSIF error == "entry_access_denied" %]
     [% title = "Permission Denied" %]
-    [% admindocslinks = {'group.html' => 'Group Security'} %]
+    [% admindocslinks = {'groups.html' => 'Group Security'} %]
     Sorry, either the product <em>[% product FILTER html %]</em>
     does not exist or you aren't authorized to
     enter [% terms.abug %] into it.
@@ -506,6 +508,14 @@
     The sort key must be an integer between 0 and 32767 inclusive.
     It cannot be <em>[% sortkey FILTER html %]</em>.
 
+  [% ELSIF error == "group_cannot_delete" %]
+    [% title = "Cannot Delete Group" %]
+    The <em>[% name FILTER html %]</em> group cannot be deleted because
+    there are
+    <a href="editgroups.cgi?action=del&amp;group=[% gid FILTER url_quote %]">records</a>
+    in the database which refer to it. All references to this group must
+    be removed before you can remove it.
+
   [% ELSIF error == "group_exists" %]
     [% title = "The group already exists" %]
     The group [% name FILTER html %] already exists.
@@ -600,7 +610,7 @@
     
   [% ELSIF error == "illegal_group_control_combination" %]
     [% title = "Your Group Control Combination Is Illegal" %]
-    [% admindocslinks = {'group.html' => 'Assigning Group Controls to Products'} %]
+    [% admindocslinks = {'groups.html' => 'Assigning Group Controls to Products'} %]
     Your group control combination for group &quot;
     [% groupname FILTER html %]&quot; is illegal.
 
@@ -615,12 +625,12 @@
     &lt;, &gt;, &amp;.
 
   [% ELSIF error == "illegal_series_creation" %]
-    [% admindocslinks = {'group.html' => 'Group security'} %]
+    [% admindocslinks = {'groups.html' => 'Group security'} %]
     [% docslinks = {'reporting.html' => 'Reporting'} %]
     You are not authorised to create series.
         
   [% ELSIF error == "illegal_series_edit" %]
-    [% admindocslinks = {'group.html' => 'Group security'} %]
+    [% admindocslinks = {'groups.html' => 'Group security'} %]
     [% docslinks = {'reporting.html' => 'Reporting'} %]
     You are not authorised to edit this series. To do this, you must either
     be its creator, or an administrator.
@@ -778,8 +788,9 @@
     [% title = "Default milestone not deletable" %]
     [% admindocslinks = {'products.html' => 'Administering products',
                          'milestones.html' => 'About Milestones'} %]
-    Sorry, but [% name FILTER html %] is the default milestone for
-    product '[% product FILTER html %]', and so it can not be deleted.
+    Sorry, but [% milestone.name FILTER html %] is the default milestone 
+    for product '[% product.name FILTER html %]', and so it can not be 
+    deleted.
 
   [% ELSIF error == "milestone_name_too_long" %]
     [% title = "Milestone Name Is Too Long" %]

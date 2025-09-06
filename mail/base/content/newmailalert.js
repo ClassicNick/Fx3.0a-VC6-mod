@@ -39,6 +39,7 @@
 var gFinalHeight = 60;
 var gSlideIncrement = 1;
 var gSlideTime = 10;
+var gNumNewMsgsToShowInAlert = 4; // the more messages we show in the alert, the larger it will be
 var gOpenTime = 3000; // total time the alert should stay up once we are done animating.
 var gAlertCookie = "";
 var gAlertListener = null;
@@ -49,7 +50,6 @@ function prefillAlertInfo()
   // unwrap all the args....
   // arguments[0] --> array of folders with new mail
   // arguments[1] --> the observer to call back with notifications about the alert
- 
   gAlertListener = window.arguments[1];
 
   // walk the array of folders with new mail.
@@ -69,6 +69,7 @@ function prefillAlertInfo()
   rootFolder.ListDescendents(allFolders);
   var numFolders = allFolders.Count();
   var folderSummaryInfoEl = document.getElementById('folderSummaryInfo');
+  folderSummaryInfoEl.mMaxMsgHdrsInPopup = gNumNewMsgsToShowInAlert;
   for (var folderIndex = 0; folderIndex < numFolders; folderIndex++)
   {
     var folder = allFolders.GetElementAt(folderIndex).QueryInterface(Components.interfaces.nsIMsgFolder);
@@ -80,7 +81,7 @@ function prefillAlertInfo()
         gPendingPreviewFetchRequests++;
     }
   }
-  }
+}
 
 function urlListener(aFolder)
 {
@@ -102,10 +103,7 @@ urlListener.prototype = {
     // when we are done running all of our urls for fetching the preview text,
     // start the alert.
     if (!gPendingPreviewFetchRequests)
-    {
-      resizeAlert();
-      setTimeout(animateAlert, gSlideTime);
-    }
+      showAlert();
   },
 }
 
@@ -121,21 +119,47 @@ function onAlertLoad()
     gSlideTime = prefBranch.getIntPref("alerts.slideIncrementTime");
     gOpenTime = prefBranch.getIntPref("alerts.totalOpenTime");
   } catch (ex) {}
-
+  
+  // we need to still do this so the alert gets 
+  // moved off screen until we are ready for it. 
   resizeAlert();
 
   // if we aren't waiting to fetch preview text, then go ahead and 
   // start showing the alert.
   if (!gPendingPreviewFetchRequests)
+    setTimeout(showAlert, 0); // let the JS thread unwind, to give layout 
+                              // a chance to recompute the styles and widths for our alert text.
+}
+
+// helper routine which kicks off the animated alert if we have messages
+// in our folder summary info object. Otherwise we turn around and just close the alert.
+function showAlert()
+{
+  resizeAlert();
+  if (document.getElementById('folderSummaryInfo').hasMessages)
     setTimeout(animateAlert, gSlideTime);
+  else
+    closeAlert();
 }
 
 function resizeAlert()
 {
-  sizeToContent();
+  // sizeToContent is not working. It isn't honoring the max widths we are attaching to our inner
+  // objects like the folder summary element. While the folder summary element is cropping, 
+  // sizeToContent ends up thinking the window needs to be much wider than it should be. 
+  // use resizeTo and make up our measurements...
+  //sizeToContent();
+  
+  // Use the wider of the alert groove and the folderSummaryInfo box, then 
+  // add on the width of alertImageBox + some small amount of fudge. For the height, 
+  // just use the size of the alertBox, that appears to be pretty accurate.
+  var windowWidth = Math.max (document.getBoxObjectFor(document.getElementById('alertGroove')).width,
+                              document.getBoxObjectFor(document.getElementById('folderSummaryInfo')).width);
+  resizeTo(windowWidth + document.getBoxObjectFor(document.getElementById('alertImageBox')).width + 30, 
+           document.getBoxObjectFor(document.getElementById('alertBox')).height + 10);
   gFinalHeight = window.outerHeight;
   window.outerHeight = 1;
-
+  
   // be sure to offset the alert by 10 pixels from the far right edge of the screen
   window.moveTo( (screen.availLeft + screen.availWidth - window.outerWidth) - 10, screen.availTop + screen.availHeight - window.outerHeight);
 }

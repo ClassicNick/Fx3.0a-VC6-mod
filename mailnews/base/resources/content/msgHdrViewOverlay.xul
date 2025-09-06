@@ -79,6 +79,8 @@
 <popup id="attachmentListContext" onpopupshowing="return onShowAttachmentContextMenu();">
   <menuitem id="context-openAttachment" label="&openAttachmentCmd.label;" accesskey="&openAttachmentCmd.accesskey;"
      oncommand="handleAttachmentSelection('openAttachment');"/>
+  <menuitem id="context-viewAttachment" label="&viewAttachmentCmd.label;" accesskey="&viewAttachmentCmd.accesskey;"
+     oncommand="handleAttachmentSelection('viewAttachment');"/>
   <menuitem id="context-saveAttachment" label="&saveAsAttachmentCmd.label;" accesskey="&saveAsAttachmentCmd.accesskey;"
      oncommand="handleAttachmentSelection('saveAttachment');"/>
   <menuseparator/>
@@ -163,7 +165,7 @@
     <mail-multi-emailHeaderField id="expandedfromBox" label="&fromField.label;" collapsed="true"/>
     <mail-emailheaderfield id="expandedsenderBox" label="&senderField.label;" collapsed="true"/>
     <mail-headerfield id="expandedorganizationBox" label="&organizationField.label;" collapsed="true"/>
-    <mail-emailheaderfield id="expandedreply-toBox" label="&replyToField.label;" collapsed="true"/>
+    <mail-multi-emailHeaderField id="expandedreply-toBox" label="&replyToField.label;" collapsed="true"/>
 
     <mail-headerfield keywordrelated="true" id="expandeddateBox" label="&dateField.label;" collapsed="true"/>
 

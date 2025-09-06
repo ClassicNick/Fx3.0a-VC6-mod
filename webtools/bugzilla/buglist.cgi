@@ -40,19 +40,19 @@ use Bugzilla::Search::Quicksearch;
 use Bugzilla::Constants;
 use Bugzilla::User;
 use Bugzilla::Bug;
+use Bugzilla::Product;
+use Bugzilla::Keyword;
 
 # Include the Bugzilla CGI and general utility library.
 require "globals.pl";
 
 use vars qw(@components
-            @legal_keywords
             @legal_platform
             @legal_priority
             @legal_product
             @legal_severity
             @settable_resolution
-            @target_milestone
-            @versions);
+            @target_milestone);
 
 my $cgi = Bugzilla->cgi;
 my $dbh = Bugzilla->dbh;
@@ -132,12 +132,14 @@ my $format = $template->get_format("list/list", scalar $cgi->param('format'),
 # Server push is a Netscape 3+ hack incompatible with MSIE, Lynx, and others. 
 # Even Communicator 4.51 has bugs with it, especially during page reload.
 # http://www.browsercaps.org used as source of compatible browsers.
+# Safari (WebKit) does not support it, despite a UA that says otherwise (bug 188712)
+# MSIE 5+ supports it on Mac (but not on Windows) (bug 190370)
 #
 my $serverpush =
   $format->{'extension'} eq "html"
     && exists $ENV{'HTTP_USER_AGENT'} 
       && $ENV{'HTTP_USER_AGENT'} =~ /Mozilla.[3-9]/ 
-        && $ENV{'HTTP_USER_AGENT'} !~ /[Cc]ompatible/
+        && (($ENV{'HTTP_USER_AGENT'} !~ /[Cc]ompatible/) || ($ENV{'HTTP_USER_AGENT'} =~ /MSIE 5.*Mac_PowerPC/))
           && $ENV{'HTTP_USER_AGENT'} !~ /WebKit/
             && !defined($cgi->param('serverpush'))
               || $cgi->param('serverpush');
@@ -1007,7 +1009,7 @@ $vars->{'buglist_joined'} = join(',', @bugidlist);
 $vars->{'columns'} = $columns;
 $vars->{'displaycolumns'} = \@displaycolumns;
 
-my @openstates = OpenStates();
+my @openstates = BUG_STATE_OPEN;
 $vars->{'openstates'} = \@openstates;
 $vars->{'closedstates'} = ['CLOSED', 'VERIFIED', 'RESOLVED'];
 
@@ -1040,7 +1042,7 @@ $vars->{'currenttime'} = time();
 # The following variables are used when the user is making changes to multiple bugs.
 if ($dotweak) {
     $vars->{'dotweak'} = 1;
-    $vars->{'use_keywords'} = 1 if @::legal_keywords;
+    $vars->{'use_keywords'} = 1 if Bugzilla::Keyword::keyword_count();
 
     $vars->{'products'} = Bugzilla->user->get_enterable_products;
     $vars->{'platforms'} = \@::legal_platform;
@@ -1062,10 +1064,12 @@ if ($dotweak) {
     # products), and a list of components for the product.
     $vars->{'bugproducts'} = [ keys %$bugproducts ];
     if (scalar(@{$vars->{'bugproducts'}}) == 1) {
-        my $product = $vars->{'bugproducts'}->[0];
-        $vars->{'versions'} = $::versions{$product};
-        $vars->{'components'} = $::components{$product};
-        $vars->{'targetmilestones'} = $::target_milestone{$product} if Param('usetargetmilestone');
+        my $product = new Bugzilla::Product(
+            {name => $vars->{'bugproducts'}->[0]});
+        $vars->{'versions'} = [map($_->name ,@{$product->versions})];
+        $vars->{'components'} = [map($_->name, @{$product->components})];
+        $vars->{'targetmilestones'} = [map($_->name, @{$product->milestones})]
+            if Param('usetargetmilestone');
     }
 }
 

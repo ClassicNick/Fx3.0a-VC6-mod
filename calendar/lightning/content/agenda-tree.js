@@ -149,7 +149,10 @@ function getCellText(row, column)
     if (event instanceof Synthetic)
         return "";
     var start = event.startDate || event.dueDate;
-    return start.toString();
+    var dateFormatter = Components.classes["@mozilla.org/calendar/datetime-formatter;1"]
+                                  .getService(Components.interfaces.calIDateTimeFormatter);
+    start = start.getInTimezone(calendarDefaultTimezone());
+    return dateFormatter.formatDateTime(start);
 };
 
 agendaTreeView.getLevel =
@@ -430,9 +433,6 @@ function observer_onAddItem(item)
 agendaTreeView.calendarObserver.onDeleteItem =
 function observer_onDeleteItem(item, rebuildFlag)
 {
-    if (!(item instanceof Components.interfaces.calIEvent))
-        return;
-
     var occs = item.getOccurrencesBetween(this.agendaTreeView.today.start,
                                           this.agendaTreeView.soon.end, {});
     occs.forEach(this.agendaTreeView.deleteItem, this.agendaTreeView);

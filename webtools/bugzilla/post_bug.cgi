@@ -33,13 +33,14 @@ use Bugzilla::Util;
 use Bugzilla::Bug;
 use Bugzilla::User;
 use Bugzilla::Field;
+use Bugzilla::Product;
+use Bugzilla::Keyword;
 
 # Shut up misguided -w warnings about "used only once". For some reason,
 # "use vars" chokes on me when I try it here.
 sub sillyness {
     my $zz;
     $zz = %::components;
-    $zz = %::versions;
     $zz = @::legal_opsys;
     $zz = @::legal_platform;
     $zz = @::legal_priority;
@@ -54,6 +55,26 @@ my $cgi = Bugzilla->cgi;
 my $dbh = Bugzilla->dbh;
 my $template = Bugzilla->template;
 my $vars = {};
+
+######################################################################
+# Subroutines
+######################################################################
+
+# Determines whether or not a group is active by checking
+# the "isactive" column for the group in the "groups" table.
+# Note: This function selects groups by id rather than by name.
+sub GroupIsActive {
+    my ($group_id) = @_;
+    $group_id ||= 0;
+    detaint_natural($group_id);
+    my ($is_active) = Bugzilla->dbh->selectrow_array(
+        "SELECT isactive FROM groups WHERE id = ?", undef, $group_id);
+    return $is_active;
+}
+
+######################################################################
+# Main Script
+######################################################################
 
 # do a match on the fields if applicable
 
@@ -80,7 +101,8 @@ ValidateComment($comment);
 my $product = $cgi->param('product');
 $user->can_enter_product($product, 1);
 
-my $product_id = get_product_id($product);
+my $prod_obj = new Bugzilla::Product({name => $product});
+my $product_id = $prod_obj->id;
 
 # Set cookies
 if (defined $cgi->param('product')) {
@@ -203,7 +225,8 @@ check_field('bug_severity', scalar $cgi->param('bug_severity'), \@::legal_severi
 check_field('priority',     scalar $cgi->param('priority'),     \@::legal_priority);
 check_field('op_sys',       scalar $cgi->param('op_sys'),       \@::legal_opsys);
 check_field('bug_status',   scalar $cgi->param('bug_status'),   ['UNCONFIRMED', 'NEW']);
-check_field('version',      scalar $cgi->param('version'),      $::versions{$product});
+check_field('version',      scalar $cgi->param('version'),
+            [map($_->name, @{$prod_obj->versions})]);
 check_field('component',    scalar $cgi->param('component'),    $::components{$product});
 check_field('target_milestone', scalar $cgi->param('target_milestone'),
             $::target_milestone{$product});
@@ -251,14 +274,14 @@ if ($cgi->param('keywords') && UserInGroup("editbugs")) {
         if ($keyword eq '') {
            next;
         }
-        my $i = GetKeywordIdFromName($keyword);
-        if (!$i) {
+        my $keyword_obj = new Bugzilla::Keyword({name => $keyword});
+        if (!$keyword_obj) {
             ThrowUserError("unknown_keyword",
                            { keyword => $keyword });
         }
-        if (!$keywordseen{$i}) {
-            push(@keywordlist, $i);
-            $keywordseen{$i} = 1;
+        if (!$keywordseen{$keyword_obj->id}) {
+            push(@keywordlist, $keyword_obj->id);
+            $keywordseen{$keyword_obj->id} = 1;
         }
     }
 }
@@ -496,6 +519,7 @@ if ($cgi->cookie("BUGLIST")) {
     @bug_list = split(/:/, $cgi->cookie("BUGLIST"));
 }
 $vars->{'bug_list'} = \@bug_list;
+$vars->{'use_keywords'} = 1 if Bugzilla::Keyword::keyword_count();
 
 print $cgi->header();
 $template->process("bug/create/created.html.tmpl", $vars)

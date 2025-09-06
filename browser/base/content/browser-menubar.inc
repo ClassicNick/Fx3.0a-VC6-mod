@@ -323,7 +323,50 @@
                           oncommand="SwitchDocumentDirection(window.content)"/>
               </menupopup>
             </menu>
-  
+
+#ifdef MOZ_PLACES
+            <menu id="history-menu"
+                  oncommand="var url = event.target.getAttribute('statustext'); if (url) openUILink(url, event, false, true);"
+                  onclick="checkForMiddleClick(this, event);"
+                  label="&historyMenu.label;"
+                  accesskey="&historyMenu.accesskey;">
+              <menupopup id="goPopup" onpopupshowing="HistoryMenu.update(this);">
+                <menuitem label="&backCmd.label;"
+#ifdef XP_MACOSX
+                          key="goBackKb2"
+#else
+                          key="goBackKb"
+#endif
+                          oncommand="BrowserBack(event, true)"
+                          onclick="checkForMiddleClick(this, event);">
+                  <observes element="Browser:Back" attribute="disabled" />
+                </menuitem>
+                <menuitem label="&forwardCmd.label;" 
+#ifdef XP_MACOSX
+                          key="goForwardKb2"
+#else
+                          key="goForwardKb"
+#endif
+                          oncommand="BrowserForward(event, true)"
+                          onclick="checkForMiddleClick(this, event);">
+                  <observes element="Browser:Forward" attribute="disabled" />
+                </menuitem>
+
+                <menuitem label="&historyHomeCmd.label;"
+                          command="Browser:Home"
+                          key="historyHome"/>
+                <menuseparator/>
+                <menuitem label="&historySearchCmd.label;"
+                          command="Browser:SearchHistory"/>
+                <menuitem label="&historyShowCmd.label;"
+                          command="Browser:ShowHistory"/>
+                <menuseparator id="startTabHistorySeparator"/>
+                <menuseparator hidden="true" id="endTabHistorySeparator"/>
+                <menuitem label="&historyClearCmd.label;"
+                          command="Browser:ClearHistory"/>
+              </menupopup>
+            </menu>
+#else
             <menu id="go-menu" label="&goMenu.label;" accesskey="&goMenu.accesskey;" 
                   oncommand="var url = event.target.getAttribute('statustext'); if (url) openUILink(url, event, false, true);"
                   onclick="checkForMiddleClick(this, event);">
@@ -355,15 +398,11 @@
                           key="goHome"/>
                 <menuseparator id="startHistorySeparator"/>
                 <menuseparator hidden="true" id="endHistorySeparator"/>
-#ifndef MOZ_PLACES
                 <menuitem observes="viewHistorySidebar"
                           key="key_gotoHistory"/>
-#else
-                <menuitem label="&historyButton.label;"
-                          command="Browser:ShowPlaces" key="key_gotoHistory"/>
-#endif
               </menupopup>
             </menu>
+#endif
 
 #ifndef MOZ_PLACES
             <menu id="bookmarks-menu" label="&bookmarksMenu.label;" accesskey="&bookmarksMenu.accesskey;"
@@ -399,11 +438,22 @@
             </menu>
 #else
   <menu id="bookmarksMenu" 
-        label="&bookmarksMenu.label;" accesskey="&bookmarksMenu.accesskey;">
-    <menupopup id="bookmarksMenuPopup" type="places" context="placesContext">
+        label="&bookmarksMenu.label;" accesskey="&bookmarksMenu.accesskey;"
+        ondragover="BookmarksEventHandler.onDragOver(event);">
+    <menupopup id="bookmarksMenuPopup"
+               type="places"
+               place="place:&amp;folder=2&amp;group=3&amp;expandQueries=1"
+               context="placesContext"
+               openInTabs="children"
+               oncommand="BookmarksEventHandler.onCommand(event);"
+               onclick="BookmarksEventHandler.onClick(event);"
+               onpopupshowing="BookmarksEventHandler.onPopupShowing(event);">
       <menuitem label="&addCurPageAsCmd.label;" 
                 command="Browser:AddBookmarkAs" key="addBookmarkAsKb"/>
-      <!-- XXXben - this should move to the end of the list -->
+      <menuitem label="&addCurPagesCmd.label;" 
+                command="Browser:BookmarkAllTabs" key="bookmarkAllTabsKb"/>
+      <menuitem label="&searchBookmarksCmd.label;" 
+                command="Browser:ShowBookmarks" key="searchBookmarksKb"/>
       <menuitem label="&manBookmarksCmd.label;" 
                 command="Browser:ShowBookmarks" key="manBookmarkKb"/>
       <menuseparator builder="start"/>

@@ -55,6 +55,7 @@
 #include "nsIViewManager.h"
 #include "nsXULAtoms.h"
 #include "nsGUIEvent.h"
+#include "nsEventDispatcher.h"
 
 //
 // NS_NewResizerFrame
@@ -73,13 +74,13 @@ nsResizerFrame::nsResizerFrame(nsIPresShell* aPresShell)
   mDirection = topleft; // by default...
 }
 
-NS_IMETHODIMP  nsResizerFrame::Init(nsPresContext*  aPresContext,
-                nsIContent*      aContent,
-                nsIFrame*        aParent,
-                nsStyleContext*  aContext,
-                nsIFrame*        asPrevInFlow)
+NS_IMETHODIMP
+nsResizerFrame::Init(nsIContent*      aContent,
+                     nsIFrame*        aParent,
+                     nsStyleContext*  aContext,
+                     nsIFrame*        asPrevInFlow)
 {
-  nsresult rv = nsTitleBarFrame::Init(aPresContext, aContent, aParent, aContext, asPrevInFlow);
+  nsresult rv = nsTitleBarFrame::Init(aContent, aParent, aContext, asPrevInFlow);
 
   GetInitialDirection(mDirection);
 
@@ -335,6 +336,5 @@ nsResizerFrame::MouseClicked(nsPresContext* aPresContext, nsGUIEvent *aEvent)
   nsMouseEvent event(aEvent ? NS_IS_TRUSTED_EVENT(aEvent) : PR_FALSE,
                      NS_XUL_COMMAND, nsnull, nsMouseEvent::eReal);
 
-  mContent->HandleDOMEvent(aPresContext, &event, nsnull, NS_EVENT_FLAG_INIT,
-                           &status);
+  nsEventDispatcher::Dispatch(mContent, aPresContext, &event, nsnull, &status);
 }

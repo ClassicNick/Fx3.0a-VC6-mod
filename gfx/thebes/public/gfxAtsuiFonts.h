@@ -79,11 +79,14 @@ public:
     virtual ~gfxAtsuiFontGroup();
 
     virtual gfxTextRun *MakeTextRun(const nsAString& aString);
+    virtual gfxTextRun *MakeTextRun(const nsACString& aCString) {
+        return MakeTextRun(NS_ConvertASCIItoUTF16(aCString));
+    }
 
     ATSUFontFallbacks *GetATSUFontFallbacks() { return &mFallbacks; }
     
     gfxAtsuiFont* GetFontAt(PRInt32 i) {
-        return NS_STATIC_CAST(gfxAtsuiFont*, NS_STATIC_CAST(gfxFont*, GetFontList()[i]));
+        return NS_STATIC_CAST(gfxAtsuiFont*, NS_STATIC_CAST(gfxFont*, mFonts[i]));
     }
 
 protected:

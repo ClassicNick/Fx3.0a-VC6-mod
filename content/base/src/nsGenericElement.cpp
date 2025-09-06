@@ -107,6 +107,7 @@
 #include "nsIDOMNSFeatureFactory.h"
 #include "nsIDOMDocumentType.h"
 #include "nsIDOMUserDataHandler.h"
+#include "nsEventDispatcher.h"
 
 #ifdef MOZ_SVG
 PRBool NS_SVG_TestFeature(const nsAString &fstr);
@@ -598,7 +599,8 @@ nsresult
 nsDOMEventRTTearoff::GetEventReceiver(nsIDOMEventReceiver **aReceiver)
 {
   nsCOMPtr<nsIEventListenerManager> listener_manager;
-  nsresult rv = mContent->GetListenerManager(getter_AddRefs(listener_manager));
+  nsresult rv =
+    mContent->GetListenerManager(PR_TRUE, getter_AddRefs(listener_manager));
   NS_ENSURE_SUCCESS(rv, rv);
 
   return CallQueryInterface(listener_manager, aReceiver);
@@ -608,7 +610,8 @@ nsresult
 nsDOMEventRTTearoff::GetDOM3EventTarget(nsIDOM3EventTarget **aTarget)
 {
   nsCOMPtr<nsIEventListenerManager> listener_manager;
-  nsresult rv = mContent->GetListenerManager(getter_AddRefs(listener_manager));
+  nsresult rv =
+    mContent->GetListenerManager(PR_TRUE, getter_AddRefs(listener_manager));
   NS_ENSURE_SUCCESS(rv, rv);
 
   return CallQueryInterface(listener_manager, aTarget);
@@ -637,9 +640,10 @@ nsDOMEventRTTearoff::RemoveEventListenerByIID(nsIDOMEventListener *aListener,
 }
 
 NS_IMETHODIMP
-nsDOMEventRTTearoff::GetListenerManager(nsIEventListenerManager** aResult)
+nsDOMEventRTTearoff::GetListenerManager(PRBool aCreateIfNotFound,
+                                        nsIEventListenerManager** aResult)
 {
-  return mContent->GetListenerManager(aResult);
+  return mContent->GetListenerManager(aCreateIfNotFound, aResult);
 }
 
 NS_IMETHODIMP
@@ -656,7 +660,7 @@ NS_IMETHODIMP
 nsDOMEventRTTearoff::GetSystemEventGroup(nsIDOMEventGroup **aGroup)
 {
   nsCOMPtr<nsIEventListenerManager> manager;
-  GetListenerManager(getter_AddRefs(manager));
+  GetListenerManager(PR_TRUE, getter_AddRefs(manager));
 
   if (!manager) {
     return NS_ERROR_FAILURE;
@@ -747,7 +751,8 @@ nsDOMEventRTTearoff::AddEventListener(const nsAString& aType,
                                       PRBool aWantsUntrusted)
 {
   nsCOMPtr<nsIEventListenerManager> listener_manager;
-  nsresult rv = mContent->GetListenerManager(getter_AddRefs(listener_manager));
+  nsresult rv =
+    mContent->GetListenerManager(PR_TRUE, getter_AddRefs(listener_manager));
   NS_ENSURE_SUCCESS(rv, rv);
 
   PRInt32 flags = aUseCapture ? NS_EVENT_FLAG_CAPTURE : NS_EVENT_FLAG_BUBBLE;
@@ -761,6 +766,8 @@ nsDOMEventRTTearoff::AddEventListener(const nsAString& aType,
 }
 
 //----------------------------------------------------------------------
+
+PRUint32 nsMutationGuard::sMutationCount = 0;
 
 nsDOMSlots::nsDOMSlots(PtrBits aFlags)
   : mFlags(aFlags),
@@ -826,10 +833,15 @@ nsGenericElement::~nsGenericElement()
 
   if (HasEventListenerManager()) {
 #ifdef DEBUG
-    if (!nsContentUtils::LookupListenerManager(this) &&
-        nsContentUtils::IsInitialized()) {
-      NS_ERROR("Huh, our bit says we have a listener manager list, "
-               "but there's nothing in the hash!?!!");
+    if (nsContentUtils::IsInitialized()) {
+      nsCOMPtr<nsIEventListenerManager> manager;
+      PRBool created;
+      nsContentUtils::GetListenerManager(this, PR_FALSE,
+                                         getter_AddRefs(manager), &created);
+      if (!manager) {
+        NS_ERROR("Huh, our bit says we have a listener manager list, "
+                 "but there's nothing in the hash!?!!");
+      }
     }
 #endif
 
@@ -1870,239 +1882,65 @@ nsGenericElement::SetNativeAnonymous(PRBool aAnonymous)
 }
 
 nsresult
-nsGenericElement::HandleDOMEvent(nsPresContext* aPresContext,
-                                 nsEvent* aEvent,
-                                 nsIDOMEvent** aDOMEvent,
-                                 PRUint32 aFlags,
-                                 nsEventStatus* aEventStatus)
+nsGenericElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
 {
-  // Make sure to tell the event that dispatch has started.
-  NS_MARK_EVENT_DISPATCH_STARTED(aEvent);
-
-  nsresult ret = NS_OK;
-  PRBool retarget = PR_FALSE;
-  PRBool externalDOMEvent = PR_FALSE;
-  nsCOMPtr<nsIDOMEventTarget> oldTarget;
-
-  nsIDOMEvent* domEvent = nsnull;
-  if (NS_EVENT_FLAG_INIT & aFlags) {
-    if (aDOMEvent) {
-      if (*aDOMEvent) {
-        externalDOMEvent = PR_TRUE;   
-      }
-    } else {
-      aDOMEvent = &domEvent;
-    }
-    aEvent->flags |= aFlags;
-    aFlags &= ~(NS_EVENT_FLAG_CANT_BUBBLE | NS_EVENT_FLAG_CANT_CANCEL);
-    aFlags |= NS_EVENT_FLAG_BUBBLE | NS_EVENT_FLAG_CAPTURE;
-  }
-
-  // Find out whether we're anonymous.
+  //FIXME! Document how this event retargeting works, Bug 329124.
+  aVisitor.mCanHandle = PR_TRUE;
+  nsCOMPtr<nsIContent> parent = GetParent();
   if (IsNativeAnonymous()) {
-    retarget = PR_TRUE;
-  } else {
-    nsIContent* parent = GetParent();
-    if (parent) {
-      if (*aDOMEvent) {
-        (*aDOMEvent)->GetTarget(getter_AddRefs(oldTarget));
-        nsCOMPtr<nsIContent> content(do_QueryInterface(oldTarget));
-        if (content && content->GetBindingParent() == parent)
-          retarget = PR_TRUE;
-      } else if (GetBindingParent() == parent) {
-        retarget = PR_TRUE;
-      }
+    // Don't propagate mutation events which are dispatched somewhere inside
+    // native anonymous content.
+    if (aVisitor.mEvent->eventStructType == NS_MUTATION_EVENT) {
+      aVisitor.mParentTarget = nsnull;
+      return NS_OK;
+    }
+
+    aVisitor.mEventTargetAtParent = parent;
+  } else if (parent) {
+    nsCOMPtr<nsIContent> content(do_QueryInterface(aVisitor.mEvent->target));
+    if (content && content->GetBindingParent() == parent) {
+      aVisitor.mEventTargetAtParent = parent;
     }
   }
 
   // check for an anonymous parent
-  nsCOMPtr<nsIContent> parent;
+  // XXX XBL2/sXBL issue
   nsIDocument* ownerDoc = GetOwnerDoc();
   if (ownerDoc) {
-    ownerDoc->BindingManager()->GetInsertionParent(this,
-                                                   getter_AddRefs(parent));
-  }
-  if (!parent) {
-    // if we didn't find an anonymous parent, use the explicit one,
-    // whether it's null or not...
-    parent = GetParent();
-  }
-
-  if (retarget || (parent.get() != GetParent())) {
-    if (!*aDOMEvent) {
-      // We haven't made a DOMEvent yet.  Force making one now.
-      nsCOMPtr<nsIEventListenerManager> listenerManager;
-      if (NS_FAILED(ret = GetListenerManager(getter_AddRefs(listenerManager)))) {
-        return ret;
-      }
-      if (NS_FAILED(ret = listenerManager->CreateEvent(aPresContext, aEvent,
-                                                       EmptyString(), aDOMEvent)))
-        return ret;
-    }
-
-    if (!*aDOMEvent) {
-      return NS_ERROR_FAILURE;
-    }
-    nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(*aDOMEvent);
-    if (!privateEvent) {
-      return NS_ERROR_FAILURE;
-    }
-
-    (*aDOMEvent)->GetTarget(getter_AddRefs(oldTarget));
-
-    PRBool hasOriginal;
-    privateEvent->HasOriginalTarget(&hasOriginal);
-
-    if (!hasOriginal)
-      privateEvent->SetOriginalTarget(oldTarget);
-
-    if (retarget) {
-      nsCOMPtr<nsIDOMEventTarget> target = do_QueryInterface(GetParent());
-      privateEvent->SetTarget(target);
+    nsCOMPtr<nsIContent> insertionParent;
+    ownerDoc->BindingManager()->
+      GetInsertionParent(this, getter_AddRefs(insertionParent));
+    NS_ASSERTION(!(aVisitor.mEventTargetAtParent && insertionParent &&
+                   aVisitor.mEventTargetAtParent != insertionParent),
+                 "Retargeting and having insertion parent!");
+    if (insertionParent) {
+      parent.swap(insertionParent);
     }
   }
 
-  //Capturing stage evaluation
-  if (NS_EVENT_FLAG_CAPTURE & aFlags &&
-      aEvent->message != NS_PAGE_LOAD &&
-      aEvent->message != NS_SCRIPT_LOAD &&
-      aEvent->message != NS_IMAGE_LOAD &&
-      aEvent->message != NS_IMAGE_ERROR &&
-      aEvent->message != NS_SCROLL_EVENT) {
-    //Initiate capturing phase.  Special case first call to document
-    if (parent) {
-      parent->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                             aFlags & NS_EVENT_CAPTURE_MASK,
-                             aEventStatus);
-    } else {
-      nsIDocument* document = GetCurrentDoc();
-      if (document) {
-        ret = document->HandleDOMEvent(aPresContext, aEvent,
-                                       aDOMEvent,
-                                       aFlags & NS_EVENT_CAPTURE_MASK,
-                                       aEventStatus);
-      }
-    }
+  if (parent) {
+    aVisitor.mParentTarget = parent;
+  } else {
+    aVisitor.mParentTarget = GetCurrentDoc();
   }
+  return NS_OK;
+}
 
-  if (retarget) {
-    // The event originated beneath us, and we performed a retargeting.
-    // We need to restore the original target of the event.
-    nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(*aDOMEvent);
-    if (privateEvent)
-      privateEvent->SetTarget(oldTarget);
-  }
+nsresult
+nsGenericElement::PostHandleEvent(nsEventChainPostVisitor& /*aVisitor*/)
+{
+  return NS_OK;
+}
 
-  // Weak pointer, which is fine since the hash table owns the
-  // listener manager
-  nsIEventListenerManager *lm = nsnull;
-
-  if (HasEventListenerManager()) {
-    lm = nsContentUtils::LookupListenerManager(this);
-    if (!lm) {
-#ifdef DEBUG
-      if (nsContentUtils::IsInitialized()) {
-        NS_ERROR("Huh, our bit says we have an event listener manager, but "
-                 "there's nothing in the hash!?!!");
-      }
-#endif
-
-      return NS_ERROR_UNEXPECTED;
-    }
-  }
-
-  //Local handling stage
-  if (lm &&
-      !(NS_EVENT_FLAG_CANT_BUBBLE & aEvent->flags &&
-        NS_EVENT_FLAG_BUBBLE & aFlags && !(NS_EVENT_FLAG_INIT & aFlags)) &&
-      !(aEvent->flags & NS_EVENT_FLAG_NO_CONTENT_DISPATCH)) {
-    aEvent->flags |= aFlags;
-
-    nsCOMPtr<nsIDOMEventTarget> curTarg =
-      do_QueryInterface(NS_STATIC_CAST(nsIXMLContent *, this));
-
-    lm->HandleEvent(aPresContext, aEvent, aDOMEvent, curTarg, aFlags,
-                    aEventStatus);
-
-    aEvent->flags &= ~aFlags;
-  }
-
-  if (retarget) {
-    // The event originated beneath us, and we need to perform a
-    // retargeting.
-    nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(*aDOMEvent);
-    if (privateEvent) {
-      nsCOMPtr<nsIDOMEventTarget> parentTarget(do_QueryInterface(GetParent()));
-      privateEvent->SetTarget(parentTarget);
-    }
-  }
-
-  //Bubbling stage
-  if (NS_EVENT_FLAG_BUBBLE & aFlags && IsInDoc() &&
-      aEvent->message != NS_PAGE_LOAD && aEvent->message != NS_SCRIPT_LOAD &&
-      aEvent->message != NS_IMAGE_ERROR && aEvent->message != NS_IMAGE_LOAD &&
-      // scroll events fired at elements don't bubble (although scroll events
-      // fired at documents do, to the window)
-      aEvent->message != NS_SCROLL_EVENT) {
-    if (parent) {
-      // If there's a parent we pass the event to the parent...
-
-      ret = parent->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                                   aFlags & NS_EVENT_BUBBLE_MASK,
-                                   aEventStatus);
-    } else {
-      // If there's no parent but there is a document (i.e. this is
-      // the root node) we pass the event to the document...
-      nsIDocument* document = GetCurrentDoc();
-      if (document) {
-        ret = document->HandleDOMEvent(aPresContext, aEvent, aDOMEvent,
-                                       aFlags & NS_EVENT_BUBBLE_MASK, 
-                                       aEventStatus);
-      }
-    }
-  }
-
-  if (retarget) {
-    // The event originated beneath us, and we performed a
-    // retargeting.  We need to restore the original target of the
-    // event.
-
-    nsCOMPtr<nsIPrivateDOMEvent> privateEvent = do_QueryInterface(*aDOMEvent);
-    if (privateEvent)
-      privateEvent->SetTarget(oldTarget);
-  }
-
-  if (NS_EVENT_FLAG_INIT & aFlags) {
-    // We're leaving the DOM event loop so if we created a DOM event,
-    // release here.  If externalDOMEvent is set the event was passed
-    // in and we don't own it
-
-    if (*aDOMEvent && !externalDOMEvent) {
-      nsrefcnt rc;
-      NS_RELEASE2(*aDOMEvent, rc);
-      if (0 != rc) {
-        // Okay, so someone in the DOM loop (a listener, JS object)
-        // still has a ref to the DOM Event but the internal data
-        // hasn't been malloc'd.  Force a copy of the data here so the
-        // DOM Event is still valid.
-
-        nsCOMPtr<nsIPrivateDOMEvent> privateEvent =
-          do_QueryInterface(*aDOMEvent);
-
-        if (privateEvent) {
-          privateEvent->DuplicatePrivateData();
-        }
-      }
-
-      aDOMEvent = nsnull;
-    }
-
-    // Now that we're done with this event, remove the flag that says
-    // we're in the process of dispatching this event.
-    NS_MARK_EVENT_DISPATCH_DONE(aEvent);
-  }
-
-  return ret;
+nsresult
+nsGenericElement::DispatchDOMEvent(nsEvent* aEvent,
+                                   nsIDOMEvent* aDOMEvent,
+                                   nsPresContext* aPresContext,
+                                   nsEventStatus* aEventStatus)
+{
+  return nsEventDispatcher::DispatchDOMEvent(NS_STATIC_CAST(nsIContent*, this),
+                                             aEvent, aDOMEvent,
+                                             aPresContext, aEventStatus);
 }
 
 NS_IMETHODIMP
@@ -2397,10 +2235,20 @@ nsGenericElement::IsContentOfType(PRUint32 aFlags) const
 //----------------------------------------------------------------------
 
 nsresult
-nsGenericElement::GetListenerManager(nsIEventListenerManager **aResult)
+nsGenericElement::GetListenerManager(PRBool aCreateIfNotFound,
+                                     nsIEventListenerManager** aResult)
 {
+  // No need to call nsContentUtils::GetListenerManager if we don't have
+  // an event listener manager.
+  if (!aCreateIfNotFound && !HasEventListenerManager()) {
+    *aResult = nsnull;
+    return NS_OK;
+  }
+
   PRBool created;
-  nsresult rv = nsContentUtils::GetListenerManager(this, aResult, &created);
+  nsresult rv =
+    nsContentUtils::GetListenerManager(this, aCreateIfNotFound, aResult,
+                                       &created);
   if (NS_SUCCEEDED(rv) && created) {
     SetFlags(GENERIC_ELEMENT_HAS_LISTENERMANAGER);
   }
@@ -2451,7 +2299,12 @@ nsGenericElement::doInsertChildAt(nsIContent* aKid, PRUint32 aIndex,
   NS_PRECONDITION(!aParent || aParent->GetCurrentDoc() == aDocument,
                   "Incorrect aDocument");
 
-  PRBool isAppend = (aIndex == aChildArray.ChildCount());
+  PRUint32 childCount = aChildArray.ChildCount();
+  NS_ENSURE_TRUE(aIndex <= childCount, NS_ERROR_ILLEGAL_VALUE);
+
+  nsMutationGuard::DidMutate();
+
+  PRBool isAppend = (aIndex == childCount);
 
   mozAutoDocUpdate updateBatch(aDocument, UPDATE_CONTENT_MODEL, aNotify);
 
@@ -2493,11 +2346,9 @@ nsGenericElement::doInsertChildAt(nsIContent* aKid, PRUint32 aIndex,
     // documents?
     if (aParent &&
         HasMutationListeners(aParent, NS_EVENT_BITS_MUTATION_NODEINSERTED)) {
-      nsMutationEvent mutation(PR_TRUE, NS_MUTATION_NODEINSERTED, aKid);
+      nsMutationEvent mutation(PR_TRUE, NS_MUTATION_NODEINSERTED);
       mutation.mRelatedNode = do_QueryInterface(aParent);
-
-      nsEventStatus status = nsEventStatus_eIgnore;
-      aKid->HandleDOMEvent(nsnull, &mutation, nsnull, NS_EVENT_FLAG_INIT, &status);
+      nsEventDispatcher::Dispatch(aKid, nsnull, &mutation);
     }
   }
 
@@ -2541,6 +2392,8 @@ nsGenericElement::doRemoveChildAt(PRUint32 aIndex, PRBool aNotify,
   NS_PRECONDITION(!aParent || aParent->GetCurrentDoc() == aDocument,
                   "Incorrect aDocument");
 
+  nsMutationGuard::DidMutate();
+
   nsINode* container = aParent;
   if (!container) {
     container = aDocument;
@@ -2557,12 +2410,9 @@ nsGenericElement::doRemoveChildAt(PRUint32 aIndex, PRBool aNotify,
                                            NS_EVENT_BITS_MUTATION_NODEREMOVED);
 
   if (hasListeners) {
-    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_NODEREMOVED, aKid);
+    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_NODEREMOVED);
     mutation.mRelatedNode = do_QueryInterface(aParent);
-
-      nsEventStatus status = nsEventStatus_eIgnore;
-      aKid->HandleDOMEvent(nsnull, &mutation, nsnull,
-                           NS_EVENT_FLAG_INIT, &status);
+    nsEventDispatcher::Dispatch(aKid, nsnull, &mutation);
   }
 
   // Someone may have removed the kid while that event was processing...
@@ -2596,51 +2446,20 @@ nsGenericElement::doRemoveChildAt(PRUint32 aIndex, PRBool aNotify,
  * aChild is one of aNode's ancestors. -- jst@citec.fi
  */
 
-/* static */
-PRBool
-nsGenericElement::isSelfOrAncestor(nsIContent *aNode,
-                                   nsIContent *aPossibleAncestor)
-{
-  NS_PRECONDITION(aNode, "Must have a node");
-  
-  if (aNode == aPossibleAncestor)
-    return PR_TRUE;
-
-  /*
-   * If aPossibleAncestor doesn't have children it can't be our ancestor
-   */
-  if (aPossibleAncestor->GetChildCount() == 0) {
-    return PR_FALSE;
-  }
-
-  for (nsIContent* ancestor = aNode->GetParent();
-       ancestor;
-       ancestor = ancestor->GetParent()) {
-    if (ancestor == aPossibleAncestor) {
-      /*
-       * We found aPossibleAncestor as one of our ancestors
-       */
-      return PR_TRUE;
-    }
-  }
-
-  return PR_FALSE;
-}
-
 NS_IMETHODIMP
 nsGenericElement::InsertBefore(nsIDOMNode *aNewChild, nsIDOMNode *aRefChild,
                                nsIDOMNode **aReturn)
 {
-  return doInsertBefore(aNewChild, aRefChild, this, GetCurrentDoc(),
-                        aReturn);
+  return doReplaceOrInsertBefore(PR_FALSE, aNewChild, aRefChild, this, GetCurrentDoc(),
+                                 aReturn);
 }
 
 NS_IMETHODIMP
 nsGenericElement::ReplaceChild(nsIDOMNode* aNewChild, nsIDOMNode* aOldChild,
                                nsIDOMNode** aReturn)
 {
-  return doReplaceChild(aNewChild, aOldChild, this, GetCurrentDoc(),
-                        aReturn);
+  return doReplaceOrInsertBefore(PR_TRUE, aNewChild, aOldChild, this, GetCurrentDoc(),
+                                 aReturn);
 }
 
 NS_IMETHODIMP
@@ -2669,6 +2488,10 @@ PRBool IsAllowedAsChild(nsIContent* aNewChild, PRUint16 aNewNodeType,
   NS_PRECONDITION(NS_SUCCEEDED(debugRv) && debugNodeType == aNewNodeType,
                   "Bogus node type passed");
 #endif
+
+  if (aParent && nsContentUtils::ContentIsDescendantOf(aParent, aNewChild)) {
+    return PR_FALSE;
+  }
 
   // The allowed child nodes differ for documents and elements
   switch (aNewNodeType) {
@@ -2894,9 +2717,12 @@ NS_IMPL_ISUPPORTS1(nsFragmentObserver, nsIDocumentObserver)
 
 /* static */
 nsresult
-nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
-                                 nsIContent* aParent, nsIDocument* aDocument,
-                                 nsIDOMNode** aReturn)
+nsGenericElement::doReplaceOrInsertBefore(PRBool aReplace,
+                                          nsIDOMNode* aNewChild,
+                                          nsIDOMNode* aRefChild,
+                                          nsIContent* aParent,
+                                          nsIDocument* aDocument,
+                                          nsIDOMNode** aReturn)
 {
   NS_PRECONDITION(aParent || aDocument, "Must have document if no parent!");
   NS_PRECONDITION(!aParent || aParent->GetCurrentDoc() == aDocument,
@@ -2904,54 +2730,47 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
 
   *aReturn = nsnull;
 
-  if (!aNewChild) {
+  if (!aNewChild || (aReplace && !aRefChild)) {
     return NS_ERROR_NULL_POINTER;
   }
 
   nsCOMPtr<nsIContent> refContent;
   nsresult res = NS_OK;
-  PRInt32 refPos = 0;
+  PRInt32 insPos;
 
   nsINode* container = aParent;
   if (!container) {
     container = aDocument;
   }
 
+  // Figure out which index to insert at
   if (aRefChild) {
-    refContent = do_QueryInterface(aRefChild, &res);
-
-    if (NS_FAILED(res)) {
-      /*
-       * If aRefChild doesn't support the nsIContent interface it can't be
-       * an existing child of this node.
-       */
+    refContent = do_QueryInterface(aRefChild);
+    insPos = container->IndexOf(refContent);
+    if (insPos < 0) {
       return NS_ERROR_DOM_NOT_FOUND_ERR;
     }
 
-    refPos = container->IndexOf(refContent);
+    if (aRefChild == aNewChild) {
+      NS_ADDREF(*aReturn = aNewChild);
 
-    if (refPos < 0) {
-      return NS_ERROR_DOM_NOT_FOUND_ERR;
+      return NS_OK;
     }
   } else {
-    refPos = container->GetChildCount();
+    insPos = container->GetChildCount();
   }
 
-  nsCOMPtr<nsIContent> newContent(do_QueryInterface(aNewChild, &res));
-
-  if (NS_FAILED(res)) {
+  nsCOMPtr<nsIContent> newContent = do_QueryInterface(aNewChild);
+  if (!newContent) {
     return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
   }
 
   PRUint16 nodeType = 0;
-
   res = aNewChild->GetNodeType(&nodeType);
+  NS_ENSURE_SUCCESS(res, res);
 
-  if (NS_FAILED(res)) {
-    return res;
-  }
-
-  if (!IsAllowedAsChild(newContent, nodeType, aParent, aDocument, PR_FALSE,
+  // Make sure that the inserted node is allowed as a child of its new parent.
+  if (!IsAllowedAsChild(newContent, nodeType, aParent, aDocument, aReplace,
                         refContent)) {
     return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
   }
@@ -2976,14 +2795,37 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
       }
     }
   }
-  
-  /*
-   * Make sure the new child is not aParent or one of aParent's
-   * ancestors. Doing this check here should be safe even if newContent
-   * is a document fragment.
-   */
-  if (aParent && isSelfOrAncestor(aParent, newContent)) {
-    return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
+
+  // We want an update batch when we expect several mutations to be performed,
+  // which is when we're replacing a node, or when we're inserting a fragment.
+  mozAutoDocUpdate updateBatch(aDocument, UPDATE_CONTENT_MODEL,
+    aReplace || nodeType == nsIDOMNode::DOCUMENT_FRAGMENT_NODE);
+
+  // If we're replacing
+  if (aReplace) {
+    // Getting (and addrefing) the following child here is sort of wasteful
+    // in the common case, but really, it's not that expensive. Get over it.
+    refContent = container->GetChildAt(insPos + 1);
+
+    nsMutationGuard guard;
+
+    res = container->RemoveChildAt(insPos, PR_TRUE);
+    NS_ENSURE_SUCCESS(res, res);
+
+    if (guard.Mutated(1)) {
+      insPos = refContent ? container->IndexOf(refContent) :
+                            container->GetChildCount();
+      if (insPos < 0) {
+        return NS_ERROR_DOM_NOT_FOUND_ERR;
+      }
+
+      // Passing PR_FALSE for aIsReplace since we now have removed the node
+      // to be replaced.
+      if (!IsAllowedAsChild(newContent, nodeType, aParent, aDocument,
+                            PR_FALSE, refContent)) {
+        return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
+      }
+    }
   }
 
   /*
@@ -2992,22 +2834,41 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
    * individually (i.e. we don't add the actual document fragment).
    */
   if (nodeType == nsIDOMNode::DOCUMENT_FRAGMENT_NODE) {
-    nsCOMPtr<nsIDocumentFragment> doc_fragment(do_QueryInterface(newContent));
-    NS_ENSURE_TRUE(doc_fragment, NS_ERROR_UNEXPECTED);
-
     PRUint32 count = newContent->GetChildCount();
-    PRUint32 old_count = container->GetChildCount();
+    PRBool do_notify = refContent || !aParent;
 
-    PRBool do_notify = !!aRefChild || !aParent;
+    // Copy the children into a separate array to avoid having to deal with
+    // mutations to the fragment while we're inserting.
+    nsCOMArray<nsIContent> fragChildren;
+    if (!fragChildren.SetCapacity(count)) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+    PRUint32 i;
+    for (i = 0; i < count; i++) {
+      nsIContent* child = newContent->GetChildAt(i);
+      NS_ASSERTION(child->GetCurrentDoc() == nsnull,
+                   "How did we get a child with a current doc?");
+      fragChildren.AppendObject(child);
+    }
 
+    // Remove the children from the fragment and flag for possible mutations.
+    PRBool mutated = PR_FALSE;
+    for (i = count; i > 0;) {
+      // We don't need to update i if someone mutates the DOM. The only thing
+      // that'd happen is that the resulting child list might be unexpected,
+      // but we should never crash since RemoveChildAt is out-of-bounds safe.
+      nsMutationGuard guard;
+      newContent->RemoveChildAt(--i, PR_TRUE);
+      mutated = mutated || guard.Mutated(1);
+    }
+
+    // Set up observer that notifies if needed.
     nsRefPtr<nsFragmentObserver> fragmentObs;
     if (count && !do_notify) {
-      fragmentObs = new nsFragmentObserver(old_count, aParent, aDocument);
+      fragmentObs = new nsFragmentObserver(container->GetChildCount(), aParent, aDocument);
       NS_ENSURE_TRUE(fragmentObs, NS_ERROR_OUT_OF_MEMORY);
       fragmentObs->Connect();
     }
-
-    doc_fragment->DisconnectChildren();
 
     // If do_notify is true, then we don't have to handle the notifications
     // ourselves...  Also, if count is 0 there will be no updates.  So we only
@@ -3016,26 +2877,44 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
     mozAutoDocUpdate updateBatch(aDocument, UPDATE_CONTENT_MODEL,
                                  count && !do_notify);
     
-    /*
-     * Iterate through the fragment's children, removing each from
-     * the fragment and inserting it into the child list of its
-     * new parent.
-     */
+    // Iterate through the fragment's children, and insert them in the new
+    // parent
+    for (i = 0; i < count; ++i) {
+      // Get the n:th child from the array.
+      nsIContent* childContent = fragChildren[i];
 
-    nsCOMPtr<nsIContent> childContent;
+      // If we've had any unexpeted mutations so far we need to recheck that
+      // the child can still be inserted.
+      if (mutated) {
+        // We really only need to update insPos if we *just* got an unexpected
+        // mutation as opposed to 3 insertions ago. But this is an edgecase so
+        // no need to over optimize.
+        insPos = refContent ? container->IndexOf(refContent) :
+                              container->GetChildCount();
+        if (insPos < 0) {
+          // Someone seriously messed up the childlist. We have no idea
+          // where to insert the remaining children, so just bail.
+          res = NS_ERROR_DOM_NOT_FOUND_ERR;
+          break;
+        }
 
-    for (PRUint32 i = 0; i < count; ++i) {
-      // Get the n:th child from the document fragment. Since we
-      // disconnected the children from the document fragment they
-      // won't be removed from the document fragment when inserted
-      // into the new parent. This lets us do this operation *much*
-      // faster.
-      childContent = newContent->GetChildAt(i);
+        nsCOMPtr<nsIDOMNode> tmpNode = do_QueryInterface(childContent);
+        PRUint16 tmpType = 0;
+        tmpNode->GetNodeType(&tmpType);
+
+        if (childContent->GetParent() || childContent->IsInDoc() ||
+            !IsAllowedAsChild(childContent, tmpType, aParent, aDocument, PR_FALSE,
+                              refContent)) {
+          res = NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
+          break;
+        }
+      }
+
+      nsMutationGuard guard;
 
       // XXXbz how come no reparenting here?  That seems odd...
-      // Insert the child and increment the insertion position
-      res = container->InsertChildAt(childContent, refPos++, do_notify);
-
+      // Insert the child.
+      res = container->InsertChildAt(childContent, insPos, do_notify);
       if (NS_FAILED(res)) {
         break;
       }
@@ -3043,17 +2922,21 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
       if (fragmentObs) {
         fragmentObs->ChildBound();
       }
+
+      // Check to see if any evil mutation events mucked around with the
+      // child list.
+      mutated = mutated || guard.Mutated(1);
+      
+      ++insPos;
     }
 
     if (NS_FAILED(res)) {
-      // This should put the children that were moved out of the
-      // document fragment back into the document fragment and remove
-      // them from the element or document they were inserted into.
-
-      doc_fragment->ReconnectChildren();
       if (fragmentObs) {
         fragmentObs->Disconnect();
       }
+      
+      // We could try to put the nodes back into the fragment here if we
+      // really cared.
 
       return res;
     }
@@ -3062,9 +2945,9 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
       NS_ASSERTION(count && !do_notify, "Unexpected state");
       fragmentObs->Finish();
     }
-
-    doc_fragment->DropChildReferences();
-  } else {
+  }
+  else {
+    // Not inserting a fragment but rather a single node.
     nsIContent* bindingParent = newContent->GetBindingParent();
     if (bindingParent == newContent ||
         (bindingParent && bindingParent == newContent->GetParent())) {
@@ -3072,245 +2955,66 @@ nsGenericElement::doInsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild,
       return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
     }
 
-    /*
-     * Remove the element from the old parent if one exists, since oldParent
-     * is a nsIDOMNode this will do the right thing even if the parent of
-     * aNewChild is a document. This code also handles the case where the
-     * new child is alleady a child of this node-- jst@citec.fi
-     */
-    nsCOMPtr<nsIDOMNode> oldParent;
-    res = aNewChild->GetParentNode(getter_AddRefs(oldParent));
-    NS_ENSURE_SUCCESS(res, res);
+    PRBool newContentIsXUL = newContent->IsContentOfType(eXUL);
+
+    // Remove the element from the old parent if one exists
+    nsINode* oldParent = newContent->GetParent();
+    if (!oldParent) {
+      oldParent = newContent->GetCurrentDoc();
+
+      // See bug 53901. Crappy XUL sometimes lies about being in the document
+      if (oldParent && newContentIsXUL && oldParent->IndexOf(newContent) < 0) {
+        oldParent = nsnull;
+      }
+    }
     if (oldParent) {
-      nsCOMPtr<nsIDOMNode> tmpNode;
+      PRInt32 removeIndex = oldParent->IndexOf(newContent);
+      NS_ASSERTION(removeIndex >= 0 &&
+                   !(oldParent == container && removeIndex == insPos),
+                   "invalid removeIndex");
 
-      PRUint32 origChildCount = container->GetChildCount();
+      nsMutationGuard guard;
 
-      /*
-       * We don't care here if the return fails or not.
-       */
-      oldParent->RemoveChild(aNewChild, getter_AddRefs(tmpNode));
+      res = oldParent->RemoveChildAt(removeIndex, PR_TRUE);
+      NS_ENSURE_SUCCESS(res, res);
 
-      PRUint32 newChildCount = container->GetChildCount();
+      // Adjust insert index if the node we ripped out was a sibling
+      // of the node we're inserting before
+      if (oldParent == container && removeIndex < insPos) {
+        --insPos;
+      }
 
-      /*
-       * Check if our child count changed during the RemoveChild call, if
-       * it did then oldParent is most likely this node. In this case we
-       * must check if refPos is still correct (unless it's zero).
-       */
-      if (refPos && origChildCount != newChildCount) {
-        if (refContent) {
-          /*
-           * If we did get aRefChild we check if that is now at refPos - 1,
-           * this will happend if the new child was one of aRefChilds'
-           * previous siblings.
-           */
+      if (guard.Mutated(1)) {
+        insPos = refContent ? container->IndexOf(refContent) :
+                              container->GetChildCount();
+        if (insPos < 0) {
+          // Someone seriously messed up the childlist. We have no idea
+          // where to insert the new child, so just bail.
+          return NS_ERROR_DOM_NOT_FOUND_ERR;
+        }
 
-          if (refContent == container->GetChildAt(refPos - 1)) {
-            refPos--;
-          }
-        } else {
-          /*
-           * If we didn't get aRefChild we simply decrement refPos.
-           */
-          refPos--;
+        if (newContent->GetParent() || newContent->IsInDoc() ||
+            !IsAllowedAsChild(newContent, nodeType, aParent, aDocument, PR_FALSE,
+                              refContent)) {
+          return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
         }
       }
     }
 
-    if (!newContent->IsContentOfType(eXUL)) {
+    if (!newContentIsXUL) {
       nsContentUtils::ReparentContentWrapper(newContent, aParent,
                                              container->GetOwnerDoc(),
                                              old_doc);
     }
 
-    res = container->InsertChildAt(newContent, refPos, PR_TRUE);
-
-    if (NS_FAILED(res)) {
-      return res;
-    }
+    res = container->InsertChildAt(newContent, insPos, PR_TRUE);
+    NS_ENSURE_SUCCESS(res, res);
   }
 
-  *aReturn = aNewChild;
+  *aReturn = aReplace ? aRefChild : aNewChild;
   NS_ADDREF(*aReturn);
 
   return res;
-}
-
-/* static */
-nsresult
-nsGenericElement::doReplaceChild(nsIDOMNode* aNewChild, nsIDOMNode* aOldChild,
-                                 nsIContent* aParent, nsIDocument* aDocument,
-                                 nsIDOMNode** aReturn)
-{
-  NS_PRECONDITION(aParent || aDocument, "Must have document if no parent!");
-  NS_PRECONDITION(!aParent || aParent->GetCurrentDoc() == aDocument,
-                  "Incorrect aDocument");
-
-  *aReturn = nsnull;
-
-  if (!aNewChild || !aOldChild) {
-    return NS_ERROR_NULL_POINTER;
-  }
-
-  nsresult res = NS_OK;
-  PRInt32 oldPos = 0;
-
-  nsCOMPtr<nsIContent> oldContent = do_QueryInterface(aOldChild);
-
-  nsINode* container = aParent;
-  if (!container) {
-    container = aDocument;
-  }
-
-  // if oldContent is null IndexOf will return < 0, which is what we want
-  // since aOldChild couldn't be a child.
-  oldPos = container->IndexOf(oldContent);
-  if (oldPos < 0) {
-    return NS_ERROR_DOM_NOT_FOUND_ERR;
-  }
-
-  nsCOMPtr<nsIContent> replacedChild = container->GetChildAt(oldPos);
-
-  PRUint16 nodeType = 0;
-
-  res = aNewChild->GetNodeType(&nodeType);
-
-  if (NS_FAILED(res)) {
-    return res;
-  }
-
-  nsCOMPtr<nsIContent> newContent(do_QueryInterface(aNewChild, &res));
-
-  if (NS_FAILED(res)) {
-    return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
-  }
-
-  if (!IsAllowedAsChild(newContent, nodeType, aParent, aDocument, PR_TRUE,
-                        oldContent)) {
-    return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
-  }
-
-  nsIDocument* old_doc = newContent->GetOwnerDoc();
-
-  // XXXbz The document code and content code have two totally different
-  // security checks here.  Why?  Because I'm afraid to change such things this
-  // close to 1.8.  But which should we do here, really?  Or both?  For example
-  // what should a caller with UniversalBrowserRead/Write/whatever be able to
-  // do, exactly?  Do we need to be more careful with documents because random
-  // callers _can_ get access to them?  That might be....
-  if (old_doc && old_doc != container->GetOwnerDoc()) {
-    if (aParent) {
-      if (!nsContentUtils::CanCallerAccess(aNewChild)) {
-        return NS_ERROR_DOM_SECURITY_ERR;
-      }
-    } else {
-      nsCOMPtr<nsIDOMNode> doc(do_QueryInterface(aDocument));
-      if (NS_FAILED(nsContentUtils::CheckSameOrigin(doc, aNewChild))) {
-        return NS_ERROR_DOM_SECURITY_ERR;
-      }
-    }
-  }
-
-  /*
-   * Make sure the new child is not aParent or one of aParent's
-   * ancestors. Doing this check here should be safe even if newContent
-   * is a document fragment.
-   */
-  if (aParent && isSelfOrAncestor(aParent, newContent)) {
-    return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
-  }
-
-  // We're ready to start inserting children, so let's start a batch
-  mozAutoDocUpdate updateBatch(aDocument, UPDATE_CONTENT_MODEL, PR_TRUE);
-
-  /*
-   * Check if this is a document fragment. If it is, we need
-   * to remove the children of the document fragment and add them
-   * individually (i.e. we don't add the actual document fragment).
-   */
-  if (nodeType == nsIDOMNode::DOCUMENT_FRAGMENT_NODE) {
-    nsCOMPtr<nsIContent> childContent;
-    PRUint32 i, count = newContent->GetChildCount();
-    res = container->RemoveChildAt(oldPos, PR_TRUE);
-    NS_ENSURE_SUCCESS(res, res);
-
-    /*
-     * Iterate through the fragments children, removing each from
-     * the fragment and inserting it into the child list of its
-     * new parent.
-     */
-    for (i = 0; i < count; ++i) {
-      // Always get and remove the first child, since the child indexes
-      // change as we go along.
-      childContent = newContent->GetChildAt(0);
-      res = newContent->RemoveChildAt(0, PR_FALSE);
-      NS_ENSURE_SUCCESS(res, res);
-
-      // XXXbz how come no reparenting here?
-      // Insert the child and increment the insertion position
-      res = container->InsertChildAt(childContent, oldPos++, PR_TRUE);
-      NS_ENSURE_SUCCESS(res, res);
-    }
-  }
-  else {
-    nsCOMPtr<nsIDOMNode> oldParent;
-    res = aNewChild->GetParentNode(getter_AddRefs(oldParent));
-    NS_ENSURE_SUCCESS(res, res);
-
-    /*
-     * Remove the element from the old parent if one exists, since oldParent
-     * is a nsIDOMNode this will do the right thing even if the parent of
-     * aNewChild is a document. This code also handles the case where the
-     * new child is alleady a child of this node-- jst@citec.fi
-     */
-    if (oldParent) {
-      PRUint32 origChildCount = container->GetChildCount();
-
-      /*
-       * We don't care here if the return fails or not.
-       */
-      nsCOMPtr<nsIDOMNode> tmpNode;
-      oldParent->RemoveChild(aNewChild, getter_AddRefs(tmpNode));
-
-      PRUint32 newChildCount = container->GetChildCount();
-
-      /*
-       * Check if our child count changed during the RemoveChild call, if
-       * it did then oldParent is most likely this node. In this case we
-       * must check if oldPos is still correct (unless it's zero).
-       */
-      if (oldPos && origChildCount != newChildCount) {
-        /*
-         * Check if aOldChild is now at oldPos - 1, this will happend if
-         * the new child was one of aOldChilds' previous siblings.
-         */
-        nsIContent *tmpContent = container->GetChildAt(oldPos - 1);
-
-        if (oldContent == tmpContent) {
-          oldPos--;
-        }
-      }
-    }
-
-    if (!newContent->IsContentOfType(eXUL)) {
-      nsContentUtils::ReparentContentWrapper(newContent, aParent,
-                                             container->GetOwnerDoc(),
-                                             old_doc);
-    }
-
-    // If we're replacing a child with itself the child
-    // has already been removed from this element once we get here.
-    if (aNewChild != aOldChild) {
-      res = container->RemoveChildAt(oldPos, PR_TRUE);
-      NS_ENSURE_SUCCESS(res, res);
-    }
-
-    res = container->InsertChildAt(newContent, oldPos, PR_TRUE);
-    NS_ENSURE_SUCCESS(res, res);
-  }
-
-  return CallQueryInterface(replacedChild, aReturn);
 }
 
 /* static */
@@ -3354,6 +3058,7 @@ nsGenericElement::doRemoveChild(nsIDOMNode* aOldChild,
 NS_INTERFACE_MAP_BEGIN(nsGenericElement)
   NS_INTERFACE_MAP_ENTRY(nsIContent)
   NS_INTERFACE_MAP_ENTRY(nsIDOMGCParticipant)
+  NS_INTERFACE_MAP_ENTRY(nsINode)
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOM3Node, new nsNode3Tearoff(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMEventReceiver,
                                  nsDOMEventRTTearoff::Create(this))
@@ -3363,7 +3068,6 @@ NS_INTERFACE_MAP_BEGIN(nsGenericElement)
                                  nsDOMEventRTTearoff::Create(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMNSEventTarget,
                                  nsDOMEventRTTearoff::Create(this))
-  NS_INTERFACE_MAP_ENTRY(nsINode)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
 NS_INTERFACE_MAP_END
 
@@ -3566,7 +3270,7 @@ NodeHasMutationListeners(nsISupports* aNode)
   nsCOMPtr<nsIDOMEventReceiver> rec(do_QueryInterface(aNode));
   if (rec) {
     nsCOMPtr<nsIEventListenerManager> manager;
-    rec->GetListenerManager(getter_AddRefs(manager));
+    rec->GetListenerManager(PR_FALSE, getter_AddRefs(manager));
     if (manager) {
       PRBool hasMutationListeners = PR_FALSE;
       manager->HasMutationListeners(&hasMutationListeners);
@@ -3726,9 +3430,7 @@ nsGenericElement::SetAttrAndNotify(PRInt32 aNamespaceID,
     }
 
     if (aFireMutation) {
-      nsCOMPtr<nsIDOMEventTarget> node =
-        do_QueryInterface(NS_STATIC_CAST(nsIContent *, this));
-      nsMutationEvent mutation(PR_TRUE, NS_MUTATION_ATTRMODIFIED, node);
+      nsMutationEvent mutation(PR_TRUE, NS_MUTATION_ATTRMODIFIED);
 
       nsAutoString attrName;
       aName->ToString(attrName);
@@ -3746,9 +3448,7 @@ nsGenericElement::SetAttrAndNotify(PRInt32 aNamespaceID,
         mutation.mPrevAttrValue = do_GetAtom(aOldValue);
       }
       mutation.mAttrChange = modType;
-      nsEventStatus status = nsEventStatus_eIgnore;
-      HandleDOMEvent(nsnull, &mutation, nsnull,
-                     NS_EVENT_FLAG_INIT, &status);
+      nsEventDispatcher::Dispatch(this, nsnull, &mutation);
     }
 
     if (aNotify) {
@@ -3796,7 +3496,7 @@ nsGenericElement::GetEventListenerManagerForAttr(nsIEventListenerManager** aMana
                                                  nsISupports** aTarget,
                                                  PRBool* aDefer)
 {
-  nsresult rv = GetListenerManager(aManager);
+  nsresult rv = GetListenerManager(PR_TRUE, aManager);
   if (NS_SUCCEEDED(rv)) {
     NS_ADDREF(*aTarget = NS_STATIC_CAST(nsIContent*, this));
   }
@@ -3929,7 +3629,7 @@ nsGenericElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
     if (HasMutationListeners(this, NS_EVENT_BITS_MUTATION_ATTRMODIFIED)) {
       nsCOMPtr<nsIDOMEventTarget> node =
         do_QueryInterface(NS_STATIC_CAST(nsIContent *, this));
-      nsMutationEvent mutation(PR_TRUE, NS_MUTATION_ATTRMODIFIED, node);
+      nsMutationEvent mutation(PR_TRUE, NS_MUTATION_ATTRMODIFIED);
 
       nsAutoString attrName;
       aName->ToString(attrName);
@@ -3947,9 +3647,7 @@ nsGenericElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
         mutation.mPrevAttrValue = do_GetAtom(value);
       mutation.mAttrChange = nsIDOMMutationEvent::REMOVAL;
 
-      nsEventStatus status = nsEventStatus_eIgnore;
-      HandleDOMEvent(nsnull, &mutation, nsnull,
-                     NS_EVENT_FLAG_INIT, &status);
+      nsEventDispatcher::Dispatch(this, nsnull, &mutation);
     }
   }
 

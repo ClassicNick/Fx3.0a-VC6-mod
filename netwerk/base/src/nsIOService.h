@@ -56,6 +56,7 @@
 #include "nsWeakReference.h"
 #include "nsINetUtil.h"
 #include "nsIChannelEventSink.h"
+#include "nsIContentSniffer.h"
 #include "nsCategoryCache.h"
 
 #define NS_N(x) (sizeof(x)/sizeof(*x))
@@ -84,9 +85,6 @@ public:
     NS_DECL_NSIOBSERVER
     NS_DECL_NSINETUTIL
 
-    nsIOService() NS_HIDDEN;
-    ~nsIOService() NS_HIDDEN;
-
     // Gets the singleton instance of the IO Service, creating it as needed
     // Returns nsnull on out of memory or failure to initialize.
     // Returns an addrefed pointer.
@@ -102,7 +100,18 @@ public:
     nsresult OnChannelRedirect(nsIChannel* oldChan, nsIChannel* newChan,
                                PRUint32 flags);
 
-protected:
+    // Gets the array of registered content sniffers
+    const nsCOMArray<nsIContentSniffer>& GetContentSniffers() const {
+      return mContentSniffers.GetEntries();
+    }
+
+private:
+    // These shouldn't be called directly:
+    // - construct using GetInstance
+    // - destroy using Release
+    nsIOService() NS_HIDDEN;
+    ~nsIOService() NS_HIDDEN;
+
     NS_HIDDEN_(nsresult) GetCachedProtocolHandler(const char *scheme,
                                                   nsIProtocolHandler* *hdlrResult,
                                                   PRUint32 start=0,
@@ -115,7 +124,7 @@ protected:
     NS_HIDDEN_(void) GetPrefBranch(nsIPrefBranch2 **);
     NS_HIDDEN_(void) ParsePortList(nsIPrefBranch *prefBranch, const char *pref, PRBool remove);
 
-protected:
+private:
     PRPackedBool                         mOffline;
     PRPackedBool                         mOfflineForProfileChange;
     nsCOMPtr<nsPISocketTransportService> mSocketTransportService;
@@ -128,6 +137,7 @@ protected:
 
     // cached categories
     nsCategoryCache<nsIChannelEventSink> mChannelEventSinks;
+    nsCategoryCache<nsIContentSniffer>   mContentSniffers;
 
     nsVoidArray                          mRestrictedPortList;
 

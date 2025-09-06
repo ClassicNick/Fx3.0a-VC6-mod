@@ -99,6 +99,7 @@
 #include "nsContentUtils.h"
 #include "nsLayoutUtils.h"
 #include "nsIScrollableFrame.h"
+#include "nsEventDispatcher.h"
 #include "nsDisplayList.h"
 
 #ifdef IBMBIDI
@@ -241,11 +242,13 @@ AdjustForBorderPadding(nsStyleContext* aContext, nsRect& aRect)
 }
 
 NS_IMETHODIMP
-nsTreeBodyFrame::Init(nsPresContext* aPresContext, nsIContent* aContent,
-                      nsIFrame* aParent, nsStyleContext* aContext, nsIFrame* aPrevInFlow)
+nsTreeBodyFrame::Init(nsIContent*     aContent,
+                      nsIFrame*       aParent,
+                      nsStyleContext* aContext,
+                      nsIFrame*       aPrevInFlow)
 {
-  nsresult rv = nsLeafBoxFrame::Init(aPresContext, aContent, aParent, aContext, aPrevInFlow);
-  nsBoxFrame::CreateViewForFrame(aPresContext, this, aContext, PR_TRUE);
+  nsresult rv = nsLeafBoxFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsBoxFrame::CreateViewForFrame(GetPresContext(), this, aContext, PR_TRUE);
   nsLeafBoxFrame::GetView()->CreateWidget(kWidgetCID);
 
   mIndentation = GetIndentation();
@@ -837,7 +840,7 @@ nsTreeBodyFrame::CheckOverflow()
     event.orient = nsScrollPortEvent::vertical;
 
     nsEventStatus status = nsEventStatus_eIgnore;
-    mContent->HandleDOMEvent(presContext, &event, nsnull, NS_EVENT_FLAG_INIT, &status);
+    nsEventDispatcher::Dispatch(mContent, presContext, &event, nsnull, &status);
   }
 
   PRBool horizontalOverflowChanged = PR_FALSE;
@@ -871,7 +874,7 @@ nsTreeBodyFrame::CheckOverflow()
     event.orient = nsScrollPortEvent::horizontal;
 
     nsEventStatus status = nsEventStatus_eIgnore;
-    mContent->HandleDOMEvent(presContext, &event, nsnull, NS_EVENT_FLAG_INIT, &status);
+    nsEventDispatcher::Dispatch(mContent, presContext, &event, nsnull, &status);
   }
 }
 
@@ -3502,10 +3505,12 @@ nsTreeBodyFrame::ScrollInternal(PRInt32 aRow)
   }
 
   nsScrollbarEvent event(PR_TRUE, NS_SCROLL_EVENT, nsnull);
-  event.flags = 0;
+  // scroll events fired at elements don't bubble (although scroll events
+  // fired at documents do, to the window)
+  event.flags |= NS_EVENT_FLAG_CANT_BUBBLE;
 
   nsEventStatus status = nsEventStatus_eIgnore;
-  mContent->HandleDOMEvent(presContext, &event, nsnull, NS_EVENT_FLAG_INIT, &status);
+  nsEventDispatcher::Dispatch(mContent, presContext, &event, nsnull, &status);
 
   return NS_OK;
 }
@@ -3555,10 +3560,12 @@ nsTreeBodyFrame::ScrollHorzInternal(PRInt32 aPosition)
 
   // And fire off an event about it all
   nsScrollbarEvent event(PR_TRUE, NS_SCROLL_EVENT, nsnull);
-  event.flags = 0;
+  // scroll events fired at elements don't bubble (although scroll events
+  // fired at documents do, to the window)
+  event.flags |= NS_EVENT_FLAG_CANT_BUBBLE;
 
   nsEventStatus status = nsEventStatus_eIgnore;
-  mContent->HandleDOMEvent(presContext, &event, nsnull, NS_EVENT_FLAG_INIT, &status);
+  nsEventDispatcher::Dispatch(mContent, presContext, &event, nsnull, &status);
 
   return NS_OK;
 }
