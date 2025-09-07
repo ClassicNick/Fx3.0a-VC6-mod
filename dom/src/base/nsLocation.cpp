@@ -38,6 +38,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsCOMPtr.h"
 #include "nsGlobalWindow.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIScriptContext.h"
@@ -54,7 +55,6 @@
 #include "plstr.h"
 #include "prprf.h"
 #include "prmem.h"
-#include "nsCOMPtr.h"
 #include "nsEscape.h"
 #include "nsJSUtils.h"
 #include "nsIScriptSecurityManager.h"

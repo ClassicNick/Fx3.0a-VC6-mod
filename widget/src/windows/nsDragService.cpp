@@ -59,11 +59,10 @@
 
 #include "nsAutoPtr.h"
 
-<<<<<<< HEAD
 #ifndef CFSTR_PERFORMEDDROPEFFECT
 #define CFSTR_PERFORMEDDROPEFFECT TEXT("Performed DropEffect") 
 #endif
-=======
+
 #include "nsString.h"
 #include "nsEscape.h"
 #include "nsISupportsPrimitives.h"
@@ -79,7 +78,6 @@
 // Static member declaration
 nsString nsDragService::mDropPath;
 nsString nsDragService::mFileName;
->>>>>>> 8696bd3
 
 //-------------------------------------------------------------------------
 //

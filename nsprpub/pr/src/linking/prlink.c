@@ -1,36 +1,40 @@
 /* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* 
- * The contents of this file are subject to the Mozilla Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/MPL/
- * 
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
- * 
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+ *
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
+ *
  * The Original Code is the Netscape Portable Runtime (NSPR).
- * 
- * The Initial Developer of the Original Code is Netscape
- * Communications Corporation.  Portions created by Netscape are 
- * Copyright (C) 1998-2000 Netscape Communications Corporation.  All
- * Rights Reserved.
- * 
- * Contributor(s): Steve Streeter (Hewlett-Packard Company)
- * 
- * Alternatively, the contents of this file may be used under the
- * terms of the GNU General Public License Version 2 or later (the
- * "GPL"), in which case the provisions of the GPL are applicable 
- * instead of those above.  If you wish to allow use of your 
- * version of this file only under the terms of the GPL and not to
- * allow others to use your version of this file under the MPL,
- * indicate your decision by deleting the provisions above and
- * replace them with the notice and other provisions required by
- * the GPL.  If you do not delete the provisions above, a recipient
- * may use your version of this file under either the MPL or the
- * GPL.
- */
+ *
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998-2000
+ * the Initial Developer. All Rights Reserved.
+ *
+ * Contributor(s):
+ *   Steve Streeter (Hewlett-Packard Company)
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 #include "primpl.h"
 
@@ -40,7 +44,7 @@
 #include <image.h>
 #endif
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && defined(USE_MACH_DYLD)
 #include <CodeFragments.h>
 #include <TextUtils.h>
 #include <Types.h>
@@ -151,15 +155,13 @@ struct _imcb *IAC$GL_IMAGE_LIST = NULL;
 /*
  * On these platforms, symbols have a leading '_'.
  */
-#if defined(SUNOS4) || defined(DARWIN) || defined(NEXTSTEP) \
-    || defined(WIN16) || defined(XP_OS2) \
+#if defined(SUNOS4) || (defined(DARWIN) && defined(USE_MACH_DYLD)) \
+    || defined(NEXTSTEP) || defined(WIN16) || defined(XP_OS2) \
     || ((defined(OPENBSD) || defined(NETBSD)) && !defined(__ELF__))
 #define NEED_LEADING_UNDERSCORE
 #endif
 
-#ifdef WIN32
-#define PR_LD_PATHW  0x400  /* for PR_LibSpec_PathnameU */
-#endif
+#define PR_LD_PATHW 0x8000  /* for PR_LibSpec_PathnameU */
 
 /************************************************************************/
 
@@ -177,7 +179,7 @@ struct PRLibrary {
 #endif
 #endif
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && defined(USE_MACH_DYLD)
     CFragConnectionID           connection;
     CFBundleRef                 bundle;
     Ptr                         main;
@@ -221,15 +223,7 @@ static int pr_ConvertUTF16toUTF8(LPCWSTR wname, LPSTR name, int len);
 /************************************************************************/
 
 #if !defined(USE_DLFCN) && !defined(HAVE_STRERROR)
-static char* errStrBuf = NULL;
 #define ERR_STR_BUF_LENGTH    20
-static char* errno_string(PRIntn oserr)
-{
-    if (errStrBuf == NULL)
-        errStrBuf = PR_MALLOC(ERR_STR_BUF_LENGTH);
-    PR_snprintf(errStrBuf, ERR_STR_BUF_LENGTH, "error %d", oserr);
-    return errStrBuf;
-}
 #endif
 
 static void DLLErrorInternal(PRIntn oserr)
@@ -245,7 +239,9 @@ static void DLLErrorInternal(PRIntn oserr)
 #elif defined(HAVE_STRERROR)
     error = strerror(oserr);  /* this should be okay */
 #else
-    error = errno_string(oserr);
+    char errStrBuf[ERR_STR_BUF_LENGTH];
+    PR_snprintf(errStrBuf, sizeof(errStrBuf), "error %d", oserr);
+    error = errStrBuf;
 #endif
     if (NULL != error)
         PR_SetErrorText(strlen(error), error);
@@ -380,10 +376,6 @@ void _PR_ShutdownLinker(void)
         free(_pr_currentLibPath);
         _pr_currentLibPath = NULL;
     }
-
-#if !defined(USE_DLFCN) && !defined(HAVE_STRERROR)
-    PR_DELETE(errStrBuf);
-#endif
 }
 #endif
 
@@ -627,7 +619,7 @@ pr_LoadMachDyldModule(const char *name)
 }
 #endif
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && defined(USE_MACH_DYLD)
 
 /*
 ** macLibraryLoadProc is a function definition for a Mac shared library
@@ -772,15 +764,21 @@ pr_LoadViaDyld(const char *name, PRLibrary *lm)
     if (lm->dlh == NULL) {
         lm->image = NSAddImage(name, NSADDIMAGE_OPTION_RETURN_ON_ERROR
                                | NSADDIMAGE_OPTION_WITH_SEARCHING);
-        /*
-         * TODO: If NSAddImage fails, use NSLinkEditError to retrieve
-         * error information.
-         */
+        if (lm->image == NULL) {
+            NSLinkEditErrors linkEditError;
+            int errorNum;
+            const char *errorString;
+            const char *fileName;
+            NSLinkEditError(&linkEditError, &errorNum, &fileName, &errorString);
+            PR_LOG(_pr_linker_lm, PR_LOG_MIN, 
+                   ("LoadMachDyldModule error %d:%d for file %s:\n%s",
+                    linkEditError, errorNum, fileName, errorString));
+        }
     }
     return (lm->dlh != NULL || lm->image != NULL) ? PR_SUCCESS : PR_FAILURE;
 }
 
-#endif /* XP_MACOSX */
+#endif /* XP_MACOSX && USE_MACH_DYLD */
 
 #ifdef WIN95
 static HMODULE WINAPI
@@ -809,12 +807,14 @@ static PRLibrary*
 pr_LoadLibraryByPathname(const char *name, PRIntn flags)
 {
     PRLibrary *lm;
-    PRLibrary* result;
+    PRLibrary* result = NULL;
     PRInt32 oserr;
 #ifdef WIN32
     char utf8name_stack[MAX_PATH];
-    PRUnichar wname_stack[MAX_PATH];
+    char *utf8name_malloc = NULL;
     char *utf8name = utf8name_stack;
+    PRUnichar wname_stack[MAX_PATH];
+    PRUnichar *wname_malloc = NULL;
     PRUnichar *wname = wname_stack;
     int len;
 #endif
@@ -831,7 +831,7 @@ pr_LoadLibraryByPathname(const char *name, PRIntn flags)
     } else {
         int wlen = MultiByteToWideChar(CP_ACP, 0, name, -1, NULL, 0);
         if (wlen > MAX_PATH)
-            wname = PR_Malloc(wlen);
+            wname = wname_malloc = PR_Malloc(wlen * sizeof(PRUnichar));
         if (wname == NULL ||
             !MultiByteToWideChar(CP_ACP, 0,  name, -1, wname, wlen)) {
             oserr = _MD_ERRNO();
@@ -840,7 +840,7 @@ pr_LoadLibraryByPathname(const char *name, PRIntn flags)
     }
     len = pr_ConvertUTF16toUTF8(wname, NULL, 0);
     if (len > MAX_PATH)
-        utf8name = PR_Malloc(len);
+        utf8name = utf8name_malloc = PR_Malloc(len);
     if (utf8name == NULL ||
         !pr_ConvertUTF16toUTF8(wname, utf8name, len)) {
         oserr = _MD_ERRNO();
@@ -916,7 +916,7 @@ pr_LoadLibraryByPathname(const char *name, PRIntn flags)
     }
 #endif /* WIN32 || WIN16 */
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && defined(USE_MACH_DYLD)
     {
     int     i;
     PRStatus status;
@@ -944,7 +944,7 @@ pr_LoadLibraryByPathname(const char *name, PRIntn flags)
     }
 #endif
 
-#if defined(XP_UNIX) && !defined(XP_MACOSX)
+#if defined(XP_UNIX) && !(defined(XP_MACOSX) && defined(USE_MACH_DYLD))
 #ifdef HAVE_DLL
     {
 #if defined(USE_DLFCN)
@@ -1008,7 +1008,7 @@ pr_LoadLibraryByPathname(const char *name, PRIntn flags)
     pr_loadmap = lm;
     }
 #endif /* HAVE_DLL */
-#endif /* XP_UNIX */
+#endif /* XP_UNIX && !(XP_MACOSX && USE_MACH_DYLD) */
 
     lm->refCount = 1;
 
@@ -1111,10 +1111,10 @@ pr_LoadLibraryByPathname(const char *name, PRIntn flags)
         DLLErrorInternal(oserr);  /* sets error text */
     }
 #ifdef WIN32
-    if (utf8name && utf8name != utf8name_stack) 
-        PR_Free(utf8name);
-    if (!(flags & PR_LD_PATHW) && wname && wname != wname_stack)
-        PR_Free(wname);
+    if (utf8name_malloc) 
+        PR_Free(utf8name_malloc);
+    if (wname_malloc)
+        PR_Free(wname_malloc);
 #endif
     PR_ExitMonitor(pr_linker_lock);
     return result;
@@ -1130,9 +1130,8 @@ static PRStatus
 pr_ConvertSingleCharToUTF8(PRUint32 usv, PRUint16 offset, int bufLen,
                            int *utf8Len, char * *buf)
 {
-    /* XXX No error checking. Add it for debug build */
     char* p = *buf;
-    /*if (!bufLen || !*buf) { */
+    PR_ASSERT(!bufLen || *buf);
     if (!bufLen) {
         *utf8Len += offset;
         return PR_SUCCESS;
@@ -1169,11 +1168,15 @@ static int pr_ConvertUTF16toUTF8(LPCWSTR wname, LPSTR name, int len)
     int utf8Len = 0;
     PRBool highSurrogate = PR_FALSE;
 
-    /* Windows NT4/2k/XP supports CP_UTF8. So do Win 98/ME, but
-     * we don't bother to optimize for them. */
-    if (_pr_useUnicode) 
-        return WideCharToMultiByte(CP_UTF8, 0, wname, -1, name, len, 
-                                   NULL, NULL);
+    utf8Len = WideCharToMultiByte(CP_UTF8, 0, wname, -1, name, len, 
+                                  NULL, NULL);
+    /*
+     * Windows 95 and NT 3.51 don't support CP_UTF8.
+     * WideCharToMultiByte(CP_UTF8, ...) fails with the error code
+     * ERROR_INVALID_PARAMETER on Windows 95 and NT 3.51.
+     */
+    if (utf8Len || GetLastError() != ERROR_INVALID_PARAMETER)
+        return utf8Len;
 
     if (!wname || len < 0 || (len > 0 && !name)) {
         SetLastError(ERROR_INVALID_PARAMETER);
@@ -1272,7 +1275,8 @@ PR_UnloadLibrary(PRLibrary *lib)
 #elif defined(USE_HPSHL)
     result = shl_unload(lib->dlh);
 #elif defined(USE_MACH_DYLD)
-    result = NSUnLinkModule(lib->dlh, NSUNLINKMODULE_OPTION_NONE) ? 0 : -1;
+    if (lib->dlh)
+        result = NSUnLinkModule(lib->dlh, NSUNLINKMODULE_OPTION_NONE) ? 0 : -1;
 #else
 #error Configuration error
 #endif
@@ -1285,7 +1289,7 @@ PR_UnloadLibrary(PRLibrary *lib)
     }
 #endif  /* XP_PC */
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && defined(USE_MACH_DYLD)
     /* Close the connection */
     if (lib->connection)
         CloseConnection(&(lib->connection));
@@ -1384,7 +1388,7 @@ pr_FindSymbolInLib(PRLibrary *lm, const char *name)
     f = GetProcAddress(lm->dlh, name);
 #endif  /* WIN32 || WIN16 */
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && defined(USE_MACH_DYLD)
 /* add this offset to skip the leading underscore in name */
 #define SYM_OFFSET 1
     if (lm->bundle) {
@@ -1425,7 +1429,7 @@ pr_FindSymbolInLib(PRLibrary *lm, const char *name)
             f = NULL;
     }
 #undef SYM_OFFSET
-#endif /* XP_MACOSX */
+#endif /* XP_MACOSX && USE_MACH_DYLD */
 
 #ifdef XP_BEOS
     if( B_NO_ERROR != get_image_symbol( (image_id)lm->dlh, name, B_SYMBOL_TYPE_TEXT, &f ) ) {
@@ -1603,8 +1607,8 @@ PR_LoadStaticLibrary(const char *name, const PRStaticLinkTable *slt)
 
     result = lm;    /* success */
     PR_ASSERT(lm->refCount == 1);
-  unlock:
     PR_LOG(_pr_linker_lm, PR_LOG_MIN, ("Loaded library %s (static lib)", lm->name));
+  unlock:
     PR_ExitMonitor(pr_linker_lock);
     return result;
 }
@@ -1613,7 +1617,8 @@ PR_IMPLEMENT(char *)
 PR_GetLibraryFilePathname(const char *name, PRFuncPtr addr)
 {
 #if defined(USE_DLFCN) && (defined(SOLARIS) || defined(FREEBSD) \
-        || defined(LINUX) || defined(__GNU__) || defined(__GLIBC__))
+        || defined(LINUX) || defined(__GNU__) || defined(__GLIBC__) \
+        || defined(DARWIN))
     Dl_info dli;
     char *result;
 
