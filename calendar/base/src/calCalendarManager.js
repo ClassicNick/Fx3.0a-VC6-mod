@@ -376,6 +376,7 @@ function errorAnnouncer(calendar) {
     this.storedReadOnly = calendar.readOnly;
     var announcer = this;
     this.observer = {
+        // calIObserver:
         onStartBatch: function() {},
         onEndBatch: function() {},
         onLoad: function() {},
@@ -407,9 +408,35 @@ errorAnnouncer.prototype.announceError = function(aErrNo, aMessage) {
         // The calendar was already in readOnly mode, but still tell the user
         errMsg = props.formatStringFromName("stillReadOnlyError", [this.calendar.name], 1);
     }
+
+    // When possible, change the error number into its name, to
+    // make it slightly more readable.
+    var errCode = "0x"+aErrNo.toString(16);
+    const calIErrors = Components.interfaces.calIErrors;
+    // Check if it is worth enumerating all the error codes.
+    if (aErrNo & calIErrors.ERROR_BASE) {
+        for (var err in calIErrors) {
+            if (calIErrors[err] == aErrNo) {
+                errCode = err;
+            }
+        }
+    }
+
+    var message;    
+    switch (aErrNo) {
+        case calIErrors.CAL_UTF8_DECODING_FAILED:
+            message = props.GetStringFromName("utf8DecodeError");
+            break;
+        case calIErrors.ICS_MALFORMEDDATA:
+            message = props.GetStringFromName("icsMalformedError");
+            break;
+        default:
+            message = aMessage
+    }
+
     paramBlock.SetString(0, errMsg);
-    paramBlock.SetString(1, "0x"+aErrNo.toString(16));
-    paramBlock.SetString(2, aMessage);
+    paramBlock.SetString(1, errCode);
+    paramBlock.SetString(2, message);
 
     this.storedReadOnly = this.calendar.readOnly;
 

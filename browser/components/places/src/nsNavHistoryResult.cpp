@@ -472,7 +472,7 @@ nsNavHistoryContainerResultNode::ReverseUpdateStats(PRInt32 aAccessCountChange)
 
       SortComparator comparator = GetSortingComparator(sortMode);
       int ourIndex = mParent->FindChild(this);
-      if (DoesChildNeedResorting(ourIndex, comparator)) {
+      if (mParent->DoesChildNeedResorting(ourIndex, comparator)) {
         // prevent us from being destroyed when removed from the parent
         nsRefPtr<nsNavHistoryContainerResultNode> ourLock = this;
         nsNavHistoryContainerResultNode* ourParent = mParent;
@@ -2637,7 +2637,8 @@ nsNavHistoryFolderResultNode::StartIncrementalUpdate()
 {
   // if any items are excluded, we can not do incremental updates since the
   // indices from the bookmark service will not be valid
-  if (! mOptions->ExcludeItems() && ! mOptions->ExcludeQueries()) {
+  if (! mOptions->ExcludeItems() && ! mOptions->ExcludeQueries() &&
+      ! mOptions->ExcludeReadOnlyFolders()) {
 
     // easy case: we are visible, always do incremental update
     if (mExpanded || AreChildrenVisible())

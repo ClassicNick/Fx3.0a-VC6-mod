@@ -93,7 +93,7 @@ sub new {
 # pre-id days. Provide this as a helper, but don't document it, and hope
 # that it can go away.
 # The request flag stuff also does this, but it really should be passing
-# in the id its already had to validate (or the User.pm object, of course)
+# in the id it already had to validate (or the User.pm object, of course)
 sub new_from_login {
     my $invocant = shift;
     my $login = shift;
@@ -1060,7 +1060,7 @@ sub match_field {
     my $template = Bugzilla->template;
     my $vars = {};
 
-    $vars->{'script'}        = $ENV{'SCRIPT_NAME'}; # for self-referencing URLs
+    $vars->{'script'}        = Bugzilla->cgi->url(-relative => 1); # for self-referencing URLs
     $vars->{'fields'}        = $fields; # fields being matched
     $vars->{'matches'}       = $matches; # matches that were made
     $vars->{'matchsuccess'}  = $matchsuccess; # continue or fail
@@ -1438,7 +1438,7 @@ confirmation screen.
 
 =item C<new($userid)>
 
-Creates a new C{Bugzilla::User> object for the given user id.  If no user
+Creates a new C<Bugzilla::User> object for the given user id.  If no user
 id was given, a blank object is created with no user attributes.
 
 If an id was given but there was no matching user found, undef is returned.

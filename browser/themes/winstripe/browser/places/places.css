@@ -1,12 +1,11 @@
 /* Root View */
 #placesView {
-  padding: 8px 6px 6px 8px;
-  -moz-user-focus: ignore;
+  background-color: Window;
 }
 
 #splitter {
   border: 0px;
-  width: 10px;
+  width: 3px;
   background-color: transparent;
 }
 
@@ -16,15 +15,9 @@
 }
 
 #placesList {
-  -moz-appearance: none;
-  width: 160px;
-  margin: 0px;
-  border: 0px;
-}
-
-#placesListContainer {
   -moz-appearance: listbox;
-  margin: 7px 0px 7px 6px;
+  margin: 6px 0px 7px 6px;
+  width: 160px;
 }
 
 #placeContent {
@@ -32,14 +25,17 @@
   border: 0px;
 }
 
-#content {
-  margin: 7px 6px 7px 0px;
+#contentView {
+  margin: 6px 6px 7px 0px;
   -moz-appearance: listbox;
 }
 
-treechildren::-moz-tree-image(title, container) {
+treechildren::-moz-tree-image {
   padding-right: 2px;
   margin: 0px 2px;
+}
+
+treechildren::-moz-tree-image(title, container) {
   list-style-image: url("chrome://global/skin/icons/folder-item.png") !important;
   -moz-image-region: rect(0px, 16px, 16px, 0px);
 }

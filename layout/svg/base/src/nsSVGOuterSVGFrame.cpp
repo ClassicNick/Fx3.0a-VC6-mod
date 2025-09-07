@@ -288,19 +288,7 @@ nsresult nsSVGOuterSVGFrame::Init()
 {
   nsresult rv;
 
-#if (defined(MOZ_SVG_RENDERER_GDIPLUS) + \
-     defined(MOZ_SVG_RENDERER_LIBART) + \
-     defined(MOZ_SVG_RENDERER_CAIRO) > 1)
-#error "Multiple SVG renderers. Please choose one manually."
-#elif defined(MOZ_SVG_RENDERER_GDIPLUS)  
-  mRenderer = do_CreateInstance(NS_SVG_RENDERER_GDIPLUS_CONTRACTID, &rv);
-#elif defined(MOZ_SVG_RENDERER_LIBART)
-  mRenderer = do_CreateInstance(NS_SVG_RENDERER_LIBART_CONTRACTID, &rv);
-#elif defined(MOZ_SVG_RENDERER_CAIRO)
   mRenderer = do_CreateInstance(NS_SVG_RENDERER_CAIRO_CONTRACTID, &rv);
-#else
-#error "No SVG renderer."
-#endif
   NS_ASSERTION(mRenderer, "could not get SVG renderer");
   if (NS_FAILED(rv))
     return rv;
@@ -602,7 +590,7 @@ nsSVGOuterSVGFrame::RemoveFrame(nsIAtom*        aListName,
 MOZ_DECL_CTOR_COUNTER(nsDisplaySVG)
 class nsDisplaySVG : public nsDisplayItem {
 public:
-  nsDisplaySVG(nsSVGOuterSVGFrame* aFrame) : mFrame(aFrame) {
+  nsDisplaySVG(nsSVGOuterSVGFrame* aFrame) : nsDisplayItem(aFrame) {
     MOZ_COUNT_CTOR(nsDisplaySVG);
   }
 #ifdef NS_BUILD_REFCNT_LOGGING
@@ -612,25 +600,24 @@ public:
 #endif
 
   virtual nsIFrame* HitTest(nsDisplayListBuilder* aBuilder, nsPoint aPt);
-  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
   virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
      const nsRect& aDirtyRect);
   NS_DISPLAY_DECL_NAME("SVGEventReceiver")
-private:
-  nsSVGOuterSVGFrame* mFrame;
 };
 
 nsIFrame*
 nsDisplaySVG::HitTest(nsDisplayListBuilder* aBuilder, nsPoint aPt)
 {
-  return mFrame->GetFrameForPoint(aPt - aBuilder->ToReferenceFrame(mFrame));
+  return NS_STATIC_CAST(nsSVGOuterSVGFrame*, mFrame)->
+    GetFrameForPoint(aPt - aBuilder->ToReferenceFrame(mFrame));
 }
 
 void
 nsDisplaySVG::Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
      const nsRect& aDirtyRect)
 {
-  mFrame->Paint(*aCtx, aDirtyRect, aBuilder->ToReferenceFrame(mFrame));
+  NS_STATIC_CAST(nsSVGOuterSVGFrame*, mFrame)->
+    Paint(*aCtx, aDirtyRect, aBuilder->ToReferenceFrame(mFrame));
 }
 
 nsIFrame*
@@ -648,23 +635,10 @@ nsSVGOuterSVGFrame::GetFrameForPoint(const nsPoint& aPoint)
     return nsnull;
   }
 
-  nsIFrame* frame = this;
-  nsIFrame* hit = nsnull;
-  for (nsIFrame* kid = mFrames.FirstChild(); kid;
-       kid = kid->GetNextSibling()) {
-    nsISVGChildFrame* SVGFrame=nsnull;
-    kid->QueryInterface(NS_GET_IID(nsISVGChildFrame),(void**)&SVGFrame);
-    if (SVGFrame) {
-      nsresult rv = SVGFrame->GetFrameForPointSVG(x, y, &hit);
-      if (NS_SUCCEEDED(rv) && hit) {
-        frame = hit;
-        // return NS_OK; can't return. we need reverse order but only
-        // have a singly linked list...
-      }
-    }
-  }
+  nsIFrame* hit;
+  nsSVGUtils::HitTestChildren(this, x, y, &hit);
 
-  return frame;
+  return hit;
 }
 
 //----------------------------------------------------------------------
@@ -750,10 +724,7 @@ nsSVGOuterSVGFrame::Paint(nsIRenderingContext& aRenderingContext,
   // paint children:
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsISVGChildFrame* SVGFrame=nsnull;
-    kid->QueryInterface(NS_GET_IID(nsISVGChildFrame),(void**)&SVGFrame);
-    if (SVGFrame)
-      SVGFrame->PaintSVG(canvas, dirtyRect, PR_FALSE);
+    nsSVGUtils::PaintChildWithEffects(canvas, kid);
   }
   
   canvas->Flush();

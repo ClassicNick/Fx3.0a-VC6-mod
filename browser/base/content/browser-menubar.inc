@@ -406,7 +406,7 @@
 
 #ifndef MOZ_PLACES
             <menu id="bookmarks-menu" label="&bookmarksMenu.label;" accesskey="&bookmarksMenu.accesskey;"
-                  datasources="rdf:bookmarks rdf:files rdf:localsearch" 
+                  datasources="rdf:bookmarks rdf:files" 
                   ref="NC:BookmarksRoot" flags="dont-test-empty"
                   template='bookmarks-template'
                   infer="forward-proxy"
@@ -441,7 +441,7 @@
         label="&bookmarksMenu.label;" accesskey="&bookmarksMenu.accesskey;"
         ondragover="BookmarksEventHandler.onDragOver(event);">
     <menupopup id="bookmarksMenuPopup"
-               type="places"
+               type="places" asyncinit="true"
                place="place:&amp;folder=2&amp;group=3&amp;expandQueries=1"
                context="placesContext"
                openInTabs="children"

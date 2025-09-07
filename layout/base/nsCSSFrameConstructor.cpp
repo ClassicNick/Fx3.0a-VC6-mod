@@ -235,6 +235,8 @@ nsIFrame*
 NS_NewSVGPatternFrame(nsIPresShell* aPresShell, nsIContent* aContent);
 nsIFrame*
 NS_NewSVGMaskFrame(nsIPresShell* aPresShell, nsIContent* aContent);
+nsIFrame*
+NS_NewSVGLeafFrame(nsIPresShell* aPresShell);
 #endif
 
 #include "nsIDocument.h"
@@ -3412,7 +3414,8 @@ IsSpecialContent(nsIContent*     aContent,
       aTag == nsHTMLAtoms::iframe ||
       aTag == nsHTMLAtoms::spacer ||
       aTag == nsHTMLAtoms::button ||
-      aTag == nsHTMLAtoms::isindex;
+      aTag == nsHTMLAtoms::isindex ||
+      aTag == nsHTMLAtoms::canvas;
   }
 
 
@@ -3457,34 +3460,10 @@ IsSpecialContent(nsIContent*     aContent,
 
 #ifdef MOZ_SVG
   if (aNameSpaceID == kNameSpaceID_SVG &&
-      nsSVGUtils::SVGEnabled())
-    return
-      aTag == nsSVGAtoms::svg ||
-      aTag == nsSVGAtoms::g ||
-      aTag == nsSVGAtoms::polygon ||
-      aTag == nsSVGAtoms::polyline ||
-      aTag == nsSVGAtoms::circle ||
-      aTag == nsSVGAtoms::defs ||
-      aTag == nsSVGAtoms::ellipse ||
-      aTag == nsSVGAtoms::line ||
-      aTag == nsSVGAtoms::rect ||
-#ifdef MOZ_SVG_FOREIGNOBJECT
-      aTag == nsSVGAtoms::foreignObject ||
-#endif
-      aTag == nsSVGAtoms::path ||
-      aTag == nsSVGAtoms::text ||
-      aTag == nsSVGAtoms::tspan ||
-      aTag == nsSVGAtoms::linearGradient ||
-      aTag == nsSVGAtoms::radialGradient ||
-      aTag == nsSVGAtoms::stop ||
-      aTag == nsSVGAtoms::use ||
-      aTag == nsSVGAtoms::marker ||
-      aTag == nsSVGAtoms::image  ||
-      aTag == nsSVGAtoms::clipPath  ||
-      aTag == nsSVGAtoms::textPath  ||
-      aTag == nsSVGAtoms::filter  ||
-      aTag == nsSVGAtoms::pattern ||
-      aTag == nsSVGAtoms::mask;
+      nsSVGUtils::SVGEnabled()) {
+    // All SVG content is special...
+    return PR_TRUE;
+  }
 #endif
 
 #ifdef MOZ_MATHML
@@ -7840,6 +7819,30 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
   else if (aTag == nsSVGAtoms::mask) {
     newFrame = NS_NewSVGMaskFrame(mPresShell, aContent);
   }
+  else if (aTag == nsGkAtoms::feDistantLight ||
+           aTag == nsGkAtoms::fePointLight ||
+           aTag == nsGkAtoms::feSpotLight ||
+           aTag == nsGkAtoms::feBlend ||
+           aTag == nsGkAtoms::feColorMatrix ||
+           aTag == nsGkAtoms::feFuncR ||
+           aTag == nsGkAtoms::feFuncG ||
+           aTag == nsGkAtoms::feFuncB ||
+           aTag == nsGkAtoms::feFuncA ||
+           aTag == nsGkAtoms::feComposite ||
+           aTag == nsGkAtoms::feConvolveMatrix ||
+           aTag == nsGkAtoms::feDisplacementMap ||
+           aTag == nsGkAtoms::feFlood ||
+           aTag == nsGkAtoms::feGaussianBlur ||
+           aTag == nsGkAtoms::feImage ||
+           aTag == nsGkAtoms::feMergeNode ||
+           aTag == nsGkAtoms::feMorphology ||
+           aTag == nsGkAtoms::feOffset ||
+           aTag == nsGkAtoms::feTile ||
+           aTag == nsGkAtoms::feTurbulence) {
+    // We don't really use the frame, just need it for the style
+    // information, so create the simplest possible frame.
+    newFrame = NS_NewSVGLeafFrame(mPresShell);
+  }
   
   if (newFrame == nsnull) {
     // Either we have an unknown tag, or construction of a frame
@@ -10353,6 +10356,12 @@ InvalidateCanvasIfNeeded(nsIFrame* aFrame)
     NS_ASSERTION(ancestor, "canvas must paint");
   }
 
+  if (ancestor->GetType() == nsLayoutAtoms::canvasFrame) {
+    // The canvas frame's dimensions are not meaningful; invalidate the
+    // viewport instead.
+    ancestor = ancestor->GetParent();
+  }
+
   if (ancestor != aFrame) {
     ApplyRenderingChangeToTree(presContext, ancestor,
                                nsChangeHint_RepaintFrame);
@@ -11880,14 +11889,12 @@ nsCSSFrameConstructor::ProcessChildren(nsFrameConstructorState& aState,
 // Support for :first-line style
 
 static void
-ReparentFrame(nsPresContext* aPresContext,
+ReparentFrame(nsFrameManager* aFrameManager,
               nsIFrame* aNewParentFrame,
-              nsStyleContext* aParentStyleContext,
               nsIFrame* aFrame)
 {
   aFrame->SetParent(aNewParentFrame);
-  aPresContext->FrameManager()->ReParentStyleContext(aFrame,
-                                                     aParentStyleContext);
+  aFrameManager->ReParentStyleContext(aFrame);
 }
 
 // Special routine to handle placing a list of frames into a block
@@ -11952,8 +11959,10 @@ nsCSSFrameConstructor::WrapFramesInFirstLineFrame(
 
     // Give the inline frames to the lineFrame <b>after</b> reparenting them
     kid = firstInlineFrame;
+    NS_ASSERTION(lineFrame->GetStyleContext() == firstLineStyle,
+                 "Bogus style context on line frame");
     while (kid) {
-      ReparentFrame(aState.mPresContext, lineFrame, firstLineStyle, kid);
+      ReparentFrame(aState.mFrameManager, lineFrame, kid);
       kid = kid->GetNextSibling();
     }
     lineFrame->SetInitialChildList(aState.mPresContext, nsnull,
@@ -11997,7 +12006,6 @@ nsCSSFrameConstructor::AppendFirstLineFrames(
     return rv;
   }
   nsIFrame* lineFrame = lastBlockKid;
-  nsStyleContext* firstLineStyle = lineFrame->GetStyleContext();
 
   // Find the first and last inline frame in aFrameItems
   nsIFrame* kid = aFrameItems.childList;
@@ -12025,7 +12033,7 @@ nsCSSFrameConstructor::AppendFirstLineFrames(
   lastInlineFrame->SetNextSibling(nsnull);
   kid = firstInlineFrame;
   while (kid) {
-    ReparentFrame(aState.mPresContext, lineFrame, firstLineStyle, kid);
+    ReparentFrame(aState.mFrameManager, lineFrame, kid);
     kid = kid->GetNextSibling();
   }
   aState.mFrameManager->AppendFrames(lineFrame, nsnull, firstInlineFrame);
@@ -12067,12 +12075,10 @@ nsCSSFrameConstructor::InsertFirstLineFrames(
     if (firstBlockKid->GetType() == nsLayoutAtoms::lineFrame) {
       // We already have a first-line frame
       nsIFrame* lineFrame = firstBlockKid;
-      nsStyleContext* firstLineStyle = lineFrame->GetStyleContext();
 
       if (isInline) {
         // Easy case: the new inline frame will go into the lineFrame.
-        ReparentFrame(aState.mPresContext, lineFrame, firstLineStyle,
-                      newFrame);
+        ReparentFrame(aState.mFrameManager, lineFrame, newFrame);
         aState.mFrameManager->InsertFrames(lineFrame, nsnull, nsnull,
                                            newFrame);
 
@@ -12113,7 +12119,9 @@ nsCSSFrameConstructor::InsertFirstLineFrames(
 
           // Give the inline frames to the lineFrame <b>after</b>
           // reparenting them
-          ReparentFrame(aPresContext, lineFrame, firstLineStyle, newFrame);
+          NS_ASSERTION(lineFrame->GetStyleContext() == firstLineStyle,
+                       "Bogus style context on line frame");
+          ReparentFrame(aPresContext, lineFrame, newFrame);
           lineFrame->SetInitialChildList(aState.mPresContext, nsnull,
                                          newFrame);
         }
@@ -12172,8 +12180,7 @@ nsCSSFrameConstructor::InsertFirstLineFrames(
         else {
           // We got lucky: aPrevSibling was the last inline frame in
           // the line-frame.
-          ReparentFrame(aState.mPresContext, aBlockFrame, firstLineStyle,
-                        newFrame);
+          ReparentFrame(aState.mFrameManager, aBlockFrame, newFrame);
           aState.mFrameManager->InsertFrames(aBlockFrame, nsnull,
                                              prevSiblingParent, newFrame);
           aFrameItems.childList = nsnull;

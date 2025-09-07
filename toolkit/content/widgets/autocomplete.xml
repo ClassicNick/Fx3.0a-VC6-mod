@@ -24,6 +24,7 @@
 # Contributor(s):
 #   Pierre Chanial (p_ch@verizon.net)
 #   Dean Tessman   (dean_tessman@hotmail.com)
+#   Masayuki Nakano (masayuki@d-toybox.com)
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -321,7 +322,7 @@
 
       <method name="openPopup">
         <body><![CDATA[
-          this.popup.openPopup(this, this.boxObject.screenX, this.boxObject.screenY+this.boxObject.height, this.boxObject.width);
+          this.popup.openPopup(this, -1, -1, this.boxObject.width);
         ]]></body>
       </method>
 
@@ -568,7 +569,14 @@
             this.setAttribute("width", aWidth < 100 ? 100 : aWidth);
 
             document.popupNode = null;
-            this.showPopup(document.documentElement, aX, aY, "popup", null, null);
+            if (aY == -1) {
+              this.showPopup(this.mInput, -1, -1, "popup", 'bottomleft', 'topleft');
+            }
+            else {
+              this.showPopup(document.documentElement, aX, aY, "popup", null, null);            
+            }
+            this.enableRollup(false);
+            this.mInput.controller.attachRollupListener();
           }
         ]]></body>
       </method>
@@ -580,6 +588,7 @@
             document.popupNode = null;
 
             this.setAttribute("hidden", "true");
+            this.mInput.controller.detachRollupListener();
           }
         ]]></body>
       </method>

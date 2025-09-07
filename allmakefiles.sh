@@ -916,6 +916,7 @@ browser/components/migration/Makefile
 browser/components/migration/public/Makefile
 browser/components/migration/src/Makefile
 browser/components/preferences/Makefile
+browser/components/search/Makefile
 browser/components/sidebar/Makefile
 browser/components/sidebar/src/Makefile
 browser/components/shell/Makefile
@@ -937,6 +938,7 @@ browser/themes/winstripe/Makefile
 
 MAKEFILES_suite="
 suite/Makefile
+suite/app/Makefile
 suite/branding/Makefile
 suite/components/Makefile
 suite/components/xulappinfo/Makefile
@@ -1021,6 +1023,8 @@ toolkit/profile/src/Makefile
 toolkit/themes/Makefile
 toolkit/themes/gnomestripe/global/Makefile
 toolkit/themes/gnomestripe/Makefile
+toolkit/themes/pmstripe/global/Makefile
+toolkit/themes/pmstripe/Makefile
 toolkit/themes/pinstripe/communicator/Makefile
 toolkit/themes/pinstripe/Makefile
 toolkit/themes/pinstripe/global/Makefile
@@ -1311,11 +1315,6 @@ if [ "$MOZ_MATHML" ]; then
 "
 fi
 
-#libart
-if [ "$MOZ_SVG_RENDERER_LIBART" ]; then
-    MAKEFILES_libart="other-licenses/libart_lgpl/Makefile"
-fi
-
 # svg
 if [ "$MOZ_SVG" ]; then
     MAKEFILES_content="$MAKEFILES_content
@@ -1335,9 +1334,6 @@ if [ "$MOZ_SVG" ]; then
 	layout/svg/renderer/Makefile
 	layout/svg/renderer/public/Makefile
 	layout/svg/renderer/src/Makefile
-	layout/svg/renderer/src/gdiplus/Makefile
-	layout/svg/renderer/src/gdiplusshim/Makefile
-	layout/svg/renderer/src/libart/Makefile
 	layout/svg/renderer/src/cairo/Makefile
 "
 fi

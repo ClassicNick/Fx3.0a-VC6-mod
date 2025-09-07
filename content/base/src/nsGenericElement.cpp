@@ -582,7 +582,12 @@ nsDOMEventRTTearoff::LastRelease()
     // this instance in the cache in stead of deleting it.
     mCachedEventTearoff[mCachedEventTearoffCount++] = this;
 
-    mContent = nsnull;
+    // Don't set mContent to null directly since setting mContent to null
+    // could result in code that grabs a tearoff from the cache and we don't
+    // want to get reused while still being torn down.
+    // See bug 330526.
+    nsCOMPtr<nsIContent> kungFuDeathGrip;
+    kungFuDeathGrip.swap(mContent);
 
     // The refcount balancing and destructor re-entrancy protection
     // code in Release() sets mRefCnt to 1 so we have to set it to 0
@@ -2435,7 +2440,61 @@ nsGenericElement::doRemoveChildAt(PRUint32 aIndex, PRBool aNotify,
   return NS_OK;
 }
 
+/* static */
+nsresult
+nsGenericElement::DispatchEvent(nsPresContext* aPresContext,
+                                nsEvent* aEvent,
+                                nsIContent* aTarget,
+                                PRBool aFullDispatch,
+                                nsEventStatus* aStatus)
+{
+  NS_PRECONDITION(aTarget, "Must have target");
+  NS_PRECONDITION(aEvent, "Must have source event");
+  NS_PRECONDITION(aStatus, "Null out param?");
 
+  if (!aPresContext) {
+    return NS_OK;
+  }
+
+  nsIPresShell *shell = aPresContext->GetPresShell();
+  if (!shell) {
+    return NS_OK;
+  }
+
+  if (aFullDispatch) {
+    return shell->HandleEventWithTarget(aEvent, nsnull, aTarget, aStatus);
+  }
+
+  return shell->HandleDOMEventWithTarget(aTarget, aEvent, aStatus);
+}
+
+/* static */
+nsresult
+nsGenericElement::DispatchClickEvent(nsPresContext* aPresContext,
+                                     nsInputEvent* aSourceEvent,
+                                     nsIContent* aTarget,
+                                     PRBool aFullDispatch,
+                                     nsEventStatus* aStatus)
+{
+  NS_PRECONDITION(aTarget, "Must have target");
+  NS_PRECONDITION(aSourceEvent, "Must have source event");
+  NS_PRECONDITION(aStatus, "Null out param?");
+
+  nsMouseEvent event(NS_IS_TRUSTED_EVENT(aSourceEvent), NS_MOUSE_LEFT_CLICK,
+                     aSourceEvent->widget, nsMouseEvent::eReal);
+  event.refPoint = aSourceEvent->refPoint;
+  PRUint32 clickCount = 1;
+  if (aSourceEvent->eventStructType == NS_MOUSE_EVENT) {
+    clickCount = NS_STATIC_CAST(nsMouseEvent*, aSourceEvent)->clickCount;
+  }
+  event.clickCount = clickCount;
+  event.isShift = aSourceEvent->isShift;
+  event.isControl = aSourceEvent->isControl;
+  event.isAlt = aSourceEvent->isAlt;
+  event.isMeta = aSourceEvent->isMeta;
+
+  return DispatchEvent(aPresContext, &event, aTarget, aFullDispatch, aStatus);
+}
 
 //----------------------------------------------------------------------
 
@@ -2734,6 +2793,10 @@ nsGenericElement::doReplaceOrInsertBefore(PRBool aReplace,
     return NS_ERROR_NULL_POINTER;
   }
 
+  // Keep a strong reference to the node that we'll return to ensure it
+  // doesn't go away.
+  nsCOMPtr<nsIDOMNode> returnVal = aReplace ? aRefChild : aNewChild;
+
   nsCOMPtr<nsIContent> refContent;
   nsresult res = NS_OK;
   PRInt32 insPos;
@@ -3011,8 +3074,7 @@ nsGenericElement::doReplaceOrInsertBefore(PRBool aReplace,
     NS_ENSURE_SUCCESS(res, res);
   }
 
-  *aReturn = aReplace ? aRefChild : aNewChild;
-  NS_ADDREF(*aReturn);
+  returnVal.swap(*aReturn);
 
   return res;
 }

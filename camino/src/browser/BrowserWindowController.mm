@@ -39,6 +39,7 @@
 #import "ABAddressBook+Utils.h"
 
 #import "NSString+Utils.h"
+#import "NSSplitView+Utils.h"
 
 #import "BrowserWindowController.h"
 #import "BrowserWindow.h"
@@ -112,13 +113,13 @@
 
 #include "nsAppDirectoryServiceDefs.h"
 
-static NSString* const BrowserToolbarIdentifier	        = @"Browser Window Toolbar";
+static NSString* const BrowserToolbarIdentifier	        = @"Browser Window Toolbar Combined";
 static NSString* const BackToolbarItemIdentifier	      = @"Back Toolbar Item";
 static NSString* const ForwardToolbarItemIdentifier	    = @"Forward Toolbar Item";
 static NSString* const ReloadToolbarItemIdentifier	    = @"Reload Toolbar Item";
 static NSString* const StopToolbarItemIdentifier	      = @"Stop Toolbar Item";
 static NSString* const HomeToolbarItemIdentifier	      = @"Home Toolbar Item";
-static NSString* const LocationToolbarItemIdentifier	  = @"Location Toolbar Item";
+static NSString* const CombinedLocationToolbarItemIdentifier  = @"Combined Location Toolbar Item";
 static NSString* const BookmarksToolbarItemIdentifier	  = @"Sidebar Toolbar Item";    // note legacy name
 static NSString* const PrintToolbarItemIdentifier	      = @"Print Toolbar Item";
 static NSString* const ThrobberToolbarItemIdentifier    = @"Throbber Toolbar Item";
@@ -137,8 +138,15 @@ static NSString* const HistoryToolbarItemIdentifier     = @"History Toolbar Item
 int TabBarVisiblePrefChangedCallback(const char* pref, void* data);
 static const char* const gTabBarVisiblePref = "camino.tab_bar_always_visible";
 
+const float kMininumURLAndSearchBarWidth = 128.0;
 
 static NSString* const NavigatorWindowFrameSaveName = @"NavigatorWindow";
+static NSString* const NavigatorWindowSearchBarWidth = @"SearchBarWidth";
+
+static NSString* const kViewSourceProtocolString = @"view-source:";
+const unsigned long kNoToolbarsChromeMask = (nsIWebBrowserChrome::CHROME_ALL & ~(nsIWebBrowserChrome::CHROME_TOOLBAR |
+                                                                                 nsIWebBrowserChrome::CHROME_PERSONAL_TOOLBAR |
+                                                                                 nsIWebBrowserChrome::CHROME_LOCATIONBAR)); 
 
 // Cached toolbar defaults read in from a plist. If null, we'll use
 // hardcoded defaults.
@@ -264,6 +272,13 @@ public:
   if (aTextView == self)
     return mUndoManager;
   return nil;
+}
+
+// Opt-return and opt-enter should download the URL in the location bar
+- (void)insertNewlineIgnoringFieldEditor:(id)sender
+{
+  BrowserWindowController* bwc = (BrowserWindowController *)[[[self delegate] window] delegate];
+  [bwc saveURL:nil url:[self string] suggestedFilename:nil];
 }
 
 @end
@@ -430,7 +445,7 @@ enum BWCOpenDest {
 - (void)setGeckoActive:(BOOL)inActive;
 - (BOOL)isResponderGeckoView:(NSResponder*) responder;
 - (NSString*)getContextMenuNodeDocumentURL;
-- (void)loadSourceOfURL:(NSString*)urlStr;
+- (void)loadSourceOfURL:(NSString*)urlStr inBackground:(BOOL)loadInBackground;
 - (void)transformFormatString:(NSMutableString*)inFormat domain:(NSString*)inDomain search:(NSString*)inSearch;
 - (void)openNewWindowWithDescriptor:(nsISupports*)aDesc displayType:(PRUint32)aDisplayType loadInBackground:(BOOL)aLoadInBG;
 - (void)openNewTabWithDescriptor:(nsISupports*)aDesc displayType:(PRUint32)aDisplayType loadInBackground:(BOOL)aLoadInBG;
@@ -570,8 +585,14 @@ enum BWCOpenDest {
 
 -(void)autosaveWindowFrame
 {
-  if (mShouldAutosave)
+  if (mShouldAutosave) {
     [[self window] saveFrameUsingName: NavigatorWindowFrameSaveName];
+    
+    // save the width of the search bar so it's consistent regardless of the
+    // size of the next window we create
+    const float searchBarWidth = [mSearchBar frame].size.width;
+    [[NSUserDefaults standardUserDefaults] setFloat:searchBarWidth forKey:NavigatorWindowSearchBarWidth];
+  }
 }
 
 -(void)disableAutosave
@@ -642,7 +663,7 @@ enum BWCOpenDest {
   mDataOwner = NULL;
 
   nsCOMPtr<nsIPref> pref(do_GetService(NS_PREF_CONTRACTID));
-  if ( pref )
+  if (pref)
     pref->UnregisterCallback(gTabBarVisiblePref, TabBarVisiblePrefChangedCallback, self);
   
   // Tell the BrowserTabView the window is closed
@@ -690,8 +711,6 @@ enum BWCOpenDest {
   // BrowserWrappers and their child CHBrowserViews.
   
   [mProgress release];
-  [mPopupBlocked release];
-  [mSearchBar release];
   [self stopThrobber];
   [mThrobberImages release];
   [mURLFieldEditor release];
@@ -728,7 +747,6 @@ enum BWCOpenDest {
       // crash if we give them things that have gone away.
       mProgress = nil;
       mStatus = nil;
-      mPopupBlocked = nil;
     }
     else {
       // Retain with a single extra refcount. This allows us to remove
@@ -747,30 +765,7 @@ enum BWCOpenDest {
       // that both needing updating instead of just the two individual rects
       // (radar 2194819), we need to make the text area opaque.
       [mStatus setBackgroundColor:[NSColor windowBackgroundColor]];
-      [mStatus setDrawsBackground:YES];
-      
-      // create a new cell for our popup blocker item that draws just an image
-      // yet still retains the functionality of a popdown menu. Like the progress
-      // meter above, we retain so we can hide with impunity and grab its superview.
-      // However, unlike the progress meter, this doesn't need to be in a subview from
-      // the status bar because it is in a fixed position on the LHS.
-      [mPopupBlocked retain];
-      NSFont* savedFont = [[mPopupBlocked cell] font];
-      NSMenu* savedMenu = [mPopupBlocked menu];     // must cache this before replacing cell
-      IconPopUpCell* iconCell = [[[IconPopUpCell alloc] initWithImage:[NSImage imageNamed:@"popup-blocked"]] autorelease];
-      [mPopupBlocked setCell:iconCell];
-      [iconCell setFont:savedFont];
-      [mPopupBlocked setToolTip:NSLocalizedString(@"PopupBlockTooltip", @"")]; 
-//      [iconCell setPreferredEdge:NSMaxYEdge];
-      [iconCell setMenu:savedMenu];
-      [iconCell setBordered:NO];
-      mPopupBlockSuperview = [mPopupBlocked superview];
-      [self showPopupBlocked:NO];
-      
-      // register for notifications so we can populate the popup blocker menu
-      // right before it's displayed.
-      [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(buildPopupBlockerMenu:)
-                                              name:NSPopUpButtonCellWillPopUpNotification object:iconCell];
+      [mStatus setDrawsBackground:YES];            
     }
 
     // Set up the toolbar's search text field
@@ -782,9 +777,6 @@ enum BWCOpenDest {
     [mSearchBar addPopUpMenuItemsWithTitles:searchTitles];
     [[[mSearchBar cell] popUpButtonCell] selectItemWithTitle:
       [[BrowserWindowController searchURLDictionary] objectForKey:@"PreferredSearchEngine"]];
-
-    [mSearchBar retain];
-    [mSearchBar removeFromSuperview];
 
     // Set the sheet's search text field
     [mSearchSheetTextField addPopUpMenuItemsWithTitles:searchTitles];
@@ -803,15 +795,26 @@ enum BWCOpenDest {
         windowBounds.size.width = kDefaultWindowWidth;
       [[self window] setFrame:windowBounds display:YES];
     }
-    
+
     if (NSEqualSizes(oldFrame.size, [[self window] frame].size))
       mustResizeChrome = YES;
     
     mInitialized = YES;
-        
-    [[self window] setAcceptsMouseMovedEvents: YES];
-    
+
+    [[self window] setAcceptsMouseMovedEvents:YES];
+
     [self setupToolbar];
+
+    // set the size of the search bar to the width it was last time
+    float searchBarWidth = [[NSUserDefaults standardUserDefaults] floatForKey:NavigatorWindowSearchBarWidth];
+    if (searchBarWidth <= 0)
+      searchBarWidth = kMininumURLAndSearchBarWidth;
+    const float currentWidth = [mLocationToolbarView frame].size.width;
+    float newDividerPosition = currentWidth - searchBarWidth - [mLocationToolbarView dividerThickness];
+    if (newDividerPosition < kMininumURLAndSearchBarWidth)
+      newDividerPosition = kMininumURLAndSearchBarWidth;
+    [mLocationToolbarView setLeftWidth:newDividerPosition];
+    [mLocationToolbarView adjustSubviews];
 
     // set up autohide behavior on tab browser and register for changes on that pref. The
     // default is for it to hide when only 1 tab is visible, so if no pref is found, it will
@@ -819,7 +822,7 @@ enum BWCOpenDest {
     // to let the tab bar show so leave it off and don't register for the pref updates.
     BOOL allowTabBar = YES;
     if (mChromeMask && (!(mChromeMask & nsIWebBrowserChrome::CHROME_STATUSBAR) ||
-                          !(mChromeMask & nsIWebBrowserChrome::CHROME_PERSONAL_TOOLBAR)))
+                        !(mChromeMask & nsIWebBrowserChrome::CHROME_PERSONAL_TOOLBAR)))
       allowTabBar = NO;
     if (allowTabBar) {
       BOOL tabBarAlwaysVisible = [[PreferenceManager sharedInstance] getBooleanPref:gTabBarVisiblePref withSuccess:nil];
@@ -1011,10 +1014,9 @@ enum BWCOpenDest {
                                         ReloadToolbarItemIdentifier,
                                         StopToolbarItemIdentifier,
                                         HomeToolbarItemIdentifier,
-                                        LocationToolbarItemIdentifier,
+                                        CombinedLocationToolbarItemIdentifier,
                                         BookmarksToolbarItemIdentifier,
                                         ThrobberToolbarItemIdentifier,
-                                        SearchToolbarItemIdentifier,
                                         PrintToolbarItemIdentifier,
                                         ViewSourceToolbarItemIdentifier,
                                         BookmarkToolbarItemIdentifier,
@@ -1059,8 +1061,7 @@ enum BWCOpenDest {
                                         ForwardToolbarItemIdentifier,
                                         ReloadToolbarItemIdentifier,
                                         StopToolbarItemIdentifier,
-                                        LocationToolbarItemIdentifier,
-                                        SearchToolbarItemIdentifier,
+                                        CombinedLocationToolbarItemIdentifier,
                                         BookmarksToolbarItemIdentifier,
                                         nil] );
 }
@@ -1207,14 +1208,17 @@ enum BWCOpenDest {
     [toolbarItem setTag:'Thrb'];
     [toolbarItem setAction:@selector(clickThrobber:)];
   }
-  else if ([itemIdent isEqual:LocationToolbarItemIdentifier]) {
+  else if ([itemIdent isEqual:CombinedLocationToolbarItemIdentifier]) {
     NSMenuItem *menuFormRep = [[[NSMenuItem alloc] init] autorelease];
 
     [toolbarItem setLabel:NSLocalizedString(@"Location", @"Location")];
     [toolbarItem setPaletteLabel:NSLocalizedString(@"Location", @"Location")];
     [toolbarItem setView:mLocationToolbarView];
-    [toolbarItem setMinSize:NSMakeSize(128, NSHeight([mLocationToolbarView frame]))];
+    [toolbarItem setMinSize:NSMakeSize(250, NSHeight([mLocationToolbarView frame]))];
     [toolbarItem setMaxSize:NSMakeSize(2560, NSHeight([mLocationToolbarView frame]))];
+
+    [mSearchBar setTarget:self];
+    [mSearchBar setAction:@selector(performSearch:)];
 
     [menuFormRep setTarget:self];
     [menuFormRep setAction:@selector(performAppropriateLocationAction)];
@@ -1371,6 +1375,73 @@ enum BWCOpenDest {
     return YES;
 }
 
+//
+// -splitView:canCollapseSubview:
+// NSSplitView delegate
+// 
+// We don't want to allow the user to collapse either the url bar or the search bar
+//
+- (BOOL)splitView:(NSSplitView *)sender canCollapseSubview:(NSView *)subview
+{
+  if (sender == mLocationToolbarView)
+    return NO;
+  return YES;
+}
+
+//
+// -splitView:constrainMinCoordiante:ofSubviewAt:
+// NSSplitView delegate
+//
+// Called when the combined url/search splitter is being resized to provide a mininum
+// value for the splitter, which in our case is we want to be the min width of the url bar.
+//
+- (float)splitView:(NSSplitView *)sender constrainMinCoordinate:(float)proposedMin ofSubviewAt:(int)offset
+{
+  if (sender == mLocationToolbarView)
+    return kMininumURLAndSearchBarWidth;
+  return proposedMin;
+}
+
+//
+// -splitView:constrainMaxCoordinate:ofSubviewAt:
+//
+// Called when the combined url/search splitter is being resized to provide a max
+// value for the splitter. |proposedMax| is the rightmost extent of the
+// view to the right of the splitter, which in our case is the search bar. We
+// want the splitter to stop at that extent less the minimum search bar width.
+//
+- (float)splitView:(NSSplitView *)sender constrainMaxCoordinate:(float)proposedMax ofSubviewAt:(int)offset
+{
+  if (sender == mLocationToolbarView)
+    return proposedMax - kMininumURLAndSearchBarWidth;
+  return proposedMax;
+}
+
+//
+// -splitView:resizeSubviewsWithOldSize:
+// NSSplitView delegate
+//
+// Called when the split view is being resized. We are now in full control over
+// how our subviews are repositioned. We want to fix the width of the search bar so
+// that no matter how narrow/wide the window gets, the url bar is the one that changes
+// size.
+//
+- (void)splitView:(NSSplitView *)sender resizeSubviewsWithOldSize:(NSSize)oldSize 
+{
+  NSSize newSize = [sender frame].size;
+  NSRect searchFrame = [mSearchBar frame];
+  NSView* urlSuperview = [mURLBar superview];
+  NSRect urlBarFrame = [urlSuperview frame];
+  
+  // keep the search field constant size, expanding the url bar to take up the new slack
+  float deltaX = newSize.width - oldSize.width;     // positive when window grows
+  urlBarFrame.size.width += deltaX;
+  searchFrame.origin.x += deltaX;
+  [urlSuperview setFrame:urlBarFrame];
+  [mSearchBar setFrame:searchFrame];
+  [sender setNeedsDisplay:YES];
+}
+
 #pragma mark -
 
 
@@ -1490,11 +1561,40 @@ enum BWCOpenDest {
 
 - (void)showPopupBlocked:(BOOL)inBlocked
 {
-  if (inBlocked && ![mPopupBlocked window]) {       // told to show, currently hidden
-    [mPopupBlockSuperview addSubview:mPopupBlocked];
-  }
-  else if (!inBlocked && [mPopupBlocked window]) {  // told to hide, currently visible                               
-    [mPopupBlocked removeFromSuperview];
+  // do nothing, everything is now handled by the BrowserWindow.
+}
+
+//
+// -configurePopupBlocking
+//
+// Called to display our popup blocking configuration ui, which is in prefs. 
+// Show the prefs window focused on the "web features" panel.
+//
+- (void)configurePopupBlocking
+{
+  [[MVPreferencesController sharedInstance] showPreferences:nil];
+  [[MVPreferencesController sharedInstance] selectPreferencePaneByIdentifier:@"org.mozilla.camino.preference.webfeatures"];
+}
+
+//
+// -unblockAllPopupSites:
+//
+// Called in response to the menu item from the unblock popup. Loop over all
+// the items in the blocked sites array in the browser wrapper and add them
+// to the whitelist.
+//
+- (void)unblockAllPopupSites:(nsISupportsArray*)inSites
+{
+  nsCOMPtr<nsIPermissionManager> pm (do_GetService(NS_PERMISSIONMANAGER_CONTRACTID));
+  if (!pm)
+    return;
+
+  PRUint32 count = 0;
+  inSites->Count(&count);
+  for (PRUint32 i = 0; i < count; ++i) {
+    nsCOMPtr<nsISupports> genUri = dont_AddRef(inSites->ElementAt(i));
+    nsCOMPtr<nsIURI> uri = do_QueryInterface(genUri);
+    pm->Add(uri, "popup", nsIPermissionManager::ALLOW_ACTION);   
   }
 }
 
@@ -1521,7 +1621,6 @@ enum BWCOpenDest {
   [[self window] setTitle:  [mBrowserView windowTitle]];
   [self setLoadingActive:   [mBrowserView isBusy]];
   [self setLoadingProgress: [mBrowserView loadingProgress]];
-  [self showPopupBlocked:   [mBrowserView popupsBlocked]];
   [self showSecurityState:  [mBrowserView securityState]];
   [self updateSiteIcons:    [mBrowserView siteIcon] ignoreTyping:NO];
   [self updateStatus:       [mBrowserView statusString]];
@@ -1612,7 +1711,7 @@ enum BWCOpenDest {
       
       for (unsigned int i = 0; i < [itemsWeCanSee count]; i++)
       {
-        if ([[[itemsWeCanSee objectAtIndex:i] itemIdentifier] isEqual:LocationToolbarItemIdentifier])
+        if ([[[itemsWeCanSee objectAtIndex:i] itemIdentifier] isEqual:CombinedLocationToolbarItemIdentifier])
         {
           [self focusURLBar];
           return;
@@ -1655,6 +1754,18 @@ enum BWCOpenDest {
   [NSApp endSheet:mLocationSheetWindow returnCode:0];
 }
 
+//
+// -performAppropriateSearchAction
+//
+// Called when the user executes the "search the web" action. If the combined
+// url/search bar is visible, focus the text field. If it's not (text only or
+// removed from toolbar), show the search sheet.
+//
+// Note that with the combined url/search bar, the only way to get this sheet
+// is to use the menu item/key combo, as clicking the text-only toolbar item
+// will show the location sheet. I'm not really happy about this, but I couldn't
+// come up with a good unified sheet that made sense. 
+//
 - (void)performAppropriateSearchAction
 {
   NSToolbar *toolbar = [[self window] toolbar];
@@ -1667,7 +1778,7 @@ enum BWCOpenDest {
 
       for (unsigned int i = 0; i < [itemsWeCanSee count]; i++)
       {
-        if ([[[itemsWeCanSee objectAtIndex:i] itemIdentifier] isEqual:SearchToolbarItemIdentifier])
+        if ([[[itemsWeCanSee objectAtIndex:i] itemIdentifier] isEqual:CombinedLocationToolbarItemIdentifier])
         {
           [self focusSearchBar];
           return;
@@ -1812,16 +1923,18 @@ enum BWCOpenDest {
   [[mBrowserView getBrowserView] saveDocument:focusedFrame filterView:aFilterView];
 }
 
-- (void)saveURL: (NSView*)aFilterView url: (NSString*)aURLSpec suggestedFilename: (NSString*)aFilename
+- (void)saveURL:(NSView*)aFilterView url:(NSString*)aURLSpec suggestedFilename:(NSString*)aFilename
 {
-  [[mBrowserView getBrowserView] saveURL: aFilterView url: aURLSpec suggestedFilename: aFilename];
+  [[mBrowserView getBrowserView] saveURL:aFilterView url:aURLSpec suggestedFilename:aFilename];
 }
 
-- (void)loadSourceOfURL:(NSString*)urlStr
+- (void)loadSourceOfURL:(NSString*)urlStr inBackground:(BOOL)loadInBackground
 {
+  BOOL shouldUseTab = [[PreferenceManager sharedInstance] getBooleanPref:"camino.viewsource_in_tab" withSuccess:NULL];
+  NSString* viewSource = [kViewSourceProtocolString stringByAppendingString:urlStr];
+  
   // first attempt to get the source that's already loaded
-  BOOL loadInBackground = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
-
+  BOOL canUseCache = NO;
   nsCOMPtr<nsISupports> desc = [[mBrowserView getBrowserView] getPageDescriptor];
   if (desc) {
     // make sure we're not trying to load a subframe by checking |urlStr| against the url in
@@ -1832,28 +1945,45 @@ enum BWCOpenDest {
       entry->GetURI(getter_AddRefs(uri));
       nsCAutoString spec;
       uri->GetSpec(spec);
-      if ([urlStr isEqualToString:[NSString stringWithUTF8String:spec.get()]]) {
-        [self openNewTabWithDescriptor:desc displayType:nsIWebPageDescriptor::DISPLAY_AS_SOURCE loadInBackground:loadInBackground];
-        return;
-      }
+      if ([urlStr isEqualToString:[NSString stringWithUTF8String:spec.get()]])
+        canUseCache = YES;
     }
   }
 
-  //otherwise reload it from the server
-  NSString* viewSource = [@"view-source:" stringByAppendingString: urlStr];
-  [self openNewTabWithURL: viewSource referrer:nil loadInBackground: loadInBackground allowPopups:NO];
+  if (shouldUseTab) {
+    if (canUseCache)
+      [self openNewTabWithDescriptor:desc displayType:nsIWebPageDescriptor::DISPLAY_AS_SOURCE loadInBackground:loadInBackground];
+    else
+      [self openNewTabWithURL:viewSource referrer:nil loadInBackground:loadInBackground allowPopups:NO];
+  }      
+  else {
+    // open a new window and hide the toolbars for prettyness
+    BrowserWindowController* controller = [[BrowserWindowController alloc] initWithWindowNibName:@"BrowserWindow"];
+    [controller setChromeMask:kNoToolbarsChromeMask];
+    if (loadInBackground)
+      [[controller window] orderWindow:NSWindowBelow relativeTo:[[self window] windowNumber]];
+    else
+      [controller showWindow:nil];
+
+    if (canUseCache)
+      [[[controller getBrowserWrapper] getBrowserView] setPageDescriptor:desc displayType:nsIWebPageDescriptor::DISPLAY_AS_SOURCE];
+    else
+      [controller loadURL:viewSource referrer:nil activate:!loadInBackground allowPopups:NO];
+  }
 }
 
 - (IBAction)viewSource:(id)aSender
 {
+  BOOL loadInBackground = ((GetCurrentKeyModifiers() & shiftKey) != 0);
   NSString* urlStr = [[mBrowserView getBrowserView] getFocusedURLString];
-  [self loadSourceOfURL:urlStr];
+  [self loadSourceOfURL:urlStr inBackground:loadInBackground];
 }
 
 - (IBAction)viewPageSource:(id)aSender
 {
+  BOOL loadInBackground = ((GetCurrentKeyModifiers() & shiftKey) != 0);
   NSString* urlStr = [[mBrowserView getBrowserView] getCurrentURI];
-  [self loadSourceOfURL:urlStr];
+  [self loadSourceOfURL:urlStr inBackground:loadInBackground];
 }
 
 - (IBAction)printDocument:(id)aSender
@@ -3367,89 +3497,13 @@ enum BWCOpenDest {
 }
 
 //
-// buildPopupBlockerMenu:
-//
-// Called by the notification center right before the menu will be displayed. This
-// allows us the opportunity to populate its contents from the list of sites
-// in the block list.
-//
-- (void)buildPopupBlockerMenu:(NSNotification*)notifier
-{
-  const long kSeparatorTag = -1;
-  NSPopUpButton* popup = [notifier object];
-  
-  // clear out existing menu. loop until we hit our special tag
-  int numItemsToDelete = [popup indexOfItemWithTag:kSeparatorTag];
-  for ( int i = 0; i < numItemsToDelete; ++i ) 
-    [popup removeItemAtIndex:0];
-    
-  // the first item will get swallowed by the popup
-  [popup insertItemWithTitle:@"" atIndex:0];
-  
-  // fill in new menu
-  nsCOMPtr<nsISupportsArray> blockedSites;
-  [[self getBrowserWrapper] getBlockedSites:getter_AddRefs(blockedSites)];
-  PRUint32 siteCount = 0;
-  blockedSites->Count(&siteCount);
-  for ( PRUint32 i = 0, insertAt = 1; i < siteCount; ++i ) {
-    nsCOMPtr<nsISupports> genericURI = dont_AddRef(blockedSites->ElementAt(i));
-    nsCOMPtr<nsIURI> uri = do_QueryInterface(genericURI);
-    if ( uri ) {
-      // extract the host
-      nsCAutoString host;
-      uri->GetHost(host);
-      NSString* hostString = [NSString stringWithCString:host.get()];      
-      NSString* itemTitle = [NSString stringWithFormat:NSLocalizedString(@"Unblock %@", @"Unblock %@"), hostString];
-
-      // ensure that duplicate hosts aren't inserted
-      if ([popup indexOfItemWithTitle:itemTitle] == -1) {
-        // create a new menu item and set its tag to the position in the menu so
-        // the action can know which site we want to unblock. Insert it at |i+1|
-        // because we had to pad with one item above, but set the tag to |i| because
-        // that's the index in the array.
-        [popup insertItemWithTitle:itemTitle atIndex:insertAt];
-        NSMenuItem* currItem = [popup itemAtIndex:insertAt];
-        [currItem setAction:@selector(unblockSite:)];
-        [currItem setTarget:self];
-        [currItem setTag:i];
-        ++insertAt;              // only increment insert pos if we inserted something
-      }
-    }
-  }
-}
-
-//
-// unblockSite:
-//
-// Called in response to an item in the unblock popup menu being selected to
-// add a particular site to the popup whitelist. We assume that the tag of
-// the sender is the index into the blocked sites array stores in the browser 
-// wrapper to get the nsURI.
-//
-- (IBAction)unblockSite:(id)sender
-{
-  nsCOMPtr<nsISupportsArray> blockedSites;
-  [[self getBrowserWrapper] getBlockedSites:getter_AddRefs(blockedSites)];
-
-  // get the tag from the sender and use that as the index into the list
-  long tag = [sender tag];
-  if ( tag >= 0 ) {
-    nsCOMPtr<nsISupports> genUri = dont_AddRef(blockedSites->ElementAt(tag));
-    nsCOMPtr<nsIURI> uri = do_QueryInterface(genUri);
-
-    nsCOMPtr<nsIPermissionManager> pm ( do_GetService(NS_PERMISSIONMANAGER_CONTRACTID) );
-    pm->Add(uri, "popup", nsIPermissionManager::ALLOW_ACTION);
-  }
-}
-
-//
 // - unblockAllSites:
 //
 // Called in response to the menu item from the unblock popup. Loop over all
 // the items in the blocked sites array in the browser wrapper and add them
 // to the whitelist.
 //
-- (IBAction)unblockAllSites:(id)sender
+- (void)unblockAllSites:(nsISupportsArray*)sender
 {
   nsCOMPtr<nsISupportsArray> blockedSites;
   [[self getBrowserWrapper] getBlockedSites:getter_AddRefs(blockedSites)];
@@ -3462,16 +3516,6 @@ enum BWCOpenDest {
     nsCOMPtr<nsIURI> uri = do_QueryInterface(genUri);
     pm->Add(uri, "popup", nsIPermissionManager::ALLOW_ACTION);   
   }
-}
-
-// -configurePopupBlocking
-//
-// Show the web features pref panel where the user can do things to configure
-// popup blocking
-- (IBAction)configurePopupBlocking:(id)sender
-{
-  [[MVPreferencesController sharedInstance] showPreferences:nil];
-  [[MVPreferencesController sharedInstance] selectPreferencePaneByIdentifier:@"org.mozilla.camino.preference.webfeatures"];
 }
 
 // updateLock:

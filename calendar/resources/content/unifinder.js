@@ -146,6 +146,7 @@ var unifinderObserver = {
         return this;
     },
 
+    // calIObserver:
     onStartBatch: function() {
         this.mInBatch = true;
     },
@@ -170,8 +171,9 @@ var unifinderObserver = {
             refreshEventTree();
     },
     onAlarm: function(aAlarmItem) {},
-    onError: function(aMessage) {},
-
+    onError: function(aErrNo, aMessage) {},
+    
+    // calICompositeObserver:
     onCalendarAdded: function(aDeletedItem) {
         if (!this.mInBatch)
             refreshEventTree();
@@ -208,6 +210,10 @@ function prepareCalendarUnifinder( )
 
    kDefaultTimezone = calendarDefaultTimezone();
 
+   // Listen for changes in the selected day, so we can update if need be
+   var viewDeck = document.getElementById("view-deck")
+   viewDeck.addEventListener("dayselect", unifinderOnDaySelect, false);
+
    refreshEventTree(); //Display something upon first load. onLoad doesn't work properly for observers
 }
 
@@ -219,6 +225,13 @@ function finishCalendarUnifinder( )
 {
    var ccalendar = getDisplayComposite();
    ccalendar.removeObserver(unifinderObserver);
+}
+
+function unifinderOnDaySelect() {
+    var filterList = document.getElementById("event-filter-menulist");
+    if (filterList.selectedItem.value == "current") {
+        refreshEventTree();
+    }
 }
 
 /**

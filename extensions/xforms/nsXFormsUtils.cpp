@@ -595,7 +595,7 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
                                                     getter_AddRefs(instance));
                 NS_ENSURE_SUCCESS(rv, rv);
                 nsCOMPtr<nsIDOMDocument> domdoc;
-                instance->GetDocument(getter_AddRefs(domdoc));
+                instance->GetInstanceDocument(getter_AddRefs(domdoc));
                 nsCOMPtr<nsIDOMElement> instanceDataEle;
                 nsCOMPtr<nsIDOMNode> childReturn;
                 rv = domdoc->CreateElementNS(namespaceURI, expr,
@@ -614,6 +614,9 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
                                   contextPosition, contextSize, aDeps,
                                   aIndexesUsed);
             } else {
+                const PRUnichar *strings[] = { expr.get() };
+                nsXFormsUtils::ReportError(NS_LITERAL_STRING("invalidQName"),
+                                           strings, 1, aElement, aElement);
               nsXFormsUtils::DispatchEvent(aElement, eEvent_BindingException);
             }
           }

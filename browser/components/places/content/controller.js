@@ -39,39 +39,6 @@ function LOG(str) {
   dump("*** " + str + "\n");
 }
 
-var gTraceOnAssert = true;
-
-// XXXben - develop this further into a multi-purpose assertion system. 
-function ASSERT(condition, message) {
-  if (!condition) {
-    var caller = arguments.callee.caller;
-    var str = "ASSERT: ";
-    str += message;
-    LOG(str);
-    var assertionText = str + "\n";
-    
-    var stackText = "Stack Trace: \n";
-    if (gTraceOnAssert) {
-      var count = 0;
-      while (caller) {
-        stackText += count++ + ":" + caller.name + "(";
-        for (var i = 0; i < caller.arguments.length; ++i) {
-          var arg = caller.arguments[i];
-          stackText += arg;
-          if (i < caller.arguments.length - 1)
-            stackText += ",";
-        }
-        stackText += ")\n";
-        caller = caller.arguments.callee.caller;
-      }
-    }
-    var ps = 
-        Cc["@mozilla.org/embedcomp/prompt-service;1"].
-        getService(Ci.nsIPromptService);
-    ps.alert(window, "Assertion Failed", assertionText + stackText);
-  }
-}
-
 const Ci = Components.interfaces;
 const Cc = Components.classes;
 const Cr = Components.results;
@@ -85,6 +52,11 @@ const SELECTION_IS_CLOSED_CONTAINER = 0x08;
 const SELECTION_IS_CHANGEABLE = 0x10;
 const SELECTION_IS_REMOVABLE = 0x20;
 const SELECTION_IS_MOVABLE = 0x40;
+
+// These need to be kept in sync with the meaning of these roots in 
+// default_places.html!
+const ORGANIZER_ROOT_HISTORY = "place:&beginTime=-2592000000000&beginTimeRef=1&endTime=7200000000&endTimeRef=2&sort=4&type=1";
+const ORGANIZER_ROOT_BOOKMARKS = "place:&folder=2&group=3&excludeItems=1";
 
 // Place entries that are containers, e.g. bookmark folders or queries. 
 const TYPE_X_MOZ_PLACE_CONTAINER = "text/x-moz-place-container";
@@ -118,8 +90,6 @@ const NEWLINE= "\n";
 const NEWLINE = "\r\n";
 #endif
 
-const MENU_URI = "chrome://browser/content/places/menu.xml#places-menupopup";
-
 function STACK(args) {
   var temp = arguments.callee.caller;
   while (temp) {
@@ -147,23 +117,6 @@ function InsertionPoint(folderId, index, orientation) {
   this.index = index;
   this.orientation = orientation;
 }
-
-/**
- * Initialization Configuration for a View
- * @constructor
- */
-function ViewConfig(dropTypes, dropOnTypes, excludeItems, 
-                    expandQueries, firstDropIndex, filterTransactions) {
-  this.dropTypes = dropTypes;
-  this.dropOnTypes = dropOnTypes;
-  this.excludeItems = excludeItems;
-  this.expandQueries = expandQueries;
-  this.firstDropIndex = firstDropIndex;
-  this.filterTransactions = filterTransactions;
-}
-ViewConfig.GENERIC_DROP_TYPES = [TYPE_X_MOZ_PLACE_CONTAINER,
-                                 TYPE_X_MOZ_PLACE_SEPARATOR, TYPE_X_MOZ_PLACE,
-                                 TYPE_X_MOZ_URL];
 
 /**
  * Manages grouping options for a particular view type. 
@@ -247,7 +200,7 @@ function QI_node(node, iid) {
   }
   catch (e) {
   }
-  ASSERT(result, "Node QI Failed");
+  NS_ASSERT(result, "Node QI Failed");
   return result;
 }
 function asFolder(node)   { return QI_node(node, Ci.nsINavHistoryFolderResultNode);   }
@@ -255,6 +208,64 @@ function asVisit(node)    { return QI_node(node, Ci.nsINavHistoryVisitResultNode
 function asFullVisit(node){ return QI_node(node, Ci.nsINavHistoryFullVisitResultNode);}
 function asContainer(node){ return QI_node(node, Ci.nsINavHistoryContainerResultNode);}
 function asQuery(node)    { return QI_node(node, Ci.nsINavHistoryQueryResultNode);    }
+
+/** 
+ * A View Configuration
+ */
+function ViewConfig(peerDropTypes, childDropTypes, excludeItems, expandQueries,
+                    peerDropIndex) {
+  this.peerDropTypes = peerDropTypes;
+  this.childDropTypes = childDropTypes;
+  this.excludeItems = excludeItems;
+  this.expandQueries = expandQueries;
+  this.peerDropIndex = peerDropIndex;
+}
+ViewConfig.GENERIC_DROP_TYPES = 
+  [TYPE_X_MOZ_PLACE_CONTAINER,
+   TYPE_X_MOZ_PLACE_SEPARATOR, 
+   TYPE_X_MOZ_PLACE,
+   TYPE_X_MOZ_URL];
+
+/**
+ * Configures Views, applying some meta-model rules. These rules are model-like,
+ * e.g. must apply everwhere a model is instantiated, but are not actually stored
+ *      in the data model itself. For example, you can't drag leaf items onto the
+ *      places root. This needs to be enforced automatically everywhere a view of
+ *      that model is instantiated. 
+ */
+var ViewConfigurator = {
+  rules: { 
+    "folder=1": new ViewConfig([TYPE_X_MOZ_PLACE_CONTAINER], 
+                               ViewConfig.GENERIC_DROP_TYPES,
+                               true, false, 4)
+  },
+  
+  /**
+   * Applies rules to a specific view. 
+   */
+  configure: function PC_configure(view) {
+    // Determine what place the view is showing.
+    var place = view.place;
+    
+    // Find a ruleset that matches the current place.
+    var rules = null;
+    for (var test in this.rules) {
+      if (place.indexOf(test) != -1) {
+        rules = this.rules[test];
+        break;
+      }
+    }
+    
+    // If rules are found, apply them. 
+    if (rules) {
+      view.peerDropTypes = rules.peerDropTypes;
+      view.childDropTypes = rules.childDropTypes;
+      view.excludeItems = rules.excludeItems;
+      view.expandQueries = rules.expandQueries;
+      view.peerDropIndex = rules.peerDropIndex;
+    }
+  }
+};
 
 /**
  * The Master Places Controller
@@ -312,14 +323,17 @@ var PlacesController = {
     return this._livemarks;
   },
 
-  /** UI Text Strings */
-
-  __strings: null,
-  get _strings() {
-    if (!this.__strings) {
-      this.__strings = document.getElementById("placeBundle");
+  /**
+   * The Annotations Service.
+   */
+  _annotations: null,
+  get annotations() {
+    if (!this._annotations) {
+      this._annotations = 
+        Cc["@mozilla.org/browser/annotation-service;1"].
+        getService(Ci.nsIAnnotationService);
     }
-    return this.__strings;
+    return this._annotations;
   },
 
   /**
@@ -349,20 +363,6 @@ var PlacesController = {
   },
   
   /**
-   * Gets a place: URI for the given queries and options. 
-   * @param   queries
-   *          An array of NavHistoryQueries
-   * @param   options
-   *          A NavHistoryQueryOptions object
-   * @returns A place: URI encoding the parameters. 
-   */
-  getPlaceURI: function PC_getPlaceURI(queries, options) {
-    var queryString = this.history.queriesToQueryString(queries, queries.length,
-                                                      options);
-    return this._uri(queryString);
-  },
-  
-  /**
    * The currently active Places view. 
    */
   _activeView: null,
@@ -385,20 +385,6 @@ var PlacesController = {
         createInstance(Ci.nsITransactionManager);
     }
     return this._tm;
-  },
-  
-  /**
-   * The current groupable Places view. This is tracked independently of the 
-   * |activeView| because the activeView may change to something that isn't
-   * groupable, but clicking the Grouping buttons should still work. 
-   */
-  _groupableView: null,
-  get groupableView() {
-    return this._groupableView;
-  },
-  set groupableView(groupableView) {
-    this._groupableView = groupableView;
-    return this._groupableView;
   },
   
   isCommandEnabled: function PC_isCommandEnabled(command) {
@@ -460,7 +446,7 @@ var PlacesController = {
    *          false otherwise. 
    */
   _hasRemovableSelection: function PC__hasRemovableSelection() {
-    ASSERT(this._activeView, "No active view - cannot paste!");
+    NS_ASSERT(this._activeView, "No active view - cannot paste!");
     if (!this._activeView)
       return false;
     var nodes = this._activeView.getSelectionNodes();
@@ -479,7 +465,7 @@ var PlacesController = {
    *          view, false otherwise. 
    */
   _hasClipboardData: function PC__hasClipboardData() {
-    var types = this._activeView.supportedDropTypes;
+    var types = this._activeView.peerDropTypes;
     var flavors = 
         Cc["@mozilla.org/supports-array;1"].
         createInstance(Ci.nsISupportsArray);
@@ -501,7 +487,7 @@ var PlacesController = {
    * Determines whether or not nodes can be inserted relative to the selection.
    */
   _canInsert: function PC__canInsert() {
-    ASSERT(this._activeView, "No active view - cannot insert!");
+    NS_ASSERT(this._activeView, "No active view - cannot insert!");
     if (!this._activeView)
       return false;
     var nodes = this._activeView.getSelectionNodes();
@@ -530,7 +516,7 @@ var PlacesController = {
    * @returns true if the node is a Bookmark folder, false otherwise
    */
   nodeIsFolder: function PC_nodeIsFolder(node) {
-    ASSERT(node, "null node");
+    NS_ASSERT(node, "null node");
     return (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER);
   },
   
@@ -541,7 +527,7 @@ var PlacesController = {
    * @returns true if the node is a Bookmark separator, false otherwise
    */
   nodeIsSeparator: function PC_nodeIsSeparator(node) {
-    ASSERT(node, "null node");
+    NS_ASSERT(node, "null node");
     return (node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_SEPARATOR);
   },
 
@@ -552,7 +538,7 @@ var PlacesController = {
    * @returns true if the node is a URL item, false otherwise
    */
   nodeIsURI: function PC_nodeIsURI(node) {
-    ASSERT(node, "null node");
+    NS_ASSERT(node, "null node");
     const NHRN = Ci.nsINavHistoryResultNode;
     return node.type == NHRN.RESULT_TYPE_URI ||
            node.type == NHRN.RESULT_TYPE_VISIT ||
@@ -566,7 +552,7 @@ var PlacesController = {
    * @returns true if the node is a Query item, false otherwise
    */
   nodeIsQuery: function PC_nodeIsQuery(node) {
-    ASSERT(node, "null node");
+    NS_ASSERT(node, "null node");
     return node.type == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY;
   },
   
@@ -578,7 +564,7 @@ var PlacesController = {
    * @returns true if the node is readonly, false otherwise
    */
   nodeIsReadOnly: function PC_nodeIsReadOnly(node) {
-    ASSERT(node, "null node");
+    NS_ASSERT(node, "null node");
     if (this.nodeIsFolder(node))
       return this.bookmarks.getFolderReadonly(asFolder(node).folderId);
     else if (this.nodeIsQuery(node))
@@ -618,14 +604,9 @@ var PlacesController = {
    */
   nodeIsRemoteContainer: function PC_nodeIsRemoteContainer(node) {
     const NHRN = Ci.nsINavHistoryResultNode;
-    if (node.type == NHRN.RESULT_TYPE_REMOTE_CONTAINER)
-      return true;
-    if (node.type == NHRN.RESULT_TYPE_FOLDER)
-      return asFolder(node).folderType != "";
-    
-    return false;
+    return (node.type == NHRN.RESULT_TYPE_REMOTE_CONTAINER);
   },
-  
+
   /**
    * Updates commands on focus/selection change to reflect the enabled/
    * disabledness of commands in relation to the state of the selection. 
@@ -663,7 +644,6 @@ var PlacesController = {
       this.nodeIsFolder(this._activeView.selectedNode);
     this._setEnabled("placesCmd_open:tabs", 
       singleFolderSelected || !hasSingleSelection);
-    this._setEnabled("placesCmd_open:tabsEnabled", true); // Always on
     
     // Some views, like menupopups, destroy their result as they hide, but they
     // are still the "last-active" view. Don't barf. 
@@ -719,7 +699,7 @@ var PlacesController = {
            node.type != Ci.nsINavHistoryResultNode.RESULT_TYPE_REMOTE_CONTAINER)
         metadata["mutable"] = true;
     }
-    if (this._activeView.getAttribute("seltype") != "single")
+    if (this._activeView.selType != "single")
       metadata["multiselect"] = true;
     if (!foundNonLeaf && nodes.length > 1)
       metadata["links"] = true;
@@ -794,7 +774,7 @@ var PlacesController = {
   mouseLoadURI: function PC_mouseLoadURI(event) {
     var node = this._activeView.selectedURINode;
     if (node)
-      this._activeView.browserWindow.openUILink(node.uri, event, false, false);
+      this.browserWindow.openUILink(node.uri, event, false, false);
   },
 
   /**
@@ -802,11 +782,14 @@ var PlacesController = {
    */
   showBookmarkPropertiesForSelection: 
   function PC_showBookmarkPropertiesForSelection() {
-    var node = this._activeView.selectedURINode;
-    if (!node || !node.uri) 
+    var node = this._activeView.selectedNode;
+    if (!node)
       return;
 
-    this.showBookmarkProperties(this._uri(node.uri));
+    if (this.nodeIsFolder(node))
+      this.showFolderProperties(asFolder(node).folderId);
+    else if (node.uri)
+      this.showBookmarkProperties(this._uri(node.uri));
   },
 
   /**
@@ -814,27 +797,60 @@ var PlacesController = {
    * receive a string instead of an nsIURI object.
    */
   _assertURINotString: function PC__assertURINotString(value) {
-    ASSERT((typeof(value) == "object") && !(value instanceof String), 
+    NS_ASSERT((typeof(value) == "object") && !(value instanceof String), 
            "This method should be passed a URI as a nsIURI object, not as a string.");
+  },
+ 
+  /**
+   * Show an "Add Bookmark" dialog for the specified URI.
+   *
+   * @param uri an nsIURI object for which the "add bookmark" dialog is
+   *            to be shown.
+   */
+  showAddBookmarkUI: function PC_showAddBookmarkUI(uri) {
+    this._showBookmarkDialog(uri, "add");
   },
 
   /**
-   * Opens the bookmark properties panel for a given bookmarked URI.
+   * Opens the bookmark properties panel for a given URI.
    *
-   * @param   bookmarkURI  
-   *          A nsIURI object representing a bookmarked URI
+   * @param   uri an nsIURI object for which the properties are to be shown
    */
-  showBookmarkProperties: function PC_showBookmarkProperties(bookmarkURI) {
-    this._assertURINotString(bookmarkURI);
-    ASSERT(this.bookmarks.isBookmarked(bookmarkURI), 
-           "showBookmarkProperties() was called on a URI that hadn't been bookmarked: " + bookmarkURI.spec);
+  showBookmarkProperties: function PC_showBookmarkProperties(uri) {
+    this._showBookmarkDialog(uri, "edit");
+  },
 
-    if (!this.bookmarks.isBookmarked(bookmarkURI))
-      return;
+  /**
+   * Opens the folder properties panel for a given folder ID.
+   *
+   * @param folderid   an integer representing the ID of the folder to edit
+   * @returns none
+   */
+  showFolderProperties: function PC_showFolderProperties(folderId) {
+    NS_ASSERT(typeof(folderId)=="number",
+              "showFolderProperties received a non-numerical value for its folderId parameter");
+    this._showBookmarkDialog(folderId, "edit");
+  },
+
+  /**
+   * Shows the bookmark dialog corresponding to the specified user action.
+   * This is an implementation function, and shouldn't be called directly;
+   * rather, use the specific variant above that corresponds to your situation.
+   *
+   * @param identifier   the URI or folder ID to show the dialog for
+   * @param action "add" or "edit", see _determineVariant in 
+   *               bookmarkProperties.js
+   */
+  _showBookmarkDialog: function PC__showBookmarkDialog(identifier, action) {
+    // The identifier parameter can be either an integer (for folders) or
+    // a nsIURI object (for bookmarks/history items); if it isn't a number
+    // here, we're going to make sure it's a URI object rather than a string.
+    if (typeof(identifier) != "number")
+      this._assertURINotString(identifier);
 
     window.openDialog("chrome://browser/content/places/bookmarkProperties.xul",
                       "", "width=600,height=400,chrome,dependent,modal,resizable",
-                      bookmarkURI, this);
+                      identifier, this, action);
   },
 
   /**
@@ -843,12 +859,10 @@ var PlacesController = {
    * URI with the new URI in each applicable folder, then copies the
    * metadata from the old URI to the new URI.
    */
-  /* NOTE(jhughes): don't use yet; UI doesn't update correctly 2006-03-04
-                    see bug 329524 */
   changeBookmarkURI: function PC_changeBookmarkProperties(oldURI, newURI) {
     this._assertURINotString(oldURI);
     this._assertURINotString(newURI);
-    ASSERT(this.bookmarks.isBookmarked(oldURI));
+    NS_ASSERT(this.bookmarks.isBookmarked(oldURI));
 
     if (oldURI.spec == newURI.spec) 
       return;
@@ -862,7 +876,20 @@ var PlacesController = {
                                 this.bookmarks.getItemTitle(oldURI));
     this.bookmarks.setKeywordForURI(newURI, 
                                     this.bookmarks.getKeywordForURI(oldURI));
+    LOG("TODO: move annotations over\n");
+    /*
+    this.annotations.copyAnnotations(oldURI, newURI, true);
+    this.annotations.removePageAnnotations(oldURI);
+    */
+
     this.bookmarks.endUpdateBatch();
+  },
+  
+  get browserWindow() {
+    var wm = 
+        Cc["@mozilla.org/appshell/window-mediator;1"].
+        getService(Ci.nsIWindowMediator);
+    return wm.getMostRecentWindow("navigator:browser");
   },
 
   /**
@@ -871,7 +898,7 @@ var PlacesController = {
   openLinkInNewTab: function PC_openLinkInNewTab() {
     var node = this._activeView.selectedURINode;
     if (node)
-      this._activeView.browserWindow.openNewTabWith(node.uri, null, null);
+      this.browserWindow.openNewTabWith(node.uri, null, null);
   },
 
   /**
@@ -880,7 +907,7 @@ var PlacesController = {
   openLinkInNewWindow: function PC_openLinkInNewWindow() {
     var node = this._activeView.selectedURINode;
     if (node)
-      this._activeView.browserWindow.openNewWindowWith(node.uri, null, null);
+      this.browserWindow.openNewWindowWith(node.uri, null, null);
   },
 
   /**
@@ -889,7 +916,7 @@ var PlacesController = {
   openLinkInCurrentWindow: function PC_openLinkInCurrentWindow() {
     var node = this._activeView.selectedURINode;
     if (node)
-      this._activeView.browserWindow.loadURI(node.uri, null, null);
+      this.browserWindow.loadURI(node.uri, null, null);
   },
   
   /**
@@ -898,141 +925,79 @@ var PlacesController = {
   openLinksInTabs: function PC_openLinksInTabs() {
     var node = this._activeView.selectedNode;
     if (this._activeView.hasSingleSelection && this.nodeIsFolder(node)) {
+      // Check prefs to see whether to open over existing tabs.
+      var doReplace = getBoolPref("browser.tabs.loadFolderAndReplace");
+      var loadInBackground = getBoolPref("browser.tabs.loadBookmarksInBackground");
+      // Get the start index to open tabs at
+      var browser = this.browserWindow.getBrowser();
+      var tabPanels = browser.browsers;
+      var tabCount = tabPanels.length;
+      var firstIndex;
+      // If browser.tabs.loadFolderAndReplace pref is set, load over all the
+      // tabs starting with the first one.
+      if (doReplace)
+        firstIndex = 0;
+      // If the pref is not set, only load over the blank tabs at the end, if any.
+      else {
+        for (firstIndex = tabCount - 1; firstIndex >= 0; --firstIndex)
+          if (browser.browsers[firstIndex].currentURI.spec != "about:blank")
+            break;
+        ++firstIndex;
+      }
+
+      // Open each uri in the folder in a tab.
+      var index = firstIndex;
       asFolder(node);
       var wasOpen = node.containerOpen;
       node.containerOpen = true;
       var cc = node.childCount;
       for (var i = 0; i < cc; ++i) {
         var childNode = node.getChild(i);
-        if (this.nodeIsURI(childNode))
-          this._activeView.browserWindow.openNewTabWith(childNode.uri,
-              null, null);
+        if (this.nodeIsURI(childNode)) {
+          // If there are tabs to load over, load the uri into the next tab.
+          if (index < tabCount)
+            tabPanels[index].loadURI(childNode.uri);
+          // Otherwise, create a new tab to load the uri into.
+          else
+            browser.addTab(childNode.uri);
+          ++index;
+        }
       }
       node.containerOpen = wasOpen;
+      
+      // If no bookmarks were loaded, just bail.
+      if (index == firstIndex)
+        return;
+
+      // focus the first tab if prefs say to
+      if (!loadInBackground || doReplace) {
+        // Select the first tab in the group.
+        // Set newly selected tab after quick timeout, otherwise hideous focus problems
+        // can occur because new presshell is not ready to handle events
+        function selectNewForegroundTab(browser, tab) {
+          browser.selectedTab = tab;
+        }
+        var tabs = browser.mTabContainer.childNodes;
+        setTimeout(selectNewForegroundTab, 0, browser, tabs[firstIndex]);
+      }
+
+      // Close any remaining open tabs that are left over.
+      // (Always skipped when we append tabs)
+      for (var i = tabCount - 1; i >= index; --i)
+        browser.removeTab(tabs[i]);
+
+      // and focus the content
+      this.browserWindow.content.focus();
+
     }
     else {
       var nodes = this._activeView.getSelectionNodes();
       for (var i = 0; i < nodes.length; ++i) {
         if (this.nodeIsURI(nodes[i]))
-          this._activeView.browserWindow.openNewTabWith(nodes[i].uri,
+          this.browserWindow.openNewTabWith(nodes[i].uri,
               null, null);
       }
     }
-  },
-  
-  /**
-   * Loads the contents of a query node into a view with the specified grouping
-   * and sort options.
-   * @param   view
-   *          The tree view to load the contents of the node into
-   * @param   node
-   *          The node to load the contents of
-   * @param   groupings
-   *          Groupings to be applied to the displayed contents, [] for no 
-   *          grouping
-   * @param   sortingMode
-   *          The sorting mode to be applied to the displayed contents. 
-   */
-  loadNodeIntoView: function PC_loadQueries(view, node, groupings, sortingMode) {
-    ASSERT(view, "Must have a view to load node contents into!");
-    asQuery(node);
-    var queries = node.getQueries({ });
-    var newQueries = [];
-    for (var i = 0; i < queries.length; ++i) {
-      var query = queries[i].clone();
-      newQueries.push(query);
-    }
-    var newOptions = node.queryOptions.clone();
-    
-    // Update the grouping mode only after persisting, so that the URI is not 
-    // changed. 
-    var e = new Error();
-    newOptions.setGroupingMode(groupings, groupings.length);
-    
-    // Set the sort order of the results
-    newOptions.sortingMode = sortingMode;
-    
-    // Reload the view 
-    view.load(newQueries, newOptions);
-  },
-  
-  
-  /**
-   * A hash of groupers that supply grouping options for queries of a given 
-   * type. This is an override of grouping options that might be encoded in
-   * a saved place: URI
-   */
-  groupers: { },
-  
-  /**
-   * Rebuilds the view using a new set of grouping options.
-   * @param   groupings
-   *          An array of grouping options, see nsINavHistoryQueryOptions
-   *          for details.
-   * @param   sortingMode
-   *          The type of sort that should be applied to the results.
-   */
-  setGroupingMode: function PC_setGroupingMode(groupings, sortingMode) {
-    if (!this._groupableView)
-      return;
-    var node = this._groupableView.getResult().root;
-    this.loadNodeIntoView(this._groupableView, node, groupings, sortingMode);
-
-    // Persist this selection
-    if (this._groupableView.isBookmarks && "bookmark" in this.groupers)
-      this.groupers.bookmark.value = groupings;
-    else if ("generic" in this.groupers)
-      this.groupers.generic.value = groupings;
-  },
-  
-  /**
-   * Group the current content view by domain
-   */
-  groupBySite: function PC_groupBySite() {
-    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_DOMAIN];
-    var sortMode = Ci.nsINavHistoryQueryOptions.SORT_BY_TITLE_ASCENDING;
-    this.setGroupingMode(groupings, sortMode);
-  },
-  
-  /**
-   * Group the current content view by folder
-   */
-  groupByFolder: function PC_groupByFolder() {
-    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
-    var sortMode = Ci.nsINavHistoryQueryOptions.SORT_BY_NONE;
-    this.setGroupingMode(groupings, sortMode);
-  },
-  
-  /**
-   * Ungroup the current content view (i.e. show individual pages)
-   */
-  groupByPage: function PC_groupByPage() {
-    this.setGroupingMode([], 
-      Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING);
-  },
-  
-  /**
-   * Loads all results matching a certain annotation, grouped and sorted as 
-   * specified.
-   * @param   annotation
-   *          The annotation to match
-   * @param   groupings
-   *          The grouping to apply to the displayed results
-   * @param   sortingMode
-   *          The sorting to apply to the displayed results
-   */
-  groupByAnnotation: 
-  function PC_groupByAnnotation(annotation, groupings, sortingMode) {
-    ASSERT(this._groupableView, "Need a groupable view to load!");
-    if (!this._groupableView)
-      return;
-    var query = this.history.getNewQuery();
-    var options = this.history.getNewQueryOptions();
-    options.setGroupingMode(groupings, groupings.length);
-    options.sortingMode = sortingMode;
-    query.annotation = annotation;
-    this.groupableView.load([query], options);
-    LOG("CS: " + this.history.queriesToQueryString([query], 1, options));
   },
   
   /**
@@ -1079,7 +1044,7 @@ var PlacesController = {
    *          An array of transactions.
    */
   _removeRange: function PC__removeRange(range, transactions) {
-    ASSERT(transactions instanceof Array, "Must pass a transactions array");
+    NS_ASSERT(transactions instanceof Array, "Must pass a transactions array");
     var index = this.getIndexOfNode(range[0]);
     
     // Walk backwards to preserve insertion order on undo
@@ -1143,7 +1108,7 @@ var PlacesController = {
    *          as part of another operation.
    */
   remove: function PC_remove(txnName) {
-    ASSERT(txnName !== undefined, "Must supply Transaction Name");
+    NS_ASSERT(txnName !== undefined, "Must supply Transaction Name");
     this._activeView.saveSelection(this._activeView.SAVE_SELECTION_REMOVE);
 
     // Delete the selected rows. Do this by walking the selection backward, so
@@ -1590,9 +1555,9 @@ var PlacesControllerDragHelper = {
     var session = this.getSession();
     if (session) {
       if (orientation != NHRVO.DROP_ON)
-        var types = view.supportedDropTypes;
+        var types = view.peerDropTypes;
       else
-        types = view.supportedDropOnTypes;
+        types = view.childDropTypes;
       for (var i = 0; i < types.length; ++i) {
         if (session.isDataFlavorSupported(types[i]))
           return true;
@@ -1617,9 +1582,9 @@ var PlacesControllerDragHelper = {
         Cc["@mozilla.org/widget/transferable;1"].
         createInstance(Ci.nsITransferable);
     if (orientation != NHRVO.DROP_ON) 
-      var types = view.supportedDropTypes;
+      var types = view.peerDropTypes;
     else
-      types = view.supportedDropOnTypes;    
+      types = view.childDropTypes;    
     for (var j = 0; j < types.length; ++j)
       xferable.addDataFlavor(types[j]);
     return xferable;
@@ -1681,8 +1646,6 @@ PlacesBaseTransaction.prototype = {
     throw Cr.NS_ERROR_NOT_IMPLEMENTED;
   },
   
-  pageTransaction: false,
-  
   get isTransient() {
     return false;
   },
@@ -1699,8 +1662,6 @@ function PlacesAggregateTransaction(name, transactions) {
   this._transactions = transactions;
   this._name = name;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesAggregateTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype,
@@ -1734,8 +1695,6 @@ function PlacesCreateFolderTransaction(name, container, index) {
   this._index = index;
   this._id = null;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesCreateFolderTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype,
@@ -1759,8 +1718,6 @@ function PlacesCreateItemTransaction(uri, container, index) {
   this._container = container;
   this._index = index;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesCreateItemTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype,
@@ -1802,15 +1759,13 @@ PlacesInsertSeparatorTransaction.prototype = {
  * Move a Folder
  */
 function PlacesMoveFolderTransaction(id, oldContainer, oldIndex, newContainer, newIndex) {
-  ASSERT(!isNaN(id + oldContainer + oldIndex + newContainer + newIndex), "Parameter is NaN!");
+  NS_ASSERT(!isNaN(id + oldContainer + oldIndex + newContainer + newIndex), "Parameter is NaN!");
   this._id = id;
   this._oldContainer = oldContainer;
   this._oldIndex = oldIndex;
   this._newContainer = newContainer;
   this._newIndex = newIndex;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesMoveFolderTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype,
@@ -1836,8 +1791,6 @@ function PlacesMoveItemTransaction(uri, oldContainer, oldIndex, newContainer, ne
   this._newContainer = newContainer;
   this._newIndex = newIndex;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesMoveItemTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype,
@@ -1894,8 +1847,6 @@ function PlacesRemoveFolderTransaction(id, oldContainer, oldIndex) {
   this._oldFolderTitle = null;
   this._contents = null; // The encoded contents of this folder
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesRemoveFolderTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype, 
@@ -1973,8 +1924,6 @@ function PlacesRemoveItemTransaction(uri, oldContainer, oldIndex) {
   this._oldContainer = oldContainer;
   this._oldIndex = oldIndex;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesRemoveItemTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype, 
@@ -1982,13 +1931,11 @@ PlacesRemoveItemTransaction.prototype = {
   doTransaction: function PRIT_doTransaction() {
     LOG("Remove Item: " + this._uri.spec + " from: " + this._oldContainer + "," + this._oldIndex);
     this.bookmarks.removeItem(this._oldContainer, this._uri);
-    LOG("DO: PAGETXN: " + this.pageTransaction);
   },
   
   undoTransaction: function PRIT_undoTransaction() {
     LOG("UNRemove Item: " + this._uri.spec + " from: " + this._oldContainer + "," + this._oldIndex);
     this.bookmarks.insertItem(this._oldContainer, this._uri, this._oldIndex);
-    LOG("UNDO: PAGETXN: " + this.pageTransaction);
   }
 };
 
@@ -2021,8 +1968,6 @@ function PlacesEditFolderTransaction(id, oldAttributes, newAttributes) {
   this._oldAttributes = oldAttributes;
   this._newAttributes = newAttributes;
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesEditFolderTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype, 
@@ -2046,8 +1991,6 @@ function PlacesEditItemTransaction(uri, newAttributes) {
   this._newAttributes = newAttributes;
   this._oldAttributes = { };
   this.redoTransaction = this.doTransaction;
-  this.pageTransaction = PlacesController.activeView.filterTransactions;
-  ASSERT(this.pageTransaction !== undefined, "Don't know if this transaction must be filtered");
 }
 PlacesEditItemTransaction.prototype = {
   __proto__: PlacesBaseTransaction.prototype, 
@@ -2076,31 +2019,3 @@ PlacesEditItemTransaction.prototype = {
     }
   }
 };
-/*
- 
- AVI rules:
- 
- readonly attribute boolean hasSelection;
- readonly attribute boolean hasSingleSelection;
- readonly attribute boolean selectionIsContainer;
- readonly attribute boolean containerIsOpen;
- void getSelectedNodes([retval, array, size_is(nodeCount)] out nodes, out nodeCount);
- 
- selection flags
-
- flags:
-   SELECTION_CONTAINS_URI
-   SELECTION_CONTAINS_CONTAINER_OPEN
-   SELECTION_CONTAINS_CONTAINER_CLOSED
-   SELECTION_CONTAINS_CHANGEABLE
-   SELECTION_CONTAINS_REMOVABLE
-   SELECTION_CONTAINS_MOVABLE 
- 
- Given a:
-   - view, via AVI
-   - query
-   - query options
-   
- Determine the state of commands!
-
-*/

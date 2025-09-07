@@ -1,4 +1,4 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -46,8 +46,6 @@
 #include "nsIScreen.h"
 #include "nsIScreenManager.h"
 #include "nsGUIEvent.h"
-#include "nsCarbonHelpers.h"
-#include "nsGfxUtils.h"
 #include "nsMacResources.h"
 #include "nsIRollupListener.h"
 #import  "nsChildView.h"
@@ -62,6 +60,36 @@ extern nsIRollupListener * gRollupListener;
 extern nsIWidget         * gRollupWidget;
 
 NS_IMPL_ISUPPORTS_INHERITED0(nsCocoaWindow, Inherited)
+
+
+/*
+ * Gecko rects (nsRect) contain an origin (x,y) in a coordinate
+ * system with (0,0) in the top-left of the screen. Cocoa rects
+ * (NSRect) contain an origin (x,y) in a coordinate system with
+ * (0,0) in the bottom-left of the screen. Both nsRect and NSRect
+ * contain width/height info, with no difference in their use.
+ */
+static NSRect geckoRectToCocoaRect(const nsRect &geckoRect)
+{
+  // first we get the highest point on all screens
+  float highestScreenPoint = 0.0;
+  NSArray* allScreens = [NSScreen screens];
+  for (unsigned int i = 0; i < [allScreens count]; i++) {
+    NSRect currScreenFrame = [[allScreens objectAtIndex:i] frame];
+    float currScreenHighestPoint = currScreenFrame.origin.y + currScreenFrame.size.height;
+    if (currScreenHighestPoint > highestScreenPoint)
+      highestScreenPoint = currScreenHighestPoint;
+  }
+
+  // We only need to change the Y coordinate by starting with the screen
+  // height, subtracting the gecko Y coordinate, and subtracting the
+  // height.
+  return NSMakeRect(geckoRect.x,
+                    highestScreenPoint - geckoRect.y - geckoRect.height,
+                    geckoRect.width,
+                    geckoRect.height);
+}
+
 
 //
 // nsCocoaWindow constructor
@@ -138,19 +166,12 @@ nsresult nsCocoaWindow::StandardCreate(nsIWidget *aParent,
       return NS_OK;
 #endif
     
-    // create the cocoa window
-    NSRect rect;
-    rect.origin.x = rect.origin.y = 1.0;
-    rect.size.width = rect.size.height = 1.0;
-    
     // we default to NSBorderlessWindowMask, add features if needed
     unsigned int features = NSBorderlessWindowMask;
     
     // Configure the window we will create based on the window type
     switch (mWindowType)
     {
-      case eWindowType_popup:
-        break;
       case eWindowType_child:
         // In Carbon, we made this a window of type kPlainWindowClass.
         // I think that is pretty much equiv to NSBorderlessWindowMask.
@@ -205,6 +226,9 @@ nsresult nsCocoaWindow::StandardCreate(nsIWidget *aParent,
           features = NSMiniaturizableWindowMask;
         }
         break;
+      case eWindowType_popup:
+        features |= NSBorderlessWindowMask;
+        break;
       case eWindowType_toplevel:
         features |= NSTitledWindowMask;
         features |= NSMiniaturizableWindowMask;
@@ -220,10 +244,49 @@ nsresult nsCocoaWindow::StandardCreate(nsIWidget *aParent,
         return NS_ERROR_FAILURE;
     }
     
+    /* 
+     * We pass a content area rect to initialize the native Cocoa window. The
+     * content rect we give is the same size as the size we're given by gecko.
+     * The origin we're given for non-popup windows is moved down by the height
+     * of the menu bar so that an origin of (0,100) from gecko puts the window
+     * 100 pixels below the top of the available desktop area. We also move the
+     * origin down by the height of a title bar if it exists. This is so the
+     * origin that gecko gives us for the top-left of  the window turns out to
+     * be the top-left of the window we create. This is how it was done in
+     * Carbon. If it ought to be different we'll probably need to look at all
+     * the callers.
+     *
+     * Note: This means that if you put a secondary screen on top of your main
+     * screen and open a window in the top screen, it'll be incorrectly shifted
+     * down by the height of the menu bar. Same thing would happen in Carbon.
+     *
+     * Note: If you pass a rect with 0,0 for an origin, the window ends up in a
+     * weird place for some reason. This stops that without breaking popups.
+     */
+    NSRect rect = geckoRectToCocoaRect(aRect);
+    
+    // compensate for difference between frame and content area height (e.g. title bar)
+    NSRect newWindowFrame = [NSWindow frameRectForContentRect:rect styleMask:features];
+
+    rect.origin.y -= (newWindowFrame.size.height - rect.size.height);
+    
+    if (mWindowType != eWindowType_popup)
+      rect.origin.y -= ::GetMBarHeight();
+    
+#ifdef DEBUG
+    NSLog(@"Top-level window being created at Cocoa rect: %f, %f, %f, %f\n",
+          rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+#endif
+    
     // create the window
     mWindow = [[NSWindow alloc] initWithContentRect:rect styleMask:features 
                                 backing:NSBackingStoreBuffered defer:NO];
     
+    if (mWindowType == eWindowType_popup) {
+        [mWindow setLevel:NSPopUpMenuWindowLevel];
+        [mWindow setHasShadow:YES];
+    }
+
     [mWindow setReleasedWhenClosed:NO];
 
     // register for mouse-moved events. The default is to ignore them for perf reasons.
@@ -313,14 +376,14 @@ nsCocoaWindow::IsVisible(PRBool & aState)
 //-------------------------------------------------------------------------
 NS_IMETHODIMP nsCocoaWindow::Show(PRBool bState)
 {
-  if (bState)
-    [mWindow orderFront:NULL];
-  else
-    [mWindow orderOut:NULL];
+    if (bState)
+        [mWindow orderFront:NULL];
+    else
+        [mWindow orderOut:NULL];
+    
+    mVisible = bState;
 
-  mVisible = bState;
-
-  return NS_OK;
+    return NS_OK;
 }
 
 
@@ -677,16 +740,22 @@ NS_IMETHODIMP nsCocoaWindow::CaptureRollupEvents(nsIRollupListener * aListener,
 }
 
 
+- (BOOL)windowShouldClose:(id)sender
+{
+  // We only want to send NS_XUL_CLOSE and let gecko close the window
+  nsGUIEvent guiEvent(PR_TRUE, NS_XUL_CLOSE, mGeckoWindow);
+  guiEvent.time = PR_IntervalNow();
+  nsEventStatus status = nsEventStatus_eIgnore;
+  mGeckoWindow->DispatchEvent(&guiEvent, status);
+  return NO; // gecko will do it
+}
+
+
 -(void)windowWillClose:(NSNotification *)aNotification
 {
   // roll up any popups
   if (gRollupListener != nsnull && gRollupWidget != nsnull)
     gRollupListener->Rollup();
-  
-  nsGUIEvent guiEvent(PR_TRUE, NS_XUL_CLOSE, mGeckoWindow);
-  guiEvent.time = PR_IntervalNow();
-  nsEventStatus status = nsEventStatus_eIgnore;
-  mGeckoWindow->DispatchEvent(&guiEvent, status);
 }
 
 

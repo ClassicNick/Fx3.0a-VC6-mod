@@ -545,7 +545,8 @@ NS_IMETHODIMP nsTreeBodyFrame::SetView(nsITreeView * aView)
       sel->SetTree(nsnull);
     mView->SetTree(nsnull);
     mView = nsnull;
-    box->RemoveProperty(view.get());
+    if (box)
+      box->RemoveProperty(view.get());
 
     // Only reset the top row index and delete the columns if we had an old non-null view.
     mTopRowIndex = 0;
@@ -575,7 +576,8 @@ NS_IMETHODIMP nsTreeBodyFrame::SetView(nsITreeView * aView)
     mView->SetTree(mTreeBoxObject);
     mView->GetRowCount(&mRowCount);
  
-    box->SetPropertyAsSupports(view.get(), mView);
+    if (box)
+      box->SetPropertyAsSupports(view.get(), mView);
 
     // The scrollbar will need to be updated.
     InvalidateScrollbars();

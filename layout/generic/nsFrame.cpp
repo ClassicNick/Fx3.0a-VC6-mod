@@ -100,7 +100,9 @@
 
 // For triple-click pref
 #include "nsIServiceManager.h"
+#ifndef MOZ_CAIRO_GFX
 #include "nsISelectionImageService.h"
+#endif
 #include "imgIContainer.h"
 #include "imgIRequest.h"
 #include "gfxIImageFrame.h"
@@ -113,6 +115,10 @@
 #include "nsBoxLayoutState.h"
 #include "nsBlockFrame.h"
 #include "nsDisplayList.h"
+
+#ifdef MOZ_CAIRO_GFX
+#include "gfxContext.h"
+#endif
 
 static NS_DEFINE_CID(kSelectionImageService, NS_SELECTIONIMAGESERVICE_CID);
 static NS_DEFINE_CID(kLookAndFeelCID,  NS_LOOKANDFEEL_CID);
@@ -273,7 +279,7 @@ nsIFrameDebug::RootFrameList(nsPresContext* aPresContext, FILE* out, PRInt32 aIn
 #endif
 // end nsIFrameDebug
 
-
+#ifndef MOZ_CAIRO_GFX
 // frame image selection drawing service implementation
 class SelectionImageService : public nsISelectionImageService
 {
@@ -430,7 +436,7 @@ nsresult NS_NewSelectionImageService(nsISelectionImageService** aResult)
   NS_ADDREF(*aResult);
   return NS_OK;
 }
-
+#endif /* MOZ_CAIRO_GFX */
 
 //end selection service
 
@@ -766,7 +772,7 @@ MOZ_DECL_CTOR_COUNTER(nsDisplaySelectionOverlay)
 class nsDisplaySelectionOverlay : public nsDisplayItem {
 public:
   nsDisplaySelectionOverlay(nsFrame* aFrame, PRInt16 aSelectionValue)
-    : mFrame(aFrame), mSelectionValue(aSelectionValue) {
+    : nsDisplayItem(aFrame), mSelectionValue(aSelectionValue) {
     MOZ_COUNT_CTOR(nsDisplaySelectionOverlay);
   }
 #ifdef NS_BUILD_REFCNT_LOGGING
@@ -775,22 +781,22 @@ public:
   }
 #endif
 
-  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
   virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
      const nsRect& aDirtyRect);
   NS_DISPLAY_DECL_NAME("SelectionOverlay")
 private:
-  nsFrame* mFrame;
   PRInt16 mSelectionValue;
 };
 
 void nsDisplaySelectionOverlay::Paint(nsDisplayListBuilder* aBuilder,
      nsIRenderingContext* aCtx, const nsRect& aDirtyRect)
 {
+#ifndef MOZ_CAIRO_GFX
   nsCOMPtr<nsISelectionImageService> imageService
       = do_GetService(kSelectionImageService);
   if (!imageService)
     return;
+
 
   nsCOMPtr<imgIContainer> container;
   imageService->GetImage(mSelectionValue, getter_AddRefs(container));
@@ -800,6 +806,33 @@ void nsDisplaySelectionOverlay::Paint(nsDisplayListBuilder* aBuilder,
   nsRect rect(aBuilder->ToReferenceFrame(mFrame), mFrame->GetSize());
   rect.IntersectRect(rect, aDirtyRect);
   aCtx->DrawTile(container, 0, 0, &rect);
+#else
+  nscolor color = NS_RGB(255, 255, 255);
+  
+  nsILookAndFeel::nsColorID lookandFeel;
+  nsresult result;
+  if (mSelectionValue != nsISelectionController::SELECTION_ON)
+    lookandFeel = nsILookAndFeel::eColor_TextSelectBackgroundDisabled;
+  else
+    lookandFeel = nsILookAndFeel::eColor_TextSelectBackground;
+
+  nsCOMPtr<nsILookAndFeel> look;
+  look = do_GetService(kLookAndFeelCID,&result);
+  if (NS_SUCCEEDED(result) && look)
+    look->GetColor(lookandFeel, color);
+
+  gfxRGBA c(color);
+  c.a = .5;
+
+  nsRefPtr<gfxContext> ctx = (gfxContext*)aCtx->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+  ctx->SetColor(c);
+
+  nsRect rect(aBuilder->ToReferenceFrame(mFrame), mFrame->GetSize());
+  rect.IntersectRect(rect, aDirtyRect);
+  rect.ScaleRoundOut(mFrame->GetPresContext()->TwipsToPixels());
+  ctx->Rectangle(gfxRect(rect.x, rect.y, rect.width, rect.height), PR_TRUE);
+  ctx->Fill();
+#endif
 }
 
 /********************************************************
@@ -2607,6 +2640,22 @@ nsIFrame::ContentOffsets OffsetsForSingleFrame(nsIFrame* aFrame, nsPoint aPoint)
   return offsets;
 }
 
+static nsIFrame* AdjustFrameForSelectionStyles(nsIFrame* aFrame) {
+  nsIFrame* adjustedFrame = aFrame;
+  for (nsIFrame* frame = aFrame; frame; frame = frame->GetParent())
+  {
+    // These are the conditions that make all children not able to handle
+    // a cursor.
+    if (frame->GetStyleUIReset()->mUserSelect == NS_STYLE_USER_SELECT_NONE || 
+        frame->GetStyleUIReset()->mUserSelect == NS_STYLE_USER_SELECT_ALL || 
+        frame->IsGeneratedContentFrame()) {
+      adjustedFrame = frame;
+    }
+  }
+  return adjustedFrame;
+}
+  
+
 nsIFrame::ContentOffsets nsIFrame::GetContentOffsetsFromPoint(nsPoint aPoint)
 {
   // This section of code deals with special selection styles.  Note that
@@ -2615,23 +2664,11 @@ nsIFrame::ContentOffsets nsIFrame::GetContentOffsetsFromPoint(nsPoint aPoint)
   // The offset is forced not to end up in generated content; content offsets
   // cannot represent content outside of the document's content tree.
 
-  nsIFrame* adjustedFrame = this;
-  PRBool frameAdjusted = PR_FALSE;
-  for (nsIFrame* frame = this; frame; frame = frame->GetParent())
-  {
-    // These are the conditions that make all children not able to handle
-    // a cursor.
-    if (frame->GetStyleUIReset()->mUserSelect == NS_STYLE_USER_SELECT_NONE || 
-        frame->GetStyleUIReset()->mUserSelect == NS_STYLE_USER_SELECT_ALL || 
-        frame->IsGeneratedContentFrame()) {
-      adjustedFrame = frame;
-      frameAdjusted = PR_TRUE;
-    }
-  }
+  nsIFrame* adjustedFrame = AdjustFrameForSelectionStyles(this);
 
   // -moz-user-select: all needs special handling, because clicking on it
   // should lead to the whole frame being selected
-  if (adjustedFrame->GetStyleUIReset()->mUserSelect ==
+  if (adjustedFrame && adjustedFrame->GetStyleUIReset()->mUserSelect ==
       NS_STYLE_USER_SELECT_ALL) {
     return OffsetsForSingleFrame(adjustedFrame, aPoint +
                                    this->GetOffsetTo(adjustedFrame));
@@ -2639,7 +2676,7 @@ nsIFrame::ContentOffsets nsIFrame::GetContentOffsetsFromPoint(nsPoint aPoint)
 
   // For other cases, try to find a closest frame starting from the parent of
   // the unselectable frame
-  if (frameAdjusted)
+  if (adjustedFrame != this)
     adjustedFrame = adjustedFrame->GetParent();
 
   nsPoint adjustedPoint = aPoint + this->GetOffsetTo(adjustedFrame);
@@ -4038,57 +4075,11 @@ nsPeekOffsetStruct nsIFrame::GetExtremeCaretPosition(PRBool aStart)
 {
   nsPeekOffsetStruct result;
 
-  result.mResultContent = this->GetContent();
-  result.mContentOffset = 0;
-
-  nsIFrame *resultFrame = this;
-
-  if (aStart)
-    nsFrame::GetFirstLeaf(GetPresContext(), &resultFrame);
-  else
-    nsFrame::GetLastLeaf(GetPresContext(), &resultFrame);
-
-  NS_ASSERTION(resultFrame,"result frame for carent positioning is Null!");
-
-  if (!resultFrame)
-    return result;
-
-  // there should be some more validity checks here, or earlier in the code,
-  // in case we get to to some 'dummy' frames at the end of the content
-    
-  nsIContent* content = resultFrame->GetContent();
-
-  NS_ASSERTION(resultFrame,"result frame content for carent positioning is Null!");
-
-  if (!content)
-    return result;
-  
-  // special case: if this is not a textnode,
-  // position the caret to the offset of its parent instead
-  // (position the caret to non-text element may make the caret missing)
-
-  if (!content->IsContentOfType(nsIContent::eTEXT)) {
-    // special case in effect
-    nsIContent* parent = content->GetParent();
-    NS_ASSERTION(parent,"element has no parent!");
-    if (parent) {
-      result.mResultContent = parent;
-      result.mContentOffset = parent->IndexOf(content);
-      if (!aStart)
-        result.mContentOffset++; // go to end of this frame
-      return result;
-    }
-  }
-
-  result.mResultContent = content;
-
-  PRInt32 start, end;
-  nsresult rv;
-  rv = resultFrame->GetOffsets(start,end);
-  if (NS_SUCCEEDED(rv)) {
-    result.mContentOffset = aStart ? start : end;
-  }
-
+  FrameTarget targetFrame = DrillDownToSelectionFrame(this, !aStart);
+  FrameContentRange range = GetRangeForFrame(targetFrame.frame);
+  result.mResultContent = range.content;
+  result.mContentOffset = aStart ? range.start : range.end;
+  result.mPreferLeft = (result.mContentOffset == range.start);
   return result;
 }
 
@@ -4219,94 +4210,6 @@ nsFrame::PeekOffsetParagraph(nsPresContext* aPresContext,
   return NS_OK;
 }
 
-static nsresult
-DrillDownToBeginningOfLine(nsIFrame* aFrame,
-                           nsPeekOffsetStruct* aPos)
-{
-  if (!aFrame)
-    return NS_ERROR_UNEXPECTED;
-
-  nsIFrame *firstFrame = aFrame;
-  nsFrame::GetFirstLeaf(aFrame->GetPresContext(), &firstFrame);
-
-  // If it isn't a text frame, return the offset to its content from its parent content
-  if (firstFrame->GetType() != nsLayoutAtoms::textFrame)
-  {
-    nsIContent* content = firstFrame->GetContent();
-    aPos->mResultContent = content->GetParent();
-    aPos->mContentOffset = aPos->mResultContent->IndexOf(content);
-    // This actually means "associate the caret with the element at
-    // the offset" (the next element after this position). (BLECH!)
-    // Do this because we're returning the position *before* the element
-    // on the line and we want to stay on this line.
-    aPos->mPreferLeft = PR_TRUE;
-    return NS_OK;
-  }
-  
-  aPos->mResultContent = firstFrame->GetContent();
-  PRInt32 startOffset, endOffset;
-  nsresult rv = firstFrame->GetOffsets(startOffset, endOffset);
-  if (NS_FAILED(rv))
-    return rv;
-  aPos->mContentOffset = startOffset;
-  
-  return NS_OK;
-}
-
-
-// Line and paragraph selection (and probably several other cases)
-// can get a containing frame from a line iterator, but then need
-// to "drill down" to get the content and offset corresponding to
-// the last child subframe.  Hence:
-static nsresult
-DrillDownToEndOfLine(nsIFrame* aFrame, PRInt32 aLineFrameCount,
-                     nsPeekOffsetStruct* aPos)
-{
-  if (!aFrame)
-    return NS_ERROR_UNEXPECTED;
-
-  nsIFrame *prevFrame = aFrame;
-  nsIFrame *currentFrame = aFrame;
-  PRInt32 i;
-
-  for (i = 1; i < aLineFrameCount; i++) //already have 1st frame
-  {
-    prevFrame = currentFrame;
-    currentFrame = currentFrame->GetNextSibling();
-    NS_ASSERTION(currentFrame, "lineFrame Count lied to us from nsILineIterator!\n");
-  }
-  if (!currentFrame->GetRect().width) //this can happen with BR frames and or empty placeholder frames.
-  {
-    //if we do hit an empty frame then back up the current frame to the frame before it if there is one.
-    currentFrame = prevFrame;
-  }
-
-  nsFrame::GetLastLeaf(aFrame->GetPresContext(), &currentFrame);
-
-  // If it isn't a text frame, return the offset to its content from its parent content
-  if (currentFrame->GetType() != nsLayoutAtoms::textFrame)
-  {
-    nsIContent* content = currentFrame->GetContent();
-    aPos->mResultContent = content->GetParent();
-    aPos->mContentOffset = aPos->mResultContent->IndexOf(content); 
-    // This actually means "associate the caret with the element at
-    // the offset" (the next element after this position). (BLECH!)
-    // Do this because we're returning the position *before* the element
-    // on the line and we want to stay on this line.
-    aPos->mPreferLeft = PR_TRUE;
-    return NS_OK;
-  }
-  
-  aPos->mResultContent = currentFrame->GetContent();
-  PRInt32 startOffset, endOffset;
-  nsresult rv = currentFrame->GetOffsets(startOffset, endOffset);
-  if (NS_FAILED(rv))
-    return rv;
-  aPos->mContentOffset = endOffset;
-  
-  return NS_OK;
-}
-
 NS_IMETHODIMP
 nsFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
 {
@@ -4378,48 +4281,13 @@ nsFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
     {
       nsCOMPtr<nsILineIteratorNavigator> iter; 
       nsIFrame *blockFrame = this;
-      nsIFrame *thisBlock = this;
-      PRInt32   thisLine;
 
       while (NS_FAILED(result)){
-        thisBlock = blockFrame;
-        blockFrame = blockFrame->GetParent();
-        if (!blockFrame) //if at line 0 then nothing to do
-          return NS_OK;
-        result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(iter));
-        while (NS_FAILED(result) && blockFrame)
-        {
-          thisBlock = blockFrame;
-          blockFrame = blockFrame->GetParent();
-          result = NS_OK;
-          if (blockFrame) {
-            result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(iter));
-          }
-        }
-        //this block is now one child down from blockframe
-        if (NS_FAILED(result) || !iter || !blockFrame || !thisBlock)
-        {
-          return ((result) ? result : NS_ERROR_FAILURE);
-        }
-
-        if (thisBlock->GetStateBits() & NS_FRAME_OUT_OF_FLOW)
-        {
-          //if we are searching for a frame that is not in flow we will not find it. 
-          //we must instead look for its placeholder
-          thisBlock =
-            aPresContext->FrameManager()->GetPlaceholderFrameFor(thisBlock);
-
-          if (!thisBlock)
-            return NS_ERROR_FAILURE;
-        }
-
-        result = iter->FindLineContaining(thisBlock, &thisLine);
-
-        if (NS_FAILED(result))
-           return result;
-
+        PRInt32 thisLine = GetLineNumber(blockFrame, &blockFrame);
         if (thisLine < 0) 
           return  NS_ERROR_FAILURE;
+        result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(iter));
+        NS_ASSERTION(NS_SUCCEEDED(result) && iter, "GetLineNumber() succeeded but no block frame?");
 
         int edgeCase = 0;//no edge case. this should look at thisLine
         PRBool doneLooping = PR_FALSE;//tells us when no more block frames hit.
@@ -4505,46 +4373,43 @@ nsFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
     case eSelectBeginLine:
     case eSelectEndLine:
     {
-      nsCOMPtr<nsILineIteratorNavigator> it; 
-      nsIFrame* thisBlock = this;
-      nsIFrame* blockFrame = GetParent();
-      if (!blockFrame) //if at line 0 then nothing to do
-        return NS_OK;
+      nsCOMPtr<nsILineIteratorNavigator> it;
+      // Adjusted so that the caret can't get confused when content changes
+      nsIFrame* blockFrame = AdjustFrameForSelectionStyles(this);
+      PRInt32 thisLine = GetLineNumber(blockFrame, &blockFrame);
+      if (thisLine < 0)
+        return NS_ERROR_FAILURE;
       result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(it));
-      while (NS_FAILED(result) && blockFrame)
-      {
-        thisBlock = blockFrame;
-        blockFrame = blockFrame->GetParent();
-        result = NS_OK;
-        if (blockFrame) {
-          result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(it));
-        }
-      }
-      if (NS_FAILED(result) || !it || !blockFrame || !thisBlock)
-        return result;
-      //this block is now one child down from blockframe
-
-      PRInt32   thisLine;
-      result = it->FindLineContaining(thisBlock, &thisLine);
-      if (NS_FAILED(result) || thisLine < 0 )
-        return result;
+      NS_ASSERTION(NS_SUCCEEDED(result) && it, "GetLineNumber() succeeded but no block frame?");
 
       PRInt32 lineFrameCount;
       nsIFrame *firstFrame;
-      nsRect  usedRect; 
+      nsRect usedRect;
       PRUint32 lineFlags;
-      result = it->GetLine(thisLine, &firstFrame, &lineFrameCount,usedRect,
-                           &lineFlags);
+      it->GetLine(thisLine, &firstFrame, &lineFrameCount, usedRect, &lineFlags);
 
-      if (eSelectBeginLine == aPos->mAmount)
-      {
-        return DrillDownToBeginningOfLine(firstFrame, aPos);
+      PRBool endOfLine = (eSelectEndLine == aPos->mAmount);
+      nsIFrame* baseFrame = nsnull;
+      nsIFrame* frame = firstFrame;
+      for (PRInt32 count = lineFrameCount; count;
+           --count, frame = frame->GetNextSibling()) {
+        if (!frame->IsGeneratedContentFrame()) {
+          baseFrame = frame;
+          if (!endOfLine)
+            break;
+        }
       }
-      else  // eSelectEndLine
-      {
-        return DrillDownToEndOfLine(firstFrame, lineFrameCount, aPos);
-      }
-      return result;
+      if (!baseFrame)
+        return NS_ERROR_FAILURE;
+      FrameTarget targetFrame = DrillDownToSelectionFrame(baseFrame,
+                                                          endOfLine);
+      FrameContentRange range = GetRangeForFrame(targetFrame.frame);
+      aPos->mResultContent = range.content;
+      aPos->mContentOffset = endOfLine ? range.end : range.start;
+      aPos->mPreferLeft = (aPos->mContentOffset == range.start);
+      if (!range.content)
+        return NS_ERROR_FAILURE;
+      return NS_OK;
     }
     break;
 
@@ -4566,8 +4431,10 @@ nsFrame::CheckVisibility(nsPresContext* , PRInt32 , PRInt32 , PRBool , PRBool *,
 
 
 PRInt32
-nsFrame::GetLineNumber(nsIFrame *aFrame)
+nsFrame::GetLineNumber(nsIFrame *aFrame, nsIFrame** aContainingBlock)
 {
+  NS_ASSERTION(aFrame, "null aFrame");
+  nsFrameManager* frameManager = aFrame->GetPresContext()->FrameManager();
   nsIFrame *blockFrame = aFrame;
   nsIFrame *thisBlock;
   PRInt32   thisLine;
@@ -4576,14 +4443,24 @@ nsFrame::GetLineNumber(nsIFrame *aFrame)
   while (NS_FAILED(result) && blockFrame)
   {
     thisBlock = blockFrame;
-    blockFrame = blockFrame->GetParent();
+    if (thisBlock->GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
+      //if we are searching for a frame that is not in flow we will not find it. 
+      //we must instead look for its placeholder
+      thisBlock = frameManager->GetPlaceholderFrameFor(thisBlock);
+      if (!thisBlock)
+        return -1;
+    }  
+    blockFrame = thisBlock->GetParent();
     result = NS_OK;
     if (blockFrame) {
       result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(it));
     }
   }
   if (!blockFrame || !it)
-    return NS_ERROR_FAILURE;
+    return -1;
+
+  if (aContainingBlock)
+    *aContainingBlock = blockFrame;
   result = it->FindLineContaining(thisBlock, &thisLine);
   if (NS_FAILED(result))
     return -1;
@@ -4597,27 +4474,16 @@ nsFrame::GetLineNumber(nsIFrame *aFrame)
 NS_IMETHODIMP
 nsFrame::GetFrameFromDirection(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
 {
-  nsIFrame *blockFrame = this;
-  nsIFrame *thisBlock;
-  PRInt32   thisLine;
+  nsIFrame *blockFrame;
   nsCOMPtr<nsILineIteratorNavigator> it; 
   PRBool preferLeft = aPos->mPreferLeft;
-  nsresult result = NS_ERROR_FAILURE;
-  while (NS_FAILED(result) && blockFrame)
-  {
-    thisBlock = blockFrame;
-    blockFrame = blockFrame->GetParent();
-    result = NS_OK;
-    if (blockFrame) {
-      result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(it));
-    }
-  }
-  if (!blockFrame || !it)
+  nsresult result;
+  PRInt32 thisLine = GetLineNumber(this, &blockFrame);
+  if (thisLine < 0)
     return NS_ERROR_FAILURE;
-  result = it->FindLineContaining(thisBlock, &thisLine);
-  if (NS_FAILED(result))
-    return result;
-
+  result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(it));
+  NS_ASSERTION(NS_SUCCEEDED(result) && it, "GetLineNumber() succeeded but no block frame?");
+  
   nsIFrame *traversedFrame = this;
 
   nsIFrame *firstFrame;
@@ -4776,22 +4642,12 @@ nsFrame::GetFrameFromDirection(nsPresContext* aPresContext, nsPeekOffsetStruct *
   }
   PRBool newLineIsRTL = PR_FALSE;
   if (lineJump) {
-    blockFrame = newFrame;
-    nsresult result = NS_ERROR_FAILURE;
-    while (NS_FAILED(result) && blockFrame)
-    {
-      thisBlock = blockFrame;
-      blockFrame = blockFrame->GetParent();
-      result = NS_OK;
-      if (blockFrame) {
-        result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator), getter_AddRefs(it));
-      }
-    }
-    if (!blockFrame || !it)
+    thisLine = GetLineNumber(newFrame, &blockFrame);
+    if (thisLine < 0)
       return NS_ERROR_FAILURE;
-    result = it->FindLineContaining(thisBlock, &thisLine);
-    if (NS_FAILED(result))
-      return result;
+    result = blockFrame->QueryInterface(NS_GET_IID(nsILineIteratorNavigator),getter_AddRefs(it));
+    NS_ASSERTION(NS_SUCCEEDED(result) && it, "GetLineNumber() succeeded but no block frame?");
+
     it->GetDirection(&newLineIsRTL);
 
     result = it->CheckLineOrder(thisLine, &lineIsReordered, &firstVisual, &lastVisual);

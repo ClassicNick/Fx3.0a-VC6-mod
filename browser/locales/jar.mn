@@ -18,13 +18,13 @@
     locale/browser/pageReportFirstTime.dtd         (%chrome/browser/pageReportFirstTime.dtd)
 *   locale/browser/safeMode.dtd                    (%chrome/browser/safeMode.dtd)
     locale/browser/sanitize.dtd                    (%chrome/browser/sanitize.dtd)
-    locale/browser/searchbar.properties            (%chrome/browser/searchbar.properties)
-*   locale/browser/searchDialog.dtd                (%chrome/browser/searchDialog.dtd)
+    locale/browser/search.properties               (%chrome/browser/search.properties)
     locale/browser/setDesktopBackground.dtd        (%chrome/browser/setDesktopBackground.dtd)
     locale/browser/shellservice.properties         (%chrome/browser/shellservice.properties)
 #ifdef MOZ_PLACES
     locale/browser/places/places.dtd               (%chrome/browser/places/places.dtd)
     locale/browser/places/bookmarkProperties.dtd   (%chrome/browser/places/bookmarkProperties.dtd)
+    locale/browser/places/bookmarkProperties.properties (%chrome/browser/places/bookmarkProperties.properties)
     locale/browser/places/places.properties        (%chrome/browser/places/places.properties)
     locale/browser/places/default_places.html      (%chrome/browser/places/default_places.html)
 #else

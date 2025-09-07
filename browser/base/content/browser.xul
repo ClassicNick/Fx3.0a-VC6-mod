@@ -210,7 +210,10 @@
                  tabscrolling="true"
                  showcommentcolumn="true"
                  enablehistory="true"
+#ifndef MOZILLA_1_8_BRANCH
+# bug 23485
                  newlines="stripsurroundingwhitespace"
+#endif
                  oninput="gBrowser.userTypedValue = this.value"
                  ontextentered="return handleURLBarCommand(param);"
                  ontextreverted="return handleURLBarRevert();">
@@ -277,11 +280,11 @@
 
 #ifdef MOZ_PLACES
       <toolbarbutton id="bookmarksBarShowPlaces"
-                     oncommand="PlacesCommandHook.showPlacesOrganizer('history');"/>
+                     oncommand="PlacesCommandHook.showPlacesOrganizer(ORGANIZER_ROOT_HISTORY);"/>
       <toolbaritem flex="1" id="personal-bookmarks" title="&bookmarksItem.title;">
          <hbox id="bookmarksBarContent" flex="1" type="places" 
                place="place:&amp;folder=3&amp;group=3&amp;expandQueries=1"
-               context="placesContext"
+               context="placesContext" asyncinit="true" 
                onclick="BookmarksEventHandler.onClick(event);"
                oncommand="BookmarksEventHandler.onCommand(event);"
                onpopupshowing="BookmarksEventHandler.onPopupShowing(event);"/>
@@ -298,7 +301,7 @@
                onpopuphidden="BookmarksToolbar.unsetOpenedMenu(event);">
           <hbox id="bookmarks-ptf" class="bookmarks-toolbar-items" contextmenu="bookmarks-context-menu"
                 flex="1" style="min-width:0px; width:0px;padding-left: 3px;" 
-                datasources="rdf:bookmarks rdf:files rdf:localsearch"
+                datasources="rdf:bookmarks rdf:files"
                 template="bookmarks-template" flags="dont-test-empty"
                 infer="forward-proxy"
                 rdf:type="http://home.netscape.com/NC-rdf#Folder"
@@ -317,7 +320,7 @@
               <toolbarbutton id="bookmarks-chevron" type="menu" class="chevron"
                              chromedir="&locale.dir;"
                              mousethrough="never" collapsed="true" 
-                             datasources="rdf:bookmarks rdf:files rdf:localsearch"
+                             datasources="rdf:bookmarks rdf:files"
                              template="bookmarks-template" flags="dont-test-empty"
                              onpopupshowing="BookmarksMenu.onShowMenu(event.target)"
                              onpopuphidden="BookmarksMenu.onHideMenu(event.target)"

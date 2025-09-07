@@ -59,6 +59,7 @@ DIRS = \
 	dirprovider \
 	migration \
 	preferences \
+	search \
 	shell \
 	sidebar \
 	$(NULL)

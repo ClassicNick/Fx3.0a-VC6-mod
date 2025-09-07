@@ -81,6 +81,7 @@
 #include "nsIContent.h"
 #include "nsAutoPtr.h"
 #include "nsAboutProtocolUtils.h"
+#include "nsIClassInfo.h"
 
 static NS_DEFINE_CID(kZipReaderCID, NS_ZIPREADER_CID);
 
@@ -1275,12 +1276,6 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     rv = GetBaseURIScheme(aTargetURI, targetScheme);
     if (NS_FAILED(rv)) return rv;
 
-    if (nsCRT::strcasecmp(targetScheme.get(), sourceScheme.get()) == 0)
-    {
-        // every scheme can access another URI from the same scheme
-        return NS_OK;
-    }
-
     //-- Some callers do not allow loading javascript: or data: URLs
     if (((aFlags & (nsIScriptSecurityManager::DISALLOW_SCRIPT |
                     nsIScriptSecurityManager::DISALLOW_SCRIPT_OR_DATA)) &&
@@ -1289,6 +1284,12 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
          targetScheme.Equals("data")))
     {
        return NS_ERROR_DOM_BAD_URI;
+    }
+
+    if (nsCRT::strcasecmp(targetScheme.get(), sourceScheme.get()) == 0)
+    {
+        // every scheme can access another URI from the same scheme
+        return NS_OK;
     }
 
     //-- If the schemes don't match, the policy is specified in this table.
@@ -3702,4 +3703,3 @@ nsScriptSecurityManager::PrintPolicyDB()
     printf("############## End Capabilities ###############\n");
 }
 #endif
-

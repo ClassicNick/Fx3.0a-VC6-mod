@@ -782,21 +782,9 @@ nsBlockFrame::Reflow(nsPresContext*          aPresContext,
       if (aPresContext->BidiEnabled()) {
         nsBidiPresUtils* bidiUtils = aPresContext->GetBidiUtils();
         if (bidiUtils) {
-          PRBool forceReflow;
-          nsresult rc = bidiUtils->Resolve(aPresContext, this,
-                                           mLines.front()->mFirstChild,
-                                           forceReflow,
-                                           aReflowState.mFlags.mVisualBidiFormControl);
-          if (NS_SUCCEEDED(rc) && forceReflow) {
-            // Mark everything dirty
-            // XXXldb This should be done right.
-            for (line_iterator line = begin_lines(), line_end = end_lines();
-                 line != line_end;
-                 ++line)
-            {
-              line->MarkDirty();
-            }
-          }
+          bidiUtils->Resolve(aPresContext, this,
+                             mLines.front()->mFirstChild,
+                             aReflowState.mFlags.mVisualBidiFormControl);
         }
       }
     }
@@ -4165,7 +4153,9 @@ nsBlockFrame::ReflowInlineFrame(nsBlockReflowState& aState,
         return rv;
       }
 
-      if (NS_FRAME_IS_NOT_COMPLETE(frameReflowStatus)) {
+      if (NS_FRAME_IS_NOT_COMPLETE(frameReflowStatus) ||
+          (NS_INLINE_IS_BREAK_AFTER(frameReflowStatus) &&
+           !aLineLayout.GetLineEndsInBR())) {
         // Mark next line dirty in case SplitLine didn't end up
         // pushing any frames.
         nsLineList_iterator next = aLine.next();
@@ -4476,12 +4466,9 @@ nsBlockFrame::PlaceLine(nsBlockReflowState& aState,
         nsBidiPresUtils* bidiUtils = aState.mPresContext->GetBidiUtils();
 
         if (bidiUtils && bidiUtils->IsSuccessful() ) {
-          nsIFrame* nextInFlow = (aLine.next() != end_lines())
-                                 ? aLine.next()->mFirstChild : nsnull;
-
           bidiUtils->ReorderFrames(aState.mPresContext,
                                    aState.mReflowState.rendContext,
-                                   aLine->mFirstChild, nextInFlow);
+                                   aLine->mFirstChild, aLine->GetChildCount());
         } // bidiUtils
       } // not visual mode
     } // bidi enabled

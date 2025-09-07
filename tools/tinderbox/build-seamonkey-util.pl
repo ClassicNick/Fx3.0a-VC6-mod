@@ -24,7 +24,7 @@ use Config;         # for $Config{sig_name} and $Config{sig_num}
 use File::Find ();
 use File::Copy;
 
-$::UtilsVersion = '$Revision: 1.311 $ ';
+$::UtilsVersion = '$Revision: 1.316 $ ';
 
 package TinderUtils;
 
@@ -54,11 +54,12 @@ require "gettime.pl";
 #
 
 my $co_time_str = 0;  # Global, let tests send cvs co time to graph server.
-
+my $co_default_timeout = 300;
 
 sub Setup {
     InitVars();
     my $args = ParseArgs();
+    UpdateBuildConfigs($args);
     LoadConfig();
     ApplyArgs($args); # Apply command-line arguments after the config file.
     GetSystemInfo();
@@ -67,6 +68,28 @@ sub Setup {
     ValidateSettings(); # Perform some basic validation on settings
 }
 
+sub UpdateBuildConfigs() {
+    my $args = shift;
+    die 'Assert: $args must be a HASH ref' if (ref($args) ne 'HASH');
+
+    if (exists($args->{'TboxBuildConfigDir'})) {
+        if (not -d "$args->{'TboxBuildConfigDir'}/CVS") {
+            die "--config-cvsup-dir must be a CVS checkout directory\n";
+        } 
+
+        my $cwd = get_system_cwd();
+
+        chdir($args->{'TboxBuildConfigDir'}) or 
+         die "Couldn't chdir() into $args->{'TboxBuildConfigDir'}: $!";
+
+        my $status = run_shell_command_with_timeout('cvs update -CPd',
+         $co_default_timeout);
+        if ($status->{'exit_value'} != 0) {
+           die "cvs update in $args->{'TboxBuildConfigDir'} failed";
+        }
+        chdir($cwd) or die "Couldn't return to $cwd";
+    }
+}
 
 sub Build {
     #my () = @_;
@@ -92,6 +115,9 @@ Options:
    -tag TREETAG          Pull by tag (-r TREETAG).
    -t TREENAME           The name of the tree
   --mozconfig FILENAME   Provide a mozconfig file for $Settings::moz_client_mk
+  --config-cvsup-dir DIR Provide a directory of configuration files 
+                          (mozconfig, etc.) to run a "cvs update" in before 
+                          a build begins.
   --version              Print the version number (same as cvs revision).
   --help
 More details:
@@ -126,6 +152,7 @@ sub ParseArgs {
             -tag BuildTag
             -t BuildTree
             --mozconfig MozConfigFileName
+            --config-cvsup-dir TboxBuildConfigDir 
         );
         if (defined $args_with_options{$arg}) {
             my $arg_arg = shift @ARGV;
@@ -909,14 +936,29 @@ sub BuildIt {
             # more than one cvs tree so set CVSROOT here to avoid confusion.
             $ENV{CVSROOT} = $Settings::moz_cvsroot;
               
-            run_shell_command("$Settings::CVS $cvsco $TreeSpecific::name/$Settings::moz_client_mk $TreeSpecific::extrafiles");
+            my $extrafiles = $TreeSpecific::extrafiles;
+            if ($Settings::MacUniversalBinary) {
+              $extrafiles .= ' mozilla/build/macosx/universal/mozconfig';
+            }
+            my $status = run_shell_command_with_timeout("$Settings::CVS $cvsco $TreeSpecific::name/$Settings::moz_client_mk $extrafiles",
+                                                        $Settings::CVSCheckoutTimeout);
+            if ($status->{exit_value} != 0) {
+              $build_status = 'busted';
+              if ($status->{timed_out}) {
+                print_log "Error: CVS checkout timed out.\n";
+              } else {
+                print_log "Error: CVS checkout failed.\n";
+              }
+            }
           }
           
           # Create toplevel source directory.
-          chdir $Settings::Topsrcdir or die "chdir $Settings::Topsrcdir: $!\n";
+          if ($build_status ne 'busted') {
+            chdir $Settings::Topsrcdir or die "chdir $Settings::Topsrcdir: $!\n";
+          }
           
           # Build it
-          unless ($Settings::TestOnly) { # Do not build if testing smoke tests.
+          if (!$Settings::TestOnly && $build_status ne 'busted') { # Do not build if testing smoke tests.
             if ($Settings::OS =~ /^WIN/) {
               DeleteBinaryDir($binary_dir);
             } else {
@@ -928,7 +970,19 @@ sub BuildIt {
 
               # Delete dist directory to avoid accumulating cruft there, some commercial
               # build processes also need to do this.
-              if (-e $dist_dir) {
+              if ($Settings::MacUniversalBinary && $Settings::ObjDir) {
+                my ($arch_dir);
+                foreach $arch_dir ($Settings::ObjDir.'/ppc/dist', $Settings::ObjDir.'/i386/dist') {
+                  if (-e $arch_dir) {
+                    print_log "Deleting $arch_dir\n";
+                    File::Path::rmtree($arch_dir, 0, 0);
+                    if (-e "$arch_dir") {
+                      print_log "Error: rmtree('$arch_dir', 0, 0) failed.\n";
+                    }
+                  }
+                }
+              }
+              elsif (-e $dist_dir) {
                 print_log "Deleting $dist_dir\n";
                 File::Path::rmtree($dist_dir, 0, 0);
                 if (-e "$dist_dir") {
@@ -984,6 +1038,25 @@ sub BuildIt {
 
             # Make sure we have an ObjDir if we need one.
             mkdir $Settings::ObjDir, 0777 if ($Settings::ObjDir && ! -e $Settings::ObjDir);
+
+            if ($Settings::ObjDir && $Settings::MacUniversalBinary) {
+              # Point dist to this architecture's dist for a native build, so
+              # tests and things work.
+
+              my ($native_arch, $uname_p);
+              chop($uname_p = `uname -p`);
+              if ($uname_p =~ /^i.*86/) {
+                $native_arch = 'i386';
+              }
+              else {
+                $native_arch = 'ppc';
+              }
+
+              my ($objdir_dist);
+              $objdir_dist = $Settings::ObjDir.'/dist';
+              unlink($objdir_dist);
+              symlink($native_arch.'/dist', $objdir_dist);
+            }
 
             # Run the clobber target.
             if (!$Settings::BuildDepend && $build_status ne 'busted') {
@@ -1091,6 +1164,13 @@ sub rebootSystem {
 # Create a profile named $Settings::MozProfileName in the normal $build_dir place.
 sub create_profile {
     my ($build_dir, $binary_dir, $binary) = @_;
+    if ($Settings::ProductName eq 'Camino') {
+        my $profile_dir = get_profile_dir($build_dir);
+        mkdir($profile_dir);
+        open(PREFS, '>>'.$profile_dir.'/prefs.js');
+        close(PREFS);
+        return { exit_value=>0 };
+    }
     my $profile_log = "$build_dir/create-profile.log";
     my $result = run_cmd($build_dir, $binary_dir,
                          [$binary, "-CreateProfile", $Settings::MozProfileName],
@@ -1106,6 +1186,10 @@ sub get_profile_dir {
     my $profile_product_name = $Settings::ProductName;
 
     $profile_product_name = "Mozilla" if ($profile_product_name eq "SeaMonkey");
+
+    # $ProductName must be set to the codename for the Mac, so check
+    # $BinaryName and use the correct profile for browser.
+    $profile_product_name = 'Firefox' if ($Settings::BinaryName =~ /^firefox/);
 
     my $profile_dir;
 
@@ -1147,6 +1231,8 @@ sub get_profile_dir {
         } elsif ($profile_product_name eq 'Firefox') {
             $profile_dir = "$ENV{HOME}/Library/Application Support/$profile_product_name/Profiles";
             ($profile_dir) = <"$profile_dir/*$Settings::MozProfileName*">;
+        } elsif ($profile_product_name eq 'Camino') {
+            $profile_dir = "$ENV{HOME}/Library/Application Support/Camino";
         } else { # Mozilla's Profiles/profilename/salt
             $profile_dir = "$ENV{HOME}/Library/$profile_product_name/Profiles/$Settings::MozProfileName/";
         }
@@ -1681,7 +1767,7 @@ sub run_all_tests {
     unlink("$binary_dir/components/compreg.dat") or warn "$binary_dir/components/compreg.dat not removed\n";
     if($Settings::RegxpcomTest) {
         my $args;
-        if ($Settings::ProductName =~ /^(Firefox|Thunderbird)$/) {
+        if ($Settings::BinaryName =~ /^(firefox|thunderbird)/) {
             $args = [$binary, "-register"];
         } else {
             $args = ["$binary_dir/regxpcom"];
@@ -1821,6 +1907,9 @@ sub run_all_tests {
                 # Suppress default browser dialog
                 set_pref($pref_file, 'browser.shell.checkDefaultBrowser', 'false');
             }
+            elsif ($Settings::BinaryName eq 'Camino') {
+                set_pref($pref_file, 'camino.check_default_browser', 'false');
+            }
 
             # Suppress security warnings for QA test.
             if ($Settings::QATest) {
@@ -1842,6 +1931,13 @@ sub run_all_tests {
         } else {
             print_log "Modern skin already set.\n";
         }
+    }
+
+    if ($Settings::BinaryName eq 'Camino') {
+      # stdout will be block-buffered and will not be flushed when the test
+      # timeout expires and the process is killed, this would make tests
+      # appear to fail.
+      $ENV{'MOZ_UNBUFFERED_STDIO'} = 1;
     }
 
     # Mozilla alive test
@@ -1980,8 +2076,19 @@ sub run_all_tests {
     # Layout performance test.
     if ($Settings::LayoutPerformanceTest and $test_result eq 'success') {
       my $app_args = [$binary];
+      if ($Settings::BinaryName eq 'Camino') {
+        push(@$app_args, '-url');
+      }
+
+      # When I found this, it avoided setting the profile for Firefox.
+      # That didn't work on a tinderbox that had multiple profiles.
+      # Now, it will set the profile if it's not 'default' on the assumption
+      # that existing tinderboxes were all using 'default' anyway.  Why
+      # so careful?  I'm afraid of things like bug 112767, and I assume this
+      # had been done for a reason.  -mm
       unless ($Settings::BinaryName eq "TestGtkEmbed" ||
-              $Settings::BinaryName =~ /^firefox/) {
+              ($Settings::BinaryName =~ /^firefox/ && $Settings::MozProfileName eq 'default') ||
+              $Settings::BinaryName eq 'Camino') {
         push(@$app_args, "-P", $Settings::MozProfileName);
       }
 
@@ -1994,8 +2101,10 @@ sub run_all_tests {
     if ($Settings::DHTMLPerformanceTest and $test_result eq 'success') {
       my @app_args;
       if($Settings::BinaryName eq "TestGtkEmbed" ||
-         $Settings::BinaryName =~ /^firefox/) {
+         ($Settings::BinaryName =~ /^firefox/ && $Settings::MozProfileName eq 'default')) {
         @app_args = [$binary];        
+      } elsif($Settings::BinaryName eq 'Camino') {
+        @app_args = [$binary, '-url'];
       } else {
         @app_args = [$binary, "-P", $Settings::MozProfileName];
       }
@@ -2065,6 +2174,8 @@ sub run_all_tests {
       my $app_args;
       if($Settings::BinaryName eq "TestGtkEmbed") {
         $app_args = [];        
+      } elsif($Settings::BinaryName eq 'Camino') {
+        $app_args = ['-url'];
       } else {
         $app_args = ["-P", $Settings::MozProfileName];
       }
@@ -2346,7 +2457,7 @@ sub DHTMLPerformanceTest {
     $dhtml_time = AliveTestReturnToken($test_name,
                                        $build_dir,
                                        [@$args, $url],
-                                       $Settings::LayoutPerformanceTestTimeout,
+                                       $Settings::DHTMLPerformanceTestTimeout,
                                        "_x_x_mozilla_dhtml",
                                        ",");
 

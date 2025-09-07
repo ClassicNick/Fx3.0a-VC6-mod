@@ -46,6 +46,7 @@
 #include "nsIEventQueueService.h"
 #include "nsIEventQueue.h"
 #include "nsComponentManagerUtils.h"
+#include "nsNativeCharsetUtils.h"
 #include <objbase.h>
 #include <initguid.h>
 
@@ -136,199 +137,6 @@ BOOL APIENTRY DllMain(  HINSTANCE hModule,
 
 #endif
 
-
-#ifdef WINCE
-
-#define NS_VK_APP1  0x0201
-#define NS_VK_APP2  0x0202
-#define NS_VK_APP3  0x0203
-#define NS_VK_APP4  0x0204
-#define NS_VK_APP5  0x0205
-#define NS_VK_APP6  0x0206
-#define NS_VK_APP7  0x0207
-#define NS_VK_APP8  0x0208
-#define NS_VK_APP9  0x0209
-#define NS_VK_APP10 0x020A
-#define NS_VK_APP11 0x020B
-
-extern PRBool gOverrideHWKeys;
-
-typedef BOOL (__stdcall *UnregisterFunc1Proc)( UINT, UINT );
-static UnregisterFunc1Proc gProcUnregisterFunc = NULL;
-static HINSTANCE gCoreDll = NULL;
-
-UINT gHardwareKeys[][2] =
-  {
-    { 0xc1, MOD_WIN },
-    { 0xc2, MOD_WIN },
-    { 0xc3, MOD_WIN },
-    { 0xc4, MOD_WIN },
-    { 0xc5, MOD_WIN },
-    { 0xc6, MOD_WIN },
-
-    { 0x72, 0 },// Answer - 0x72 Modifier - 0  
-    { 0x73, 0 },// Hangup - 0x73 Modifier - 0 
-    { 0x74, 0 },// 
-    { 0x75, 0 },// Volume Up   - 0x75 Modifier - 0
-    { 0x76, 0 },// Volume Down - 0x76 Modifier - 0
-    { 0, 0 },
-  };
-
-static void MapHardwareButtons(HWND window)
-{
-  if (!window)
-    return;
-
-  // handle hardware buttons so that they broadcast into our
-  // application. the following code is based on an article
-  // on the Pocket PC Developer Network:
-  //
-  // http://www.pocketpcdn.com/articles/handle_hardware_keys.html
-  
-  if (gOverrideHWKeys)
-  {
-    if (!gProcUnregisterFunc)
-    {
-      gCoreDll = LoadLibrary(_T("coredll.dll")); // leak
-      
-      if (gCoreDll)
-        gProcUnregisterFunc = (UnregisterFunc1Proc)GetProcAddress( gCoreDll, _T("UnregisterFunc1"));
-    }
-    
-    if (gProcUnregisterFunc)
-    {    
-      for (int i=0; gHardwareKeys[i][0]; i++)
-      {
-        UINT mod = gHardwareKeys[i][1];
-        UINT kc = gHardwareKeys[i][0];
-        
-        gProcUnregisterFunc(mod, kc);
-        RegisterHotKey(window, kc, mod, kc);
-      }
-    }
-  }
-}
-
-static void UnmapHardwareButtons()
-{
-  if (!gProcUnregisterFunc)
-    return;
-
-  for (int i=0; gHardwareKeys[i][0]; i++)
-  {
-    UINT mod = gHardwareKeys[i][1];
-    UINT kc = gHardwareKeys[i][0];
-
-    gProcUnregisterFunc(mod, kc);
-  }
-}
-
-void CreateSoftKeyMenuBar(HWND wnd)
-{
-  if (!wnd)
-    return;
-
-  SHMENUBARINFO mbi;
-  ZeroMemory(&mbi, sizeof(SHMENUBARINFO));
-  mbi.cbSize = sizeof(SHMENUBARINFO);
-  mbi.hwndParent = wnd;
-
-  //  On windows ce smartphone, events never occur if the
-  //  menubar is empty.  This doesn't work: 
-  //  mbi.dwFlags = SHCMBF_EMPTYBAR;
-
-  mbi.nToolBarId = IDC_DUMMY_CE_MENUBAR;
-  mbi.hInstRes   = GetModuleHandle(NULL);
-  
-  if (!SHCreateMenuBar(&mbi))
-    return;
-
-  SetWindowPos(mbi.hwndMB, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE);
-
-  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TBACK,
-              MAKELPARAM(SHMBOF_NODEFAULT | SHMBOF_NOTIFY,
-                         SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
-  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT1, 
-              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
-                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-  
-  
-  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT2, 
-              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
-                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
-}
-
-void HandleHotKey(WPARAM wParam, LPARAM lParam)
-{
-  // SmartPhones has a one or two menu buttons at the
-  // bottom of the screen.  They are dispatched via a
-  // menu resource, rather then a hotkey.  To make
-  // this look consistent, we have mapped this menu to
-  // fire hotkey events.  See
-  // http://msdn.microsoft.com/library/default.asp?url=/library/en-us/win_ce/html/pwc_TheBackButtonandOtherInterestingButtons.asp
-  
-  // Also, an important thing to not here is that the
-  // handling of the hot key is not tied to a specific
-  // nsWindow or native window.
-  
-  if (VK_TSOFT1 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
-  {
-    keybd_event(VK_F23, 0, 0, 0);
-    keybd_event(VK_F23, 0, KEYEVENTF_KEYUP, 0);
-    return;
-  }
-  
-  if (VK_TSOFT2 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
-  {
-    keybd_event(VK_F24, 0, 0, 0);
-    keybd_event(VK_F24, 0, KEYEVENTF_KEYUP, 0);
-    return;
-  }
-  
-  if (VK_TBACK == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
-  {
-    keybd_event(VK_BACK, 0, 0, 0);
-    keybd_event(VK_BACK, 0, KEYEVENTF_KEYUP, 0);
-    return;
-  }
-  
-  switch (wParam) 
-  {
-    case VK_APP1:
-      keybd_event(VK_F1, 0, 0, 0);
-      keybd_event(VK_F1, 0, KEYEVENTF_KEYUP, 0);
-      return;
-      
-    case VK_APP2:
-      keybd_event(VK_F2, 0, 0, 0);
-      keybd_event(VK_F2, 0, KEYEVENTF_KEYUP, 0);
-      return;
-      
-    case VK_APP3:
-      keybd_event(VK_F3, 0, 0, 0);
-      keybd_event(VK_F3, 0, KEYEVENTF_KEYUP, 0);
-      return;
-
-    case VK_APP4:
-      keybd_event(VK_F4, 0, 0, 0);
-      keybd_event(VK_F4, 0, KEYEVENTF_KEYUP, 0);
-      return;
-
-    case VK_APP5:
-      keybd_event(VK_F5, 0, 0, 0);
-      keybd_event(VK_F5, 0, KEYEVENTF_KEYUP, 0);
-      return;
-      
-    case VK_APP6:
-      keybd_event(VK_F6, 0, 0, 0);
-      keybd_event(VK_F6, 0, KEYEVENTF_KEYUP, 0);
-      return;
-  }
-}
-#endif
-
-
 //
 // main for the message pump thread
 //
@@ -374,37 +182,6 @@ LRESULT CALLBACK DetectWindowMove(int code, WPARAM wParam, LPARAM lParam)
 #define MAX_MENU_NAME   128
 #define MAX_FILTER_NAME 256
 
-int ConvertAtoW(LPCSTR aStrInA, int aBufferSize, LPWSTR aStrOutW)
-{
-  return MultiByteToWideChar(CP_ACP, 0, aStrInA, -1, aStrOutW, aBufferSize) ;
-}
-
-int ConvertWtoA(LPCWSTR aStrInW, int aBufferSizeOut, LPSTR aStrOutA)
-{
-  if ((!aStrInW) || (!aStrOutA) || (aBufferSizeOut <= 0))
-    return 0;
-
-  int numCharsConverted = WideCharToMultiByte(CP_ACP, 0, aStrInW, -1, 
-      aStrOutA, aBufferSizeOut, "?", NULL);
-
-  if (!numCharsConverted) {
-    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-      // Overflow, add missing null termination but return 0
-      aStrOutA[aBufferSizeOut-1] = '\0';
-    }
-    else {
-      // Other error, clear string and return 0
-      aStrOutA[0] = '\0';
-    }
-  }
-  else if (numCharsConverted < aBufferSizeOut) {
-    // Add 2nd null (really necessary?)
-    aStrOutA[numCharsConverted] = '\0';
-  }
-
-  return numCharsConverted;
-}
-
 BOOL CallOpenSaveFileNameA(LPOPENFILENAMEW aFileNameW, BOOL aOpen)
 {
   BOOL rtn;
@@ -445,13 +222,14 @@ BOOL CallOpenSaveFileNameA(LPOPENFILENAMEW aFileNameW, BOOL aOpen)
     ofnA.lpstrFilter = filterA; 
   }
   if (aFileNameW->lpstrCustomFilter)  {
-    ConvertWtoA(aFileNameW->lpstrCustomFilter, MAX_FILTER_NAME, customFilterA);
+    NS_ConvertWtoA(aFileNameW->lpstrCustomFilter, MAX_FILTER_NAME,
+                   customFilterA, "?");
     ofnA.lpstrCustomFilter = customFilterA; 
     ofnA.nMaxCustFilter = MAX_FILTER_NAME;  
   }
   ofnA.nFilterIndex = aFileNameW->nFilterIndex; // Index of pair of filter strings. Should be ok.
   if (aFileNameW->lpstrFile)  {
-    ConvertWtoA(aFileNameW->lpstrFile, FILE_BUFFER_SIZE, fileA);
+    NS_ConvertWtoA(aFileNameW->lpstrFile, FILE_BUFFER_SIZE, fileA, "?");
     ofnA.lpstrFile = fileA;
     ofnA.nMaxFile = FILE_BUFFER_SIZE;
     if (strlen(fileA))  {
@@ -462,27 +240,28 @@ BOOL CallOpenSaveFileNameA(LPOPENFILENAMEW aFileNameW, BOOL aOpen)
     }
   }
   if (aFileNameW->lpstrFileTitle) {
-    ConvertWtoA(aFileNameW->lpstrFileTitle, MAX_PATH, fileTitleA);
+    NS_ConvertWtoA(aFileNameW->lpstrFileTitle, MAX_PATH, fileTitleA, "?");
     ofnA.lpstrFileTitle = fileTitleA;
     ofnA.nMaxFileTitle = MAX_PATH;  
   }
   if (aFileNameW->lpstrInitialDir)  {
-    ConvertWtoA(aFileNameW->lpstrInitialDir, MAX_PATH, initDirA);
+    NS_ConvertWtoA(aFileNameW->lpstrInitialDir, MAX_PATH, initDirA, "?");
     ofnA.lpstrInitialDir = initDirA; 
   }
   if (aFileNameW->lpstrTitle) {
-    ConvertWtoA(aFileNameW->lpstrTitle, MAX_PATH, titleA);
+    NS_ConvertWtoA(aFileNameW->lpstrTitle, MAX_PATH, titleA, "?");
     ofnA.lpstrTitle = titleA; 
   }
   ofnA.Flags = aFileNameW->Flags; 
   if (aFileNameW->lpstrDefExt)  {
-    ConvertWtoA(aFileNameW->lpstrDefExt, MAX_PATH, defExtA);
+    NS_ConvertWtoA(aFileNameW->lpstrDefExt, MAX_PATH, defExtA, "?");
     ofnA.lpstrDefExt = defExtA; 
   }
-  ofnA.lCustData = aFileNameW->lCustData; // Warning:  No WtoA() is done to application-defined data 
+  // Warning:  No WtoA() is done to application-defined data 
+  ofnA.lCustData = aFileNameW->lCustData; 
   ofnA.lpfnHook = aFileNameW->lpfnHook;   
   if (aFileNameW->lpTemplateName) {
-    ConvertWtoA(aFileNameW->lpTemplateName, MAX_PATH, tempNameA);
+    NS_ConvertWtoA(aFileNameW->lpTemplateName, MAX_PATH, tempNameA, "?");
     ofnA.lpTemplateName = tempNameA; 
   }
   
@@ -512,7 +291,7 @@ BOOL CallOpenSaveFileNameA(LPOPENFILENAMEW aFileNameW, BOOL aOpen)
       aFileNameW->lpstrFile[lenW+1] = '\0';
     }
     else  { 
-      ConvertAtoW(ofnA.lpstrFile, aFileNameW->nMaxFile, aFileNameW->lpstrFile);
+      NS_ConvertAtoW(ofnA.lpstrFile, aFileNameW->nMaxFile, aFileNameW->lpstrFile);
     }
   }
 
@@ -538,7 +317,7 @@ int WINAPI nsGetClassName(HWND aWnd, LPWSTR aClassName, int aMaxCount)
   if (!GetClassNameA(aWnd, classNameA, MAX_CLASS_NAME))
     return 0;
 
-  aMaxCount = ConvertAtoW(classNameA, MAX_CLASS_NAME, aClassName);
+  aMaxCount = NS_ConvertAtoW(classNameA, MAX_CLASS_NAME, aClassName);
 
   return aMaxCount;
 }
@@ -561,9 +340,9 @@ HWND WINAPI nsCreateWindowEx(DWORD aExStyle,
 
   // Convert class name and Window name from Unicode to ANSI
   if (aClassNameW)
-      ConvertWtoA(aClassNameW, MAX_CLASS_NAME, classNameA);
+      NS_ConvertWtoA(aClassNameW, MAX_CLASS_NAME, classNameA, "?");
   if (aWindowNameW)
-      ConvertWtoA(aWindowNameW, MAX_CLASS_NAME, windowNameA);
+      NS_ConvertWtoA(aWindowNameW, MAX_CLASS_NAME, windowNameA, "?");
   
   // so far only NULL is passed
   if (aParam != NULL) {
@@ -586,7 +365,7 @@ LRESULT WINAPI nsSendMessage(HWND aWnd, UINT aMsg, WPARAM awParam, LPARAM alPara
   if (WM_SETTEXT == aMsg)  {
     char title[MAX_PATH];
     if (alParam) // Note: Window titles are truncated to 159 chars by Windows
-      ConvertWtoA((LPCWSTR)alParam, MAX_PATH, title);
+      NS_ConvertWtoA((LPCWSTR)alParam, MAX_PATH, title, "?");
     return SendMessageA(aWnd, aMsg, awParam, (LPARAM)&title);
   }
 
@@ -614,11 +393,11 @@ ATOM WINAPI nsRegisterClass(const WNDCLASSW *aClassW)
 
   wClass.lpszClassName = classNameA;
   if (aClassW->lpszClassName)
-    ConvertWtoA(aClassW->lpszClassName, MAX_CLASS_NAME, classNameA);
+    NS_ConvertWtoA(aClassW->lpszClassName, MAX_CLASS_NAME, classNameA, "?");
   
   wClass.lpszMenuName = menuNameA; 
   if (aClassW->lpszMenuName)
-    ConvertWtoA(aClassW->lpszMenuName, MAX_MENU_NAME, menuNameA);
+    NS_ConvertWtoA(aClassW->lpszMenuName, MAX_MENU_NAME, menuNameA, "?");
 
   return RegisterClassA(&wClass);
 }
@@ -628,7 +407,7 @@ BOOL WINAPI nsUnregisterClass(LPCWSTR aClassW, HINSTANCE aInst)
   char classA[MAX_PATH+1];
 
   if (aClassW)  {
-    ConvertWtoA(aClassW, MAX_PATH, classA);
+    NS_ConvertWtoA(aClassW, MAX_PATH, classA, "?");
     return UnregisterClassA((LPCSTR)classA, aInst);
   }
   return FALSE;
@@ -640,9 +419,9 @@ BOOL WINAPI nsSHGetPathFromIDList(LPCITEMIDLIST aIdList, LPWSTR aPathW)
   char pathA[MAX_PATH+1];
 
   if (aPathW)  {
-    ConvertWtoA(aPathW, MAX_PATH, pathA);
+    NS_ConvertWtoA(aPathW, MAX_PATH, pathA, "?");
     if (SHGetPathFromIDListA(aIdList, pathA)) {
-      ConvertAtoW(pathA, MAX_PATH, aPathW);
+      NS_ConvertAtoW(pathA, MAX_PATH, aPathW);
       return TRUE;
     }
   }
@@ -661,11 +440,11 @@ LPITEMIDLIST WINAPI nsSHBrowseForFolder(LPBROWSEINFOW aBiW)
   biA.hwndOwner = aBiW->hwndOwner;
   biA.pidlRoot = aBiW->pidlRoot;
   if (aBiW->pszDisplayName)  {
-    ConvertWtoA(aBiW->pszDisplayName, MAX_PATH, displayNameA);
+    NS_ConvertWtoA(aBiW->pszDisplayName, MAX_PATH, displayNameA, "?");
     biA.pszDisplayName = displayNameA; 
   }
   if (aBiW->lpszTitle)  {
-    ConvertWtoA(aBiW->lpszTitle, MAX_PATH, titleA);
+    NS_ConvertWtoA(aBiW->lpszTitle, MAX_PATH, titleA, "?");
     biA.lpszTitle = titleA; 
   }
   biA.ulFlags = aBiW->ulFlags;
@@ -675,7 +454,7 @@ LPITEMIDLIST WINAPI nsSHBrowseForFolder(LPBROWSEINFOW aBiW)
 
   itemIdList = SHBrowseForFolderA(&biA);
   if (biA.pszDisplayName)  {
-    ConvertAtoW(biA.pszDisplayName, MAX_PATH, aBiW->pszDisplayName);
+    NS_ConvertAtoW(biA.pszDisplayName, MAX_PATH, aBiW->pszDisplayName);
   }
   return itemIdList;
 }
@@ -928,12 +707,8 @@ void nsToolkit::CreateInternalWindow(PRThread *aThread)
                                   NULL,
                                   nsToolkit::mDllInstance,
                                   NULL);
-    VERIFY(mDispatchWnd);
 
-#ifdef WINCE
-    CreateSoftKeyMenuBar(mDispatchWnd);
-    MapHardwareButtons(mDispatchWnd);
-#endif
+    VERIFY(mDispatchWnd);
 }
 
 
@@ -1041,13 +816,6 @@ LRESULT CALLBACK nsToolkit::WindowProc(HWND hWnd, UINT msg, WPARAM wParam,
           nsWindow::GlobalMsgWindowProc(hWnd, msg, wParam, lParam);
         }
 
-#ifdef WINCE
-        case WM_HOTKEY:
-        {
-          HandleHotKey(wParam, lParam);
-          return 0;
-        }
-#endif
     }
 
     if(nsToolkit::gAIMMApp) {

@@ -884,37 +884,25 @@ sort_compare(void *arg, const void *a, const void *b, int *result)
     jsval av = *(const jsval *)a, bv = *(const jsval *)b;
     CompareArgs *ca = (CompareArgs *) arg;
     JSContext *cx = ca->context;
-    jsdouble cmp = -1;
-    jsval fval, argv[2], rval, special;
+    jsval fval;
     JSBool ok;
 
-    fval = ca->fval;
-
-    /*
-     * By ECMA 262, 15.4.4.11, existence of the property with value undefined
-     * takes precedence over an undefined property (which we call a "hole").
+    /**
+     * array_sort deals with holes and undefs on its own and they should not
+     * come here.
      */
-    if (av == JSVAL_HOLE || bv == JSVAL_HOLE)
-        special = JSVAL_HOLE;
-    else if (av == JSVAL_VOID || bv == JSVAL_VOID)
-        special = JSVAL_VOID;
-    else
-        special = JSVAL_NULL;
+    JS_ASSERT(av != JSVAL_HOLE);
+    JS_ASSERT(bv != JSVAL_HOLE);
+    JS_ASSERT(av != JSVAL_VOID);
+    JS_ASSERT(bv != JSVAL_VOID);
 
+    *result = 0;
     ok = JS_TRUE;
-    if (special != JSVAL_NULL) {
-        if (av == bv)
-            cmp = 0;
-        else if (av != special)
-            cmp = -1;
-        else
-            cmp = 1;
-    } else if (fval == JSVAL_NULL) {
+    fval = ca->fval;
+    if (fval == JSVAL_NULL) {
         JSString *astr, *bstr;
 
-        if (av == bv) {
-            cmp = 0;
-        } else {
+        if (av != bv) {
             /*
              * Set our local root to astr in case the second js_ValueToString
              * displaces the newborn root in cx, and the GC nests under that
@@ -925,11 +913,14 @@ sort_compare(void *arg, const void *a, const void *b, int *result)
             astr = js_ValueToString(cx, av);
             *ca->localroot = STRING_TO_JSVAL(astr);
             if (astr && (bstr = js_ValueToString(cx, bv)))
-                cmp = js_CompareStrings(astr, bstr);
+                *result = js_CompareStrings(astr, bstr);
             else
                 ok = JS_FALSE;
         }
     } else {
+        jsdouble cmp;
+        jsval rval, argv[2];
+
         argv[0] = av;
         argv[1] = bv;
         ok = js_InternalCall(cx,
@@ -947,14 +938,12 @@ sort_compare(void *arg, const void *a, const void *b, int *result)
                      * but is silent about what the result should be.  So we
                      * currently ignore it.
                      */
-                    cmp = 0;
                 } else if (cmp != 0) {
-                    cmp = cmp > 0 ? 1 : -1;
+                    *result = cmp > 0 ? 1 : -1;
                 }
             }
         }
     }
-    *result = (int)cmp;
     return ok;
 }
 
@@ -972,10 +961,9 @@ array_sort(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
 {
     jsval fval, *vec, *pivotroot;
     CompareArgs ca;
-    jsuint len, newlen, i;
+    jsuint len, newlen, i, undefs;
     JSStackFrame *fp;
     jsid id;
-    size_t nbytes;
     JSBool ok;
 
     /*
@@ -1013,48 +1001,75 @@ array_sort(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
         JS_ReportOutOfMemory(cx);
         return JS_FALSE;
     }
-    nbytes = ((size_t) len) * sizeof(jsval);
 
-    vec = (jsval *) JS_malloc(cx, nbytes);
+    vec = (jsval *) JS_malloc(cx, ((size_t) len) * sizeof(jsval));
     if (!vec)
         return JS_FALSE;
 
-    /* Root vec, clearing it first in case a GC nests while we're filling it. */
-    memset(vec, 0, nbytes);
+    /*
+     * Initialize vec as a root. We will clear elements of vec one by
+     * one while increasing fp->nvars when we know that the property at
+     * the corresponding index exists and its value must be rooted.
+     *
+     * In this way when sorting a huge mostly spare array we will not
+     * access the tail of vec corresponding to properties that do not
+     * exist allowing OS to avoiding committing RAM for it. See bug 330812.
+     */
     fp = cx->fp;
     fp->vars = vec;
-    fp->nvars = len;
+    fp->nvars = 0;
 
+    /*
+     * By ECMA 262, 15.4.4.11, a property that does not exist (which we
+     * call a "hole") is always greater than an existing property with
+     * value undefined and that is always greater than any other property.
+     * Thus to sort holes and undefs we simply count them, sort the rest
+     * of elements, append undefs after them and then make holes after
+     * undefs.
+     */
+    undefs = 0;
     newlen = 0;
     for (i = 0; i < len; i++) {
         ok = IndexToExistingId(cx, obj, i, &id);
         if (!ok)
             goto out;
 
-        if (id == JSID_HOLE) {
-            vec[i] = JSVAL_HOLE;
-            all_strings = JS_FALSE;
+        if (id == JSID_HOLE)
             continue;
-        }
-        newlen++;
 
-        ok = OBJ_GET_PROPERTY(cx, obj, id, &vec[i]);
+        /* Clear vec[newlen] before including it in the rooted set. */
+        vec[newlen] = JSVAL_NULL;
+        fp->nvars = newlen + 1;
+        ok = OBJ_GET_PROPERTY(cx, obj, id, &vec[newlen]);
         if (!ok)
             goto out;
 
+        if (vec[newlen] == JSVAL_VOID) {
+            ++undefs;
+            continue;
+        }
+
         /* We know JSVAL_IS_STRING yields 0 or 1, so avoid a branch via &=. */
-        all_strings &= JSVAL_IS_STRING(vec[i]);
+        all_strings &= JSVAL_IS_STRING(vec[newlen]);
+
+        ++newlen;
     }
+
+    /* Here len == newlen + undefs + number_of_holes. */
 
     ca.context = cx;
     ca.fval = fval;
     ca.localroot = argv + argc;       /* local GC root for temporary string */
     pivotroot    = argv + argc + 1;   /* local GC root for pivot val */
-    ok = js_HeapSort(vec, (size_t) len, pivotroot, sizeof(jsval),
+    ok = js_HeapSort(vec, (size_t) newlen, pivotroot, sizeof(jsval),
                      all_strings ? sort_compare_strings : sort_compare,
                      &ca);
 
     if (ok) {
+        while (undefs != 0) {
+            --undefs;
+            vec[newlen++] = JSVAL_VOID;
+        }
         ok = InitArrayElements(cx, obj, newlen, vec);
         if (ok)
             *rval = OBJECT_TO_JSVAL(obj);

@@ -75,6 +75,8 @@
 #include "nsAutoPtr.h"
 #include "nsArray.h"
 #include "nsIDOMDocumentXBL.h"
+#include "nsIProgrammingLanguage.h"
+#include "nsDOMError.h"
 
 #define XFORMS_LAZY_INSTANCE_BINDING \
   "chrome://xforms/content/xforms.xml#xforms-lazy-instance"
@@ -723,7 +725,7 @@ nsXFormsModelElement::SetSingleState(nsIDOMElement *aElement,
 nsresult
 nsXFormsModelElement::SetStatesInternal(nsIXFormsControl *aControl,
                                         nsIDOMNode       *aNode,
-                                        PRBool            aAllStates)
+                                        PRBool            aDispatchEvents)
 {
   NS_ENSURE_ARG(aControl);
   if (!aNode)
@@ -742,16 +744,19 @@ nsXFormsModelElement::SetStatesInternal(nsIXFormsControl *aControl,
   nsresult rv = xtfWrap->SetIntrinsicState(ns->GetIntrinsicState());
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (aAllStates || ns->ShouldDispatchValid()) {
+  if (!aDispatchEvents)
+    return NS_OK;
+
+  if (ns->ShouldDispatchValid()) {
     SetSingleState(element, ns->IsValid(), eEvent_Valid);
   }
-  if (aAllStates || ns->ShouldDispatchReadonly()) {
+  if (ns->ShouldDispatchReadonly()) {
     SetSingleState(element, ns->IsReadonly(), eEvent_Readonly);
   }
-  if (aAllStates || ns->ShouldDispatchRequired()) {
+  if (ns->ShouldDispatchRequired()) {
     SetSingleState(element, ns->IsRequired(), eEvent_Required);
   }
-  if (aAllStates || ns->ShouldDispatchRelevant()) {
+  if (ns->ShouldDispatchRelevant()) {
     SetSingleState(element, ns->IsRelevant(), eEvent_Enabled);
   }
 
@@ -935,8 +940,6 @@ nsXFormsModelElement::OnLoad(nsISchema* aSchema)
     nsresult rv = FinishConstruction();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsXFormsUtils::DispatchEvent(mElement, eEvent_Refresh);
-
     MaybeNotifyCompletion();
   }
 
@@ -1059,7 +1062,6 @@ nsXFormsModelElement::InstanceLoadFinished(PRBool aSuccess)
   } else if (IsComplete()) {
     nsresult rv = FinishConstruction();
     if (NS_SUCCEEDED(rv)) {
-      nsXFormsUtils::DispatchEvent(mElement, eEvent_Refresh);
       MaybeNotifyCompletion();
     }
   }
@@ -1348,8 +1350,9 @@ nsXFormsModelElement::FindInstanceDocument(const nsAString &aID)
   nsXFormsModelElement::FindInstanceElement(aID, getter_AddRefs(instance));
 
   nsIDOMDocument *doc = nsnull;
-  if (instance)
-    instance->GetDocument(&doc); // addrefs
+  if (instance) {
+    instance->GetInstanceDocument(&doc); // addrefs
+  }
 
   return doc;
 }
@@ -1530,7 +1533,7 @@ nsXFormsModelElement::InitializeControls()
     NS_ENSURE_SUCCESS(rv, rv);
 
     // Set MIP states on control
-    rv = SetStatesInternal(control, boundNode, PR_TRUE);
+    rv = SetStatesInternal(control, boundNode, PR_FALSE);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // Refresh controls
@@ -1629,13 +1632,23 @@ nsXFormsModelElement::ProcessBind(nsIXFormsXPathEvaluator *aEvaluator,
                             nsIDOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE,
                             nsnull, getter_AddRefs(result));
   if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_DOM_INVALID_EXPRESSION_ERR) {
+      // the xpath expression isn't valid xpath
+
+      const nsPromiseFlatString& flat = PromiseFlatString(expr);
+      const PRUnichar *strings[] = { flat.get() };
+      nsXFormsUtils::ReportError(NS_LITERAL_STRING("exprParseError"),
+                                 strings, 1, aBindElement, nsnull);
+      nsXFormsUtils::DispatchEvent(mElement, eEvent_ComputeException);
+    } else {
 #ifdef DEBUG
-    printf("xforms-binding-exception: XPath Evaluation failed\n");
+      printf("xforms-binding-exception: XPath Evaluation failed\n");
 #endif
-    const PRUnichar *strings[] = { expr.get() };
-    nsXFormsUtils::ReportError(NS_LITERAL_STRING("nodesetEvaluateError"),
-                               strings, 1, aBindElement, aBindElement);
-    nsXFormsUtils::DispatchEvent(mElement, eEvent_BindingException);
+      const PRUnichar *strings[] = { expr.get() };
+      nsXFormsUtils::ReportError(NS_LITERAL_STRING("nodesetEvaluateError"),
+                                 strings, 1, aBindElement, aBindElement);
+      nsXFormsUtils::DispatchEvent(mElement, eEvent_BindingException);
+    }
     return rv;
   }
 
@@ -1789,7 +1802,7 @@ nsXFormsModelElement::ProcessBind(nsIXFormsXPathEvaluator *aEvaluator,
 NS_IMETHODIMP
 nsXFormsModelElement::SetStates(nsIXFormsControl *aControl, nsIDOMNode *aBoundNode)
 {
-  return SetStatesInternal(aControl, aBoundNode, PR_TRUE);
+  return SetStatesInternal(aControl, aBoundNode, PR_FALSE);
 }
 
 nsresult
@@ -1941,7 +1954,6 @@ nsXFormsModelElement::HandleLoad(nsIDOMEvent* aEvent)
     if (IsComplete()) {
       rv = FinishConstruction();
       NS_ENSURE_SUCCESS(rv, rv);
-      nsXFormsUtils::DispatchEvent(mElement, eEvent_Refresh);
     }
     mPendingInlineSchemas.Clear();
   }
@@ -1998,7 +2010,7 @@ nsXFormsModelInstanceDocuments::Item(PRUint32 aIndex, nsIDOMNode** aReturn)
   nsIInstanceElementPrivate* instance = mInstanceList.SafeObjectAt(aIndex);
   if (instance) {
     nsCOMPtr<nsIDOMDocument> doc;
-    if (NS_SUCCEEDED(instance->GetDocument(getter_AddRefs(doc))) && doc) {
+    if (NS_SUCCEEDED(instance->GetInstanceDocument(getter_AddRefs(doc))) && doc) {
       NS_ADDREF(*aReturn = doc);
     }
   }

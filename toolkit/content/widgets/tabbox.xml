@@ -295,7 +295,7 @@
             
             // Fire an onselect event for the tabs element.
             var event = document.createEvent('Events');
-            event.initEvent('select', false, true);
+            event.initEvent('select', true, true);
             this.dispatchEvent(event);
           }
           return val;
@@ -465,7 +465,6 @@
       </xul:stack>
     </content>
   </binding>
- 
 
   <binding id="tabpanels"
            extends="chrome://global/content/bindings/tabbox.xml#tab-base">
@@ -496,7 +495,7 @@
           this.setAttribute("selectedIndex", val);
           if (this._selectedPanel != panel) {
             var event = document.createEvent("Events");
-            event.initEvent("select", false, true);
+            event.initEvent("select", true, true);
             this.dispatchEvent(event);
           }
           return val;

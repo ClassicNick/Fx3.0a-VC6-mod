@@ -1,3 +1,4 @@
+
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -408,6 +409,10 @@ treechildren::-moz-tree-image(remote-err) {
   list-style-image: url("chrome://messenger/skin/addressbook/icons/abcard.png");
 }
 
+.aw-menulist > dropmarker {
+  height: 11px; 
+}
+
 #MsgHeadersToolbar {
   min-height: 132px;
 }
@@ -729,6 +734,10 @@ treechildren::-moz-tree-image(remote-err) {
 /* ::::: address book sidebar ::::: */
 .ab-closebutton {
    list-style-image: url("chrome://global/skin/icons/Close.gif");
+}
+
+.ab-closebutton > .toolbarbutton-icon {
+  -moz-margin-end: 0px; /* override toolkit's default value */
 }
 
 #sidebar {

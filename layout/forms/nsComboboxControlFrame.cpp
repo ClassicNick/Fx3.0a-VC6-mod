@@ -2059,7 +2059,7 @@ MOZ_DECL_CTOR_COUNTER(nsDisplayComboboxFocus)
 class nsDisplayComboboxFocus : public nsDisplayItem {
 public:
   nsDisplayComboboxFocus(nsComboboxControlFrame* aFrame)
-    : mFrame(aFrame) {
+    : nsDisplayItem(aFrame) {
     MOZ_COUNT_CTOR(nsDisplayComboboxFocus);
   }
 #ifdef NS_BUILD_REFCNT_LOGGING
@@ -2068,18 +2068,16 @@ public:
   }
 #endif
 
-  virtual nsIFrame* GetUnderlyingFrame() { return mFrame; }
   virtual void Paint(nsDisplayListBuilder* aBuilder, nsIRenderingContext* aCtx,
      const nsRect& aDirtyRect);
   NS_DISPLAY_DECL_NAME("ComboboxFocus")
-private:
-  nsComboboxControlFrame* mFrame;
 };
 
 void nsDisplayComboboxFocus::Paint(nsDisplayListBuilder* aBuilder,
      nsIRenderingContext* aCtx, const nsRect& aDirtyRect)
 {
-  mFrame->PaintFocus(*aCtx, aBuilder->ToReferenceFrame(mFrame));
+  NS_STATIC_CAST(nsComboboxControlFrame*, mFrame)
+    ->PaintFocus(*aCtx, aBuilder->ToReferenceFrame(mFrame));
 }
 
 NS_IMETHODIMP

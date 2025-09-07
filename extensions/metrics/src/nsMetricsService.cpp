@@ -58,8 +58,13 @@
 #include "nsIDOMSerializer.h"
 #include "nsMultiplexInputStream.h"
 #include "nsStringStream.h"
+#include "nsStreamUtils.h"
 #include "nsVariant.h"
+#include "prtime.h"
+#include "prmem.h"
 #include "bzlib.h"
+#include "nsIClassInfoImpl.h"
+#include "nsIUUIDGenerator.h"
 
 // Make our MIME type inform the server of possible compression.
 #ifdef NS_METRICS_SEND_UNCOMPRESSED_DATA
@@ -70,6 +75,8 @@
 
 // Flush the event log whenever its size exceeds this number of events.
 #define NS_EVENTLOG_FLUSH_POINT 64
+
+#define NS_SECONDS_PER_DAY (60 * 60 * 24)
 
 nsMetricsService* nsMetricsService::sMetricsService = nsnull;
 #ifdef PR_LOGGING
@@ -90,6 +97,14 @@ nsMetricsService::LogEvent(const nsAString &eventNS,
   NS_ENSURE_ARG_POINTER(eventProperties);
 
   if (mSuspendCount != 0)  // Ignore events while suspended
+    return NS_OK;
+
+  // Restrict the number of events logged
+  if (mEventCount >= mConfig.EventLimit())
+    return NS_OK;
+
+  // Restrict the types of events logged
+  if (!mConfig.IsEventEnabled(eventNS, eventName))
     return NS_OK;
 
   // Create a DOM element for the event and append it to our document.
@@ -165,7 +180,8 @@ nsMetricsService::LogEvent(const nsAString &eventNS,
   rv = mRoot->AppendChild(eventElement, getter_AddRefs(outChild));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (++mEventCount > NS_EVENTLOG_FLUSH_POINT)
+  // Flush event log to disk if it has grown too large
+  if ((++mEventCount % NS_EVENTLOG_FLUSH_POINT) == 0)
     Flush();
   return NS_OK;
 }
@@ -204,6 +220,12 @@ nsMetricsService::Flush()
   PR_Close(fd);
   NS_ENSURE_STATE(succeeded);
 
+  // Write current event count to prefs
+  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
+  NS_ENSURE_STATE(prefs);
+  rv = prefs->SetIntPref("metrics.event-count", mEventCount);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   // Create a new mRoot
   rv = CreateRoot();
   NS_ENSURE_SUCCESS(rv, rv);
@@ -230,8 +252,10 @@ nsMetricsService::Upload()
   // original data file, and allow new events to be logged to a new file.
   nsCOMPtr<nsILocalFile> dataFile;
   GetDataFile(&dataFile);
-  if (dataFile)
-    dataFile->Remove(PR_FALSE);
+  if (dataFile) {
+    if (NS_FAILED(dataFile->Remove(PR_FALSE)))
+      NS_WARNING("failed to remove data file");
+  }
 
   return NS_OK;
 }
@@ -272,6 +296,13 @@ nsMetricsService::NewChannel(nsIURI *uri, nsIChannel **result)
 NS_IMETHODIMP
 nsMetricsService::OnStartRequest(nsIRequest *request, nsISupports *context)
 {
+  NS_ENSURE_STATE(!mConfigOutputStream);
+
+  nsCOMPtr<nsIFile> file;
+  GetConfigFile(getter_AddRefs(file));
+
+  NS_NewLocalFileOutputStream(getter_AddRefs(mConfigOutputStream), file,
+                              PR_WRONLY | PR_CREATE_FILE | PR_TRUNCATE);
   return NS_OK;
 }
 
@@ -279,9 +310,49 @@ NS_IMETHODIMP
 nsMetricsService::OnStopRequest(nsIRequest *request, nsISupports *context,
                                 nsresult status)
 {
-  nsCOMPtr<nsILocalFile> uploadFile = do_QueryInterface(context);
-  if (uploadFile)
-    uploadFile->Remove(PR_FALSE);
+  if (mConfigOutputStream) {
+    mConfigOutputStream->Close();
+    mConfigOutputStream = 0;
+  }
+
+  // Load configuration file:
+
+  nsCOMPtr<nsIFile> file;
+  GetConfigFile(getter_AddRefs(file));
+
+  if (NS_SUCCEEDED(status))
+    status = mConfig.Load(file);
+
+  if (NS_FAILED(status)) {
+    // Upon failure, dial back the upload interval
+    PRInt32 interval = mConfig.UploadInterval();
+    mConfig.Reset();
+
+    interval <<= 2;
+    if (interval > NS_SECONDS_PER_DAY)
+      interval = NS_SECONDS_PER_DAY;
+    mConfig.SetUploadInterval(interval);
+
+    if (NS_FAILED(file->Remove(PR_FALSE)))
+      NS_WARNING("failed to remove config file");
+  }
+
+  // Apply possibly new upload interval:
+  RegisterUploadTimer();
+
+  // Shutdown collectors that are no longer enabled.  For now, this only
+  // applies to the load collector since the window collector may be needed by
+  // other collectors.
+  //
+  // TODO(darin): Come up with a better solution for this.  A broadcast
+  //              notification to the collectors might be ideal.
+  //
+  if (mConfig.IsEventEnabled(NS_LITERAL_STRING(NS_METRICS_NAMESPACE),
+                             NS_LITERAL_STRING("load"))) {
+    nsLoadCollector::Startup();
+  } else {
+    nsLoadCollector::Shutdown();
+  }
 
   mUploading = PR_FALSE;
   return NS_OK;
@@ -292,8 +363,9 @@ nsMetricsService::OnDataAvailable(nsIRequest *request, nsISupports *context,
                                   nsIInputStream *stream, PRUint32 offset,
                                   PRUint32 count)
 {
-  // We don't expect to receive any data from an upload.
-  return NS_ERROR_ABORT;
+  PRUint32 n;
+  return stream->ReadSegments(NS_CopySegmentToStream, mConfigOutputStream,
+                              count, &n);
 }
 
 NS_IMETHODIMP
@@ -305,15 +377,7 @@ nsMetricsService::Observe(nsISupports *subject, const char *topic,
     nsLoadCollector::Shutdown();
     nsWindowCollector::Shutdown();
   } else if (strcmp(topic, "profile-after-change") == 0) {
-    PRInt32 interval = 86400000;  // 24 hours
-    nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-    if (prefs)
-      prefs->GetIntPref("metrics.upload.interval", &interval);
-
-    nsCOMPtr<nsIUpdateTimerManager> mgr =
-        do_GetService("@mozilla.org/updates/timer-manager;1");
-    if (mgr)
-      mgr->RegisterTimer(NS_LITERAL_STRING("metrics-upload"), this, interval);
+    RegisterUploadTimer();
   }
   return NS_OK;
 }
@@ -365,6 +429,18 @@ nsMetricsService::Init()
 #endif
 
   nsresult rv;
+
+  // Initialize configuration.
+  NS_ENSURE_STATE(mConfig.Init());
+  nsCOMPtr<nsIFile> file;
+  GetConfigFile(getter_AddRefs(file));
+  if (file)
+    mConfig.Load(file);
+
+  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
+  NS_ENSURE_STATE(prefs);
+  rv = prefs->GetIntPref("metrics.event-count", &mEventCount);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   // Create an XML document to serve as the owner document for elements.
   mDocument = do_CreateInstance("@mozilla.org/xml/xml-document;1");
@@ -441,10 +517,8 @@ nsMetricsService::OpenDataFile(PRUint32 flags, PRFileDesc **fd)
 nsresult
 nsMetricsService::UploadData()
 {
-  // TODO: 1) Submit a request to the server to figure out how much data to
-  //          upload.  For now, we just submit all of the data.
-  //       2) Prepare a data stream for upload that is prefixed with a PROFILE
-  //          event.
+  // TODO: Prepare a data stream for upload that is prefixed with a PROFILE
+  //       event.
  
   PRBool enable = PR_FALSE;
   nsXPIDLCString spec;
@@ -463,7 +537,8 @@ nsMetricsService::UploadData()
   // NOTE: nsIUploadChannel requires a buffered stream to upload...
 
   nsCOMPtr<nsIInputStream> fileStream;
-  NS_NewLocalFileInputStream(getter_AddRefs(fileStream), file);
+  NS_NewLocalFileInputStream(getter_AddRefs(fileStream), file, -1, -1,
+                             nsIFileInputStream::DELETE_ON_CLOSE);
   NS_ENSURE_STATE(fileStream);
 
   PRUint32 streamLen;
@@ -496,7 +571,23 @@ nsMetricsService::UploadData()
   rv = httpChannel->SetRequestMethod(NS_LITERAL_CSTRING("POST"));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = channel->AsyncOpen(this, file);
+  static const char kClientIDPref[] = "metrics.client-id";
+  
+  // Get the client id and set it in an HTTP header
+  nsXPIDLCString clientID;
+  rv = prefs->GetCharPref(kClientIDPref, getter_Copies(clientID));
+  if (NS_FAILED(rv) || clientID.IsEmpty()) {
+    rv = GenerateClientID(clientID);
+    NS_ENSURE_SUCCESS(rv, rv);
+    
+    rv = prefs->SetCharPref(kClientIDPref, clientID);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  rv = httpChannel->SetRequestHeader(NS_LITERAL_CSTRING("X-Moz-Client-ID"),
+                                     clientID, PR_FALSE);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  rv = channel->AsyncOpen(this, nsnull);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
@@ -591,7 +682,7 @@ nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
   // footer.
   static const char METRICS_XML_HEAD[] =
       "<?xml version=\"1.0\"?>\n"
-      "<log xmlns=\"http://www.mozilla.org/metrics\">\n";
+      "<log xmlns=\"" NS_METRICS_NAMESPACE "\">\n";
   static const char METRICS_XML_TAIL[] = "</log>";
 
   nsCOMPtr<nsIInputStream> fileStream;
@@ -621,6 +712,52 @@ nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
   NS_ENSURE_SUCCESS(rv, rv);
 
   NS_ADDREF(*result = miStream);
+  return NS_OK;
+}
+
+void
+nsMetricsService::RegisterUploadTimer()
+{
+  nsCOMPtr<nsIUpdateTimerManager> mgr =
+      do_GetService("@mozilla.org/updates/timer-manager;1");
+  if (mgr)
+    mgr->RegisterTimer(NS_LITERAL_STRING("metrics-upload"), this,
+                       mConfig.UploadInterval() * PR_MSEC_PER_SEC);
+}
+
+void
+nsMetricsService::GetConfigFile(nsIFile **result)
+{
+  nsCOMPtr<nsIFile> file;
+  NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR, getter_AddRefs(file));
+  if (file)
+    file->AppendNative(NS_LITERAL_CSTRING("metrics-config.xml"));
+
+  *result = nsnull;
+  file.swap(*result);
+}
+
+nsresult
+nsMetricsService::GenerateClientID(nsCString &clientID)
+{
+  nsCOMPtr<nsIUUIDGenerator> idgen =
+    do_GetService("@mozilla.org/uuid-generator;1");
+  NS_ENSURE_STATE(idgen);
+
+  nsID id;
+  nsresult rv = idgen->GenerateUUIDInPlace(&id);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  char *idstr = id.ToString();
+  NS_ENSURE_STATE(idstr);
+
+  // {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}
+  static const PRUint32 kGUIDLength = 38;
+  NS_ASSERTION(idstr.Length() == kGUIDLength);
+  
+  // Strip off the enclosing curly brackets
+  clientID.Assign(idstr + 1, kGUIDLength - 2);
+  PR_Free(idstr);
   return NS_OK;
 }
 

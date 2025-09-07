@@ -118,7 +118,9 @@
 #include "nsSpaceManager.h"
 #include "nsTextTransformer.h"
 #include "nsIFrameTraversal.h"
+#ifndef MOZ_CAIRO_GFX
 #include "nsISelectionImageService.h"
+#endif
 #include "nsCSSLoader.h"
 #include "nsXULAtoms.h"
 #include "nsLayoutCID.h"
@@ -218,15 +220,6 @@ static void Shutdown();
 #include "nsSVGRect.h"
 #include "nsSVGPoint.h"
 #include "nsSVGUtils.h"
-
-#ifdef MOZ_SVG_RENDERER_LIBART
-void NS_InitSVGRendererLibartGlobals();
-void NS_FreeSVGRendererLibartGlobals();
-#endif
-#ifdef MOZ_SVG_RENDERER_GDIPLUS
-void NS_InitSVGRendererGDIPlusGlobals();
-void NS_FreeSVGRendererGDIPlusGlobals();
-#endif
 #endif
 
 // Transformiix
@@ -334,12 +327,6 @@ Initialize(nsIModule* aSelf)
 #ifdef MOZ_SVG
   if (nsSVGUtils::SVGEnabled())
     nsContentDLF::RegisterSVG();
-#ifdef MOZ_SVG_RENDERER_LIBART
-  NS_InitSVGRendererLibartGlobals();
-#endif
-#ifdef MOZ_SVG_RENDERER_GDIPLUS
-  NS_InitSVGRendererGDIPlusGlobals();
-#endif
 #endif
 
 #ifdef DEBUG
@@ -425,15 +412,6 @@ Shutdown()
   nsMathMLOperators::ReleaseTable();
 #endif
 
-#ifdef MOZ_SVG
-#ifdef MOZ_SVG_RENDERER_LIBART
-  NS_FreeSVGRendererLibartGlobals();
-#endif
-#ifdef MOZ_SVG_RENDERER_GDIPLUS
-  NS_FreeSVGRendererGDIPlusGlobals();
-#endif
-#endif
-
   nsCSSFrameConstructor::ReleaseGlobals();
   nsTextTransformer::Shutdown();
   nsSpaceManager::Shutdown();
@@ -480,7 +458,10 @@ nsresult NS_NewCanvasRenderingContext2D(nsIDOMCanvasRenderingContext2D** aResult
 #endif
 
 nsresult NS_CreateFrameTraversal(nsIFrameTraversal** aResult);
+
+#ifndef MOZ_CAIRO_GFX
 nsresult NS_NewSelectionImageService(nsISelectionImageService** aResult);
+#endif
 
 nsresult NS_NewSelection(nsIFrameSelection** aResult);
 nsresult NS_NewDomSelection(nsISelection** aResult);
@@ -503,15 +484,7 @@ nsresult NS_NewDOMEventGroup(nsIDOMEventGroup** aResult);
 NS_IMETHODIMP NS_NewXULControllers(nsISupports* aOuter, REFNSIID aIID, void** aResult);
 
 #ifdef MOZ_SVG
-#ifdef MOZ_SVG_RENDERER_GDIPLUS
-nsresult NS_NewSVGRendererGDIPlus(nsISVGRenderer** aResult);
-#endif // MOZ_SVG_RENDERER_GDIPLUS
-#ifdef MOZ_SVG_RENDERER_LIBART
-nsresult NS_NewSVGRendererLibart(nsISVGRenderer** aResult);
-#endif // MOZ_SVG_RENDERER_LIBART
-#ifdef MOZ_SVG_RENDERER_CAIRO
 nsresult NS_NewSVGRendererCairo(nsISVGRenderer** aResult);
-#endif // MOZ_SVG_RENDERER_CAIRO
 #endif
 
 #define MAKE_CTOR(ctor_, iface_, func_)                   \
@@ -548,17 +521,11 @@ MAKE_CTOR(CreateNewIFrameBoxObject,     nsIBoxObject,           NS_NewIFrameBoxO
 MAKE_CTOR(CreateNewScrollBoxObject,     nsIBoxObject,           NS_NewScrollBoxObject)
 MAKE_CTOR(CreateNewTreeBoxObject,       nsIBoxObject,           NS_NewTreeBoxObject)
 #endif
+#ifndef MOZ_CAIRO_GFX
 MAKE_CTOR(CreateSelectionImageService,  nsISelectionImageService,NS_NewSelectionImageService)
+#endif
 #ifdef MOZ_SVG
-#ifdef MOZ_SVG_RENDERER_GDIPLUS
-MAKE_CTOR(CreateNewSVGRendererGDIPlus,  nsISVGRenderer,         NS_NewSVGRendererGDIPlus)
-#endif // MOZ_SVG_RENDERER_GDIPLUS
-#ifdef MOZ_SVG_RENDERER_LIBART
-MAKE_CTOR(CreateNewSVGRendererLibart,   nsISVGRenderer,         NS_NewSVGRendererLibart)
-#endif // MOZ_SVG_RENDERER_LIBART
-#ifdef MOZ_SVG_RENDERER_CAIRO
 MAKE_CTOR(CreateNewSVGRendererCairo,   nsISVGRenderer,         NS_NewSVGRendererCairo)
-#endif // MOZ_SVG_RENDERER_CAIRO
 #endif
 MAKE_CTOR(CreateCaret,                  nsICaret,               NS_NewCaret)
 
@@ -849,24 +816,10 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsBaseDOMException)
 // The list of components we register
 static const nsModuleComponentInfo gComponents[] = {
 #ifdef MOZ_SVG
-#ifdef MOZ_SVG_RENDERER_GDIPLUS
-  { "SVG GdiPlus Renderer",
-    NS_SVG_RENDERER_GDIPLUS_CID,
-    NS_SVG_RENDERER_GDIPLUS_CONTRACTID,
-    CreateNewSVGRendererGDIPlus },
-#endif // MOZ_SVG_RENDERER_GDIPLUS
-#ifdef MOZ_SVG_RENDERER_LIBART
-  { "SVG Libart Renderer",
-    NS_SVG_RENDERER_LIBART_CID,
-    NS_SVG_RENDERER_LIBART_CONTRACTID,
-    CreateNewSVGRendererLibart },
-#endif // MOZ_SVG_RENDERER_LIBART
-#ifdef MOZ_SVG_RENDERER_CAIRO
   { "SVG Cairo Renderer",
     NS_SVG_RENDERER_CAIRO_CID,
     NS_SVG_RENDERER_CAIRO_CONTRACTID,
     CreateNewSVGRendererCairo },
-#endif // MOZ_SVG_RENDERER_CAIRO
 #endif // MOZ_SVG
 
 #ifdef DEBUG
@@ -885,10 +838,12 @@ static const nsModuleComponentInfo gComponents[] = {
     nsnull,
     CreateNewFrameTraversal },
 
+#ifndef MOZ_CAIRO_GFX
   { "selection image storage",
     NS_SELECTIONIMAGESERVICE_CID,
     nsnull,
     CreateSelectionImageService },
+#endif
 
   { "caret",
     NS_CARET_CID,

@@ -55,8 +55,6 @@
 #include "nsIInterfaceRequestor.h"
 #include "nsIServiceManager.h"
 
-#include "nsCarbonHelpers.h"
-#include "nsGfxUtils.h"
 #include "nsMacResources.h"
 #include "nsIQDFlushManager.h"
 
@@ -66,6 +64,8 @@
 #ifdef MOZ_CAIRO_GFX
 #include "gfxContext.h"
 #include "gfxQuartzSurface.h"
+#else
+#include "nsGfxUtils.h" // for StPortSetter
 #endif
 
 #define NSAppKitVersionNumber10_2 663
@@ -145,12 +145,21 @@ static void blinkRgn(RgnHandle rgn);
 
 #pragma mark -
 
-//
-// Convenience routines to go from a gecko rect to cocoa NSRects and back
-//
+
+/* Convenience routines to go from a gecko rect to cocoa NSRects and back
+ *
+ * Gecko rects (nsRect) contain an origin (x,y) in a coordinate
+ * system with (0,0) in the top-left of the screen. Cocoa rects
+ * (NSRect) contain an origin (x,y) in a coordinate system with
+ * (0,0) in the bottom-left of the screen. Both nsRect and NSRect
+ * contain width/height info, with no difference in their use.
+ * If a Cocoa rect is from a flipped view, there is no need to
+ * convert coordinate systems.
+ */
+
 
 static inline void
-ConvertGeckoToCocoaRect ( const nsRect & inGeckoRect, NSRect & outCocoaRect )
+ConvertGeckoToFlippedCocoaRect(const nsRect & inGeckoRect, NSRect & outCocoaRect)
 {
   outCocoaRect.origin.x = inGeckoRect.x;
   outCocoaRect.origin.y = inGeckoRect.y;
@@ -159,7 +168,7 @@ ConvertGeckoToCocoaRect ( const nsRect & inGeckoRect, NSRect & outCocoaRect )
 }
 
 static inline void
-ConvertCocoaToGeckoRect ( const NSRect & inCocoaRect, nsRect & outGeckoRect )
+ConvertFlippedCocoaToGeckoRect(const NSRect & inCocoaRect, nsRect & outGeckoRect)
 {
   outGeckoRect.x = NS_STATIC_CAST(nscoord, inCocoaRect.origin.x);
   outGeckoRect.y = NS_STATIC_CAST(nscoord, inCocoaRect.origin.y);
@@ -293,12 +302,12 @@ nsChildView::nsChildView() : nsBaseWidget()
 , mView(nsnull)
 , mParentView(nsnull)
 , mParentWidget(nsnull)
-, mFontMetrics(nsnull)
-, mTempRenderingContext(nsnull)
+#ifndef MOZ_CAIRO_GFX
+, mTempRenderingContextMadeHere(PR_FALSE)
+#endif
 , mDestructorCalled(PR_FALSE)
 , mVisible(PR_FALSE)
 , mDrawing(PR_FALSE)
-, mTempRenderingContextMadeHere(PR_FALSE)
 , mAcceptFocusOnClick(PR_TRUE)
 , mLiveResizeInProgress(PR_FALSE)
 , mPluginDrawing(PR_FALSE)
@@ -324,9 +333,6 @@ nsChildView::~nsChildView()
   }
 
   TearDownView(); // should have already been done from Destroy
-  
-  NS_IF_RELEASE(mTempRenderingContext); 
-  NS_IF_RELEASE(mFontMetrics);
   
   delete mPluginPort;
 
@@ -380,7 +386,7 @@ nsresult nsChildView::StandardCreate(nsIWidget *aParent,
   // create our parallel NSView and hook it up to our parent. Recall
   // that NS_NATIVE_WIDGET is the NSView.
   NSRect r;
-  ConvertGeckoToCocoaRect(mBounds, r);
+  ConvertGeckoToFlippedCocoaRect(mBounds, r);
   mView = [CreateCocoaView(r) retain];
   if (!mView) return NS_ERROR_FAILURE;
   
@@ -747,7 +753,11 @@ NS_IMETHODIMP nsChildView::SetFocus(PRBool aRaise)
 //-------------------------------------------------------------------------
 nsIFontMetrics* nsChildView::GetFont(void)
 {
+#ifdef MOZ_CAIRO_GFX
+  return nsnull;
+#else
   return mFontMetrics;
+#endif
 }
 
     
@@ -758,10 +768,14 @@ nsIFontMetrics* nsChildView::GetFont(void)
 //-------------------------------------------------------------------------
 NS_IMETHODIMP nsChildView::SetFont(const nsFont &aFont)
 {
-  NS_IF_RELEASE(mFontMetrics);
+#ifdef MOZ_CAIRO_GFX
+  return NS_ERROR_NOT_IMPLEMENTED;
+#else
+  mFontMetrics = nsnull;
   if (mContext)
-    mContext->GetMetricsFor(aFont, mFontMetrics);
+    mContext->GetMetricsFor(aFont, *getter_AddRefs(mFontMetrics));
   return NS_OK;
+#endif
 }
 
 
@@ -839,7 +853,7 @@ NS_METHOD nsChildView::SetBounds(const nsRect &aRect)
   if ( NS_SUCCEEDED(rv) ) {
     //CalcWindowRegions();
     NSRect r;
-    ConvertGeckoToCocoaRect(aRect, r);
+    ConvertGeckoToFlippedCocoaRect(aRect, r);
     [mView setFrame:r];
   }
 
@@ -876,7 +890,7 @@ NS_IMETHODIMP nsChildView::MoveWithRepaintOption(PRInt32 aX, PRInt32 aY, PRBool 
     mBounds.y = aY;
    
     NSRect r;
-    ConvertGeckoToCocoaRect(mBounds, r);
+    ConvertGeckoToFlippedCocoaRect(mBounds, r);
     [mView setFrame:r];
 
     if (mVisible && aRepaint)
@@ -906,7 +920,7 @@ NS_IMETHODIMP nsChildView::Resize(PRInt32 aWidth, PRInt32 aHeight, PRBool aRepai
       [[mView superview] setNeedsDisplayInRect: [mView frame]];    //XXX needed?
     
     NSRect r;
-    ConvertGeckoToCocoaRect(mBounds, r);
+    ConvertGeckoToFlippedCocoaRect(mBounds, r);
     [mView setFrame:r];
 
     if (mVisible && aRepaint)
@@ -1021,6 +1035,7 @@ NS_IMETHODIMP nsChildView::GetPluginClipRect(nsRect& outClipRect, nsPoint& outOr
 //-------------------------------------------------------------------------
 NS_IMETHODIMP nsChildView::StartDrawPlugin()
 {
+#ifndef MOZ_CAIRO_GFX
   NS_ASSERTION(mPluginPort, "StartDrawPlugin must only be called on a plugin widget");
   if (!mPluginPort)
     return NS_ERROR_FAILURE;
@@ -1071,6 +1086,7 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
   }
   
   NS_ASSERTION(0, "lockFocusIfCanDraw returned false\n");
+#endif
   return NS_ERROR_FAILURE;
 }
 
@@ -1191,7 +1207,7 @@ NS_IMETHODIMP nsChildView::Invalidate(const nsRect &aRect, PRBool aIsSynchronous
     return NS_OK;
 
   NSRect r;
-  ConvertGeckoToCocoaRect ( aRect, r );
+  ConvertGeckoToFlippedCocoaRect ( aRect, r );
   
   if (aIsSynchronous)
     [mView displayRect:r];
@@ -1236,7 +1252,7 @@ NS_IMETHODIMP nsChildView::InvalidateRegion(const nsIRegion *aRegion, PRBool aIs
   nsRect bounds;
   nsIRegion* region = NS_CONST_CAST(nsIRegion*, aRegion);     // ugh. this method should be const
   region->GetBoundingBox ( &bounds.x, &bounds.y, &bounds.width, &bounds.height );
-  ConvertGeckoToCocoaRect(bounds, r);
+  ConvertGeckoToFlippedCocoaRect(bounds, r);
   
   if ( aIsSynchronous )
     [mView displayRect:r];
@@ -1252,6 +1268,8 @@ inline PRUint16 COLOR8TOCOLOR16(PRUint8 color8)
   return (color8 << 8) | color8;  /* (color8 * 257) == (color8 * 0x0101) */
 }
 
+
+#ifndef MOZ_CAIRO_GFX
 //-------------------------------------------------------------------------
 //  StartDraw
 //
@@ -1265,13 +1283,12 @@ void nsChildView::StartDraw(nsIRenderingContext* aRenderingContext)
   if (aRenderingContext == nsnull)
   {
     // make sure we have a rendering context
-    mTempRenderingContext = GetRenderingContext();
+    mTempRenderingContext = getter_AddRefs(GetRenderingContext());
     mTempRenderingContextMadeHere = PR_TRUE;
   }
   else
   {
     // if we already have a rendering context, save its state
-    NS_IF_ADDREF(aRenderingContext);
     mTempRenderingContext = aRenderingContext;
     mTempRenderingContextMadeHere = PR_FALSE;
     mTempRenderingContext->PushState();
@@ -1317,9 +1334,10 @@ void nsChildView::EndDraw()
 
   if (mTempRenderingContextMadeHere)
     mTempRenderingContext->PopState();
-  NS_RELEASE(mTempRenderingContext);
-}
 
+  mTempRenderingContext = nsnull;
+}
+#endif /* MOZ_CAIRO_GFX */
 
 //-------------------------------------------------------------------------
 //
@@ -1328,7 +1346,7 @@ void nsChildView::EndDraw()
 void
 nsChildView::Flash(nsPaintEvent &aEvent)
 {
-#if DEBUG
+#if 0
   Rect flashRect;
   if (debug_WantPaintFlashing() && aEvent.rect ) {
     ::SetRect ( &flashRect, aEvent.rect->x, aEvent.rect->y, aEvent.rect->x + aEvent.rect->width,
@@ -1372,6 +1390,7 @@ NS_IMETHODIMP nsChildView::Update()
 #pragma mark -
 
 
+#ifndef MOZ_CAIRO_GFX
 //
 // UpdateWidget
 //
@@ -1419,6 +1438,7 @@ nsChildView::UpdateWidget(nsRect& aRect, nsIRenderingContext* aContext)
   EndDraw();
 #endif
 }
+#endif
 
 
 //
@@ -1801,7 +1821,7 @@ PRBool nsChildView::PointInWidget(Point aThePoint)
 NS_IMETHODIMP nsChildView::WidgetToScreen(const nsRect& aLocalRect, nsRect& aGlobalRect)
 {
   NSRect temp;
-  ConvertGeckoToCocoaRect(aLocalRect, temp);
+  ConvertGeckoToFlippedCocoaRect(aLocalRect, temp);
   temp = [mView convertRect:temp toView:nil];                       // convert to window coords
   temp.origin = [[mView getNativeWindow] convertBaseToScreen:temp.origin];   // convert to screen coords
   
@@ -1814,7 +1834,7 @@ NS_IMETHODIMP nsChildView::WidgetToScreen(const nsRect& aLocalRect, nsRect& aGlo
     temp.origin.y = NSMaxY(mainScreenFrame) - temp.origin.y;
   }
   
-  ConvertCocoaToGeckoRect(temp, aGlobalRect);
+  ConvertFlippedCocoaToGeckoRect(temp, aGlobalRect);
   
   return NS_OK;
 }
@@ -1830,7 +1850,7 @@ NS_IMETHODIMP nsChildView::WidgetToScreen(const nsRect& aLocalRect, nsRect& aGlo
 NS_IMETHODIMP nsChildView::ScreenToWidget(const nsRect& aGlobalRect, nsRect& aLocalRect)
 {
   NSRect temp;
-  ConvertGeckoToCocoaRect(aGlobalRect, temp);
+  ConvertGeckoToFlippedCocoaRect(aGlobalRect, temp);
 
   // need to flip the point relative to the main screen
   if ([[NSScreen screens] count] > 0)   // paranoia
@@ -1844,7 +1864,7 @@ NS_IMETHODIMP nsChildView::ScreenToWidget(const nsRect& aGlobalRect, nsRect& aLo
   temp.origin = [[mView getNativeWindow] convertScreenToBase:temp.origin];   // convert to screen coords
   temp = [mView convertRect:temp fromView:nil];                     // convert to window coords
 
-  ConvertCocoaToGeckoRect(temp, aLocalRect);
+  ConvertFlippedCocoaToGeckoRect(temp, aLocalRect);
   
   return NS_OK;
 } 
@@ -2444,16 +2464,14 @@ nsChildView::GetThebesSurface()
   nsRect geckoBounds;
   mGeckoChild->GetBounds(geckoBounds);
   nsRefPtr<gfxQuartzSurface> targetSurface =
-    new gfxQuartzSurface(cgContext, geckoBounds.width, geckoBounds.height,
-                         PR_FALSE);
+    new gfxQuartzSurface(cgContext, geckoBounds.width, geckoBounds.height, PR_FALSE);
 
   //fprintf (stderr, "Update[%p] [%f %f %f %f] cgc: %p gecko bounds: [%d %d %d %d]\n", mGeckoChild, aRect.origin.x, aRect.origin.y, aRect.size.width, aRect.size.height, cgContext, geckoBounds.x, geckoBounds.y, geckoBounds.width, geckoBounds.height);
 
   CGAffineTransform xform = CGContextGetCTM(cgContext);
   //fprintf (stderr, "  context xform: t: %f %f xx: %f xy: %f yx: %f yy: %f\n", xform.tx, xform.ty, xform.a, xform.b, xform.c, xform.d);
 
-  nsRefPtr<gfxContext> targetContext =
-    new gfxContext(targetSurface);
+  nsRefPtr<gfxContext> targetContext = new gfxContext(targetSurface);
 
 #if 0
   targetContext->Rectangle(gfxRect(aRect.origin.x, aRect.origin.y,
@@ -2476,7 +2494,7 @@ nsChildView::GetThebesSurface()
   rc->Init (mGeckoChild->GetDeviceContext(), targetContext);
   
   nsRect r, tr;
-  ConvertCocoaToGeckoRect(aRect, r);
+  ConvertFlippedCocoaToGeckoRect(aRect, r);
   tr = r;
 
   mGeckoChild->LocalToWindowCoordinate(tr);
@@ -2495,12 +2513,12 @@ nsChildView::GetThebesSurface()
 
   //fprintf (stderr, "---- update done ----\n");
 
-#else
+#else /* MOZ_CAIRO_GFX */
   // tell gecko to paint.
   // If < 10.3, just paint the rect
   if (floor(NSAppKitVersionNumber) <= NSAppKitVersionNumber10_2) {
     nsRect r;
-    ConvertCocoaToGeckoRect(aRect, r);
+    ConvertFlippedCocoaToGeckoRect(aRect, r);
     nsCOMPtr<nsIRenderingContext> rendContext = getter_AddRefs(mGeckoChild->GetRenderingContext());
     mGeckoChild->UpdateWidget(r, rendContext);
   }
@@ -2512,7 +2530,7 @@ nsChildView::GetThebesSurface()
     [self getRectsBeingDrawn:&rects count:&count];
     for (i = 0; i < count; ++i) {
       nsRect r;
-      ConvertCocoaToGeckoRect(rects[i], r);
+      ConvertFlippedCocoaToGeckoRect(rects[i], r);
       nsCOMPtr<nsIRenderingContext> rendContext = getter_AddRefs(mGeckoChild->GetRenderingContext());
       mGeckoChild->UpdateWidget(r, rendContext);
     }
@@ -3288,7 +3306,7 @@ static void ConvertCocoaKeyEventToMacEvent(NSEvent* cocoaEvent, EventRecord& mac
   nsRect compositionRect = [self sendCompositionEvent:NS_COMPOSITION_QUERY];
 
   NSRect rangeRect;
-  ConvertGeckoToCocoaRect(compositionRect, rangeRect);
+  ConvertGeckoToFlippedCocoaRect(compositionRect, rangeRect);
 
   // convert to window coords
   rangeRect = [self convertRect:rangeRect toView:nil];

@@ -75,8 +75,28 @@
 #include "imgIContainer.h"
 #include "gfxIImageFrame.h"
 #include "nsNativeCharsetUtils.h"
+#include "nsKeyboardLayout.h"
 #include <windows.h>
 #include <process.h>
+
+#ifdef WINCE
+#define NS_VK_APP1  0x0201
+#define NS_VK_APP2  0x0202
+#define NS_VK_APP3  0x0203
+#define NS_VK_APP4  0x0204
+#define NS_VK_APP5  0x0205
+#define NS_VK_APP6  0x0206
+#define NS_VK_APP7  0x0207
+#define NS_VK_APP8  0x0208
+#define NS_VK_APP9  0x0209
+#define NS_VK_APP10 0x020A
+#define NS_VK_APP11 0x020B
+
+#include "aygshell.h"
+#include "imm.h"
+#include "tpcshell.h"
+#endif
+
 
 // unknwn.h is needed to build with WIN32_LEAN_AND_MEAN
 #include <unknwn.h>
@@ -142,14 +162,6 @@
 #include "prprf.h"
 #include "prmem.h"
 
-#ifdef WINCE
-#include "aygshell.h"
-#include "tpcshell.h"
-
-PRBool gOverrideHWKeys = PR_FALSE;
-PRBool gUseOkayButton  = PR_FALSE;
-#endif
-
 static const char kMozHeapDumpMessageString[] = "MOZ_HeapDump";
 
 #define kWindowPositionSlop 20
@@ -204,6 +216,122 @@ static UpdateLayeredWindowProc* GetUpdateLayeredWindowProc()
 static UpdateLayeredWindowProc* pUpdateLayeredWindow = GetUpdateLayeredWindowProc();
 
 static inline PRBool IsAlphaTranslucencySupported() { return pUpdateLayeredWindow != nsnull; }
+
+#endif
+
+
+#ifdef WINCE
+static PRBool gSoftKeyMenuBar = PR_FALSE;
+static PRBool gUseOkayButton  = PR_FALSE;
+static PRBool gOverrideHWKeys = PR_TRUE;
+
+typedef BOOL (__stdcall *UnregisterFunc1Proc)( UINT, UINT );
+static UnregisterFunc1Proc gProcUnregisterFunc = NULL;
+static HINSTANCE gCoreDll = NULL;
+
+UINT gHardwareKeys[][2] =
+  {
+    { 0xc1, MOD_WIN },
+    { 0xc2, MOD_WIN },
+    { 0xc3, MOD_WIN },
+    { 0xc4, MOD_WIN },
+    { 0xc5, MOD_WIN },
+    { 0xc6, MOD_WIN },
+
+    { 0x72, 0 },// Answer - 0x72 Modifier - 0  
+    { 0x73, 0 },// Hangup - 0x73 Modifier - 0 
+    { 0x74, 0 },// 
+    { 0x75, 0 },// Volume Up   - 0x75 Modifier - 0
+    { 0x76, 0 },// Volume Down - 0x76 Modifier - 0
+    { 0, 0 },
+  };
+
+static void MapHardwareButtons(HWND window)
+{
+  if (!window)
+    return;
+
+  // handle hardware buttons so that they broadcast into our
+  // application. the following code is based on an article
+  // on the Pocket PC Developer Network:
+  //
+  // http://www.pocketpcdn.com/articles/handle_hardware_keys.html
+  
+  if (gOverrideHWKeys)
+  {
+    if (!gProcUnregisterFunc)
+    {
+      gCoreDll = LoadLibrary(_T("coredll.dll")); // leak
+      
+      if (gCoreDll)
+        gProcUnregisterFunc = (UnregisterFunc1Proc)GetProcAddress( gCoreDll, _T("UnregisterFunc1"));
+    }
+    
+    if (gProcUnregisterFunc)
+    {    
+      for (int i=0; gHardwareKeys[i][0]; i++)
+      {
+        UINT mod = gHardwareKeys[i][1];
+        UINT kc = gHardwareKeys[i][0];
+        
+        gProcUnregisterFunc(mod, kc);
+        RegisterHotKey(window, kc, mod, kc);
+      }
+    }
+  }
+}
+
+static void UnmapHardwareButtons()
+{
+  if (!gProcUnregisterFunc)
+    return;
+
+  for (int i=0; gHardwareKeys[i][0]; i++)
+  {
+    UINT mod = gHardwareKeys[i][1];
+    UINT kc = gHardwareKeys[i][0];
+
+    gProcUnregisterFunc(mod, kc);
+  }
+}
+
+HWND CreateSoftKeyMenuBar(HWND wnd)
+{
+  if (!wnd)
+    return nsnull;
+
+  SHMENUBARINFO mbi;
+  ZeroMemory(&mbi, sizeof(SHMENUBARINFO));
+  mbi.cbSize = sizeof(SHMENUBARINFO);
+  mbi.hwndParent = wnd;
+
+  //  On windows ce smartphone, events never occur if the
+  //  menubar is empty.  This doesn't work: 
+  //  mbi.dwFlags = SHCMBF_EMPTYBAR;
+
+  mbi.nToolBarId = IDC_DUMMY_CE_MENUBAR;
+  mbi.hInstRes   = GetModuleHandle(NULL);
+  
+  if (!SHCreateMenuBar(&mbi))
+    return nsnull;
+
+  SetWindowPos(mbi.hwndMB, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE);
+
+  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TBACK,
+              MAKELPARAM(SHMBOF_NODEFAULT | SHMBOF_NOTIFY,
+                         SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
+  
+  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT1, 
+              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
+                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
+  
+  
+  SendMessage(mbi.hwndMB, SHCMBM_OVERRIDEKEY, VK_TSOFT2, 
+              MAKELPARAM (SHMBOF_NODEFAULT | SHMBOF_NOTIFY, 
+                          SHMBOF_NODEFAULT | SHMBOF_NOTIFY));
+
+  return mbi.hwndMB;
+}
 
 #endif
 
@@ -798,6 +926,8 @@ nsWindow::nsWindow() : nsBaseWidget()
       prefBranch->GetBoolPref("config.wince.overrideHWKeys", &gOverrideHWKeys);
     }
   }
+  
+  mSoftKeyMenuBar = nsnull;
 #endif
 }
 
@@ -805,6 +935,7 @@ nsWindow::nsWindow() : nsBaseWidget()
 HKL nsWindow::gKeyboardLayout = 0;
 UINT nsWindow::gCurrentKeyboardCP = 0;
 PRBool nsWindow::gSwitchKeyboardLayout = PR_FALSE;
+static KeyboardLayout gKbdLayout;
 
 //-------------------------------------------------------------------------
 //
@@ -1475,6 +1606,13 @@ nsWindow::StandardWindowCreate(nsIWidget *aParent,
       }
     }
   }
+#ifdef WINCE
+    if (mWindowType == eWindowType_dialog || mWindowType == eWindowType_toplevel )
+      mSoftKeyMenuBar = CreateSoftKeyMenuBar(mWnd);
+
+    MapHardwareButtons(mWnd);
+#endif
+
   return NS_OK;
 }
 
@@ -2126,6 +2264,11 @@ NS_METHOD nsWindow::SetFocus(PRBool aRaise)
     if (::IsIconic(toplevelWnd))
       ::OpenIcon(toplevelWnd);
     ::SetFocus(mWnd);
+
+#ifdef WINCE
+    MapHardwareButtons(mWnd);
+#endif
+
   }
   return NS_OK;
 }
@@ -3204,9 +3347,9 @@ NS_METHOD nsWindow::EnableDragDrop(PRBool aEnable)
 UINT nsWindow::MapFromNativeToDOM(UINT aNativeKeyCode)
 {
   switch (aNativeKeyCode) {
-    case 0xBA: return NS_VK_SEMICOLON;
-    case 0xBB: return NS_VK_EQUALS;
-    case 0xBD: return NS_VK_SUBTRACT;
+    case VK_OEM_1:     return NS_VK_SEMICOLON;     // 0xBA, For the US standard keyboard, the ';:' key
+    case VK_OEM_PLUS:  return NS_VK_EQUALS;        // 0xBB, For any country/region, the '+' key
+    case VK_OEM_MINUS: return NS_VK_SUBTRACT;      // 0xBD, For any country/region, the '-' key
   }
 
   return aNativeKeyCode;
@@ -3286,6 +3429,8 @@ PRBool nsWindow::DispatchKeyEvent(PRUint32 aEventType, WORD aCharCode, UINT aVir
 //-------------------------------------------------------------------------
 BOOL nsWindow::OnKeyDown(UINT aVirtualKeyCode, UINT aScanCode, LPARAM aKeyData)
 {
+  gKbdLayout.OnKeyDown (aVirtualKeyCode);
+  
   UINT virtualKeyCode = sIMEIsComposing ? aVirtualKeyCode : MapFromNativeToDOM(aVirtualKeyCode);
 
 #ifdef DEBUG
@@ -3317,12 +3462,25 @@ BOOL nsWindow::OnKeyDown(UINT aVirtualKeyCode, UINT aScanCode, LPARAM aKeyData)
   if (virtualKeyCode == NS_VK_RETURN || virtualKeyCode == NS_VK_BACK ||
       (mIsControlDown && !mIsAltDown && !mIsShiftDown &&
        (virtualKeyCode == NS_VK_ADD || virtualKeyCode == NS_VK_SUBTRACT ||
-        virtualKeyCode == NS_VK_EQUALS)))
+        virtualKeyCode == NS_VK_EQUALS)) ||
+      ((mIsControlDown || mIsAltDown) && KeyboardLayout::IsPrintableCharKey (aVirtualKeyCode)))
   {
-    // Remove a possible WM_CHAR or WM_SYSCHAR from the message queue
-    if (gotMsg && (msg.message == WM_CHAR || msg.message == WM_SYSCHAR)) {
+    // Remove a possible WM_CHAR or WM_SYSCHAR messages from the message queue.
+    // They can be more than one because of:
+    //  * Dead-keys not pairing with base character
+    //  * Some keyboard layouts may map up to 4 characters to the single key
+
+    PRBool anyCharMessagesRemoved = PR_FALSE;
+    
+    while (gotMsg && (msg.message == WM_CHAR || msg.message == WM_SYSCHAR))
+    {
       nsToolkit::mGetMessage(&msg, mWnd, WM_KEYFIRST, WM_KEYLAST);
-    } else if (virtualKeyCode == NS_VK_BACK) {
+      anyCharMessagesRemoved = PR_TRUE;
+
+      gotMsg = nsToolkit::mPeekMessage (&msg, mWnd, WM_KEYFIRST, WM_KEYLAST, PM_NOREMOVE | PM_NOYIELD);
+    }
+
+    if (!anyCharMessagesRemoved && virtualKeyCode == NS_VK_BACK) {
       MSG imeStartCompositionMsg, imeCompositionMsg;
       if (nsToolkit::mPeekMessage(&imeStartCompositionMsg, mWnd, WM_IME_STARTCOMPOSITION, WM_IME_STARTCOMPOSITION, PM_NOREMOVE | PM_NOYIELD)
        && nsToolkit::mPeekMessage(&imeCompositionMsg, mWnd, WM_IME_COMPOSITION, WM_IME_COMPOSITION, PM_NOREMOVE | PM_NOYIELD)
@@ -3357,8 +3515,10 @@ BOOL nsWindow::OnKeyDown(UINT aVirtualKeyCode, UINT aScanCode, LPARAM aKeyData)
            (msg.message == WM_CHAR || msg.message == WM_SYSCHAR || msg.message == WM_DEADCHAR)) {
     // If prevent default set for keydown, do same for keypress
     nsToolkit::mGetMessage(&msg, mWnd, msg.message, msg.message);
+
     if (msg.message == WM_DEADCHAR)
       return PR_FALSE;
+
 #ifdef KE_DEBUG
     printf("%s\tchar=%c\twp=%4x\tlp=%8x\n",
            (msg.message == WM_SYSCHAR) ? "WM_SYSCHAR" : "WM_CHAR",
@@ -3367,47 +3527,77 @@ BOOL nsWindow::OnKeyDown(UINT aVirtualKeyCode, UINT aScanCode, LPARAM aKeyData)
     return OnChar(msg.wParam, extraFlags);
   }
 
-  WORD asciiKey = 0;
+  if (gKbdLayout.IsDeadKey ())
+    return PR_FALSE;
+           
+  PRUint8 shiftStates [5];
+  PRUint16 uniChars [5];
+  PRUint32 numOfUniChars = 0;
+  PRUint32 numOfShiftStates = 0;
 
   switch (virtualKeyCode) {
     // keys to be sent as characters
-    case NS_VK_ADD       : asciiKey = '+';  break;
-    case NS_VK_SUBTRACT  : asciiKey = '-';  break;
-    case NS_VK_SEMICOLON : asciiKey = ';';  break;
-    case NS_VK_EQUALS    : asciiKey = '=';  break;
-    case NS_VK_COMMA     : asciiKey = ',';  break;
-    case NS_VK_PERIOD    : asciiKey = '.';  break;
-    case NS_VK_QUOTE     : asciiKey = '\''; break;
-    case NS_VK_BACK_QUOTE: asciiKey = '`';  break;
-    case NS_VK_DIVIDE    :
-    case NS_VK_SLASH     : asciiKey = '/';  break;
-    case NS_VK_MULTIPLY  : asciiKey = '*';  break;
-    case NS_VK_NUMPAD0   : asciiKey = '0';  break;
-    case NS_VK_NUMPAD1   : asciiKey = '1';  break;
-    case NS_VK_NUMPAD2   : asciiKey = '2';  break;
-    case NS_VK_NUMPAD3   : asciiKey = '3';  break;
-    case NS_VK_NUMPAD4   : asciiKey = '4';  break;
-    case NS_VK_NUMPAD5   : asciiKey = '5';  break;
-    case NS_VK_NUMPAD6   : asciiKey = '6';  break;
-    case NS_VK_NUMPAD7   : asciiKey = '7';  break;
-    case NS_VK_NUMPAD8   : asciiKey = '8';  break;
-    case NS_VK_NUMPAD9   : asciiKey = '9';  break;
+    case NS_VK_ADD:       uniChars [0] = '+';  numOfUniChars = 1;  break;
+    case NS_VK_SUBTRACT:  uniChars [0] = '-';  numOfUniChars = 1;  break;
+    case NS_VK_DIVIDE:    uniChars [0] = '/';  numOfUniChars = 1;  break;
+    case NS_VK_MULTIPLY:  uniChars [0] = '*';  numOfUniChars = 1;  break;
+    case NS_VK_NUMPAD0:
+    case NS_VK_NUMPAD1:
+    case NS_VK_NUMPAD2:
+    case NS_VK_NUMPAD3:
+    case NS_VK_NUMPAD4:
+    case NS_VK_NUMPAD5:
+    case NS_VK_NUMPAD6:
+    case NS_VK_NUMPAD7:
+    case NS_VK_NUMPAD8:
+    case NS_VK_NUMPAD9:   uniChars [0] = virtualKeyCode - NS_VK_NUMPAD0 + '0';  numOfUniChars = 1;  break;
+
     default:
-      // NS_VK_0 - NS_VK_9 and NS_VK_A - NS_VK_Z match their ascii values
-      if ((NS_VK_0 <= virtualKeyCode && virtualKeyCode <= NS_VK_9) ||
-          (NS_VK_A <= virtualKeyCode && virtualKeyCode <= NS_VK_Z)) {
-        asciiKey = virtualKeyCode;
-        // Take the Shift state into account
-        if (!mIsShiftDown 
-            && NS_VK_A <= virtualKeyCode && virtualKeyCode <= NS_VK_Z) {
-          asciiKey += 0x20;
+      if (KeyboardLayout::IsPrintableCharKey (aVirtualKeyCode))
+        numOfUniChars = numOfShiftStates = gKbdLayout.GetUniChars (uniChars, shiftStates, NS_ARRAY_LENGTH (uniChars));
+
+      if (mIsControlDown ^ mIsAltDown)
+      {
+        // XXX
+        // For both Alt+key and Ctrl+key combinations we return the latin characters A..Z and
+        // numbers 0..9, ignoring the real characters returned by active keyboard layout.
+        // This is required to make sure that all shortcut keys (e.g. Ctrl+c, Ctrl+1, Alt+f)
+        // work the same way no matter what keyboard layout you are using.
+        // Currently it is impossible to use non-latin characters for keyboard shortcuts.
+
+        if ((NS_VK_0 <= virtualKeyCode && virtualKeyCode <= NS_VK_9) ||
+            (NS_VK_A <= virtualKeyCode && virtualKeyCode <= NS_VK_Z))
+        {
+          uniChars [0] = virtualKeyCode;
+          numOfUniChars = 1;
+          numOfShiftStates = 0;
+          
+          // For letters take the Shift state into account
+          if (!mIsShiftDown &&
+              NS_VK_A <= virtualKeyCode && virtualKeyCode <= NS_VK_Z)
+            uniChars [0] += 0x20;
         }
       }
   }
 
-  if (asciiKey)
-    DispatchKeyEvent(NS_KEY_PRESS, asciiKey, 0, aKeyData, extraFlags);
-  else
+  if (numOfUniChars)
+  {
+    for (PRUint32 cnt = 0; cnt < numOfUniChars; cnt++)
+    {
+      if (cnt < numOfShiftStates)
+      {
+        // If key in combination with Alt and/or Ctrl produces a different character than without them
+        // then do not report these flags because it is separate keyboard layout shift state.
+        // If dead-key and base character does not produce a valid composite character then both produced
+        // dead-key character and following base character may have different modifier flags, too.
+        mIsShiftDown   = (shiftStates [cnt] & eShift) != 0;
+        mIsControlDown = (shiftStates [cnt] & eCtrl) != 0;
+        mIsAltDown     = (shiftStates [cnt] & eAlt) != 0;
+      }
+
+      DispatchKeyEvent(NS_KEY_PRESS, uniChars [cnt], 0, aKeyData, extraFlags);
+    }
+  } else
     DispatchKeyEvent(NS_KEY_PRESS, 0, virtualKeyCode, aKeyData, extraFlags);
 
   return noDefault;
@@ -4226,16 +4416,16 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
       
       if (VK_TSOFT1 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
       {
-        keybd_event(VK_F23, 0, 0, 0);
-        keybd_event(VK_F23, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_F9, 0, 0, 0);
+        keybd_event(VK_F9, 0, KEYEVENTF_KEYUP, 0);
         result = 0;
         break;
       }
       
       if (VK_TSOFT2 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
       {
-        keybd_event(VK_F24, 0, 0, 0);
-        keybd_event(VK_F24, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_F10, 0, 0, 0);
+        keybd_event(VK_F10, 0, KEYEVENTF_KEYUP, 0);
         result = 0;
         break;
       }
@@ -4290,7 +4480,83 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
     break;
 #endif
 
-    case WM_SYSCHAR:
+#ifdef WINCE
+    // This needs to move into nsIDOMKeyEvent.idl && nsGUIEvent.h
+  case WM_HOTKEY:
+    {
+      // SmartPhones has a one or two menu buttons at the
+      // bottom of the screen.  They are dispatched via a
+      // menu resource, rather then a hotkey.  To make
+      // this look consistent, we have mapped this menu to
+      // fire hotkey events.  See
+      // http://msdn.microsoft.com/library/default.asp?url=/library/en-us/win_ce/html/pwc_TheBackButtonandOtherInterestingButtons.asp
+      if (VK_TSOFT1 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
+      {
+        keybd_event(VK_F23, 0, 0, 0);
+        keybd_event(VK_F23, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+      }
+      
+      if (VK_TSOFT2 == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
+      {
+        keybd_event(VK_F24, 0, 0, 0);
+        keybd_event(VK_F24, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+      }
+      
+      if (VK_TBACK == HIWORD(lParam) && (0 != (MOD_KEYUP & LOWORD(lParam))))
+      {
+        keybd_event(VK_BACK, 0, 0, 0);
+        keybd_event(VK_BACK, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+      }
+      
+      switch (wParam) 
+      {
+      case VK_APP1:
+        keybd_event(VK_F1, 0, 0, 0);
+        keybd_event(VK_F1, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+        
+      case VK_APP2:
+        keybd_event(VK_F2, 0, 0, 0);
+        keybd_event(VK_F2, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+        
+      case VK_APP3:
+        keybd_event(VK_F3, 0, 0, 0);
+        keybd_event(VK_F3, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+        
+      case VK_APP4:
+        keybd_event(VK_F4, 0, 0, 0);
+        keybd_event(VK_F4, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+        
+      case VK_APP5:
+        keybd_event(VK_F5, 0, 0, 0);
+        keybd_event(VK_F5, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+        
+      case VK_APP6:
+        keybd_event(VK_F6, 0, 0, 0);
+        keybd_event(VK_F6, 0, KEYEVENTF_KEYUP, 0);
+        result = 0;
+        break;
+      }
+    }
+    break;
+#endif
+
+  case WM_SYSCHAR:
     case WM_CHAR:
     {
 #ifdef KE_DEBUG
@@ -6638,6 +6904,8 @@ BOOL nsWindow::OnInputLangChange(HKL aHKL, LRESULT *oRetValue)
       NS_IMM_GETPROPERTY(gKeyboardLayout, IGP_PROPERTY, imeProp);
       nsToolkit::mUseImeApiW = (imeProp & IME_PROP_UNICODE) ? PR_TRUE : PR_FALSE;
     }
+
+    gKbdLayout.LoadLayout();
   }
 
   ResetInputState();

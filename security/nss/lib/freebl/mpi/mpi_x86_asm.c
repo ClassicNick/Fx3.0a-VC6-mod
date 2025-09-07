@@ -1,74 +1,73 @@
-;
-;  mpi_x86.asm - assembly language implementation of s_mpv_ functions.
-; 
-; ***** BEGIN LICENSE BLOCK *****
-; Version: MPL 1.1/GPL 2.0/LGPL 2.1
-;
-; The contents of this file are subject to the Mozilla Public License Version
-; 1.1 (the "License"); you may not use this file except in compliance with
-; the License. You may obtain a copy of the License at
-; http://www.mozilla.org/MPL/
-;
-; Software distributed under the License is distributed on an "AS IS" basis,
-; WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
-; for the specific language governing rights and limitations under the
-; License.
-;
-; The Original Code is the Netscape security libraries.
-;
-; The Initial Developer of the Original Code is
-; Netscape Communications Corporation.
-; Portions created by the Initial Developer are Copyright (C) 2000
-; the Initial Developer. All Rights Reserved.
-;
-; Contributor(s):
-;
-; Alternatively, the contents of this file may be used under the terms of
-; either the GNU General Public License Version 2 or later (the "GPL"), or
-; the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
-; in which case the provisions of the GPL or the LGPL are applicable instead
-; of those above. If you wish to allow use of your version of this file only
-; under the terms of either the GPL or the LGPL, and not to allow others to
-; use your version of this file under the terms of the MPL, indicate your
-; decision by deleting the provisions above and replace them with the notice
-; and other provisions required by the GPL or the LGPL. If you do not delete
-; the provisions above, a recipient may use your version of this file under
-; the terms of any one of the MPL, the GPL or the LGPL.
-;
-; ***** END LICENSE BLOCK *****
+/*
+ *  mpi_x86.c - MSVC inline assembly implementation of s_mpv_ functions.
+ * 
+ * ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+ *
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
+ *
+ * The Original Code is the Netscape security libraries.
+ *
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 2000
+ * the Initial Developer. All Rights Reserved.
+ *
+ * Contributor(s):
+ * Benjamin Smedberg <benjamin@smedbergs.us>
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
-;   $Id: mpi_x86.asm,v 1.2 2005/02/02 22:28:22 gerv%gerv.net Exp $
+#include "mpi-priv.h"
 
-	.386p
-	.MODEL	FLAT
-	ASSUME  CS: FLAT, DS: FLAT, SS: FLAT
-_TEXT   SEGMENT
-
-;   ebp - 36:	caller's esi
-;   ebp - 32:	caller's edi
-;   ebp - 28:	
-;   ebp - 24:	
-;   ebp - 20:	
-;   ebp - 16:	
-;   ebp - 12:	
-;   ebp - 8:	
-;   ebp - 4:	
-;   ebp + 0:	caller's ebp
-;   ebp + 4:	return address
-;   ebp + 8:	a	argument
-;   ebp + 12:	a_len	argument
-;   ebp + 16:	b	argument
-;   ebp + 20:	c	argument
-;   registers:
-;  	eax:
-; 	ebx:	carry
-; 	ecx:	a_len
-; 	edx:
-; 	esi:	a ptr
-; 	edi:	c ptr
-
-public	_s_mpv_mul_d
-_s_mpv_mul_d PROC NEAR
+/*
+ *   ebp - 36:	caller's esi
+ *   ebp - 32:	caller's edi
+ *   ebp - 28:	
+ *   ebp - 24:	
+ *   ebp - 20:	
+ *   ebp - 16:	
+ *   ebp - 12:	
+ *   ebp - 8:	
+ *   ebp - 4:	
+ *   ebp + 0:	caller's ebp
+ *   ebp + 4:	return address
+ *   ebp + 8:	a	argument
+ *   ebp + 12:	a_len	argument
+ *   ebp + 16:	b	argument
+ *   ebp + 20:	c	argument
+ *   registers:
+ *  	eax:
+ * 	ebx:	carry
+ * 	ecx:	a_len
+ * 	edx:
+ * 	esi:	a ptr
+ * 	edi:	c ptr
+ */
+__declspec(naked) void
+s_mpv_mul_d(const mp_digit *a, mp_size a_len, mp_digit b, mp_digit *c)
+{
+  __asm {
     push   ebp
     mov    ebp,esp
     sub    esp,28
@@ -102,32 +101,37 @@ L_2:
     leave  
     ret    
     nop
-_s_mpv_mul_d ENDP
+  }
+}
 
-;   ebp - 36:	caller's esi
-;   ebp - 32:	caller's edi
-;   ebp - 28:	
-;   ebp - 24:	
-;   ebp - 20:	
-;   ebp - 16:	
-;   ebp - 12:	
-;   ebp - 8:	
-;   ebp - 4:	
-;   ebp + 0:	caller's ebp
-;   ebp + 4:	return address
-;   ebp + 8:	a	argument
-;   ebp + 12:	a_len	argument
-;   ebp + 16:	b	argument
-;   ebp + 20:	c	argument
-;   registers:
-;  	eax:
-; 	ebx:	carry
-; 	ecx:	a_len
-; 	edx:
-; 	esi:	a ptr
-; 	edi:	c ptr
-public	_s_mpv_mul_d_add
-_s_mpv_mul_d_add PROC NEAR
+/*
+ *   ebp - 36:	caller's esi
+ *   ebp - 32:	caller's edi
+ *   ebp - 28:	
+ *   ebp - 24:	
+ *   ebp - 20:	
+ *   ebp - 16:	
+ *   ebp - 12:	
+ *   ebp - 8:	
+ *   ebp - 4:	
+ *   ebp + 0:	caller's ebp
+ *   ebp + 4:	return address
+ *   ebp + 8:	a	argument
+ *   ebp + 12:	a_len	argument
+ *   ebp + 16:	b	argument
+ *   ebp + 20:	c	argument
+ *   registers:
+ *  	eax:
+ * 	ebx:	carry
+ * 	ecx:	a_len
+ * 	edx:
+ * 	esi:	a ptr
+ * 	edi:	c ptr
+ */
+__declspec(naked) void
+s_mpv_mul_d_add(const mp_digit *a, mp_size a_len, mp_digit b, mp_digit *c)
+{
+  __asm {
     push   ebp
     mov    ebp,esp
     sub    esp,28
@@ -164,32 +168,37 @@ L_4:
     leave  
     ret    
     nop
-_s_mpv_mul_d_add ENDP
+  }
+}
 
-;   ebp - 36:	caller's esi
-;   ebp - 32:	caller's edi
-;   ebp - 28:	
-;   ebp - 24:	
-;   ebp - 20:	
-;   ebp - 16:	
-;   ebp - 12:	
-;   ebp - 8:	
-;   ebp - 4:	
-;   ebp + 0:	caller's ebp
-;   ebp + 4:	return address
-;   ebp + 8:	a	argument
-;   ebp + 12:	a_len	argument
-;   ebp + 16:	b	argument
-;   ebp + 20:	c	argument
-;   registers:
-;  	eax:
-; 	ebx:	carry
-; 	ecx:	a_len
-; 	edx:
-; 	esi:	a ptr
-; 	edi:	c ptr
-public	_s_mpv_mul_d_add_prop
-_s_mpv_mul_d_add_prop PROC NEAR
+/*
+ *   ebp - 36:	caller's esi
+ *   ebp - 32:	caller's edi
+ *   ebp - 28:	
+ *   ebp - 24:	
+ *   ebp - 20:	
+ *   ebp - 16:	
+ *   ebp - 12:	
+ *   ebp - 8:	
+ *   ebp - 4:	
+ *   ebp + 0:	caller's ebp
+ *   ebp + 4:	return address
+ *   ebp + 8:	a	argument
+ *   ebp + 12:	a_len	argument
+ *   ebp + 16:	b	argument
+ *   ebp + 20:	c	argument
+ *   registers:
+ *  	eax:
+ * 	ebx:	carry
+ * 	ecx:	a_len
+ * 	edx:
+ * 	esi:	a ptr
+ * 	edi:	c ptr
+ */
+__declspec(naked) void
+s_mpv_mul_d_add_prop(const mp_digit *a, mp_size a_len, mp_digit b, mp_digit *c)
+{
+  __asm {
     push   ebp
     mov    ebp,esp
     sub    esp,28
@@ -237,29 +246,33 @@ L_8:
     leave  
     ret    
     nop
-_s_mpv_mul_d_add_prop ENDP
+  }
+}
 
-;   ebp - 20:	caller's esi
-;   ebp - 16:	caller's edi
-;   ebp - 12:	
-;   ebp - 8:	carry
-;   ebp - 4:	a_len	local
-;   ebp + 0:	caller's ebp
-;   ebp + 4:	return address
-;   ebp + 8:	pa	argument
-;   ebp + 12:	a_len	argument
-;   ebp + 16:	ps	argument
-;   ebp + 20:	
-;   registers:
-;  	eax:
-; 	ebx:	carry
-; 	ecx:	a_len
-; 	edx:
-; 	esi:	a ptr
-; 	edi:	c ptr
-
-public	_s_mpv_sqr_add_prop
-_s_mpv_sqr_add_prop PROC NEAR
+/*
+ *   ebp - 20:	caller's esi
+ *   ebp - 16:	caller's edi
+ *   ebp - 12:	
+ *   ebp - 8:	carry
+ *   ebp - 4:	a_len	local
+ *   ebp + 0:	caller's ebp
+ *   ebp + 4:	return address
+ *   ebp + 8:	pa	argument
+ *   ebp + 12:	a_len	argument
+ *   ebp + 16:	ps	argument
+ *   ebp + 20:	
+ *   registers:
+ *  	eax:
+ * 	ebx:	carry
+ * 	ecx:	a_len
+ * 	edx:
+ * 	esi:	a ptr
+ * 	edi:	c ptr
+ */
+__declspec(naked) void
+s_mpv_sqr_add_prop(const mp_digit *a, mp_size a_len, mp_digit *sqrs)
+{
+  __asm {
      push   ebp
      mov    ebp,esp
      sub    esp,12
@@ -309,34 +322,35 @@ L_14:
     leave  
     ret    
     nop
-_s_mpv_sqr_add_prop ENDP
+  }
+}
 
-; 
-;  Divide 64-bit (Nhi,Nlo) by 32-bit divisor, which must be normalized
-;  so its high bit is 1.   This code is from NSPR.
-; 
-;  mp_err s_mpv_div_2dx1d(mp_digit Nhi, mp_digit Nlo, mp_digit divisor,
-;  		          mp_digit *qp, mp_digit *rp)
-
-;  Dump of assembler code for function s_mpv_div_2dx1d:
-;  
-;   esp +  0:   Caller's ebx
-;   esp +  4:	return address
-;   esp +  8:	Nhi	argument
-;   esp + 12:	Nlo	argument
-;   esp + 16:	divisor	argument
-;   esp + 20:	qp	argument
-;   esp + 24:   rp	argument
-;   registers:
-;  	eax:
-; 	ebx:	carry
-; 	ecx:	a_len
-; 	edx:
-; 	esi:	a ptr
-; 	edi:	c ptr
-;  
-public	_s_mpv_div_2dx1d
-_s_mpv_div_2dx1d PROC NEAR
+/* 
+ *  Divide 64-bit (Nhi,Nlo) by 32-bit divisor, which must be normalized
+ *  so its high bit is 1.   This code is from NSPR.
+ *
+ *  Dump of assembler code for function s_mpv_div_2dx1d:
+ *  
+ *   esp +  0:   Caller's ebx
+ *   esp +  4:	return address
+ *   esp +  8:	Nhi	argument
+ *   esp + 12:	Nlo	argument
+ *   esp + 16:	divisor	argument
+ *   esp + 20:	qp	argument
+ *   esp + 24:   rp	argument
+ *   registers:
+ *  	eax:
+ * 	ebx:	carry
+ * 	ecx:	a_len
+ * 	edx:
+ * 	esi:	a ptr
+ * 	edi:	c ptr
+ */  
+__declspec(naked) mp_err
+s_mpv_div_2dx1d(mp_digit Nhi, mp_digit Nlo, mp_digit divisor,
+		mp_digit *qp, mp_digit *rp)
+{
+  __asm {
        push   ebx
        mov    edx,[esp+8]
        mov    eax,[esp+12]
@@ -350,7 +364,5 @@ _s_mpv_div_2dx1d PROC NEAR
        pop    ebx
        ret    
        nop
-_s_mpv_div_2dx1d ENDP
-
-_TEXT	ENDS
-END
+  }
+}

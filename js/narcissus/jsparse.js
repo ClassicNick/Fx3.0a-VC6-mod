@@ -264,6 +264,11 @@ Np.push = function (kid) {
 
 Node.indentLevel = 0;
 
+function tokenstr(tt) {
+    var t = tokens[tt];
+    return /^\W/.test(t) ? opTypeNames[t] : t.toUpperCase();
+}
+
 Np.toString = function () {
     var a = [];
     for (var i in this) {
@@ -274,8 +279,7 @@ Np.toString = function () {
     const INDENTATION = "    ";
     var n = ++Node.indentLevel;
     var t = tokens[this.type];
-    var s = "{\n" + INDENTATION.repeat(n) +
-            "type: " + (/^\W/.test(t) ? opTypeNames[t] : t.toUpperCase());
+    var s = "{\n" + INDENTATION.repeat(n) + "type: " + tokenstr(t);
     for (i = 0; i < a.length; i++)
         s += ",\n" + INDENTATION.repeat(n) + a[i].id + ": " + a[i].value;
     n = --Node.indentLevel;
@@ -290,12 +294,16 @@ Np.getSource = function () {
 Np.__defineGetter__('filename',
                     function () { return this.tokenizer.filename; });
 
-String.prototype.repeat = function (n) {
-    var s = "", t = this + s;
-    while (--n >= 0)
-        s += t;
-    return s;
-}
+String.prototype.__defineProperty__(
+    'repeat',
+    function (n) {
+        var s = "", t = this + s;
+        while (--n >= 0)
+            s += t;
+        return s;
+    },
+    false, false, true
+);
 
 // Statement stack and nested statement handler.
 function nest(t, x, node, func, end) {
@@ -630,8 +638,8 @@ function ParenExpression(t, x) {
 var opPrecedence = {
     SEMICOLON: 0,
     COMMA: 1,
-    ASSIGN: 2,
-    HOOK: 3, COLON: 3, CONDITIONAL: 3,
+    ASSIGN: 2, HOOK: 2, COLON: 2, CONDITIONAL: 2,
+    // The above all have to have the same precedence, see bug 330975.
     OR: 4,
     AND: 5,
     BITWISE_OR: 6,
@@ -731,8 +739,10 @@ loop:
             if (t.scanOperand)
                 break loop;
             // Use >, not >=, for right-associative ASSIGN and HOOK/COLON.
-            while (opPrecedence[operators.top().type] > opPrecedence[tt])
+            while (opPrecedence[operators.top().type] > opPrecedence[tt] ||
+                   (tt == COLON && operators.top().type == ASSIGN)) {
                 reduce();
+            }
             if (tt == COLON) {
                 n = operators.top();
                 if (n.type != HOOK)
@@ -963,6 +973,10 @@ loop:
 
     if (x.hookLevel != hl)
         throw t.newSyntaxError("Missing : after ?");
+    if (x.parenLevel != pl)
+        throw t.newSyntaxError("Missing ) in parenthetical");
+    if (x.bracketLevel != bl)
+        throw t.newSyntaxError("Missing ] in index expression");
     if (t.scanOperand)
         throw t.newSyntaxError("Missing operand");
 

@@ -4,6 +4,14 @@
 use strict;
 use Cwd;
 
+# Globals that the signal handlers need access to...
+my $CURRENT_BUILD_PID = 0;
+my $HALT_AFTER_THIS_BUILD = 0;
+my $RELOAD_CONFIG = 0;
+
+my $TBOX_CLIENT_CVSUP_CMD = 'cvs update';
+my $TBOX_CLIENT_CVS_TIMEOUT = 300;
+
 sub PrintUsage() {
     die <<END_USAGE
     usage: $0 [options]
@@ -53,26 +61,74 @@ sub LoadConfig() {
     }
 }
 
+sub HandleSigTerm() {
+    if ($CURRENT_BUILD_PID > 0) {
+        kill(15, $CURRENT_BUILD_PID);
+        exit 0;
+    }
+}
+
+sub HandleSigHup() {
+    $HALT_AFTER_THIS_BUILD = 1;
+    $RELOAD_CONFIG = 1;
+}
+
+sub HandleSigInt() {
+    $HALT_AFTER_THIS_BUILD = 1;
+}
+
+sub HandleSigAlrm() {
+   die 'timeout';
+}
+
+sub UpdateTinderboxScripts() {
+    if (exists($ENV{'TBOX_CLIENT_CVS_DIR'})) {
+        print STDERR "Updating tinderbox scripts in $ENV{'TBOX_CLIENT_CVS_DIR'}\n";
+        eval {
+            local $SIG{'ALRM'} = \&HandleSigAlrm;
+            alarm($TBOX_CLIENT_CVS_TIMEOUT);
+            system("cd $ENV{'TBOX_CLIENT_CVS_DIR'} && $TBOX_CLIENT_CVSUP_CMD") 
+             == 0 or print STDERR "$TBOX_CLIENT_CVSUP_CMD failed: $!\n";
+            alarm(0);
+        };
+
+        if ($@) {
+            print STDERR 'CVS update of client tinderbox scripts ' . 
+              ($@ eq 'timeout' ? "timed out" : "failed: $@") . "\n";
+        }
+    }
+}
 
 sub Run() {
-    my $start_time = time();
     OUTER: while (1) {
+        my $start_time = time();
+        UpdateTinderboxScripts();
+
         foreach my $treeentry (@{$Settings::Tinderboxes}) {
-            my $multidir = getcwd();
-            chdir($treeentry->{tree}) or
-                die "Tree $treeentry->{tree} does not exist";
-            system("./build-seamonkey.pl --once $treeentry->{args}");
-            chdir($multidir);
+            my $buildPid = fork();
+
+            if (0 == $buildPid) {
+                chdir($treeentry->{tree}) or
+                 die "Tree $treeentry->{tree} does not exist";
+                exec("./build-seamonkey.pl --once $treeentry->{args}");
+                die("exec() failed: $!");
+            } elsif ($buildPid > 0) {
+                $CURRENT_BUILD_PID = $buildPid;
+                my $reapedPid = waitpid($buildPid, 0);
+                $CURRENT_BUILD_PID = 0;
+                if ($reapedPid != $buildPid) {
+                    warn "waitpid() returned bogosity: $!";
+                }
+            } else {
+                warn "fork() of build sub-process failed: $!";
+            }
 
             # We sleep 15 seconds to open up a window for stopping a build.
             sleep 15;
 
             # Provide a fall-over technique that stops the multi-tinderbox
             # script once the current build cycle has completed.
-            if ( -e "fall-over" ) {
-                system("mv fall-over fall-over.$$.done");
-                last OUTER;
-            }
+            last OUTER if ( $HALT_AFTER_THIS_BUILD );
         }
 
         # $BuildSleep is the minimum amount of time a build is allowed to take.
@@ -83,10 +139,24 @@ sub Run() {
             print "\n\nSleeping $sleep_time seconds ...\n";
             sleep $sleep_time;
         }
-        $start_time = time();
     }
 }
 
+$SIG{'TERM'} = \&HandleSigTerm;
+$SIG{'HUP'} = \&HandleSigHup;
+$SIG{'INT'} = \&HandleSigInt;
+
 HandleArgs();
-LoadConfig();
-Run();
+
+while (not $HALT_AFTER_THIS_BUILD) {
+    LoadConfig();
+    Run();
+
+    ## Run can exit for two reasons: SIGHUP or SIGTERM; if we got a TERM,
+    ## we won't reload the config, and we'll exit; if we got a HUP, then
+    ## let's reload the config, and retoggle the bit so we continue building 
+    if ($RELOAD_CONFIG) {
+        $HALT_AFTER_THIS_BUILD = 0;
+        $RELOAD_CONFIG = 0;
+    }
+}

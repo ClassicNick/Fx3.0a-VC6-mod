@@ -45,11 +45,10 @@
 #include "nsIDocShell.h"
 #include "nsIDOMElement.h"
 
-
-// {f2e79600-1700-11d5-bb6f-90f240fe493c}
+// {F5E4F801-DFD2-4DE3-8708-7914F2D4710D}
 #define NS_IMENUITEM_IID      \
-{ 0xf2e79600, 0x1700, 0x11d5, \
-  { 0xbb, 0x6f, 0x90, 0xf2, 0x40, 0xfe, 0x49, 0x3c } }
+{ 0xF5E4F801, 0xDFD2, 0x4DE3, \
+{ 0x87, 0x08, 0x79, 0x14, 0xF2, 0xD4, 0x71, 0x0D } }
 
 class nsIMenu;
 class nsIWidget;
@@ -154,6 +153,12 @@ class nsIMenuItem : public nsISupports {
     * @return NS_OK if the command was executed properly, otherwise an error code
     */
     NS_IMETHOD DoCommand() = 0;
+    
+    /**
+     * Sends a DOM event to the menu item's content node 
+     * @return NS_OK if the event was sent properly, otherwise an error code
+     */
+    NS_IMETHOD DispatchDOMEvent(const nsString &eventName, PRBool *preventDefaultCalled) = 0;
 
     /**
     *

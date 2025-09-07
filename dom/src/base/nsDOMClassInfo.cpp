@@ -5508,7 +5508,8 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
 
     v = OBJECT_TO_JSVAL(dot_prototype);
 
-    if (!::JS_SetProperty(cx, class_obj, "prototype", &v)) {
+    if (!::JS_DefineProperty(cx, class_obj, "prototype", v, NULL, NULL,
+                             JSPROP_ENUMERATE)) {
       return NS_ERROR_UNEXPECTED;
     }
 
@@ -7893,9 +7894,6 @@ nsHTMLDocumentSH::DocumentAllHelperGetProperty(JSContext *cx, JSObject *obj,
     // document.all is not being detected, and it resolved with a
     // qualified name. Expose the document.all collection.
 
-    // Print a warning so developers can stop using document.all
-    PrintWarningOnConsole(cx, "DocumentAllUsed");
-
     if (!JSVAL_IS_OBJECT(*vp)) {
       // First time through, create the collection, and set the
       // document as its private nsISupports data.
@@ -8060,7 +8058,7 @@ nsHTMLDocumentSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
         JSObject *proto = ::JS_GetPrototype(cx, helper ? helper : obj);
 
         // Check if the property all is defined on obj's (or helper's
-        // if obj doesn't exist) prototype, it it is, don't expose our
+        // if obj doesn't exist) prototype, if it is, don't expose our
         // document.all helper.
 
         JSBool hasAll = JS_FALSE;
@@ -8087,9 +8085,12 @@ nsHTMLDocumentSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
         // already defined on our prototype, create a helper.
         if (!helper && flags & JSRESOLVE_QUALIFIED &&
             !(flags & JSRESOLVE_DETECTING) && !hasAll) {
-          helper = JS_NewObject(cx, &sHTMLDocumentAllHelperClass,
-                                ::JS_GetPrototype(cx, obj),
-                                GetGlobalJSObject(cx, obj));
+          // Print a warning so developers can stop using document.all
+          PrintWarningOnConsole(cx, "DocumentAllUsed");
+
+          helper = ::JS_NewObject(cx, &sHTMLDocumentAllHelperClass,
+                                  ::JS_GetPrototype(cx, obj),
+                                  GetGlobalJSObject(cx, obj));
 
           if (!helper) {
             return NS_ERROR_OUT_OF_MEMORY;

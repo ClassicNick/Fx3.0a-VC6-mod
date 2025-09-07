@@ -60,6 +60,7 @@
 #include "nsCRT.h"
 #include "nsSupportsArray.h"
 #include "nsInt64.h"
+#include "nsContentCID.h"
 #include "nsStreamUtils.h"
 
 #include "nsCExternalHandlerService.h"
@@ -3100,7 +3101,7 @@ nsWebBrowserPersist::CloneNodeWithFixedUpURIAttributes(
         }
         return rv;
     }
-#endif MOZ_SVG
+#endif // MOZ_SVG
 
     nsCOMPtr<nsIDOMHTMLScriptElement> nodeAsScript = do_QueryInterface(aNodeIn);
     if (nodeAsScript)

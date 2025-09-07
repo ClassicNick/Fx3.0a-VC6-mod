@@ -23,6 +23,7 @@
 
  Contributor(s):
   Neil Rashbrook <neil@parkwaycc.co.uk>
+  Ian Neal <iann_bugzilla@arlen.demon.co.uk>
 
  Alternatively, the contents of this file may be used under the terms of
  either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -385,7 +386,7 @@
   <key keycode="VK_F6" oncommand="SwitchPaneFocus(event);"/>
 
   <!-- View Toggle Keys (F8/F9) -->
-  <key id="key_toggleMessagePane" keycode="VK_F8" oncommand="MsgToggleMessagePane();" observes="mailDisableKeys"/>
+  <key id="key_toggleMessagePane" keycode="VK_F8" oncommand="MsgToggleMessagePane();" disabled="true"/>
   <key id="key_toggleFolderPane" keycode="VK_F9" oncommand="MsgToggleSplitter('gray_vertical_splitter');" observes="mailDisableKeys"/>
 
   <!-- Label Keys -->
@@ -1926,10 +1927,10 @@
     </menulist>
   </hbox>
 
-<hbox id="searchBox" persist="collapsed" align="center" flex="1">
+<hbox id="searchBox" align="center" flex="1">
   <label id="searchCriteria" value="&SearchSubjectOrSender.label;" control="searchInput" 
          accesskey="&SearchSubjectOrSender.accesskey;"/>
-  <textbox id="searchInput" flex="5" onfocus="this.select();" onclick="this.select();" oninput="onSearchInput(false);" onkeypress="onSearchKeyPress(event);"/>
+  <textbox id="searchInput" flex="1" onfocus="this.select();" onclick="this.select();" onkeypress="if (event.keyCode == KeyEvent.DOM_VK_RETURN) this.select();" oncommand="onEnterInSearchBar();" type="timed" timeout="800"/>
   <button id="clearButton" label="&clearButton.label;" disabled="true" tooltiptext="&clearButton.tooltip;" oncommand="onClearSearch();" 
           accesskey="&clearButton.accesskey;"/>
   <button id="advancedButton" label="&advancedButton.label;" tooltiptext="&advancedButton.tooltip;" oncommand="onAdvancedSearch();"
@@ -1943,19 +1944,19 @@
 <deck id="msgNotificationBar" selectedIndex="0" collapsed="true">
   <hbox id="msgNotificationNoStatus"/>
 
+  <hbox id="phishingBar" class="msgNotificationBar" align="center">
+    <image id="phishingBarImage"/>
+    <description flex="1" class="msgNotificationBarText">&phishingBarMessage.label;</description>
+    <spacer flex="1"/>
+    <button label="&removePhishingBarButton.label;" oncommand="MsgIsNotAScam();"/>
+  </hbox>
+
   <hbox id="junkBar" class="msgNotificationBar" align="center">
     <image id="junkBarImage"/>
     <description flex="1" class="msgNotificationBarText">&junkBarMessage.label;</description>
     <spacer flex="1"/>
     <button label="&junkInfoButton.label;" oncommand="MsgJunkMailInfo(false)"/>
     <button label="&junkBarButton.label;" oncommand="JunkSelectedMessages(false);"/>
-  </hbox>
-
-  <hbox id="phishingBar" class="msgNotificationBar" align="center">
-    <image id="phishingBarImage"/>
-    <description flex="1" class="msgNotificationBarText">&phishingBarMessage.label;</description>
-    <spacer flex="1"/>
-    <button label="&removePhishingBarButton.label;" oncommand="MsgIsNotAScam();"/>
   </hbox>
 
   <hbox id="remoteContentBar" class="msgNotificationBar" align="center">

@@ -57,6 +57,7 @@
 #include <Processes.h>
 #include <Gestalt.h>
 #elif defined(XP_WIN)
+#include "nsWinAPIs.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <stdlib.h>
@@ -156,14 +157,15 @@ nsDirectoryService::GetCurrentProcessDirectory(nsILocalFile** aFile)
 
 
 #ifdef XP_WIN
-    char buf[MAX_PATH];
-    if ( ::GetModuleFileName(0, buf, sizeof(buf)) ) {
-        // chop of the executable name by finding the rightmost backslash
-        char* lastSlash = PL_strrchr(buf, '\\');
+    PRUnichar buf[MAX_PATH];
+    if ( nsWinAPIs::mGetModuleFileName(0, buf, sizeof(buf)) )
+    {
+        // chop off the executable name by finding the rightmost backslash
+        PRUnichar* lastSlash = wcsrchr(buf, L'\\');
         if (lastSlash)
-            *(lastSlash + 1) = '\0';
-        
-        localFile->InitWithNativePath(nsDependentCString(buf));
+            *(lastSlash + 1) = L'\0';
+
+        localFile->InitWithPath(nsDependentString(buf));
         *aFile = localFile;
         return NS_OK;
     }
@@ -246,18 +248,18 @@ nsDirectoryService::GetCurrentProcessDirectory(nsILocalFile** aFile)
     // regardless of the environment.  This makes it easier to write apps that
     // embed mozilla without having to worry about setting up the environment 
     //
-    // We do this py putenv()ing the default value into the environment.  Note that
+    // We do this by putenv()ing the default value into the environment.  Note that
     // we only do this if it is not already set.
 #ifdef MOZ_DEFAULT_MOZILLA_FIVE_HOME
-    if (PR_GetEnv("MOZILLA_FIVE_HOME") == nsnull)
+    const char *home = PR_GetEnv("MOZILLA_FIVE_HOME");
+    if (!home || !*home)
     {
         putenv("MOZILLA_FIVE_HOME=" MOZ_DEFAULT_MOZILLA_FIVE_HOME);
     }
 #endif
 
     char *moz5 = PR_GetEnv("MOZILLA_FIVE_HOME");
-
-    if (moz5)
+    if (moz5 && *moz5)
     {
         if (realpath(moz5, buf)) {
             localFile->InitWithNativePath(nsDependentCString(buf));
@@ -268,7 +270,7 @@ nsDirectoryService::GetCurrentProcessDirectory(nsILocalFile** aFile)
 #if defined(DEBUG)
     static PRBool firstWarning = PR_TRUE;
 
-    if(!moz5 && firstWarning) {
+    if((!moz5 || !*moz5) && firstWarning) {
         // Warn that MOZILLA_FIVE_HOME not set, once.
         printf("Warning: MOZILLA_FIVE_HOME not set.\n");
         firstWarning = PR_FALSE;
