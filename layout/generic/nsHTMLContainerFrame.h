@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* base class #2 for rendering objects that have child lists */
+
 #ifndef nsHTMLContainerFrame_h___
 #define nsHTMLContainerFrame_h___
 
@@ -119,6 +122,8 @@ public:
                                   nsLineBox* aLine);
 
 protected:
+  nsHTMLContainerFrame(nsStyleContext *aContext) : nsContainerFrame(aContext) {}
+
   /**
    * Displays the below-children decorations, then the children, then
    * the above-children decorations, with the decorations going in the

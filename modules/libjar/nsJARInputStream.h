@@ -1,4 +1,3 @@
-
 /* nsJARInputStream.h
  * 
  * ***** BEGIN LICENSE BLOCK *****
@@ -46,13 +45,14 @@
    {0xa756724a, 0x1dd1, 0x11b2, \
      {0x90, 0xd8, 0x9c, 0x98, 0xfc, 0x2b, 0x7a, 0xc0}}
 
+#include "nsAutoPtr.h"
 #include "nsIInputStream.h"
 #include "nsJAR.h"
 
 /*-------------------------------------------------------------------------
- * Class nsJARInputStream declaration. This class defines objects returned
- * by calls to nsJAR::GetInputStream(filename) for the purpose of reading 
- * a file item out of a JAR file. 
+ * Class nsJARInputStream declaration. This class defines the type of the
+ * object returned by calls to nsJAR::GetInputStream(filename) for the
+ * purpose of reading a file item out of a JAR file. 
  *------------------------------------------------------------------------*/
 class nsJARInputStream : public nsIInputStream
 {
@@ -71,9 +71,7 @@ class nsJARInputStream : public nsIInputStream
   
   protected:
     nsZipReadState  mReadInfo;
-
-    nsJAR*      mJAR;
+    nsRefPtr<nsJAR> mJAR;
 };
 
-#endif /* nsJAR_h__ */
-
+#endif /* nsJARINPUTSTREAM_h__ */

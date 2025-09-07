@@ -34,6 +34,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * Base class for DOM Core's nsIDOMComment, nsIDOMDocumentType, nsIDOMText,
+ * nsIDOMCDATASection, and nsIDOMProcessingInstruction nodes.
+ */
+
 #ifndef nsGenericDOMDataNode_h___
 #define nsGenericDOMDataNode_h___
 
@@ -270,9 +276,11 @@ public:
   virtual PRUint32 TextLength();
   virtual void SetText(const PRUnichar* aBuffer, PRUint32 aLength,
                        PRBool aNotify);
-  virtual void SetText(const nsAString& aStr, PRBool aNotify);
-  virtual void SetText(const char* aBuffer, PRUint32 aLength,
-                       PRBool aNotify);
+  // Need to implement this here too to avoid hiding.
+  void SetText(const nsAString& aStr, PRBool aNotify)
+  {
+    SetText(aStr.BeginReading(), aStr.Length(), aNotify);
+  }
   virtual PRBool IsOnlyWhitespace();
   virtual void AppendTextTo(nsAString& aResult);
 

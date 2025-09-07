@@ -5,7 +5,7 @@
 <!ENTITY  beforeYouBegin.description    "Decide which customizations you want to make and create/collect the customized files, such as:
                                          <html:ul>
                                          <html:li>Custom animation files for browser's animated logo</html:li>
-                                         <html:li>Search plugins</html:li>
+                                         <html:li>Search engines (SRC files and the corresponding images)</html:li>
                                          <html:li>Browser plug-ins</html:li>
                                          </html:ul>">
                                          
@@ -23,7 +23,7 @@
 <!ENTITY  configLocation.label          "Location of configuration">
 
 <!ENTITY  saveOnExit.label              "Save configuration automatically on exit">
-<!ENTITY  zipLocation.label             "In order to create the XPI, we need to use ZIP. If ZIP is not in your path, you can specify it here">
+<!ENTITY  zipLocation.label             "In order to create the XPI, we need to use ZIP. If ZIP is not in your path, you can specify it here:">
 
 
 
@@ -34,6 +34,7 @@
 
 <!ENTITY  id.label                      "Unique ID:">
 <!ENTITY  id.error                      "Unique ID is required">
+<!ENTITY  id.format                     "Format: companyname-cck@extensions.domainname.tld">
 <!ENTITY  name.label                    "Name:">
 <!ENTITY  name.error                    "Name is required">
 <!ENTITY  version.label                 "Version:">
@@ -50,8 +51,8 @@
 
 <!ENTITY  customizePartOne.label        "Customize the Browser - Part One">
 
-<!ENTITY  orgName.error                 "Company Identifier is required">
-<!ENTITY  orgName.description           "The Company Identifier is included as part of the browser's user agent string which appears when you open the Help menu and select About Mozilla Firefox.">
+<!ENTITY  orgName.error                 "Company Identifier is required and cannot contain any spaces.">
+<!ENTITY  orgName.description           "The Company Identifier is included as part of the browser's user agent string which appears when you open the Help menu and select About Mozilla Firefox. It is required.">
 <!ENTITY  orgName.label                 "Enter Your Company Identifier (up to 10 characters; no spaces):">
 <!ENTITY  orgName.caption               "Company Identifier">
 
@@ -88,29 +89,37 @@
 
 <!ENTITY  customizePartFour.label      "Customize the Browser - Part Four">
 <!ENTITY  allowedSites.caption          "Allowed Sites">
-<!ENTITY  allowedSites.description      "You can specify domains for which popups and/or XPI installs are allowed. List the domains, separated by a comma.">
-<!ENTITY  popupAllowedSites.label       "Popup Allowed Sites:">
-<!ENTITY  installAllowedSites.label     "Install Allowed Sites:">
+<!ENTITY  popupAllowedSites.label       "You can specify domains for which popups are allowed. List the domains, separated by a comma.">
+<!ENTITY  installAllowedSites.label     "You can specify domains for which software installations (XPIs) are allowed. List the domains, separated by a comma.">
 
 <!ENTITY  customizeBrowserPlugins.label "Customize Browser Plug-ins">
-<!ENTITY  browserPlugins.description    "You may select up to five browser plug-ins to be preinstalled.">
+<!ENTITY  browserPlugins.description    "Use the buttons below to add browser plug-ins.">
 
+<!ENTITY  plugins.label                 "Browser Plug-ins">
+<!ENTITY  plugins.description           "Please select a browser plug-in and the platform it is written for.">
 
+<!ENTITY  customizeSearchEngines.label  "Customize Search Engines">
+<!ENTITY  searchEngines.description     "Use the buttons below to add search engines.">
 
+<!ENTITY  engines.label                 "Search Engines">
+<!ENTITY  engines.description           "Please select a .src file and the corresponding image.">
 
-<!ENTITY  customizeSearchPlugins.label  "Customize Search Plugins">
-<!ENTITY  searchPlugins.description     "Use the buttons below to add search plugins.">
+<!ENTITY  engine.label                  "SRC File">
+<!ENTITY  engineIcon.label              "Image File:">
 
 <!ENTITY  file.label                    "File:">
 <!ENTITY  icon.label                    "Icon:">
+
+<!ENTITY bmFolder.error                 "You must specify a folder name">
+
 <!ENTITY  folderTitle.label             "Folder Title:">
 
 <!ENTITY  customizeToolbarOne.label     "Customize the Personal Toolbar - Part One">
 
 <!ENTITY  addToolbarFolder.caption      "Add a folder to the personal toolbar">
-<!ENTITY  addToolbarFolder.description  "You can add a folder with up to five bookmarks to the personal toolbar.">
+<!ENTITY  addToolbarFolder.description  "Use the buttons below to add bookmarks to a folder on the personal toolbar.">
 <!ENTITY  addToolbarBookmark.caption    "Add bookmarks to the personal toolbar">
-<!ENTITY  addToolbarBookmark.description "You can add up to five bookmarks to the personal toolbar.">
+<!ENTITY  addToolbarBookmark.description "Use the buttons below to add bookmarks to the personal toolbar.">
 
 
 
@@ -120,34 +129,41 @@
 <!ENTITY  customizeBookmarksTwo.label   "Customize Bookmarks - Part Two">
 
 <!ENTITY  addBookmarkFolder.caption      "Add a folder to bookmarks">
-<!ENTITY  addBookmarkFolder.description  "You can add a folder with up to five bookmarks to bookmarks.">
+<!ENTITY  addBookmarkFolder.description  "Use the buttons below to create a folder with boomarks.">
 <!ENTITY  addBookmark.caption            "Add bookmarks">
-<!ENTITY  addBookmark.description        "You can add up to five bookmarks.">
+<!ENTITY  addBookmark.description        "Use the buttons below to add bookmarks.">
 
 
 <!ENTITY  bookmark.label                  "Bookmark">
+<!ENTITY  bookmark.description              "Enter a Bookmark">
 <!ENTITY  bookmarkTitle.label           "Title:">
 <!ENTITY  bookmarkURL.label             "URL:">
 
 
 <!ENTITY  customizePrefs.label          "Customize Preferences">
+<!ENTITY  customizePrefs.description    "Use the buttons below to add default preferences.">
 <!ENTITY  prefs.label                   "Preferences">
 <!ENTITY  prefs.description             "Note these preferences are stored exactly as written, so put quotes around string preferences.">
 
-<!ENTITY  prefName.label                "Preference Name">
+<!ENTITY  prefName.label                "Preference Name:">
 <!ENTITY  prefValue.label               "Value: ">
 
 <!ENTITY  newButton.label               "New">
-<!ENTITY  newButton.accesskey           "N">
+<!ENTITY  newButton.accesskey           "W">
 <!ENTITY  deleteButton.label            "Delete">
 <!ENTITY  deleteButton.accesskey        "D">
 <!ENTITY  editButton.label              "Edit">
 <!ENTITY  editButton.accesskey          "E">
+<!ENTITY  moveUpButton.label            "Move Up">
+<!ENTITY  moveUpButton.accesskey        "U">
+<!ENTITY  moveDownButton.label          "Move Down">
+<!ENTITY  moveDownButton.accesskey      "O">
+
 
 <!ENTITY  customizeRegistry.label       "Customize Registry (Windows Only)">
 
 <!ENTITY  registry.label                "Registry">
-<!ENTITY  registry.description          "You can add registry items.">
+<!ENTITY  registry.description          "Use the buttons below to add entries to the Windows registry. Note these items will be added/updated every time the browser starts.">
 
 <!ENTITY  regRootKey.label              "Root Key">
 <!ENTITY  regKey.label                  "Key">
@@ -157,7 +173,7 @@
 
 
 <!ENTITY  customizeCerts.label          "Customize Certificates">
-<!ENTITY  customizeCerts.warning       "You may select up to five certificates to be preinstalled.<html:br/><html:br/>
+<!ENTITY  customizeCerts.warning       "You may select certificates to be preinstalled.<html:br/><html:br/>
                                         <html:b>IMPORTANT: If you add certificates to Firefox, you CANNOT
                                         ship a browser outside of your company or institution and call it Firefox.
                                         This feature is intended primarily for corporate and institutional users

@@ -40,6 +40,8 @@ class AddOn extends AMO_Object {
 
     var $AppVersions;
 
+    var $OsVersions;
+
     // Preview information.
     var $PreviewID;
     var $PreviewURI;
@@ -82,11 +84,12 @@ class AddOn extends AMO_Object {
      */
     function getAddOn() {
         $this->getAddonCats();
-        $this->getComments('3');
+        $this->getComments(0,3);
         $this->getCurrentVersion();
         $this->getMainPreview();
         $this->getUserInfo();
         $this->getAppVersions();
+        $this->getOsVersions();
     }
     
     /**
@@ -241,18 +244,39 @@ class AddOn extends AMO_Object {
     /**
      * Get comments attached to this Addon.
      *
-     * @param int $limit number of rows to limit by.
+     * @param int $offset starting point of result set.
+     * @param int $numrows number of rows to show.
      * @todo add left/right limit clauses i.e. LIMIT 10,20 to work with pagination
      */
-    function getComments($limit=null) {
+    function getComments($offset=0, $numrows=10, $orderBy=null) {
 
-        // Set the LIMIT if it is not null.
-        $_limitSql = !empty($limit) ? " LIMIT {$limit} " : null;
+        // Set order by.
+        switch ($orderBy) {
+            case 'ratinghigh':
+                $_orderBySql = " ORDER BY CommentVote desc ";
+                break;
+            case 'ratinglow':
+                $_orderBySql = " ORDER BY CommentVote asc ";
+                break;
+            case 'dateoldest':
+                $_orderBySql = " ORDER BY CommentDate asc ";
+                break;
+            case 'datenewest':
+                $_orderBySql = " ORDER BY CommentDate desc ";
+                break;
+            case 'leasthelpful':
+                $_orderBySql = " ORDER BY helpful_no desc, helpful_yes asc ";
+                break;
+            case 'mosthelpful':
+            default:
+                $_orderBySql = " ORDER BY helpful_yes desc ";
+                break;
+        }
     
         // Gather 10 latest comments.
         $this->db->query("
-            SELECT
-	        CommentID,
+            SELECT SQL_CALC_FOUND_ROWS
+                CommentID,
                 CommentName,
                 CommentTitle,
                 CommentNote,
@@ -265,10 +289,9 @@ class AddOn extends AMO_Object {
                 feedback
             WHERE
                 ID = '{$this->ID}' AND
-                CommentNote IS NOT NULL
-            ORDER BY
-                CommentDate DESC
-            {$_limitSql}
+                CommentVote IS NOT NULL
+            {$_orderBySql}
+            LIMIT {$offset}, {$numrows} 
         ", SQL_ALL, SQL_ASSOC);
         
         $this->setVar('Comments',$this->db->record);
@@ -308,30 +331,93 @@ class AddOn extends AMO_Object {
           SELECT 
             `applications`.`AppName`, 
             `version`.`MinAppVer`, 
-            `version`.`MaxAppVer` 
+            `version`.`MaxAppVer`,
+            `os`.`OSName`
           FROM 
             `version` 
           INNER JOIN
             `applications`
           ON
             `version`.`AppID` = `applications`.`AppID`
+          INNER JOIN
+            `os`
+          ON
+            `version`.`OSID` = `os`.`OSID`
+          WHERE
+            `version`.`Version`='{$this->Version}'
+          AND 
+            `version`.`ID`={$this->ID}
+          AND 
+            `version`.`approved`='yes'
+          AND
+            `applications`.`supported` = 1
+          ORDER BY
+            `applications`.`AppName` 
+        ", SQL_ALL, SQL_ASSOC);
+
+        foreach ($this->db->record as $var => $val) {
+            $_key = "{$val['AppName']} {$val['MinAppVer']} - {$val['MaxAppVer']}";
+
+            // We've already got at least one hit, just add the OS
+            if (array_key_exists($_key, $_final)) {
+                array_push($_final[$_key]['os'], $val['OSName']);
+            } else {
+                $_final[$_key] = array (
+                    'AppName'   => $val['AppName'],
+                    'MinAppVer' => $val['MinAppVer'],
+                    'MaxAppVer' => $val['MaxAppVer'],
+                    'os'        => array ($val['OSName'])
+                );
+            }
+        }
+
+        $this->setVar('AppVersions',$_final);
+    }
+
+    /* A very similar function as getAppVersions() but this
+    has an additional GROUP BY which limits the OS's that
+    come back */
+    function getOsVersions() {
+        $_final = array();
+        $this->db->query("
+          SELECT 
+            `applications`.`appname`,
+            `version`.`URI`,
+            `version`.`Size`,
+            `os`.`OSName`
+          FROM 
+            `version` 
+          INNER JOIN
+            `applications`
+          ON
+            `version`.`AppID` = `applications`.`AppID`
+          INNER JOIN
+            `os`
+          ON
+            `version`.`OSID` = `os`.`OSID`
           WHERE
             `version`.`Version`='{$this->Version}'
           AND 
             `version`.`ID`={$this->ID}
           AND
             `applications`.`supported` = 1
+          AND 
+            `version`.`approved`='yes'
+          GROUP BY 
+            `os`.`OSID`
         ", SQL_ALL, SQL_ASSOC);
 
         foreach ($this->db->record as $var => $val) {
-            $_final[] = array (
-                'AppName'   => $val['AppName'],
-                'MinAppVer' => $val['MinAppVer'],
-                'MaxAppVer' => $val['MaxAppVer'],
+            $_final[$val['OSName']] = array (
+                'AppName'   => $val['appname'],
+                'URI'       => $val['URI'],
+                'Size'      => $val['Size'],
+                'OSName'    => $val['OSName'],
+                'Version'   => $this->Version
             );
         }
 
-        $this->setVar('AppVersions',$_final);
+        $this->setVar('OsVersions',$_final);
     }
 }
 ?>

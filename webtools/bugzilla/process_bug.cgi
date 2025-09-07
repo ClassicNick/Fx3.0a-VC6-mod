@@ -65,13 +65,10 @@ use Bugzilla::FlagType;
 
 # Shut up misguided -w warnings about "used only once":
 
-use vars qw(@legal_product
-          %components
-          %legal_opsys
+use vars qw(%legal_opsys
           %legal_platform
           %legal_priority
           %settable_resolution
-          %target_milestone
           %legal_severity
            );
 
@@ -339,16 +336,18 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
     # worthy of a comment, perhaps.
     #
     my @version_names = map($_->name, @{$prod_obj->versions});
+    my @component_names = map($_->name, @{$prod_obj->components});
     my $vok = lsearch(\@version_names, $cgi->param('version')) >= 0;
-    my $cok = lsearch($::components{$prod}, $cgi->param('component')) >= 0;
+    my $cok = lsearch(\@component_names, $cgi->param('component')) >= 0;
 
     my $mok = 1;   # so it won't affect the 'if' statement if milestones aren't used
+    my @milestone_names = ();
     if ( Param("usetargetmilestone") ) {
        defined($cgi->param('target_milestone'))
          || ThrowCodeError('undefined_field', { field => 'target_milestone' });
 
-       $mok = lsearch($::target_milestone{$prod},
-                      $cgi->param('target_milestone')) >= 0;
+       @milestone_names = map($_->name, @{$prod_obj->milestones});
+       $mok = lsearch(\@milestone_names, $cgi->param('target_milestone')) >= 0;
     }
 
     # If the product-specific fields need to be verified, or we need to verify
@@ -367,13 +366,13 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
             if ($vok) {
                 $defaults{'version'} = $cgi->param('version');
             }
-            $vars->{'components'} = $::components{$prod};
+            $vars->{'components'} = \@component_names;
             if ($cok) {
                 $defaults{'component'} = $cgi->param('component');
             }
             if (Param("usetargetmilestone")) {
                 $vars->{'use_target_milestone'} = 1;
-                $vars->{'milestones'} = $::target_milestone{$prod};
+                $vars->{'milestones'} = \@milestone_names;
                 if ($mok) {
                     $defaults{'target_milestone'} = $cgi->param('target_milestone');
                 } else {
@@ -448,13 +447,6 @@ sub CheckCanChangeField {
              && $oldvalue == $newvalue)
     {
         return 1;
-    }
-
-    # A resolution change is always accompanied by a status change. So, we 
-    # always OK resolution changes; if they really can't do this, we will 
-    # notice it when status is checked. 
-    if ($field eq "resolution") { 
-        return 1;             
     }
     # END DO_NOT_CHANGE
 
@@ -618,12 +610,12 @@ if (defined $cgi->param('id')) {
     # is more work in the current architecture of this script...)
     my $prod_obj = Bugzilla::Product::check_product($cgi->param('product'));
     check_field('component', scalar $cgi->param('component'), 
-                \@{$::components{$cgi->param('product')}});
+                [map($_->name, @{$prod_obj->components})]);
     check_field('version', scalar $cgi->param('version'),
                 [map($_->name, @{$prod_obj->versions})]);
     if ( Param("usetargetmilestone") ) {
         check_field('target_milestone', scalar $cgi->param('target_milestone'), 
-                    \@{$::target_milestone{$cgi->param('product')}});
+                    [map($_->name, @{$prod_obj->milestones})]);
     }
     check_field('rep_platform', scalar $cgi->param('rep_platform'), \@::legal_platform);
     check_field('op_sys',       scalar $cgi->param('op_sys'),       \@::legal_opsys);
@@ -1127,7 +1119,7 @@ SWITCH: for ($cgi->param('knob')) {
         ChangeResolution('');
         last SWITCH;
     };
-    /^resolve$/ && CheckonComment( "resolve" ) && do {
+    /^(resolve|change_resolution)$/ && CheckonComment( "resolve" ) && do {
         # Check here, because its the only place we require the resolution
         check_field('resolution', scalar $cgi->param('resolution'),
                     \@::settable_resolution);
@@ -1144,11 +1136,14 @@ SWITCH: for ($cgi->param('knob')) {
             }
         }
 
-        # RESOLVED bugs should have no time remaining;
-        # more time can be added for the VERIFY step, if needed.
-        _remove_remaining_time();
+        if ($cgi->param('knob') eq 'resolve') {
+            # RESOLVED bugs should have no time remaining;
+            # more time can be added for the VERIFY step, if needed.
+            _remove_remaining_time();
 
-        ChangeStatus('RESOLVED');
+            ChangeStatus('RESOLVED');
+        }
+
         ChangeResolution($cgi->param('resolution'));
         last SWITCH;
     };
@@ -1221,20 +1216,10 @@ SWITCH: for ($cgi->param('knob')) {
         ValidateBugID($duplicate, 'dup_id');
         $cgi->param('dup_id', $duplicate);
 
-        # Make sure the bug is not already marked as a dupe
-        # (may appear in race condition)
-        my $dupe_of =
-            $dbh->selectrow_array("SELECT dupe_of FROM duplicates
-                                   WHERE dupe = ?",
-                                   undef, $cgi->param('id'));
-        if ($dupe_of) {
-            ThrowUserError("dupe_entry_found", { dupe_of => $dupe_of });
-        }
-
         # Make sure a loop isn't created when marking this bug
         # as duplicate.
         my %dupes;
-        $dupe_of = $duplicate;
+        my $dupe_of = $duplicate;
         my $sth = $dbh->prepare('SELECT dupe_of FROM duplicates
                                  WHERE dupe = ?');
 
@@ -1485,11 +1470,10 @@ foreach my $id (@idlist) {
     $bug_changed = 0;
     my $write = "WRITE";        # Might want to make a param to control
                                 # whether we do LOW_PRIORITY ...
-    $dbh->bz_lock_tables("bugs $write", "bugs_activity $write",
-            "cc $write", "cc AS selectVisible_cc $write",
+    $dbh->bz_lock_tables("bugs $write", "bugs_activity $write", "cc $write",
             "profiles READ", "dependencies $write", "votes $write",
-            "products READ", "components READ",
-            "keywords $write", "longdescs $write", "fielddefs $write",
+            "products READ", "components READ", "milestones READ",
+            "keywords $write", "longdescs $write", "fielddefs READ",
             "bug_group_map $write", "flags $write", "duplicates $write",
             "user_group_map READ", "group_group_map READ", "flagtypes READ",
             "flaginclusions AS i READ", "flagexclusions AS e READ",
@@ -1583,7 +1567,8 @@ foreach my $id (@idlist) {
     if ($requiremilestone) {
         # musthavemilestoneonaccept applies only if at least two
         # target milestones are defined for the current product.
-        my $nb_milestones = scalar(@{$::target_milestone{$oldhash{'product'}}});
+        my $prod_obj = new Bugzilla::Product({'name' => $oldhash{'product'}});
+        my $nb_milestones = scalar(@{$prod_obj->milestones});
         if ($nb_milestones > 1) {
             my $value = $cgi->param('target_milestone');
             if (!defined $value || $value eq $cgi->param('dontchange')) {
@@ -1699,13 +1684,13 @@ foreach my $id (@idlist) {
         SendSQL($query);
     }
 
-    # Check for duplicates if the bug is [re]open
+    # Check for duplicates if the bug is [re]open or its resolution is changed.
     SendSQL("SELECT resolution FROM bugs WHERE bug_id = $id");
     my $resolution = FetchOneColumn();
-    if ($resolution eq '') {
+    if ($resolution ne 'DUPLICATE') {
         SendSQL("DELETE FROM duplicates WHERE dupe = $id");
     }
-    
+
     my $newproduct_id = $oldhash{'product_id'};
     if ($cgi->param('product') ne $cgi->param('dontchange')) {
         my $newproduct_id = get_product_id($cgi->param('product'));
@@ -2068,6 +2053,11 @@ foreach my $id (@idlist) {
     }
 
     if ($duplicate) {
+        # If the bug was already marked as a duplicate, remove
+        # the existing entry.
+        $dbh->do('DELETE FROM duplicates WHERE dupe = ?',
+                  undef, $cgi->param('id'));
+
         # Check to see if Reporter of this bug is reporter of Dupe 
         SendSQL("SELECT reporter FROM bugs WHERE bug_id = " .
                 $cgi->param('id'));

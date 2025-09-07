@@ -225,12 +225,6 @@ const int kReuseWindowOnAE = 2;
 {
   [self ensureGeckoInitted];
 
-  // previous versions would keep the cache in the profile folder. If we find it there, remove it so
-  // that backup apps can more easily back up our profile. This will mean if anyone goes back to 
-  // 0.8.x, they'll lose their favicons and cache, but that's ok.
-  NSString* cacheDir = [[[PreferenceManager sharedInstance] newProfilePath] stringByAppendingPathComponent:@"Cache"];
-  [[NSFileManager defaultManager] removeFileAtPath:cacheDir handler:nil];
-
   NSNotificationCenter* notificationCenter = [NSNotificationCenter defaultCenter];
   // turn on menu display notifications
   [NSMenu setupMenuWillDisplayNotifications];
@@ -527,13 +521,17 @@ const int kReuseWindowOnAE = 2;
   
   BOOL loadNewTabsInBackgroundPref = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
   
+  // if shift is held down, reverse the "open new tab/window with focus"-behavior.
+  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
+    loadNewTabsInBackgroundPref = !loadNewTabsInBackgroundPref;
+  
   NSWindow* behindWindow = nil;
 
   switch (behavior)
   {
     case eBookmarkOpenBehavior_Preferred:
       {
-        BOOL cmdKeyDown = (GetCurrentKeyModifiers() & cmdKey) != 0;
+        BOOL cmdKeyDown = (([[NSApp currentEvent] modifierFlags] & NSCommandKeyMask) != 0);
         if (cmdKeyDown)
           if ([[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.opentabfor.middleclick" withSuccess:NULL]) {
             openInNewTab = YES;

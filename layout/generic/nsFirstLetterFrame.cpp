@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object for CSS :first-letter pseudo-element */
+
 #include "nsCOMPtr.h"
 #include "nsHTMLContainerFrame.h"
 #include "nsPresContext.h"
@@ -50,11 +53,10 @@
 
 class nsFirstLetterFrame : public nsFirstLetterFrameSuper {
 public:
-  nsFirstLetterFrame();
+  nsFirstLetterFrame(nsStyleContext* aContext) : nsHTMLContainerFrame(aContext) {}
 
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
   NS_IMETHOD SetInitialChildList(nsPresContext* aPresContext,
                                  nsIAtom*        aListName,
@@ -85,13 +87,9 @@ protected:
 };
 
 nsIFrame*
-NS_NewFirstLetterFrame(nsIPresShell* aPresShell)
+NS_NewFirstLetterFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsFirstLetterFrame;
-}
-
-nsFirstLetterFrame::nsFirstLetterFrame()
-{
+  return new (aPresShell) nsFirstLetterFrame(aContext);
 }
 
 #ifdef NS_DEBUG
@@ -117,7 +115,6 @@ nsFirstLetterFrame::GetSkipSides() const
 NS_IMETHODIMP
 nsFirstLetterFrame::Init(nsIContent*      aContent,
                          nsIFrame*        aParent,
-                         nsStyleContext*  aContext,
                          nsIFrame*        aPrevInFlow)
 {
   nsRefPtr<nsStyleContext> newSC;
@@ -125,16 +122,16 @@ nsFirstLetterFrame::Init(nsIContent*      aContent,
     // Get proper style context for ourselves.  We're creating the frame
     // that represents everything *except* the first letter, so just create
     // a style context like we would for a text node.
-    nsStyleContext* parentStyleContext = aContext->GetParent();
+    nsStyleContext* parentStyleContext = mStyleContext->GetParent();
     if (parentStyleContext) {
-      newSC = aContext->GetRuleNode()->GetPresContext()->StyleSet()->
+      newSC = mStyleContext->GetRuleNode()->GetPresContext()->StyleSet()->
         ResolveStyleForNonElement(parentStyleContext);
       if (newSC)
-        aContext = newSC;
+        SetStyleContextWithoutNotification(newSC);
     }
   }
 
-  return nsFirstLetterFrameSuper::Init(aContent, aParent, aContext, aPrevInFlow);
+  return nsFirstLetterFrameSuper::Init(aContent, aParent, aPrevInFlow);
 }
 
 NS_IMETHODIMP

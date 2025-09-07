@@ -764,7 +764,11 @@ nsImapMailFolder::UpdateFolder(nsIMsgWindow *msgWindow)
     selectFolder = PR_FALSE;
   }
   rv = GetDatabase(msgWindow);
-  
+  if (NS_FAILED(rv))
+  {
+    ThrowAlertMsg("errorGettingDB", msgWindow);
+    return rv;
+  }
   PRBool canOpenThisFolder = PR_TRUE;
   GetCanIOpenThisFolder(&canOpenThisFolder);
   
@@ -3058,7 +3062,7 @@ nsresult nsImapMailFolder::NormalEndHeaderParseStream(nsIImapProtocol *aProtocol
           {
             GetMoveCoalescer();  // not sure why we're doing this here.
             m_filterList->ApplyFiltersToHdr(nsMsgFilterType::InboxRule, newMsgHdr, this, mDatabase, 
-                                            headers, headersSize, this, msgWindow);
+                                            headers, headersSize, this, msgWindow, nsnull);
           }
         }
       }
@@ -4782,6 +4786,7 @@ nsImapMailFolder::OnStopRunningUrl(nsIURI *aUrl, nsresult aExitCode)
 
    if (imapUrl)
    {
+        DisplayStatusMsg(imapUrl, NS_LITERAL_STRING("").get());
         nsImapAction imapAction = nsIImapUrl::nsImapTest;
         imapUrl->GetImapAction(&imapAction);
         if (imapAction == nsIImapUrl::nsImapMsgFetch || imapAction == nsIImapUrl::nsImapMsgDownloadForOffline)

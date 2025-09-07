@@ -295,6 +295,12 @@
             mBlank: aStartsBlank,
             mLastURI: null,
 
+            // cache flags for correct status bar update after tab switching
+            mStateFlags: 0,
+            mStatus: 0,
+            mMessage: "",
+            mTotalProgress: 0,
+
             onProgressChange : function (aWebProgress, aRequest,
                                          aCurSelfProgress, aMaxSelfProgress,
                                          aCurTotalProgress, aMaxTotalProgress)
@@ -308,6 +314,8 @@
                                        aCurTotalProgress, aMaxTotalProgress);
                 }
               }
+
+              this.mTotalProgress = aMaxTotalProgress ? aCurTotalProgress / aMaxTotalProgress : 0;
             },
 
             onStateChange : function(aWebProgress, aRequest, aStateFlags, aStatus)
@@ -377,6 +385,15 @@
                     p.onStateChange(aWebProgress, aRequest, aStateFlags, aStatus);
                 }
               }
+
+              if (aStateFlags & (nsIWebProgressListener.STATE_START |
+                                 nsIWebProgressListener.STATE_STOP)) {
+                // reset cached temporary values at beginning and end
+                this.mMessage = "";
+                this.mTotalProgress = 0;
+              }
+              this.mStateFlags = aStateFlags;
+              this.mStatus = aStatus;
             },
 
             onLocationChange : function(aWebProgress, aRequest, aLocation)
@@ -410,6 +427,8 @@
                     p.onStatusChange(aWebProgress, aRequest, aStatus, aMessage);
                 }
               }
+
+              this.mMessage = aMessage;
             },
 
             onSecurityChange : function(aWebProgress, aRequest, aState)
@@ -690,6 +709,14 @@
                 p.onLocationChange(webProgress, null, loc);
                 if (securityUI)
                   p.onSecurityChange(webProgress, null, securityUI.state);
+
+                // make sure that all status indicators are properly updated
+                if ("onUpdateCurrentBrowser" in p) {
+                  var listener = this.mTabListeners[this.mTabContainer.selectedIndex] || null;
+                  if (listener && listener.mStateFlags)
+                    p.onUpdateCurrentBrowser(listener.mStateFlags, listener.mStatus,
+                                             listener.mMessage, listener.mTotalProgress);
+                }
               }
             }
 
@@ -1011,10 +1038,12 @@
         <parameter name="aCharset"/>
         <parameter name="aPostData"/>
         <parameter name="aLoadInBackground"/>
+        <parameter name="aAllowThirdPartyFixup"/>
         <body>
           <![CDATA[
             var owner = aLoadInBackground ? null : this.selectedTab;
-            var tab = this.addTab(aURI, aReferrerURI, aCharset, aPostData, owner);
+            var tab = this.addTab(aURI, aReferrerURI, aCharset, aPostData, owner,
+                                  aAllowThirdPartyFixup);
             var bgLoad = (typeof(aLoadInBackground) != "undefined") ? aLoadInBackground :
                          this.mPrefs.getBoolPref("browser.tabs.loadInBackground");
             // Set newly selected tab after quick timeout, otherwise hideous focus problems
@@ -1053,7 +1082,7 @@
           if (aReplace)
             this.loadURI(aURIs[0], null, null);
           else
-            firstTabAdded = gBrowser.addTab(aURIs[0], null, null, null, owner);
+            firstTabAdded = gBrowser.addTab(aURIs[0], null, null, null, owner, false);
 
           for (var i = 1; i < aURIs.length; ++i)
             gBrowser.addTab(aURIs[i]);
@@ -1074,6 +1103,7 @@
         <parameter name="aCharset"/>
         <parameter name="aPostData"/>
         <parameter name="aOwner"/>
+        <parameter name="aAllowThirdPartyFixup"/>
         <body>
           <![CDATA[
             if (!this.mTabbedMode)
@@ -1167,8 +1197,12 @@
 
               if (aPostData === undefined)
                 aPostData = null;
-              b.loadURIWithFlags(aURI, Components.interfaces.nsIWebNavigation.LOAD_FLAGS_NONE,
-                                 aReferrerURI, aCharset, aPostData);
+              const nsIWebNavigation = Components.interfaces.nsIWebNavigation;
+              var flags = nsIWebNavigation.LOAD_FLAGS_NONE;
+              if (aAllowThirdPartyFixup) {
+                flags = nsIWebNavigation.LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP;
+              }
+              b.loadURIWithFlags(aURI, flags, aReferrerURI, aCharset, aPostData);
             }
 
             return t;
@@ -1636,7 +1670,7 @@
 
               if (document.getBindingParent(aEvent.originalTarget).localName != "tab") {
                 // We're adding a new tab.
-                this.loadOneTab(getShortcutOrURI(url), null, null, null, bgLoad);
+                this.loadOneTab(getShortcutOrURI(url), null, null, null, bgLoad, false);
               }
               else {
                 // Load in an existing tab.
@@ -1683,10 +1717,7 @@
 
           aIndex = aIndex < aTab._tPos ? aIndex: aIndex+1;
           this.mCurrentTab.selected = false;
-          if (this.mTabContainer.childNodes.length == aIndex)
-            this.mTabContainer.appendChild(aTab);
-          else
-            this.mTabContainer.insertBefore(aTab, this.mTabContainer.childNodes[aIndex]);
+          this.mTabContainer.insertBefore(aTab, this.mTabContainer.childNodes[aIndex]);
 
           var i;
           for (i = 0; i < this.mTabContainer.childNodes.length; i++) {
@@ -2142,7 +2173,7 @@
         <parameter name="event"/>
         <body>
           <![CDATA[
-            event.preventBubble();
+            event.stopPropagation();
             var tn = document.tooltipNode;
             if (tn.localName != "tab")
               return false; // Not a tab, so cancel the tooltip

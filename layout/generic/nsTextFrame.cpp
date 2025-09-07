@@ -45,6 +45,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object for textual content of elements */
+
 #include "nsCOMPtr.h"
 #include "nsHTMLParts.h"
 #include "nsCRT.h"
@@ -250,7 +253,7 @@ protected:
 
 class nsTextFrame : public nsFrame {
 public:
-  nsTextFrame();
+  nsTextFrame(nsStyleContext* aContext) : nsFrame(aContext) {}
   
   // nsIFrame
   NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
@@ -1400,9 +1403,10 @@ nsTextFrame::Destroy(nsPresContext* aPresContext)
 
 class nsContinuingTextFrame : public nsTextFrame {
 public:
+  friend nsIFrame* NS_NewContinuingTextFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
+
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
 
   NS_IMETHOD Destroy(nsPresContext* aPresContext);
@@ -1436,18 +1440,16 @@ public:
   virtual nsIFrame* GetFirstContinuation() const;
   
 protected:
+  nsContinuingTextFrame(nsStyleContext* aContext) : nsTextFrame(aContext) {}
   nsIFrame* mPrevContinuation;
 };
 
 NS_IMETHODIMP
 nsContinuingTextFrame::Init(nsIContent*      aContent,
                             nsIFrame*        aParent,
-                            nsStyleContext*  aContext,
                             nsIFrame*        aPrevInFlow)
 {
-  nsresult  rv;
-  
-  rv = nsTextFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv = nsTextFrame::Init(aContent, aParent, aPrevInFlow);
 
   if (aPrevInFlow) {
     nsIFrame* nextContinuation = aPrevInFlow->GetNextContinuation();
@@ -1827,19 +1829,15 @@ VerifyNotDirty(state)
 #endif
 
 nsIFrame*
-NS_NewTextFrame(nsIPresShell* aPresShell)
+NS_NewTextFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsTextFrame;
+  return new (aPresShell) nsTextFrame(aContext);
 }
 
 nsIFrame*
-NS_NewContinuingTextFrame(nsIPresShell* aPresShell)
+NS_NewContinuingTextFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsContinuingTextFrame;
-}
-
-nsTextFrame::nsTextFrame()
-{
+  return new (aPresShell) nsContinuingTextFrame(aContext);
 }
 
 nsTextFrame::~nsTextFrame()
@@ -1933,7 +1931,6 @@ nsTextFrame::CharacterDataChanged(nsPresContext* aPresContext,
   if (markAllDirty) {
     // Mark this frame and all the next-in-flow frames as dirty
     nsTextFrame*  textFrame = this;
-    nsPropertyTable *propTable = aPresContext->PropertyTable();
     while (textFrame) {
       textFrame->mState &= ~TEXT_WHITESPACE_FLAGS;
       textFrame->mState |= NS_FRAME_IS_DIRTY;
@@ -3077,7 +3074,7 @@ nsTextFrame::PaintUnicodeText(nsPresContext* aPresContext,
           iter.Next();
         }
       }
-      else if (!isPaginated) 
+      else if (!isPaginated || (aPresContext->Type() == nsPresContext::eContext_PageLayout))
       {
         aRenderingContext.SetColor(nsCSSRendering::TransformColor(aTextStyle.mColor->mColor,canDarkenColor));
         aRenderingContext.DrawString(text, PRUint32(textLength), dx, dy + mAscent);
@@ -3919,6 +3916,9 @@ nsTextFrame::PaintAsciiText(nsPresContext* aPresContext,
         sdptr = sdptr->mNext;
       }
 
+      // isDynamic: textFrame receives user interaction
+      PRBool isDynamic = aPresContext->IsDynamic();
+
       if (!hideStandardSelection || displaySelection) {
         //ITS OK TO CAST HERE THE RESULT WE USE WILLNOT DO BAD CONVERSION
         DrawSelectionIterator iter(details, (PRUnichar *)text,
@@ -3978,10 +3978,10 @@ nsTextFrame::PaintAsciiText(nsPresContext* aPresContext,
             nsRect rect(currentX, dy, newWidth, mRect.height);
             aRenderingContext.SetClipRect(rect, nsClipCombine_kIntersect);
 
-            if (isPaginated && !iter.IsBeforeOrAfter()) {
+            if (!isDynamic && !iter.IsBeforeOrAfter()) {
               aRenderingContext.SetColor(nsCSSRendering::TransformColor(aTextStyle.mColor->mColor,canDarkenColor));
               aRenderingContext.DrawString(text, PRUint32(textLength), dx, dy + mAscent);
-            } else if (!isPaginated) {
+            } else if (isDynamic) {
               aRenderingContext.SetColor(nsCSSRendering::TransformColor(currentFGColor,canDarkenColor));
               aRenderingContext.DrawString(text, PRUint32(textLength), dx, dy + mAscent);
             }
@@ -3993,7 +3993,7 @@ nsTextFrame::PaintAsciiText(nsPresContext* aPresContext,
             iter.Next();
           }
         }
-        else if (!isPaginated) 
+        else if (isDynamic) 
         {
           aRenderingContext.SetColor(nsCSSRendering::TransformColor(aTextStyle.mColor->mColor,canDarkenColor));
           aRenderingContext.DrawString(text, PRUint32(textLength), dx, dy + mAscent);
@@ -4487,13 +4487,9 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
 
 #ifdef IBMBIDI
   // XXX TODO: - this explanation may not be accurate
-  //           - need to better explain what aPos->mPreferLeft means
-  //             for two frames on the same line
   //           - need to better explain for what happens when you move
   //             from the end of a line to the beginning of the next 
   //             despite not making a move logically within the text.
-  //           - need to explain why XORing with the embedding level
-  //             achieves the desired effect
   //
   // When you move your caret by in some visual direction, and you find the
   // new position is at the edge of a line (beginning or end), you usually
@@ -4520,23 +4516,20 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
   // one "on the left" - the first frame on the next
   // line.
   //
-  // Now, it seems the PeekOffset() method does not _use_ the mPreferLeft
-  // value, but it does _set_ it for the caller, and this must be done
-  // consistently along calls to PeekOffset of nsTextFrames on the _same_
-  // line as well as on different lines.
-  //
   // Note:
-  // eDirPrevious actually means 'in the visual left-then-down direction'
-  // eDirNext actually means 'in the visual right-then-down direction'
-  // (this is again due to the LTRish bias of the nomenclature)
+  // eDirPrevious means 'left-then-up' if the containing block is LTR, 
+  // 'right-then-up' if it is RTL.
+  // eDirNext means 'right-then-down' if the containing block is LTR, 
+  // 'left-then-down' if it is RTL.
+  // Between paragraphs, eDirPrevious means "go to the visual end of the 
+  // previous paragraph", and eDirNext means "go to the visual beginning of 
+  // the next paragraph"
 
-  PRBool isOddLevel = NS_GET_EMBEDDING_LEVEL(this) & 1;
+  PRBool isReverseDirection = (NS_GET_EMBEDDING_LEVEL(this) & 1) != (NS_GET_BASE_LEVEL(this) & 1);
+  PRBool movementIsInFrameDirection = 
+    ((aPos->mDirection == eDirNext) && !isReverseDirection) ||
+    ((aPos->mDirection == eDirPrevious) && isReverseDirection);
 
-  if ((eSelectCharacter == aPos->mAmount)
-      || (eSelectWord == aPos->mAmount))
-    // this 'flip' will be in effect only for this frame, not
-    // for recursive calls to PeekOffset()
-    aPos->mPreferLeft ^= isOddLevel;
 #endif
 
   if (!aPos || !mContent)
@@ -4576,11 +4569,6 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       NS_ASSERTION(PR_FALSE,"nsTextFrame::PeekOffset no more continuation\n");
       return NS_ERROR_INVALID_ARG;
     }
-    // undoing the RTL flipping of mPreferLeft for the delegation
-    // to the next frame
-    if ((eSelectCharacter == aPos->mAmount)
-        || (eSelectWord == aPos->mAmount))
-      aPos->mPreferLeft ^= isOddLevel;
     return nextContinuation->PeekOffset(aPresContext, aPos);
   }
  
@@ -4589,7 +4577,7 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
   //             to the content indices, why not handle the cases of
   //             eSelectBeginLine/eSelectEndLine 
   //           - why can't we make the hand-off to the parent class' method
-  //             before the of aPos->mStartOffset and aPos->mPreferLeft?
+  //             before correcting aPos->mStartOffset?
  
   if (aPos->mAmount == eSelectLine || aPos->mAmount == eSelectBeginLine 
       || aPos->mAmount == eSelectEndLine || aPos->mAmount == eSelectParagraph)
@@ -4626,7 +4614,6 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       }
       else
       {
-        aPos->mAmount = eSelectDir;//go to "next" or previous frame based on direction not THIS frame
         result = GetFrameFromDirection(aPresContext, aPos);
         if (NS_SUCCEEDED(result) && aPos->mResultFrame && aPos->mResultFrame!= this)
           return aPos->mResultFrame->PeekOffset(aPresContext, aPos);
@@ -4646,8 +4633,6 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       nsTextTransformer tx(aPresContext);
       PrepareUnicodeText(tx, &indexBuffer, &paintBuffer, &textLength);
 
-      nsIFrame *frameUsed = nsnull;
-      PRInt32 start;
       PRBool found = PR_TRUE;
 
       PRBool selectable;
@@ -4659,11 +4644,8 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       else
       {
 
-  #ifdef IBMBIDI // Simon - RTL frames reverse meaning of previous and next
-        // so that right arrow always moves to the right on screen
-        // and left arrow always moves left
-        if ( ((aPos->mDirection == eDirPrevious) && !isOddLevel) ||
-             ((aPos->mDirection == eDirNext) && isOddLevel) ){
+  #ifdef IBMBIDI
+        if (!movementIsInFrameDirection){
   #else
         if (aPos->mDirection == eDirPrevious){
   #endif
@@ -4714,14 +4696,11 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
 
           if (i <0){
             found = PR_FALSE;
-            frameUsed = GetPrevInFlow();
-            start = mContentOffset;
-            aPos->mContentOffset = start;//in case next call fails we stop at this offset
+            aPos->mContentOffset = mContentOffset;//in case next call fails we stop at this offset
           }
         }
-  #ifdef IBMBIDI // Simon, as above 
-        else if ( ((aPos->mDirection == eDirNext) && !isOddLevel) ||
-                  ((aPos->mDirection == eDirPrevious) && isOddLevel) ){
+  #ifdef IBMBIDI
+        else if (movementIsInFrameDirection){
   #else
         else if (aPos->mDirection == eDirNext){
   #endif
@@ -4776,13 +4755,7 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
   */
           if (i > mContentLength){
             found = PR_FALSE;
-            // XXX TODO: explain why in this case GetNextInFlow() is good enough,
-            // but in the case of
-            // aPos->mStartOffset > (mContentOffset + mContentLength)
-            // above, we use the presentation context and get the 'nextBidi'
-            frameUsed = GetNextInFlow();
-            start = mContentOffset + mContentLength;
-            aPos->mContentOffset = start;//in case next call fails we stop at this offset
+            aPos->mContentOffset = mContentOffset + mContentLength;//in case next call fails we stop at this offset
           }
         }
       }
@@ -4791,15 +4764,7 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
         result = GetFrameFromDirection(aPresContext, aPos);
         if (NS_SUCCEEDED(result) && aPos->mResultFrame && aPos->mResultFrame!= this)
         {
-          // undoing the RTL flipping of mPreferLeft in the case where 
-          // the inner call will do it itself;
-          // note that mAmount, as well as mPreferLeft might have been modified
-          // by the call to GetFrameFromDirection (if we are moving to another line)
-          if (eSelectCharacter == aPos->mAmount)
-            aPos->mPreferLeft ^= isOddLevel;
-          result = aPos->mResultFrame->PeekOffset(aPresContext, aPos);
-          if (NS_FAILED(result))
-            return result;
+          return aPos->mResultFrame->PeekOffset(aPresContext, aPos);
         }
       }
       else
@@ -4818,9 +4783,7 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       nsTextTransformer tx(aPresContext);
 
       PrepareUnicodeText(tx, &indexBuffer, &paintBuffer, &textLength);
-      nsIFrame *frameUsed = nsnull;
       PRBool keepSearching; //if you run out of chars before you hit the end of word, maybe next frame has more text to select?
-      PRInt32 start;
       PRBool found = PR_FALSE;
       PRBool isWhitespace, wasTransformed;
       PRInt32 wordLen, contentLen;
@@ -4834,11 +4797,8 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       else
       {
       
-#ifdef IBMBIDI // Simon - RTL frames reverse meaning of previous and next
-        // so that right arrow always moves to the right on screen
-        // and left arrow always moves left
-        if ( ((aPos->mDirection == eDirPrevious) && !isOddLevel) ||
-             ((aPos->mDirection == eDirNext) && isOddLevel) ) {
+#ifdef IBMBIDI
+        if (!movementIsInFrameDirection){
 #else
         if (aPos->mDirection == eDirPrevious){
 #endif
@@ -4889,9 +4849,8 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
             }
           }
         }
-#ifdef IBMBIDI // Simon, as above 
-        else if ( ((aPos->mDirection == eDirNext) && !isOddLevel) ||
-                  ((aPos->mDirection == eDirPrevious) && isOddLevel) ) {
+#ifdef IBMBIDI
+        else if (movementIsInFrameDirection){
 #else
         else if (aPos->mDirection == eDirNext) {
 #endif
@@ -4939,16 +4898,9 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
               found = PR_TRUE;
             }
           } 
-
-  TryNextFrame:
-          // XXX TODO: explain why in this case GetNextInFlow() is good enough,
-          // but in the case of
-          // aPos->mStartOffset > (mContentOffset + mContentLength)
-          // above, we use the presentation context and get the 'nextBidi'
-          frameUsed = GetNextInFlow();
-          start = 0;
         }
       }
+TryNextFrame:
       if (!found ||
           (aPos->mContentOffset > (mContentOffset + mContentLength)) ||
           (aPos->mContentOffset < mContentOffset))
@@ -4966,15 +4918,13 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
           result = GetFrameFromDirection(aPresContext, aPos);
         if (NS_SUCCEEDED(result) && aPos->mResultFrame && aPos->mResultFrame!= this)
         {
-          // undoing the RTL flipping of mPreferLeft in the case where
-          // the inner call will do it itself;
-          // note that mAmount, as well as mPreferLeft might have been modified
-          // by the call to GetFrameFromDirection (if we are moving to another line)
-          if (eSelectWord == aPos->mAmount)
-            aPos->mPreferLeft ^= isOddLevel;
           if (NS_SUCCEEDED(result = aPos->mResultFrame->PeekOffset(aPresContext, aPos)))
             return NS_OK;//else fall through
+#ifdef IBMBIDI
+          else if (movementIsInFrameDirection)
+#else
           else if (aPos->mDirection == eDirNext)
+#endif
             aPos->mContentOffset = mContentOffset + mContentLength;
           else
             aPos->mContentOffset = mContentOffset;
@@ -4988,17 +4938,6 @@ nsTextFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       }
     }
     break;
-
-#ifdef IBMBIDI
-    case eSelectDir:
-      result = GetFrameFromDirection(aPresContext, aPos);
-      if (NS_SUCCEEDED(result) && aPos->mResultFrame && aPos->mResultFrame!= this)
-        return aPos->mResultFrame->PeekOffset(aPresContext, aPos);
-      else {
-        return result;
-      }
-      break;
-#endif
 
     default:
       result = NS_ERROR_FAILURE; break;
@@ -5359,7 +5298,7 @@ nsTextFrame::MeasureText(nsPresContext*          aPresContext,
     if (isWhitespace) {
       if ('\n' == firstChar) {
         // We hit a newline. Stop looping.
-        NS_WARN_IF_FALSE(aTs.mPreformatted, "newline w/o ts.mPreformatted");
+        NS_ASSERTION(aTs.mPreformatted, "newline w/o ts.mPreformatted");
         prevOffset = aTextData.mOffset;
         aTextData.mOffset++;
         endsInWhitespace = PR_TRUE;
@@ -5431,7 +5370,7 @@ nsTextFrame::MeasureText(nsPresContext*          aPresContext,
             // Note: word-spacing or letter-spacing can make the "space" really
             // wide. But since this space is left out from our width, linelayout
             // may still try to fit something narrower at the end of the line.
-            // So on return (see below), we flag a break-after status to ensure
+            // So on return (see below), we flag a soft-break status to ensure
             // that linelayout doesn't place something where the "space" should
             // be.
             break;
@@ -5868,11 +5807,17 @@ nsTextFrame::MeasureText(nsPresContext*          aPresContext,
 #endif // IBMBIDI
     ? NS_FRAME_COMPLETE
     : NS_FRAME_NOT_COMPLETE;
-  if (endsInNewline || aTextData.mTrailingSpaceTrimmed) {
+  if (endsInNewline) {
     rs = NS_INLINE_LINE_BREAK_AFTER(rs);
-    if (endsInNewline) {
-      lineLayout.SetLineEndsInBR(PR_TRUE);
-    }
+    lineLayout.SetLineEndsInBR(PR_TRUE);
+  }
+  else if (aTextData.mTrailingSpaceTrimmed && rs == NS_FRAME_COMPLETE) {
+    // Flag a soft-break that we can check (below) if we come back here
+    lineLayout.SetLineEndsInSoftBR(PR_TRUE);
+  }
+  else if (lineLayout.GetLineEndsInSoftBR() && !lineLayout.GetEndsInWhiteSpace()) {
+    // Break-before a word that follows the soft-break flagged earlier
+    rs = NS_INLINE_LINE_BREAK_BEFORE();
   }
   else if ((aTextData.mOffset != contentLength) && (aTextData.mOffset == startingOffset)) {
     // Break-before a long-word that doesn't fit here

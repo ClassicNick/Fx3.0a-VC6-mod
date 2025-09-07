@@ -114,9 +114,9 @@ GetPopupSetFrame(nsPresContext* aPresContext)
 // Wrapper for creating a new menu popup container
 //
 nsIFrame*
-NS_NewMenuPopupFrame(nsIPresShell* aPresShell)
+NS_NewMenuPopupFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsMenuPopupFrame (aPresShell);
+  return new (aPresShell) nsMenuPopupFrame (aPresShell, aContext);
 }
 
 NS_IMETHODIMP_(nsrefcnt) 
@@ -143,10 +143,15 @@ NS_INTERFACE_MAP_END_INHERITING(nsBoxFrame)
 //
 // nsMenuPopupFrame ctor
 //
-nsMenuPopupFrame::nsMenuPopupFrame(nsIPresShell* aShell)
-  :nsBoxFrame(aShell), mCurrentMenu(nsnull), mTimerMenu(nsnull), mCloseTimer(nsnull),
-   mMenuCanOverlapOSBar(PR_FALSE), mShouldAutoPosition(PR_TRUE), mShouldRollup(PR_TRUE),
-   mConsumeRollupEvent(nsIPopupBoxObject::ROLLUP_DEFAULT)
+nsMenuPopupFrame::nsMenuPopupFrame(nsIPresShell* aShell, nsStyleContext* aContext)
+  :nsBoxFrame(aShell, aContext),
+  mCurrentMenu(nsnull),
+  mTimerMenu(nsnull),
+  mCloseTimer(nsnull),
+  mMenuCanOverlapOSBar(PR_FALSE),
+  mShouldAutoPosition(PR_TRUE),
+  mShouldRollup(PR_TRUE),
+  mConsumeRollupEvent(nsIPopupBoxObject::ROLLUP_DEFAULT)
 {
   SetIsContextMenu(PR_FALSE);   // we're not a context menu by default
 } // ctor
@@ -155,26 +160,25 @@ nsMenuPopupFrame::nsMenuPopupFrame(nsIPresShell* aShell)
 NS_IMETHODIMP
 nsMenuPopupFrame::Init(nsIContent*      aContent,
                        nsIFrame*        aParent,
-                       nsStyleContext*  aContext,
                        nsIFrame*        aPrevInFlow)
 {
-  nsresult rv = nsBoxFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv = nsBoxFrame::Init(aContent, aParent, aPrevInFlow);
 
   // Set up a mediator which can be used for callbacks on this frame.
   mTimerMediator = new nsMenuPopupTimerMediator(this);
   if (NS_UNLIKELY(!mTimerMediator))
     return NS_ERROR_OUT_OF_MEMORY;
 
-  nsPresContext *aPresContext = GetPresContext();
+  nsPresContext* presContext = GetPresContext();
 
   // lookup if we're allowed to overlap the OS bar (menubar/taskbar) from the
   // look&feel object
   PRBool tempBool;
-  aPresContext->LookAndFeel()->
+  presContext->LookAndFeel()->
     GetMetric(nsILookAndFeel::eMetric_MenusCanOverlapOSBar, tempBool);
   mMenuCanOverlapOSBar = tempBool;
 
-  CreateViewForFrame(aPresContext, this, aContext, PR_TRUE);
+  CreateViewForFrame(presContext, this, GetStyleContext(), PR_TRUE);
 
   // Now that we've made a view, remove it and insert it at the correct
   // position in the view hierarchy (as the root view).  We do this so that we
@@ -479,7 +483,7 @@ nsMenuPopupFrame::AdjustClientXYForNestedDocuments ( nsIDOMXULDocument* inPopupD
     if ( rootView )
       popupDocumentWidget = rootView->GetNearestWidget(nsnull);
   }
-  NS_WARN_IF_FALSE(popupDocumentWidget, "ACK, BAD WIDGET");
+  NS_ASSERTION(popupDocumentWidget, "ACK, BAD WIDGET");
   
   // Find the widget associated with the target's document.
   // For tooltips, we check the document's tooltipNode (which is set by
@@ -492,7 +496,7 @@ nsMenuPopupFrame::AdjustClientXYForNestedDocuments ( nsIDOMXULDocument* inPopupD
   else
     inPopupDoc->TrustedGetPopupNode(getter_AddRefs(targetNode));
 
-  //NS_WARN_IF_FALSE(targetNode, "no popup/tooltip node on document!");
+  //NS_ASSERTION(targetNode, "no popup/tooltip node on document!");
   nsCOMPtr<nsIContent> targetAsContent ( do_QueryInterface(targetNode) );
   nsIWidget* targetDocumentWidget = nsnull;
   if ( targetAsContent ) {
@@ -525,7 +529,7 @@ nsMenuPopupFrame::AdjustClientXYForNestedDocuments ( nsIDOMXULDocument* inPopupD
       }
     }
   }
-  //NS_WARN_IF_FALSE(targetDocumentWidget, "ACK, BAD TARGET");
+  //NS_ASSERTION(targetDocumentWidget, "ACK, BAD TARGET");
 
   // the offset we need is the difference between the upper left corner of the two widgets. Use
   // screen coordinates to find the global offset between them.
@@ -1786,8 +1790,7 @@ nsMenuPopupFrame::HideChain()
   // Stop capturing rollups
   // (must do this during Hide, which happens before the menu item is executed,
   // since this reinstates normal event handling.)
-  if (nsMenuFrame::sDismissalListener)
-    nsMenuFrame::sDismissalListener->Unregister();
+  nsMenuDismissalListener::Shutdown();
   
   nsIFrame* frame = GetParent();
   if (frame) {
@@ -1819,8 +1822,7 @@ nsMenuPopupFrame::DismissChain()
     return NS_OK;
 
   // Stop capturing rollups
-  if (nsMenuFrame::sDismissalListener)
-    nsMenuFrame::sDismissalListener->Unregister();
+  nsMenuDismissalListener::Shutdown();
   
   // Get our menu parent.
   nsIFrame* frame = GetParent();
@@ -1867,16 +1869,6 @@ nsMenuPopupFrame::GetWidget(nsIWidget **aWidget)
 
   *aWidget = view->GetWidget();
   NS_IF_ADDREF(*aWidget);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsMenuPopupFrame::CreateDismissalListener()
-{
-  nsMenuDismissalListener *listener = new nsMenuDismissalListener();
-  if (!listener) return NS_ERROR_OUT_OF_MEMORY;
-  nsMenuFrame::sDismissalListener = listener;
-  NS_ADDREF(listener);
   return NS_OK;
 }
 
@@ -2147,12 +2139,14 @@ nsMenuPopupFrame::SetAutoPosition(PRBool aShouldAutoPosition)
 void
 nsMenuPopupFrame::EnableRollup(PRBool aShouldRollup)
 {
-  if (!aShouldRollup) {
-    if (nsMenuFrame::sDismissalListener)
-      nsMenuFrame::sDismissalListener->Unregister();
-  }
+  if (!nsMenuDismissalListener::sInstance ||
+       nsMenuDismissalListener::sInstance->GetCurrentMenuParent() != this)
+    return;
+
+  if (aShouldRollup)
+    nsMenuDismissalListener::sInstance->Register();
   else
-    CreateDismissalListener();
+    nsMenuDismissalListener::sInstance->Unregister();
 }
 
 void

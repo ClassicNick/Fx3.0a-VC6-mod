@@ -37,6 +37,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * Implementations of nsIDOMDOMStringList and nsIDOMNameList, used by various
+ * DOM3 stuff and some interfaces specified by WHATWG.
+ */
+
 #include "nsDOMLists.h"
 #include "nsDOMError.h"
 #include "nsIDOMClassInfo.h"

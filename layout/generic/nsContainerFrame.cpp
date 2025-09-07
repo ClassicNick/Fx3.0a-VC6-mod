@@ -35,6 +35,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* base class #1 for rendering objects that have child lists */
+
 #include "nsContainerFrame.h"
 #include "nsIContent.h"
 #include "nsIDocument.h"
@@ -62,16 +65,13 @@
 #include "nsRegion.h"
 #include "nsLayoutErrors.h"
 #include "nsDisplayList.h"
+#include "nsContentErrors.h"
 
 #ifdef NS_DEBUG
 #undef NOISY
 #else
 #undef NOISY
 #endif
-
-nsContainerFrame::nsContainerFrame()
-{
-}
 
 nsContainerFrame::~nsContainerFrame()
 {
@@ -80,11 +80,9 @@ nsContainerFrame::~nsContainerFrame()
 NS_IMETHODIMP
 nsContainerFrame::Init(nsIContent*      aContent,
                        nsIFrame*        aParent,
-                       nsStyleContext*  aContext,
                        nsIFrame*        aPrevInFlow)
 {
-  nsresult rv;
-  rv = nsSplittableFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv = nsSplittableFrame::Init(aContent, aParent, aPrevInFlow);
   if (aPrevInFlow) {
     // Make sure we copy bits from our prev-in-flow that will affect
     // us. A continuation for a container frame needs to know if it

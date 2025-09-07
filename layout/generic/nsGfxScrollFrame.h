@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object to wrap rendering objects that should be scrollable */
+
 #ifndef nsGfxScrollFrame_h___
 #define nsGfxScrollFrame_h___
 
@@ -96,8 +99,8 @@ public:
   void FireScrollEvent();
 
   void SetScrollbarEnabled(nsIBox* aBox, nscoord aMaxPos, PRBool aReflow=PR_TRUE);
-  PRBool SetAttribute(nsIBox* aBox, nsIAtom* aAtom, nscoord aSize, PRBool aReflow=PR_TRUE);
-  PRInt32 GetIntegerAttribute(nsIBox* aFrame, nsIAtom* atom, PRInt32 defaultValue);
+  PRBool SetCoordAttribute(nsIBox* aBox, nsIAtom* aAtom, nscoord aSize, PRBool aReflow=PR_TRUE);
+  nscoord GetCoordAttribute(nsIBox* aFrame, nsIAtom* atom, nscoord defaultValue);
 
   // Like ScrollPositionDidChange, but initiated by this frame rather than from the
   // scrolling view
@@ -140,7 +143,7 @@ public:
   nsMargin GetActualScrollbarSizes() const;
   nsMargin GetDesiredScrollbarSizes(nsBoxLayoutState* aState);
   PRBool IsLTR() const;
-  PRBool IsScrollbarOnRight() const { return IsLTR(); }
+  PRBool IsScrollbarOnRight() const;
   void LayoutScrollbars(nsBoxLayoutState& aState,
                         const nsRect& aContentArea,
                         const nsRect& aOldScrollArea,
@@ -196,7 +199,7 @@ class nsHTMLScrollFrame : public nsHTMLContainerFrame,
                           public nsIAnonymousContentCreator,
                           public nsIStatefulFrame {
 public:
-  friend nsIFrame* NS_NewHTMLScrollFrame(nsIPresShell* aPresShell, PRBool aIsRoot);
+  friend nsIFrame* NS_NewHTMLScrollFrame(nsIPresShell* aPresShell, nsStyleContext* aContext, PRBool aIsRoot);
 
   NS_DECL_ISUPPORTS
 
@@ -320,7 +323,7 @@ public:
 #endif
 
 protected:
-  nsHTMLScrollFrame(nsIPresShell* aShell, PRBool aIsRoot);
+  nsHTMLScrollFrame(nsIPresShell* aShell, nsStyleContext* aContext, PRBool aIsRoot);
   virtual PRIntn GetSkipSides() const;
   
   void SetSuppressScrollbarUpdate(PRBool aSuppress) {
@@ -347,7 +350,7 @@ class nsXULScrollFrame : public nsBoxFrame,
                          public nsIAnonymousContentCreator,
                          public nsIStatefulFrame {
 public:
-  friend nsIFrame* NS_NewXULScrollFrame(nsIPresShell* aPresShell, PRBool aIsRoot);
+  friend nsIFrame* NS_NewXULScrollFrame(nsIPresShell* aPresShell, nsStyleContext* aContext, PRBool aIsRoot);
 
   // Called to set the child frames. We typically have three: the scroll area,
   // the vertical scrollbar, and the horizontal scrollbar.
@@ -485,7 +488,7 @@ public:
   virtual nsresult GetContentOf(nsIContent** aContent);
 
 protected:
-  nsXULScrollFrame(nsIPresShell* aShell, PRBool aIsRoot);
+  nsXULScrollFrame(nsIPresShell* aShell, nsStyleContext* aContext, PRBool aIsRoot);
   virtual PRIntn GetSkipSides() const;
 
 private:

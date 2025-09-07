@@ -34,6 +34,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * rendering object that is the root of the frame tree, which contains
+ * the document's scrollbars and contains fixed-positioned elements
+ */
+
 #include "nsCOMPtr.h"
 #include "nsViewportFrame.h"
 #include "nsHTMLParts.h"
@@ -46,9 +52,9 @@
 #include "nsIPresShell.h"
 
 nsIFrame*
-NS_NewViewportFrame(nsIPresShell* aPresShell)
+NS_NewViewportFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) ViewportFrame;
+  return new (aPresShell) ViewportFrame(aContext);
 }
 
 NS_IMETHODIMP

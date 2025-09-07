@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object for the HTML <canvas> element */
+
 #ifndef nsHTMLCanvasFrame_h___
 #define nsHTMLCanvasFrame_h___
 
@@ -46,12 +49,12 @@
 #include "gfxIImageFrame.h"
 #include "imgIContainer.h"
 
-nsIFrame* NS_NewHTMLCanvasFrame (nsIPresShell* aPresShell);
+nsIFrame* NS_NewHTMLCanvasFrame (nsIPresShell* aPresShell, nsStyleContext* aContext);
 
 class nsHTMLCanvasFrame : public nsSplittableFrame
 {
 public:
-  nsHTMLCanvasFrame();
+  nsHTMLCanvasFrame(nsStyleContext* aContext) : nsSplittableFrame(aContext) {}
 
   NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                               const nsRect&           aDirtyRect,

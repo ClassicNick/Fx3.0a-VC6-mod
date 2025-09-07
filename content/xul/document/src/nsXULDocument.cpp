@@ -118,6 +118,7 @@
 #include "nsICSSStyleSheet.h"
 #include "nsIScriptError.h"
 #include "nsEventDispatcher.h"
+#include "nsContentErrors.h"
 
 //----------------------------------------------------------------------
 //
@@ -1428,7 +1429,7 @@ nsXULDocument::GetPixelDimensions(nsIPresShell* aShell, PRInt32* aWidth,
 
     FlushPendingNotifications(Flush_Layout);
 
-    nsIFrame* frame = aShell->GetPrimaryFrameFor(GetRootContent());
+    nsIFrame* frame = aShell->GetPrimaryFrameFor(mRootContent);
     if (frame) {
         nsIView* view = frame->GetView();
         // If we have a view check if it's scrollable. If not,
@@ -1621,7 +1622,7 @@ nsXULDocument::GetElementById(const nsAString& aId,
     NS_ENSURE_ARG_POINTER(aReturn);
     *aReturn = nsnull;
 
-    NS_WARN_IF_FALSE(!aId.IsEmpty(),"getElementById(\"\"), fix caller?");
+    NS_ASSERTION(!aId.IsEmpty(),"getElementById(\"\"), fix caller?");
     if (aId.IsEmpty())
       return NS_OK;
 
@@ -1962,7 +1963,7 @@ nsXULDocument::Init()
 nsresult
 nsXULDocument::StartLayout(void)
 {
-    if (!GetRootContent()) {
+    if (!mRootContent) {
 #ifdef PR_LOGGING
         if (PR_LOG_TEST(gXULLog, PR_LOG_WARNING)) {
             nsCAutoString urlspec;
@@ -2949,9 +2950,7 @@ nsXULDocument::ResumeWalk()
         mDocumentLoaded = PR_TRUE;
 
         nsAutoString title;
-        nsIContent *rootContent = GetRootContent();
-        if (rootContent)
-            rootContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::title, title);
+        mRootContent->GetAttr(kNameSpaceID_None, nsHTMLAtoms::title, title);
         SetTitle(title);
 
         StartLayout();
@@ -3602,7 +3601,7 @@ nsXULDocument::OverlayForwardReference::Resolve()
     mOverlay->GetAttr(kNameSpaceID_None, nsXULAtoms::id, id);
     if (id.IsEmpty()) {
         // overlay had no id, use the root element
-        mDocument->InsertElement(mDocument->GetRootContent(), mOverlay, notify);
+        mDocument->InsertElement(mDocument->mRootContent, mOverlay, notify);
         mResolved = PR_TRUE;
         return eResolve_Succeeded;
     }

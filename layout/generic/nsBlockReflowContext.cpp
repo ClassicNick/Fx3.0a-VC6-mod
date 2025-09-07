@@ -36,6 +36,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* class that a parent frame uses to reflow a block frame */
+
 #include "nsBlockReflowContext.h"
 #include "nsLineLayout.h"
 #include "nsSpaceManager.h"
@@ -777,6 +780,9 @@ nsBlockReflowContext::PlaceBlock(const nsHTMLReflowState& aReflowState,
   // check that first. Note that a block can have clearance and still
   // have adjoining top/bottom margins, because the clearance goes
   // above the top margin.
+  // Mark the frame as non-dirty; it has been reflowed (or we wouldn't
+  // be here), and we don't want to assert in CachedIsEmpty()
+  mFrame->RemoveStateBits(NS_FRAME_IS_DIRTY);
   PRBool empty = 0 == mMetrics.height && aLine->CachedIsEmpty();
   if (empty) {
     // Collapse the bottom margin with the top margin that was already

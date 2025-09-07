@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* derived class of nsBlockFrame; distinction barely relevant anymore */
+
 #include "nsAreaFrame.h"
 #include "nsBlockBandData.h"
 #include "nsStyleContext.h"
@@ -56,18 +59,14 @@
 #undef NOISY_FINAL_SIZE
 
 nsIFrame*
-NS_NewAreaFrame(nsIPresShell* aPresShell, PRUint32 aFlags)
+NS_NewAreaFrame(nsIPresShell* aPresShell, nsStyleContext* aContext, PRUint32 aFlags)
 {
-  nsAreaFrame* it = new (aPresShell) nsAreaFrame;
+  nsAreaFrame* it = new (aPresShell) nsAreaFrame(aContext);
   
   if (it != nsnull)
     it->SetFlags(aFlags);
 
   return it;
-}
-
-nsAreaFrame::nsAreaFrame()
-{
 }
 
 #ifdef MOZ_XUL
@@ -122,13 +121,9 @@ nsAreaFrame::RegUnregAccessKey(nsPresContext* aPresContext,
 NS_IMETHODIMP
 nsAreaFrame::Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow)
 {
-  nsresult rv = nsBlockFrame::Init(aContent,
-                                   aParent,
-                                   aContext,
-                                   aPrevInFlow);
+  nsresult rv = nsBlockFrame::Init(aContent, aParent, aPrevInFlow);
   if (NS_FAILED(rv))
     return rv;
 

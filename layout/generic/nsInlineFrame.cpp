@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object for CSS display:inline objects */
+
 #include "nsCOMPtr.h"
 #include "nsInlineFrame.h"
 #include "nsBlockFrame.h"
@@ -68,13 +71,9 @@ NS_DEFINE_IID(kInlineFrameCID, NS_INLINE_FRAME_CID);
 // Basic nsInlineFrame methods
 
 nsIFrame*
-NS_NewInlineFrame(nsIPresShell* aPresShell)
+NS_NewInlineFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsInlineFrame;
-}
-
-nsInlineFrame::nsInlineFrame()
-{
+  return new (aPresShell) nsInlineFrame(aContext);
 }
 
 NS_IMETHODIMP
@@ -857,13 +856,9 @@ ReParentChildListStyle(nsPresContext* aPresContext,
 }
 
 nsIFrame*
-NS_NewFirstLineFrame(nsIPresShell* aPresShell)
+NS_NewFirstLineFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsFirstLineFrame;
-}
-
-nsFirstLineFrame::nsFirstLineFrame()
-{
+  return new (aPresShell) nsFirstLineFrame(aContext);
 }
 
 #ifdef DEBUG
@@ -1011,9 +1006,9 @@ nsFirstLineFrame::Reflow(nsPresContext* aPresContext,
 //////////////////////////////////////////////////////////////////////
 
 nsIFrame*
-NS_NewPositionedInlineFrame(nsIPresShell* aPresShell)
+NS_NewPositionedInlineFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsPositionedInlineFrame();
+  return new (aPresShell) nsPositionedInlineFrame(aContext);
 }
 
 NS_IMETHODIMP

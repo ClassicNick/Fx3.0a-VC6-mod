@@ -46,13 +46,10 @@ use Bugzilla::Keyword;
 # Include the Bugzilla CGI and general utility library.
 require "globals.pl";
 
-use vars qw(@components
-            @legal_platform
+use vars qw(@legal_platform
             @legal_priority
-            @legal_product
             @legal_severity
-            @settable_resolution
-            @target_milestone);
+            @settable_resolution);
 
 my $cgi = Bugzilla->cgi;
 my $dbh = Bugzilla->dbh;
@@ -535,7 +532,7 @@ sub DefineColumn {
 
 # Column:     ID                    Name                           Title
 DefineColumn("bug_id"            , "bugs.bug_id"                , "ID"               );
-DefineColumn("alias"             , "bugs.alias"                 , "Alias"           );
+DefineColumn("alias"             , "bugs.alias"                 , "Alias"            );
 DefineColumn("opendate"          , "bugs.creation_ts"           , "Opened"           );
 DefineColumn("changeddate"       , "bugs.delta_ts"              , "Changed"          );
 DefineColumn("bug_severity"      , "bugs.bug_severity"          , "Severity"         );

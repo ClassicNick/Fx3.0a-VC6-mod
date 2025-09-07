@@ -2114,9 +2114,16 @@ interrupt:
           BEGIN_CASE(JSOP_ENTERWITH)
             FETCH_OBJECT(cx, -1, rval, obj);
             SAVE_SP_AND_PC(fp);
-            withobj = js_NewObject(cx, &js_WithClass, obj, fp->scopeChain);
-            if (!withobj)
+            OBJ_TO_INNER_OBJECT(cx, obj);
+            if (!obj) {
+                ok = JS_FALSE;
                 goto out;
+            }
+            withobj = js_NewObject(cx, &js_WithClass, obj, fp->scopeChain);
+            if (!withobj) {
+                ok = JS_FALSE;
+                goto out;
+            }
             rval = INT_TO_JSVAL(sp - fp->spbase);
             OBJ_SET_SLOT(cx, withobj, JSSLOT_PRIVATE, rval);
             fp->scopeChain = withobj;
@@ -2458,12 +2465,23 @@ interrupt:
 
             /* Is this the first iteration ? */
             if (JSVAL_IS_VOID(rval)) {
-                /* Yes, create a new JSObject to hold the iterator state */
-                propobj = js_NewObject(cx, &prop_iterator_class, NULL, obj);
+                /*
+                 * Yes, create a new JSObject to hold the iterator state.
+                 * Use NULL as the nominal parent in js_NewObject to ensure
+                 * that we use the correct scope chain lookup to try to find the
+                 * PropertyIterator constructor.
+                 */
+                propobj = js_NewObject(cx, &prop_iterator_class, NULL, NULL);
                 if (!propobj) {
                     ok = JS_FALSE;
                     goto out;
                 }
+
+                /*
+                 * Now that we've resolved the object, use the PARENT slot to
+                 * store the object that we're iterating over.
+                 */
+                propobj->slots[JSSLOT_PARENT] = OBJECT_TO_JSVAL(obj);
                 propobj->slots[JSSLOT_ITER_STATE] = JSVAL_NULL;
 
                 /*
@@ -4142,6 +4160,15 @@ interrupt:
                 obj2 = fp->scopeChain;
                 while ((parent = OBJ_GET_PARENT(cx, obj2)) != NULL)
                     obj2 = parent;
+
+                /*
+                 * We must home sp here, because either js_CloneRegExpObject
+                 * or JS_SetReservedSlot could nest a last-ditch GC.  We home
+                 * pc as well, in case js_CloneRegExpObject has to lookup the
+                 * "RegExp" class in the global object, which could entail a
+                 * JSNewResolveOp call.
+                 */
+                SAVE_SP_AND_PC(fp);
 
                 /*
                  * If obj's parent is not obj2, we must clone obj so that it

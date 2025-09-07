@@ -387,16 +387,28 @@ const gPopupBlockerObserver = {
       item.parentNode.removeChild(item);
       item = next;
     }
-    var blockedPopupsSeparator;
+
+    var foundUsablePopupURI = false;
     var pageReport = gBrowser.selectedBrowser.pageReport;
-    if (pageReport && pageReport.length > 0) {
-      blockedPopupsSeparator = document.getElementById("blockedPopupsSeparator");
-      blockedPopupsSeparator.removeAttribute("hidden");
+    if (pageReport) {
       for (var i = 0; i < pageReport.length; ++i) {
         var popupURIspec = pageReport[i].popupWindowURI.spec;
+
+        // Sometimes the popup URI that we get back from the pageReport
+        // isn't useful (for instance, netscape.com's popup URI ends up
+        // being "http://www.netscape.com", which isn't really the URI of
+        // the popup they're trying to show).  This isn't going to be
+        // useful to the user, so we won't create a menu item for it.
         if (popupURIspec == "" || popupURIspec == "about:blank" ||
             popupURIspec == uri.spec)
           continue;
+
+        // Because of the short-circuit above, we may end up in a situation
+        // in which we don't have any usable popup addresses to show in
+        // the menu, and therefore we shouldn't show the separator.  However,
+        // since we got past the short-circuit, we must've found at least
+        // one usable popup URI and thus we'll turn on the separator later.
+        foundUsablePopupURI = true;
 
         var menuitem = document.createElement("menuitem");
         var label = bundle_browser.getFormattedString("popupShowPopupPrefix",
@@ -413,10 +425,15 @@ const gPopupBlockerObserver = {
         aEvent.target.appendChild(menuitem);
       }
     }
-    else {
-      blockedPopupsSeparator = document.getElementById("blockedPopupsSeparator");
-      blockedPopupsSeparator.setAttribute("hidden", "true");
-    }
+
+    // Show or hide the separator, depending on whether we added any
+    // showable popup addresses to the menu.
+    var blockedPopupsSeparator =
+      document.getElementById("blockedPopupsSeparator");
+    if (foundUsablePopupURI)
+      blockedPopupsSeparator.removeAttribute("hidden");
+    else
+      blockedPopupsSeparator.setAttribute("hidden", true);
 
     var blockedPopupDontShowMessage = document.getElementById("blockedPopupDontShowMessage");
     var showMessage = gPrefService.getBoolPref("privacy.popups.showBrowserMessage");
@@ -640,7 +657,8 @@ function BrowserStartup()
 # only load url passed in when we're not page cycling
   if (uriToLoad && !gIsLoadingBlank) {
     if (window.arguments.length >= 3)
-      loadURI(uriToLoad, window.arguments[2], window.arguments[3] || null);
+      loadURI(uriToLoad, window.arguments[2], window.arguments[3] || null,
+              window.arguments[4] || false);
     else
       loadOneOrMoreURIs(uriToLoad);
   }
@@ -1307,8 +1325,6 @@ function ctrlNumberTabSelection(event)
   }
 
   event.preventDefault();
-  event.preventBubble();
-  event.preventCapture();
   event.stopPropagation();
 }
 
@@ -1696,7 +1712,7 @@ function openLocationCallback()
 
 function BrowserOpenTab()
 {
-  gBrowser.loadOneTab("about:blank", null, null, null, false);
+  gBrowser.loadOneTab("about:blank", null, null, null, false, false);
   if (gURLBar)
     setTimeout(function() { gURLBar.focus(); }, 0);
 }
@@ -1717,9 +1733,9 @@ function delayedOpenWindow(chrome, flags, href, postData)
 
 /* Required because the tab needs time to set up its content viewers and get the load of
    the URI kicked off before becoming the active content area. */
-function delayedOpenTab(aUrl, aReferrer, aCharset, aPostData)
+function delayedOpenTab(aUrl, aReferrer, aCharset, aPostData, aAllowThirdPartyFixup)
 {
-  gBrowser.loadOneTab(aUrl, aReferrer, aCharset, aPostData, false);
+  gBrowser.loadOneTab(aUrl, aReferrer, aCharset, aPostData, false, aAllowThirdPartyFixup);
 }
 
 function BrowserOpenFileWindow()
@@ -1788,12 +1804,16 @@ function BrowserCloseWindow()
   closeWindow(true);
 }
 
-function loadURI(uri, referrer, postData)
+function loadURI(uri, referrer, postData, allowThirdPartyFixup)
 {
   try {
     if (postData === undefined)
       postData = null;
-    getWebNavigation().loadURI(uri, nsIWebNavigation.LOAD_FLAGS_NONE, referrer, postData, null);
+    var flags = nsIWebNavigation.LOAD_FLAGS_NONE;
+    if (allowThirdPartyFixup) {
+      flags = nsIWebNavigation.LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP;
+    }
+    getWebNavigation().loadURI(uri, flags, referrer, postData, null);
   } catch (e) {
   }
 }
@@ -1806,15 +1826,14 @@ function BrowserLoadURL(aTriggeringEvent, aPostData)
       aTriggeringEvent.altKey) {
     handleURLBarRevert();
     content.focus();
-    gBrowser.loadOneTab(url, null, null, aPostData, false);
+    gBrowser.loadOneTab(url, null, null, aPostData, false,
+                        true /* allow third party fixup */);
     gURLBar.value = url;
     aTriggeringEvent.preventDefault();
-    aTriggeringEvent.preventBubble();
-    aTriggeringEvent.preventCapture();
     aTriggeringEvent.stopPropagation();
   }
   else  
-    loadURI(url, null, aPostData);
+    loadURI(url, null, aPostData, true /* allow third party fixup */);
   content.focus();
 }
 
@@ -2654,7 +2673,8 @@ var newTabButtonObserver = {
       var url = getShortcutOrURI(draggedText, postData);
       if (url) {
         getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
-        openNewTabWith(url, null, postData.value, aEvent);
+        // allow third-party services to fixup this URL
+        openNewTabWith(url, null, postData.value, aEvent, true);
       }
     },
   getSupportedFlavours: function ()
@@ -2689,7 +2709,8 @@ var newWindowButtonObserver = {
       var url = getShortcutOrURI(draggedText, postData);
       if (url) {
         getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
-        openNewWindowWith(url, null, postData.value);
+        // allow third-party services to fixup this URL
+        openNewWindowWith(url, null, postData.value, true);
       }
     },
   getSupportedFlavours: function ()
@@ -2729,7 +2750,7 @@ var goButtonObserver = {
                                  .getService(Components.interfaces.nsIScriptSecurityManager);
         const nsIScriptSecMan = Components.interfaces.nsIScriptSecurityManager;
         secMan.checkLoadURI(gBrowser.currentURI, uri, nsIScriptSecMan.DISALLOW_SCRIPT_OR_DATA);
-        loadURI(uri.spec, null, postData.value);
+        loadURI(uri.spec, null, postData.value, true);
       } catch (ex) {}
     },
   getSupportedFlavours: function ()
@@ -2810,7 +2831,7 @@ const BrowserSearch = {
       var ss = Cc["@mozilla.org/browser/search-service;1"].
                getService(Ci.nsIBrowserSearchService);
       var searchForm = ss.defaultEngine.searchForm;
-      loadURI(searchForm, null, null);
+      loadURI(searchForm, null, null, false);
     }
   },
 
@@ -2843,7 +2864,7 @@ const BrowserSearch = {
       getBrowser().loadOneTab(submission.uri.spec, null, null,
                               submission.postData, false);
     } else
-      loadURI(submission.uri.spec, null, submission.postData);
+      loadURI(submission.uri.spec, null, submission.postData, false);
   },
   
   /**
@@ -3115,7 +3136,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   }
 #else
   var bookmarksBar = document.getElementById("bookmarksBarContent");
-  bookmarksBar.init();
+  bookmarksBar._init();
 #endif
 
   // XXX Shouldn't have to do this, but I do
@@ -3414,14 +3435,9 @@ nsBrowserStatusHandler.prototype =
       // and progress bars and such
       if (aRequest) {
         var msg = "";
-        // Get the channel if the request is a channel
-        var channel;
-        try {
-          channel = aRequest.QueryInterface(nsIChannel);
-        }
-        catch(e) { };
-          if (channel) {
-            var location = channel.URI;
+          // Get the URI either from a channel or a pseudo-object
+          if (aRequest instanceof nsIChannel || "URI" in aRequest) {
+            var location = aRequest.URI;
 
             // For keyword URIs clear the user typed value since they will be changed into real URIs
             if (location.scheme == "keyword" && aWebProgress.DOMWindow == content)
@@ -3442,7 +3458,7 @@ nsBrowserStatusHandler.prototype =
           }
           // If msg is false then we did not have an error (channel may have
           // been null, in the case of a stray image load).
-          if (!msg) {
+          if (!msg && (!location || location.spec != "about:blank")) {
             msg = gNavigatorBundle.getString("nv_done");
           }
           this.status = "";
@@ -3645,6 +3661,27 @@ nsBrowserStatusHandler.prototype =
       lockIcon.setAttribute("tooltiptext", securityUI.tooltipText);
   },
 
+  // simulate all change notifications after switching tabs
+  onUpdateCurrentBrowser : function(aStateFlags, aStatus, aMessage, aTotalProgress)
+  {
+    var nsIWebProgressListener = Components.interfaces.nsIWebProgressListener;
+    var loadingDone = aStateFlags & nsIWebProgressListener.STATE_STOP;
+    // use a pseudo-object instead of a (potentially non-existing) channel for getting
+    // a correct error message - and make sure that the UI is always either in
+    // loading (STATE_START) or done (STATE_STOP) mode
+    this.onStateChange(
+      gBrowser.webProgress,
+      { URI: gBrowser.currentURI },
+      loadingDone ? nsIWebProgressListener.STATE_STOP : nsIWebProgressListener.STATE_START,
+      aStatus
+    );
+    // status message and progress value are undefined if we're done with loading
+    if (loadingDone)
+      return;
+    this.onStatusChange(gBrowser.webProgress, null, 0, aMessage);
+    this.onProgressChange(gBrowser.webProgress, 0, 0, aTotalProgress, 1);
+  },
+
   startDocumentLoad : function(aRequest)
   {
     // It's okay to clear what the user typed when we start
@@ -3734,7 +3771,7 @@ nsBrowserAccess.prototype =
         break;
       case nsCI.nsIBrowserDOMWindow.OPEN_NEWTAB :
         var loadInBackground = gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground");
-        var newTab = gBrowser.loadOneTab("about:blank", null, null, null, loadInBackground);
+        var newTab = gBrowser.loadOneTab("about:blank", null, null, null, loadInBackground, false);
         newWindow = gBrowser.getBrowserForTab(newTab).docShell
                             .QueryInterface(nsCI.nsIInterfaceRequestor)
                             .getInterface(nsCI.nsIDOMWindow);
@@ -4531,15 +4568,15 @@ nsContextMenu.prototype = {
 
     // Open linked-to URL in a new window.
     openLink : function () {
-        openNewWindowWith(this.linkURL, this.docURL, null);
+        openNewWindowWith(this.linkURL, this.docURL, null, false);
     },
     // Open linked-to URL in a new tab.
     openLinkInTab : function () {
-        openNewTabWith(this.linkURL, this.docURL, null, null);
+        openNewTabWith(this.linkURL, this.docURL, null, null, false);
     },
     // Open frame in a new tab.
     openFrameInTab : function () {
-        openNewTabWith(this.target.ownerDocument.location.href, null, null, null);
+        openNewTabWith(this.target.ownerDocument.location.href, null, null, null, false);
     },
     // Reload clicked-in frame.
     reloadFrame : function () {
@@ -4547,11 +4584,11 @@ nsContextMenu.prototype = {
     },
     // Open clicked-in frame in its own window.
     openFrame : function () {
-        openNewWindowWith(this.target.ownerDocument.location.href, null, null);
+        openNewWindowWith(this.target.ownerDocument.location.href, null, null, false);
     },
     // Open clicked-in frame in the same window.
     showOnlyThisFrame : function () {
-        window.loadURI(this.target.ownerDocument.location.href, null, null);
+        window.loadURI(this.target.ownerDocument.location.href, null, null, false);
     },
     // View Partial Source
     viewPartialSource : function ( context ) {
@@ -5113,7 +5150,7 @@ function asyncOpenWebPanel(event)
          var url = getShortcutOrURI(wrapper.href, postData);
          if (!url)
            return true;
-         loadURI(url, null, postData.value);
+         loadURI(url, null, postData.value, false);
          event.preventDefault();
          return false;
        }
@@ -5202,14 +5239,14 @@ function handleLinkClick(event, href, linkNode)
 #else
       if (event.ctrlKey) {
 #endif
-        openNewTabWith(href, docURL, null, event);
-        event.preventBubble();
+        openNewTabWith(href, docURL, null, event, false);
+        event.stopPropagation();
         return true;
       }
                                                        // if left button clicked
       if (event.shiftKey) {
-        openNewWindowWith(href, docURL, null);
-        event.preventBubble();
+        openNewWindowWith(href, docURL, null, false);
+        event.stopPropagation();
         return true;
       }
 
@@ -5229,10 +5266,10 @@ function handleLinkClick(event, href, linkNode)
         tab = true;
       }
       if (tab)
-        openNewTabWith(href, docURL, null, event);
+        openNewTabWith(href, docURL, null, event, false);
       else
-        openNewWindowWith(href, docURL, null);
-      event.preventBubble();
+        openNewWindowWith(href, docURL, null, false);
+      event.stopPropagation();
       return true;
   }
   return false;
@@ -5259,7 +5296,7 @@ function middleMousePaste(event)
              event,
              true /* ignore the fact this is a middle click */);
 
-  event.preventBubble();
+  event.stopPropagation();
 }
 
 function makeURLAbsolute( base, url )
@@ -5299,7 +5336,7 @@ var contentAreaDNDObserver = {
         case "navigator:browser":
           var postData = { };
           var uri = getShortcutOrURI(url, postData);
-          loadURI(uri, null, postData.value);
+          loadURI(uri, null, postData.value, false);
           break;
         case "navigator:view-source":
           viewSource(url);
@@ -6257,13 +6294,45 @@ function BookmarkAllTabsCommand() {
 }
 BookmarkAllTabsCommand.prototype = {
   get enabled() {
-    //LOG("BookmarkAllTabs.enabled: " + getBrowser().tabContainer.childNodes.length > 1);
     return getBrowser().tabContainer.childNodes.length > 1;
   },
-  
+
   execute: function BATC_execute() {
-    LOG("BookmarkAllTabs.execute: IMPLEMENT ME");
+    var tabURIs = this._getUniqueTabInfo(getBrowser());
+    PlacesController.showAddMultiBookmarkUI(tabURIs);
   },
+
+  /**
+   * This function returns a list of nsIURI objects characterizing the
+   * tabs currently open in the given browser.  The URIs will appear in the
+   * list in the order in which their corresponding tabs appeared.  However,
+   * only the first instance of each URI will be returned.
+   *
+   * @param aTabBrowser  the tabBrowser to get the contents of
+   *
+   * @returns a list of nsIURI objects representing unique locations open
+   */
+  _getUniqueTabInfo: function BATC__getUniqueTabInfo(aTabBrowser) {
+    var tabList = [];
+    var seenURIs = [];
+
+    const activeBrowser = aTabBrowser.selectedBrowser;
+    const browsers = aTabBrowser.browsers;
+    for (var i = 0; i < browsers.length; ++i) {
+      var webNav = browsers[i].webNavigation;
+       var uri = webNav.currentURI;
+
+       // skip redundant entries
+       if (uri.spec in seenURIs)
+         continue;
+
+       // add to the set of seen URIs
+       seenURIs[uri.spec] = true;
+
+       tabList.push(uri);
+    }
+    return tabList;
+  }
 };
 BookmarkAllTabsCommand.NAME = "Browser:BookmarkAllTabs";
 
@@ -6437,17 +6506,6 @@ var HistoryMenu = {
     // XXX The places view needs to be updated before this
     // does something different than show history.
     PlacesCommandHook.showPlacesOrganizer(ORGANIZER_ROOT_HISTORY);
-  },
-  
-  /**
-   * Clears the browser history.
-   * (XXX This might be changed to show the Clear Private Data menu instead)
-   */
-  clearHistory: function PHM_clearHistory() {
-    var globalHistory = 
-        Cc["@mozilla.org/browser/global-history;2"].
-        getService(Ci.nsIBrowserHistory);
-    globalHistory.removeAllPages();
   }
 };
 
@@ -6497,6 +6555,8 @@ var BookmarksEventHandler = {
     // If this is the special "Open in Tabs" menuitem, load all the menuitems in tabs.
     if (event.target.hasAttribute("openInTabs"))
       PlacesController.openLinksInTabs();
+    else if (event.target.hasAttribute("siteURI"))
+      openUILink(event.target.getAttribute("siteURI"), event);
     // If this is a normal bookmark, just load the bookmark's URI.
     else
       PlacesController.mouseLoadURI(event);
@@ -6510,13 +6570,13 @@ var BookmarksEventHandler = {
    *        DOMEvent for popupshowing
    */
   onPopupShowing: function BM_onPopupShowing(event) {
-    if (event.target.localName == "menupopup" &&
-        event.target.id != "bookmarksMenuPopup") {
+    var target = event.target;
 
+    if (target.localName == "menupopup" && target.id != "bookmarksMenuPopup") {
       // Show "Open in Tabs" menuitem if there are at least
       // two menuitems with places result nodes.
       var numNodes = 0;
-      var currentChild = event.target.firstChild;
+      var currentChild = target.firstChild;
       while (currentChild && numNodes < 2) {
         if (currentChild.node && currentChild.localName == "menuitem")
           numNodes++;
@@ -6524,12 +6584,24 @@ var BookmarksEventHandler = {
       }
       if (numNodes >= 2) {
         var separator = document.createElement("menuseparator");
-        event.target.appendChild(separator);
+        target.appendChild(separator);
+
+        var strings = document.getElementById("placeBundle");
+
+        var button = target.parentNode;
+        if (button.getAttribute("livemark") == "true") {
+          var openHomePage = document.createElement("menuitem");
+          openHomePage.setAttribute("siteURI", button.getAttribute("siteURI"));
+          openHomePage.setAttribute("label",
+              strings.getFormattedString("menuOpenLivemarkOrigin.label",
+                                         [button.getAttribute("label")]));
+          target.appendChild(openHomePage);
+        }
+
         var openInTabs = document.createElement("menuitem");
         openInTabs.setAttribute("openInTabs", "true");
-        var strings = document.getElementById("placeBundle");
         openInTabs.setAttribute("label", strings.getString("menuOpenInTabs.label"));
-        event.target.appendChild(openInTabs);
+        target.appendChild(openInTabs);
       }
     }
   },
@@ -6552,4 +6624,3 @@ var BookmarksEventHandler = {
 #include ../../../toolkit/content/debug.js
 
 #endif
-

@@ -90,6 +90,10 @@ struct JSRuntime {
     JSPackedBool        gcRunning;
     JSGCCallback        gcCallback;
     uint32              gcMallocBytes;
+    JSGCArena           *gcUnscannedArenaStackTop;
+#ifdef DEBUG
+    size_t              gcUnscannedBagSize;
+#endif
 
     /*
      * API compatibility requires keeping GCX_PRIVATE bytes separate from the
@@ -129,6 +133,14 @@ struct JSRuntime {
     jsdouble            *jsNaN;
     jsdouble            *jsNegativeInfinity;
     jsdouble            *jsPositiveInfinity;
+
+#ifdef JS_THREADSAFE
+    JSLock              *deflatedStringCacheLock;
+#endif
+    JSHashTable         *deflatedStringCache;
+#ifdef DEBUG
+    uint32              deflatedStringCacheBytes;
+#endif
 
     /* Empty string held for use by this runtime's contexts. */
     JSString            *emptyString;
@@ -520,6 +532,8 @@ struct JSContext {
      */
     JSPackedBool        throwing;           /* is there a pending exception? */
     jsval               exception;          /* most-recently-thrown exception */
+    /* Flag to indicate that we run inside gcCallback(cx, JSGC_MARK_END). */
+    JSPackedBool        insideGCMarkCallback;
 
     /* Per-context options. */
     uint32              options;            /* see jsapi.h for JSOPTION_* */
@@ -543,6 +557,11 @@ struct JSContext {
 
     /* Stack of thread-stack-allocated temporary GC roots. */
     JSTempValueRooter   *tempValueRooters;
+
+#ifdef GC_MARK_DEBUG
+    /* Top of the GC mark stack. */
+    void                *gcCurrentMarkNode;
+ #endif
 };
 
 /*

@@ -148,6 +148,7 @@
 #ifdef MOZ_PLACES
     <command id="Browser:AddBookmarkAs" 
              oncommand="PlacesCommandHook.bookmarkCurrentPage();"/>
+    <command id="Browser:BookmarkAllTabs" oncommand="BrowserController.doCommand('Browser:BookmarkAllTabs');"/>
 #else
     <command id="Browser:AddBookmarkAs" oncommand="addBookmarkAs(document.getElementById('content'), false);"/>
     <command id="Browser:BookmarkAllTabs" oncommand="addBookmarkAs(document.getElementById('content'), true);"/>
@@ -177,7 +178,7 @@
     <command id="Browser:ShowHistory" 
              oncommand="PlacesCommandHook.showPlacesOrganizer(ORGANIZER_ROOT_HISTORY);"/>
     <command id="Browser:SearchHistory" oncommand="HistoryMenu.showPlacesSearch();"/>
-    <command id="Browser:ClearHistory" oncommand="HistoryMenu.clearHistory();"/>
+
 #endif
   </commandset>
 

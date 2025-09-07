@@ -34,6 +34,11 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * Base class for all our document implementations.
+ */
+
 #ifndef nsDocument_h___
 #define nsDocument_h___
 
@@ -385,7 +390,6 @@ public:
                                      nsIDocument* aSubDoc);
   virtual nsIDocument* GetSubDocumentFor(nsIContent *aContent) const;
   virtual nsIContent* FindContentForSubDocument(nsIDocument *aDocument) const;
-  virtual nsIContent* GetRootContent() const;
 
   /**
    * Get the style sheets owned by this document.
@@ -705,6 +709,10 @@ protected:
 
   // Dispatch an event to the ScriptGlobalObject for this document
   void DispatchEventToWindow(nsEvent *aEvent);
+
+#ifdef DEBUG
+  void VerifyRootContentState();
+#endif
 
   nsDocument();
   virtual ~nsDocument();

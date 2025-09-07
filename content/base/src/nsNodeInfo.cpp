@@ -35,6 +35,12 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * Class that represents a prefix/namespace/localName triple; a single
+ * nodeinfo is shared by all elements in a document that have that
+ * prefix, namespace, and localName.
+ */
+
 #include "nscore.h"
 #include "nsNodeInfo.h"
 #include "nsNodeInfoManager.h"
@@ -276,6 +282,11 @@ nsNodeInfo::ClearCache()
 void
 nsNodeInfo::LastRelease()
 {
+  // Clear object so that we have no references to anything external.
+  // Need to do this first so we don't have sCachedNodeInfo pointing
+  // to a nodeinfo that's not cleared yet.
+  Clear();
+
   if (sCachedNodeInfo) {
     // No room in cache
     delete this;
@@ -285,9 +296,6 @@ nsNodeInfo::LastRelease()
   // There's space in the cache for one instance. Put
   // this instance in the cache instead of deleting it.
   sCachedNodeInfo = this;
-
-  // Clear object so that we have no references to anything external
-  Clear();
 
   // The refcount balancing and destructor re-entrancy protection
   // code in Release() sets mRefCnt to 1 so we have to set it to 0

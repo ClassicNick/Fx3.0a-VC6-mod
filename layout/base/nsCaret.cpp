@@ -37,6 +37,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/* the caret is the text cursor used, e.g., when editing */
 
 #include "nsCOMPtr.h"
 
@@ -641,7 +642,7 @@ nsCaret::GetCaretFrameForNodeOffset (nsIContent*             aContentNode,
     if (start == 0 || end == 0 || start == theFrameOffset || end == theFrameOffset)
     {
       /* Boundary condition, we need to know the Bidi levels of the characters before and after the caret */
-      if (NS_SUCCEEDED(frameSelection->GetPrevNextBidiLevels(presContext, aContentNode, aOffset,
+      if (NS_SUCCEEDED(frameSelection->GetPrevNextBidiLevels(presContext, aContentNode, aOffset, PR_FALSE,
                                                              &frameBefore, &frameAfter,
                                                              &levelBefore, &levelAfter)))
       {

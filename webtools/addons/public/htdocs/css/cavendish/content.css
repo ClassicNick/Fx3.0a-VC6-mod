@@ -79,9 +79,6 @@
 }
 
 .install a {
-	background: url(../../images/install.png) no-repeat;
-	padding: 3px 0 8px 30px;
-	display: block;
 	text-decoration: none;
 }
 
@@ -91,6 +88,15 @@
 
 .install-box {
 	width: 18em;
+}
+.key-point {
+    background-color:#bee6a1;
+}
+
+.install div {
+	background: url(../../images/install.png) no-repeat;
+	padding: 3px 0 8px 30px;
+
 }
 
 #opinions h4 {
@@ -408,6 +414,29 @@
     background: transparent url("../../img/key-point_br.gif") scroll no-repeat bottom right ;
 }
 
-#search-side {
-    padding: 10px;
+#search-options {
+    display: none;
+}
+
+#hide-search-options {
+    display: none;
+}
+
+#show-search-options {
+    display: inline;
+}
+
+.finalists-link {
+    border: 1px solid #ccc;
+    display: block;
+    text-align: center;
+    font-size: 1.3em;
+    background-color: #eee;
+    margin: 1em 0 .5em 0;
+    padding: .5em;
+    text-decoration: none;
+}
+
+#comments-sort {
+    float: right;
 }

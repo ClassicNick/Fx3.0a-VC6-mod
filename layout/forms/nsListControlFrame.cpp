@@ -155,10 +155,10 @@ private:
 
 //---------------------------------------------------------
 nsIFrame*
-NS_NewListControlFrame(nsIPresShell* aPresShell)
+NS_NewListControlFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   nsListControlFrame* it =
-    new (aPresShell) nsListControlFrame(aPresShell, aPresShell->GetDocument());
+    new (aPresShell) nsListControlFrame(aPresShell, aPresShell->GetDocument(), aContext);
 
   if (it) {
     it->AddStateBits(NS_FRAME_INDEPENDENT_SELECTION);
@@ -275,9 +275,9 @@ if (aReflowState.mComputedWidth != NS_UNCONSTRAINEDSIZE) { \
 //------------------------------------------------------
 
 //---------------------------------------------------------
-nsListControlFrame::nsListControlFrame(nsIPresShell* aShell,
-  nsIDocument* aDocument)
-  : nsHTMLScrollFrame(aShell, PR_FALSE)
+nsListControlFrame::nsListControlFrame(
+  nsIPresShell* aShell, nsIDocument* aDocument, nsStyleContext* aContext)
+  : nsHTMLScrollFrame(aShell, aContext, PR_FALSE)
 {
   mComboboxFrame      = nsnull;
   mChangesSinceDragStart = PR_FALSE;
@@ -1435,10 +1435,9 @@ nsListControlFrame::GetSizeAttribute(PRInt32 *aSize) {
 NS_IMETHODIMP  
 nsListControlFrame::Init(nsIContent*     aContent,
                          nsIFrame*       aParent,
-                         nsStyleContext* aContext,
                          nsIFrame*       aPrevInFlow)
 {
-  nsresult result = nsHTMLScrollFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult result = nsHTMLScrollFrame::Init(aContent, aParent, aPrevInFlow);
 
   // get the receiver interface from the browser button's content node
   nsCOMPtr<nsIDOMEventReceiver> receiver(do_QueryInterface(mContent));
@@ -2245,13 +2244,7 @@ nsListControlFrame::MouseUp(nsIDOMEvent* aMouseEvent)
     if (IsInDropDownMode()) {
       if (!IgnoreMouseEventForSelection(aMouseEvent)) {
         aMouseEvent->PreventDefault();
-
-        nsCOMPtr<nsIDOMNSEvent> nsevent(do_QueryInterface(aMouseEvent));
-
-        if (nsevent) {
-          nsevent->PreventCapture();
-          nsevent->PreventBubble();
-        }
+        aMouseEvent->StopPropagation();
       } else {
         CaptureMouseEvents(PR_FALSE);
         return NS_OK;
@@ -2295,14 +2288,7 @@ nsListControlFrame::MouseUp(nsIDOMEvent* aMouseEvent)
       IsOptionDisabled(selectedIndex, isDisabled);
       if (isDisabled) {
         aMouseEvent->PreventDefault();
-
-        nsCOMPtr<nsIDOMNSEvent> nsevent(do_QueryInterface(aMouseEvent));
-
-        if (nsevent) {
-          nsevent->PreventCapture();
-          nsevent->PreventBubble();
-        }
-
+        aMouseEvent->StopPropagation();
         CaptureMouseEvents(PR_FALSE);
         return NS_ERROR_FAILURE;
       }
@@ -2520,13 +2506,7 @@ nsListControlFrame::MouseDown(nsIDOMEvent* aMouseEvent)
     if (IsInDropDownMode()) {
       if (!IgnoreMouseEventForSelection(aMouseEvent)) {
         aMouseEvent->PreventDefault();
-
-        nsCOMPtr<nsIDOMNSEvent> nsevent(do_QueryInterface(aMouseEvent));
-
-        if (nsevent) {
-          nsevent->PreventCapture();
-          nsevent->PreventBubble();
-        }
+        aMouseEvent->StopPropagation();
       } else {
         return NS_OK;
       }

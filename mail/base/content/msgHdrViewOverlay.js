@@ -65,13 +65,7 @@ var gShowLargeAttachmentView = false;
 var gShowUserAgent = false;
 var gMinNumberOfHeaders = 0;
 var gDummyHeaderIdIndex = 0;
-var gCollectIncoming = false;
-var gCollectOutgoing = false;
-var gCollectNewsgroup = false;
 var gCollapsedHeaderViewMode = false;
-var gSlimAttachmentView = false;
-var gCollectAddressTimer = null;
-var gCollectAddress = null;
 var gBuildAttachmentsForCurrentMsg = false;
 var gBuildAttachmentPopupForCurrentMsg = true;
 var gBuiltExpandedView = false;
@@ -87,7 +81,6 @@ var gDeleteLabelAccesskey;
 var gMessengerBundle;
 var gProfileDirURL;
 var gIOService;
-var gFileHandler;  
 var gShowCondensedEmailAddresses = true; // show the friendly display names for people I know instead of the name + email address
 var gPersonalAddressBookDirectory; // used for determining if we want to show just the display name in email address nodes
 
@@ -243,9 +236,6 @@ function OnLoadMsgHeaderPane()
   // load any preferences that at are global with regards to 
   // displaying a message...
   gNumAddressesToShow = pref.getIntPref("mailnews.max_header_display_length");
-  gCollectIncoming = pref.getBoolPref("mail.collect_email_address_incoming");
-  gCollectNewsgroup = pref.getBoolPref("mail.collect_email_address_newsgroup");
-  gCollectOutgoing = pref.getBoolPref("mail.collect_email_address_outgoing");
   gShowUserAgent = pref.getBoolPref("mailnews.headers.showUserAgent");
   gMinNumberOfHeaders = pref.getIntPref("mailnews.headers.minNumHeaders");
   gShowOrganization = pref.getBoolPref("mailnews.headers.showOrganization");
@@ -257,10 +247,8 @@ function OnLoadMsgHeaderPane()
 
   initializeHeaderViewTables();
 
-  var toggleHeaderView = document.getElementById("msgHeaderView");
-  var initialCollapsedSetting = toggleHeaderView.getAttribute("state");
-  if (initialCollapsedSetting == "true")
-    gCollapsedHeaderViewMode = true;   
+  var deckHeaderView = document.getElementById("msgHeaderViewDeck");
+  gCollapsedHeaderViewMode = deckHeaderView.selectedIndex == 0;   
 
   // dispatch an event letting any listeners know that we have loaded the message pane
   var event = document.createEvent('Events');
@@ -303,14 +291,6 @@ var messageHeaderSink = {
     onStartHeaders: function()
     {
       this.mSaveHdr = null;
-      // clear out any pending collected address timers...
-      if (gCollectAddressTimer)
-      {
-        gCollectAddress = "";        
-        clearTimeout(gCollectAddressTimer);
-        gCollectAddressTimer = null;
-      }
-
       // every time we start to redisplay a message, check the view all headers pref....
       var showAllHeadersPref = pref.getIntPref("mail.show_headers");
       if (showAllHeadersPref == 2)
@@ -414,29 +394,6 @@ var messageHeaderSink = {
         }
         else
          currentHeaderData[lowerCaseHeaderName] = header;
-
-        if (lowerCaseHeaderName == "from")
-        {
-          if (header.headerValue)
-          {
-            try
-            {
-              var createCard = (gCollectIncoming && !dontCollectAddress) || (gCollectNewsgroup && dontCollectAddress);
-              if (createCard || gCollectOutgoing)
-              {
-                if (!abAddressCollector)
-                  abAddressCollector = Components.classes[abAddressCollectorContractID]
-                                                 .getService(Components.interfaces.nsIAbAddressCollecter);
-
-                gCollectAddress = header.headerValue;
-                // collect, add card if doesn't exist and gCollectOutgoing is set, 
-                // otherwise only update existing cards, unknown preferred send format
-                gCollectAddressTimer = setTimeout('abAddressCollector.collectUnicodeAddress(gCollectAddress, ' + createCard + ', Components.interfaces.nsIAbPreferMailFormat.unknown);', 2000);
-              }
-            }
-            catch(ex) {}
-          }
-        } // if lowerCaseHeaderName == "from"
       } // while we have more headers to parse
 
       if (("from" in currentHeaderData) && ("sender" in currentHeaderData) && msgHeaderParser)
@@ -674,39 +631,19 @@ function updateHeaderViews()
 
 function ToggleHeaderView ()
 {
-  var expandedNode = document.getElementById("expandedHeaderView");
-  var collapsedNode = document.getElementById("collapsedHeaderView");
-  var toggleHeaderView = document.getElementById("msgHeaderView");
+  gCollapsedHeaderViewMode = !gCollapsedHeaderViewMode;
+  // Work around a xul deck bug where the height of the deck is determined by the tallest panel in the deck
+  // even if that panel is not selected...
+  document.getElementById('msgHeaderViewDeck').selectedPanel.collapsed = true;
+  
+  UpdateMessageHeaders(); 
+  
+  // select the new panel. 
+  document.getElementById('msgHeaderViewDeck').selectedIndex = gCollapsedHeaderViewMode ? 0 : 1;
 
-  if (gCollapsedHeaderViewMode)
-  {          
-    gCollapsedHeaderViewMode = false;
-    // hide the current view
-    hideHeaderView(gCollapsedHeaderView);
-    // update the current view
-    UpdateMessageHeaders();
-    
-    // now uncollapse / collapse the right views
-    expandedNode.collapsed = false;
-    collapsedNode.collapsed = true;
-  }
-  else
-  {
-    gCollapsedHeaderViewMode = true;
-    // hide the current view
-    hideHeaderView(gExpandedHeaderView);
-    // update the current view
-    UpdateMessageHeaders();
-    
-    // now uncollapse / collapse the right views
-    collapsedNode.collapsed = false;
-    expandedNode.collapsed = true;
-  }  
-
-  if (gCollapsedHeaderViewMode)
-    toggleHeaderView.setAttribute("state", "true");
-  else
-    toggleHeaderView.setAttribute("state", "false");
+  // Work around a xul deck bug where the height of the deck is determined by the tallest panel in the deck
+  // even if that panel is not selected...  
+  document.getElementById('msgHeaderViewDeck').selectedPanel.collapsed = false;
 }
 
 // default method for updating a header value into a header entry
@@ -727,15 +664,9 @@ function createNewHeaderView(headerName)
   newHeader.setAttribute('id', idName);
 
   if (headerName.indexOf("Dummy-Header") == 0) // -1 means not found, 0 means starts at the beginning
-  {
     newHeader.setAttribute('label', "");
-  } 
   else
-  {
     newHeader.setAttribute('label', currentHeaderData[headerName].headerName + ':');
-    // all mail-headerfield elements are keyword related
-    newHeader.setAttribute('keywordrelated','true');
-  }
   
   newHeader.collapsed = true;
 
@@ -823,19 +754,7 @@ function ClearCurrentHeaders()
 
 function ShowMessageHeaderPane()
 { 
-  var node;
-  if (gCollapsedHeaderViewMode)
-  {          
-    node = document.getElementById("collapsedHeaderView");
-    if (node)
-      node.collapsed = false;
-  }
-  else
-  {
-    node = document.getElementById("expandedHeaderView");
-    if (node)
-      node.collapsed = false;
-  }
+  document.getElementById('msgHeaderView').collapsed = false;
 
 	/* workaround for 39655 */
   if (gFolderJustSwitched) 
@@ -848,22 +767,12 @@ function ShowMessageHeaderPane()
 
 function HideMessageHeaderPane()
 {
-  var node = document.getElementById("collapsedHeaderView");
-  if (node)
-    node.collapsed = true;
+  document.getElementById('msgHeaderView').collapsed = true;
 
-  node = document.getElementById("expandedHeaderView");
-  if (node)
-    node.collapsed = true;
-
-  // we also have to disable the File/Attachments menuitem
-  node = document.getElementById("fileAttachmentMenu");
-  if (node)
-    node.setAttribute("disabled", "true");
-
-  node = document.getElementById("attachmentView");
-  if (node)
-    node.collapsed = true;
+  // disable the File/Attachments menuitem
+  document.getElementById("fileAttachmentMenu").setAttribute("disabled", "true");
+  // disable the attachment box
+  document.getElementById("attachmentView").collapsed = true;
 }
 
 function OutputNewsgroups(headerEntry, headerValue)
@@ -905,62 +814,12 @@ function OutputEmailAddresses(headerEntry, emailAddresses)
         headerEntry.enclosingBox.addAddressView(address);
       else
         updateEmailAddressNode(headerEntry.enclosingBox.emailAddressNode, address);
-
-      if (headerEntry.enclosingBox.getAttribute("id") == "expandedfromBox") {
-        setFromBuddyIcon(addresses.value[index]);
-      }
-
       index++;
     }
     
     if (headerEntry.useToggle)
       headerEntry.enclosingBox.buildViews(gNumAddressesToShow);
   } // if msgheader parser
-}
-
-
-function setFromBuddyIcon(email)
-{
-   var fromBuddyIcon = document.getElementById("fromBuddyIcon");
-
-   try {
-     // better to cache this?
-     var myScreenName = pref.getCharPref("aim.session.screenname");
-
-     if (!abAddressCollector)
-       abAddressCollector = Components.classes[abAddressCollectorContractID].getService(Components.interfaces.nsIAbAddressCollecter);
-
-     var card = abAddressCollector.getCardFromAttribute("PrimaryEmail", email);
-
-     if (myScreenName && card && card.aimScreenName) {
-       if (!gIOService) {
-         // lazily create these globals
-         gIOService = Components.classes["@mozilla.org/network/io-service;1"].getService(Components.interfaces.nsIIOService);
-         gFileHandler = gIOService.getProtocolHandler("file").QueryInterface(Components.interfaces.nsIFileProtocolHandler);
-         
-         var dirService = Components.classes["@mozilla.org/file/directory_service;1"]
-             .getService(Components.interfaces.nsIProperties);
-         var profileDir = dirService.get("ProfD", Components.interfaces.nsIFile);
-         gProfileDirURL = gIOService.newFileURI(profileDir);
-       }
-
-       // if we did have a buddy icon on disk for this screenname, this would be the file url spec for it
-       var iconURLStr = gProfileDirURL.spec + "/NIM/" + myScreenName + "/picture/" + card.aimScreenName + ".gif";
-
-       // check if the file exists
-       // is this a perf hit?  (how expensive is stat()?)
-       var iconFile = gFileHandler.getFileFromURLSpec(iconURLStr);
-       if (iconFile.exists()) {
-         fromBuddyIcon.setAttribute("src", iconURLStr);
-         return;
-       }
-     }
-   }
-   catch (ex) {
-     // can get here if no screenname
-     //dump("ex = " + ex + "\n");
-   }
-   fromBuddyIcon.setAttribute("src", "");
 }
 
 function updateEmailAddressNode(emailAddressNode, address)

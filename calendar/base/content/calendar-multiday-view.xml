@@ -149,8 +149,9 @@
           while (topbox.lastChild)
               topbox.removeChild(topbox.lastChild);
 
-          var formatter = Components.classes["@mozilla.org/intl/scriptabledateformat;1"]
-                                    .getService(nsIScriptableDateFormat);
+          var formatter = 
+              Components.classes["@mozilla.org/intl/scriptabledateformat;1"]
+              .getService(Components.interfaces.nsIScriptableDateFormat);
           var timeString;
           var theMin = this.mStartMin;
           var theHour = Math.floor(theMin / 60);
@@ -170,9 +171,9 @@
               if (dur != 60) {
                   box = makeTimeBox("", dur * this.mPixPerMin);
               } else {
-                  timeString = formatter.FormatTime("", 
-                                   nsIScriptableDateFormat.timeFormatNoSeconds,
-                                   theHour, 0, 0);
+                  timeString = formatter.FormatTime("",
+                               Components.interfaces.nsIScriptableDateFormat
+                               .timeFormatNoSeconds, theHour, 0, 0);
                   box = makeTimeBox(timeString, dur * this.mPixPerMin);
               }
 
@@ -1012,28 +1013,62 @@
               }
           }
 
-          // XXX ok, yeah, this stuff needs some JS helper love
-          var estart = col.mDate.clone();
-          estart.isDate = false;
-          estart.hour = 0;
-          estart.minute = dragState.startMin + col.mStartMin;
-          estart.normalize();
+          var newStart;
+          var newEnd;
 
-          var eend = col.mDate.clone();
-          eend.isDate = false;
-          eend.hour = 0;
-          eend.minute = dragState.endMin + col.mStartMin;
-          eend.normalize();
+          if (dragState.dragType == "new") {
+              newStart = col.mDate.clone();
+              newStart.isDate = false;
+              newEnd = col.mDate.clone();
+              newEnd.isDate = false;
+          } else {
+              newStart = dragState.dragOccurrence.startDate.clone();
+              newEnd = dragState.dragOccurrence.endDate.clone();
+          }
+
+          if (dragState.dragType == "modify-start" ||
+              dragState.dragType == "new") {
+              newStart.hour = 0;
+              newStart.minute = dragState.startMin + col.mStartMin;
+              newStart.normalize();
+          }
+
+          if (dragState.dragType == "modify-end" ||
+              dragState.dragType == "new") {
+              newEnd.hour = 0;
+              newEnd.minute = dragState.endMin + col.mStartMin;
+              newEnd.normalize();
+          }
+
+          if (dragState.dragType == "move") {
+              // Figure out how much the event moved.
+              var duration = col.mDate.subtractDate(dragState.origDate);
+              var minutes = dragState.startMin - dragState.origMin;
+              if (duration.isNegative) {
+                  // Adding negative minutes to a negative duration makes the
+                  // duration more positive, but we want more negative, and
+                  // vice versa.
+                  minutes *= -1;
+              }
+              duration.minutes = minutes;
+              duration.normalize();
+
+              newStart.addDuration(duration);
+              newStart.normalize();
+              newEnd.addDuration(duration);
+              newEnd.normalize();
+          }
 
           if (dragState.dragType == "new") {
               col.calendarView.controller.createNewEvent(col.calendarView.displayCalendar,
-                                                         estart,
-                                                         eend);
+                                                         newStart,
+                                                         newEnd);
           } else if (dragState.dragType == "move" ||
                      dragState.dragType == "modify-start" ||
                      dragState.dragType == "modify-end")
           {
-              col.calendarView.controller.modifyOccurrence(dragState.dragOccurrence, estart, eend);
+              col.calendarView.controller.modifyOccurrence(dragState.dragOccurrence, 
+                                                           newStart, newEnd);
           }
           document.calendarEventColumnDragging = null;
           col.mDragState = null;
@@ -1111,6 +1146,10 @@
               // (we move the end based on the duration of the event,
               // not including our snap)
               this.mDragState.origMin = Math.floor(mins.start/15) * 15;
+
+              // Because we can pass this event to other columns, we also need
+              // to track the original column's date too, to get the correct offset
+              this.mDragState.origDate = this.mDate;
               this.fgboxes.dragspacer.setAttribute(sizeattr, this.mDragState.origMin * this.mPixPerMin);
               this.fgboxes.dragbox.setAttribute(sizeattr, (mins.end - mins.start) * this.mPixPerMin);
 
@@ -1178,13 +1217,14 @@
           var endhr = Math.floor(realendmin / 60);
           var endmin = realendmin % 60;
 
-          var formatter = Components.classes["@mozilla.org/intl/scriptabledateformat;1"]
-                                    .getService(nsIScriptableDateFormat);
+          var formatter = 
+              Components.classes["@mozilla.org/intl/scriptabledateformat;1"]
+              .getService(Components.interfaces.nsIScriptableDateFormat);
           var startstr = formatter.FormatTime("", 
-                             nsIScriptableDateFormat.timeFormatNoSeconds,
+                             Components.interfaces.nsIScriptableDateFormat.timeFormatNoSeconds,
                              starthr, startmin, 0);
           var endstr = formatter.FormatTime("", 
-                           nsIScriptableDateFormat.timeFormatNoSeconds,
+                           Components.interfaces.nsIScriptableDateFormat.timeFormatNoSeconds,
                            endhr, endmin, 0);
 
           this.fgboxes.startlabel.setAttribute("value", startstr);
@@ -1326,6 +1366,9 @@
       <handler event="dblclick" button="0"><![CDATA[
         this.calendarView.controller.createNewEvent();
       ]]></handler>
+      <handler event="mousedown"><![CDATA[
+        this.calendarView.selectedDay = this.mDate;
+      ]]></handler>
     </handlers>
   </binding>
 
@@ -1419,6 +1462,7 @@
         if (this.mEditing)
             return;
 
+        this.parentColumn.calendarView.selectedDay = this.parentColumn.mDate;
         this.mInMouseDown = true;
         this.mMouseX = event.screenX;
         this.mMouseY = event.screenY;
@@ -2058,7 +2102,7 @@
               this.mStartMin = aStartMin;
               this.mEndMin = aEndMin;
 
-              this.relayout();
+              this.refresh();
           }
 	]]></body>
       </method>
@@ -2250,6 +2294,9 @@
           var timebar = document.getAnonymousElementByAttribute(this, "anonid", "timebar");
           timebar.setStartEndMinutes(this.mStartMin, this.mEndMin);
 
+          // get today's date
+          var today = this.today();
+
           var counter = 0;
           for each (var d in computedDateList) {
               var dayEventsBox = createXULElement("calendar-event-column");
@@ -2269,8 +2316,15 @@
               dayHeaderBox.setAttribute("flex", "1");
               headerdaybox.appendChild(dayHeaderBox);
 
+              dayHeaderBox.date = d;
               dayHeaderBox.calendarView = this;
               dayHeaderBox.setAttribute("orient", orient);
+
+              // highlight today
+              if (this.numVisibleDates > 1 && d.compare(today) == 0) {
+                  dayEventsBox.setAttribute("today", "true");
+                  dayHeaderBox.setAttribute("today", "true");
+              }
 
               var labelbox = createXULElement("box");
               labelbox.setAttribute("flex", "1");
@@ -2365,6 +2419,11 @@
             targetDate.hour = 0;
             targetDate.minute = 0;
             targetDate.second = 0;
+          }
+
+          if (targetDate.compare(finishDate) == 0) {
+              // Zero length events are silly, but we have to handle them
+              return [this.findColumnForDate(targetDate)];
           }
 
           while (targetDate.compare(finishDate) == -1) {
@@ -2590,6 +2649,18 @@
           }
         ]]></body>
       </method>
+
+      <method name="today">
+        <body><![CDATA[
+          var date = Components.classes["@mozilla.org/calendar/datetime;1"]
+                               .createInstance(Components.interfaces.calIDateTime);
+          date.jsDate = new Date();
+          date.isDate = true;
+          date = date.getInTimezone(this.mTimezone);
+          return date;
+        ]]></body>
+      </method>
+ 
     </implementation>
 
     <handlers>

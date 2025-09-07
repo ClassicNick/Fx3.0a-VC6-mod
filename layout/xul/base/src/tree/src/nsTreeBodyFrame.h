@@ -63,7 +63,7 @@ class nsTreeBodyFrame : public nsLeafBoxFrame,
                         public nsIReflowCallback
 {
 public:
-  nsTreeBodyFrame(nsIPresShell* aPresShell);
+  nsTreeBodyFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
   virtual ~nsTreeBodyFrame();
 
   NS_DECL_ISUPPORTS
@@ -88,7 +88,6 @@ public:
   // Overridden from nsIFrame to cache our pres context.
   NS_IMETHOD Init(nsIContent*     aContent,
                   nsIFrame*       aParent,
-                  nsStyleContext* aContext,
                   nsIFrame*       aPrevInFlow);
   NS_IMETHOD Destroy(nsPresContext* aPresContext);
   NS_IMETHOD GetCursor(const nsPoint& aPoint,

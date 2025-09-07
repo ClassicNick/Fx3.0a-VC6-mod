@@ -35,6 +35,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * Implementation of DOM Core's nsIDOMAttr node.
+ */
+
 #include "nsDOMAttribute.h"
 #include "nsGenericElement.h"
 #include "nsIContent.h"

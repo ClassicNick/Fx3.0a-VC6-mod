@@ -14,8 +14,7 @@
  * The Original Code is mozilla.org.code .
  *
  * The Initial Developer of the Original Code is
- * <rdayal@netscape.com>
- * 
+ * Rajiv Dayal <rdayal@netscape.com>
  * Portions created by the Initial Developer are Copyright (C) 2002
  * the Initial Developer. All Rights Reserved.
  *
@@ -48,6 +47,7 @@
 #include "nsILocalFile.h"
 #include "nsDirPrefs.h"
 #include "nsIAbLDAPAttributeMap.h"
+#include "nsIAbLDAPDirectory.h"
 #include "nsString.h"
 
 class nsAbLDAPProcessReplicationData : public nsIAbLDAPProcessReplicationData
@@ -77,7 +77,7 @@ protected :
   PRBool          mDBOpen;
   PRBool          mInitialized;
   
-  DIR_Server *    mDirServerInfo;
+  nsCOMPtr<nsIAbLDAPDirectory> mDirectory;
   nsCString       mAuthDN;      // authDN of the user
   nsCString       mAuthPswd;    // pswd of the authDN user
   nsCOMPtr<nsIAbLDAPAttributeMap> mAttrMap; // maps ab properties to ldap attrs

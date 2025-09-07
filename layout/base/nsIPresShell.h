@@ -48,6 +48,9 @@
  * Date         Modified by     Description of modification
  * 05/03/2000   IBM Corp.       Observer related defines for reflow
  */
+
+/* a presentation of a document, part 2 */
+
 #ifndef nsIPresShell_h___
 #define nsIPresShell_h___
 
@@ -58,7 +61,6 @@
 #include "nsEvent.h"
 #include "nsReflowType.h"
 #include "nsCompatibility.h"
-#include "nsCOMArray.h"
 #include "nsFrameManagerBase.h"
 #include "mozFlushType.h"
 #include "nsWeakReference.h"
@@ -91,6 +93,7 @@ class nsIStyleFrameConstruction;
 class nsIStyleSheet;
 class nsCSSFrameConstructor;
 class nsISelection;
+template<class E> class nsCOMArray;
 
 #define NS_IPRESSHELL_IID     \
 { 0x998cde06, 0x5fa4, 0x4c8b, \

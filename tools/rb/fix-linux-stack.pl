@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# vim:sw=4:ts=4:et:
 # ***** BEGIN LICENSE BLOCK *****
 # Version: MPL 1.1/GPL 2.0/LGPL 2.1
 #
@@ -51,32 +52,97 @@
 use strict;
 use IPC::Open2;
 
+# addr2line wants offsets relative to the base address for shared
+# libraries, but it wants addresses including the base address offset
+# for executables.  This function returns the appropriate address
+# adjustment to add to an offset within file.  See bug 230336.
+my %address_adjustments;
+sub address_adjustment($) {
+    my ($file) = @_;
+    unless (exists $address_adjustments{$file}) {
+        # find out if it's an executable (as opposed to a shared library)
+        my $elftype;
+        open(ELFHDR, '-|', 'readelf', '-h', $file);
+        while (<ELFHDR>) {
+            if (/^\s*Type:\s+(\S+)/) {
+                $elftype = $1;
+                last;
+            }
+        }
+        close(ELFHDR);
+
+        # If it's an executable, make adjustment the base address.
+        # Otherwise, leave it zero.
+        my $adjustment = 0;
+        if ($elftype eq 'EXEC') {
+            open(ELFSECS, '-|', 'readelf', '-S', $file);
+            while (<ELFSECS>) {
+                if (/^\s*\[\s*\d+\]\s+\.text\s+\w+\s+(\w+)\s+(\w+)\s+/) {
+                    # Subtract the .text section's offset within the
+                    # file from its base address.
+                    $adjustment = hex($1) - hex($2);
+                    last;
+                }
+            }
+            close(ELFSECS);
+        }
+
+        $address_adjustments{$file} = $adjustment;
+    }
+    return $address_adjustments{$file};
+}
+
+# The behavior of this should probably be configurable.  It's correct
+# for Fedora Core 5's *-debuginfo packages (glibc-debuginfo, etc.).
+# See http://sources.redhat.com/gdb/current/onlinedocs/gdb_16.html#SEC152
+# for how it ought to work.
+sub debuginfo_file_for($) {
+    my ($file) = @_;
+    return '/usr/lib/debug/' . $file . '.debug';
+}
+
+# Return a reference to a hash whose {read} and {write} entries are a
+# bidirectional pipe to an addr2line process that gives symbol
+# information for a file.
 my %pipes;
+sub addr2line_pipe($) {
+    my ($file) = @_;
+    my $pipe;
+    unless (exists $pipes{$file}) {
+        # If it's a system library, see if we have separate debuginfo.
+        if ($file =~ /^\//) {
+            my $debuginfo_file = debuginfo_file_for($file);
+            $file = $debuginfo_file if (-f $debuginfo_file);
+        }
+
+        my $pid = open2($pipe->{read}, $pipe->{write},
+                        '/usr/bin/addr2line', '-C', '-f', '-e', $file);
+        $pipes{$file} = $pipe;
+    } else {
+        $pipe = $pipes{$file};
+    }
+    return $pipe;
+}
+
 while (<>) {
     my $line = $_;
     if ($line =~ /^([ \|0-9-]*)(.*) ?\[([^ ]*) \+(0x[0-9A-F]{1,8})\](.*)$/) {
         my $before = $1; # allow preservation of balance trees
         my $badsymbol = $2;
         my $file = $3;
-        my $address = $4;
+        my $address = hex($4);
         my $after = $5; # allow preservation of counts
 
-        my $pipe;
-        unless (exists $pipes{$file}) {
-            my $pid = open2($pipe->{read}, $pipe->{write},
-                            '/usr/bin/addr2line', '-C', '-f', '-e', "$file");
-            $pipes{$file} = $pipe;
-        } else {
-            $pipe = $pipes{$file};
-        }
+        my $pipe = addr2line_pipe($file);
+        $address += address_adjustment($file);
 
         my $out = $pipe->{write};
         my $in = $pipe->{read};
-        print {$out} "$address\n";
+        printf {$out} "0x%X\n", $address;
         chomp(my $symbol = <$in>);
         chomp(my $fileandline = <$in>);
-        if ($symbol eq "??") { $symbol = $badsymbol; }
-        if ($fileandline eq "??:0") { $fileandline = $file; }
+        if ($symbol eq '??') { $symbol = $badsymbol; }
+        if ($fileandline eq '??:0') { $fileandline = $file; }
         print "$before$symbol ($fileandline)$after\n";
     } else {
         print $line;

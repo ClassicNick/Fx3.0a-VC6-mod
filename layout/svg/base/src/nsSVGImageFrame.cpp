@@ -84,12 +84,14 @@ class nsSVGImageFrame : public nsSVGPathGeometryFrame
 {
 protected:
   friend nsIFrame*
-  NS_NewSVGImageFrame(nsIPresShell* aPresShell, nsIContent* aContent);
+  NS_NewSVGImageFrame(nsIPresShell* aPresShell, nsIContent* aContent, nsStyleContext* aContext);
 
   virtual ~nsSVGImageFrame();
   NS_IMETHOD InitSVG();
 
 public:
+  nsSVGImageFrame(nsStyleContext* aContext) : nsSVGPathGeometryFrame(aContext) {}
+
   // nsIFrame interface:
   NS_IMETHOD  AttributeChanged(PRInt32         aNameSpaceID,
                                nsIAtom*        aAttribute,
@@ -140,7 +142,7 @@ private:
 // Implementation
 
 nsIFrame*
-NS_NewSVGImageFrame(nsIPresShell* aPresShell, nsIContent* aContent)
+NS_NewSVGImageFrame(nsIPresShell* aPresShell, nsIContent* aContent, nsStyleContext* aContext)
 {
   nsCOMPtr<nsIDOMSVGImageElement> Rect = do_QueryInterface(aContent);
   if (!Rect) {
@@ -150,7 +152,7 @@ NS_NewSVGImageFrame(nsIPresShell* aPresShell, nsIContent* aContent)
     return nsnull;
   }
 
-  return new (aPresShell) nsSVGImageFrame;
+  return new (aPresShell) nsSVGImageFrame(aContext);
 }
 
 nsSVGImageFrame::~nsSVGImageFrame()
@@ -319,9 +321,6 @@ nsSVGImageFrame::PaintSVG(nsISVGRendererCanvas* canvas)
     mWidth->GetValue(&width);
     mHeight->GetValue(&height);
 
-    if (GetStyleDisplay()->IsScrollableOverflow())
-      canvas->SetClipRect(ctm, x, y, width, height);
-
     PRUint32 nativeWidth, nativeHeight;
     mSurface->GetWidth(&nativeWidth);
     mSurface->GetHeight(&nativeHeight);
@@ -338,9 +337,17 @@ nsSVGImageFrame::PaintSVG(nsISVGRendererCanvas* canvas)
     ctm->Translate(x, y, getter_AddRefs(ctmXY));
     ctmXY->Multiply(trans, getter_AddRefs(fini));
 
+    if (GetStyleDisplay()->IsScrollableOverflow()) {
+      canvas->PushClip();
+      canvas->SetClipRect(ctm, x, y, width, height);
+    }
+
     canvas->CompositeSurfaceMatrix(mSurface,
                                    fini,
                                    mStyleContext->GetStyleDisplay()->mOpacity);
+
+    if (GetStyleDisplay()->IsScrollableOverflow())
+      canvas->PopClip();
   }
 
   return NS_OK;

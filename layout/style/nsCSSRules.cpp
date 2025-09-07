@@ -35,6 +35,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rules in a CSS stylesheet other than style rules (e.g., @import rules) */
+
 #include "nsCSSRules.h"
 #include "nsICSSImportRule.h"
 #include "nsICSSNameSpaceRule.h"
@@ -64,6 +67,7 @@
 #include "nsContentUtils.h"
 #include "nsStyleConsts.h"
 #include "nsDOMError.h"
+#include "nsIEnumerator.h"
 
 #define IMPL_STYLE_RULE_INHERIT(_class, super) \
 NS_IMETHODIMP _class::GetStyleSheet(nsIStyleSheet*& aSheet) const { return super::GetStyleSheet(aSheet); }  \
@@ -1447,4 +1451,3 @@ CSSNameSpaceRuleImpl::GetParentRule(nsIDOMCSSRule** aParentRule)
   *aParentRule = nsnull;
   return NS_OK;
 }
-

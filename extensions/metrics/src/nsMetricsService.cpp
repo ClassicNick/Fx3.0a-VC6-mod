@@ -37,6 +37,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsMetricsService.h"
+#include "nsMetricsEventItem.h"
 #include "nsXPCOM.h"
 #include "nsServiceManagerUtils.h"
 #include "nsDirectoryServiceUtils.h"
@@ -55,6 +56,7 @@
 #include "nsIProperty.h"
 #include "nsIVariant.h"
 #include "nsIDOMElement.h"
+#include "nsIDOMDocument.h"
 #include "nsIDOMSerializer.h"
 #include "nsMultiplexInputStream.h"
 #include "nsStringStream.h"
@@ -62,9 +64,13 @@
 #include "nsVariant.h"
 #include "prtime.h"
 #include "prmem.h"
+#include "prprf.h"
 #include "bzlib.h"
+#ifndef MOZILLA_1_8_BRANCH
 #include "nsIClassInfoImpl.h"
+#endif
 #include "nsIUUIDGenerator.h"
+#include "nsDocShellCID.h"
 
 // Make our MIME type inform the server of possible compression.
 #ifdef NS_METRICS_SEND_UNCOMPRESSED_DATA
@@ -83,18 +89,146 @@ nsMetricsService* nsMetricsService::sMetricsService = nsnull;
 PRLogModuleInfo *gMetricsLog;
 #endif
 
+static const char kQuitApplicationTopic[] = "quit-application";
+
 //-----------------------------------------------------------------------------
+
+nsMetricsService::nsMetricsService()  
+    : mEventCount(0),
+      mSuspendCount(0),
+      mUploading(PR_FALSE),
+      mNextWindowID(0)
+{
+  NS_ASSERTION(!sMetricsService, ">1 MetricsService object created");
+  sMetricsService = this;
+}
+
+nsMetricsService::~nsMetricsService()
+{
+  NS_ASSERTION(sMetricsService == this, ">1 MetricsService object created");
+  sMetricsService = nsnull;
+}
 
 NS_IMPL_ISUPPORTS6_CI(nsMetricsService, nsIMetricsService, nsIAboutModule,
                       nsIStreamListener, nsIRequestObserver, nsIObserver,
                       nsITimerCallback)
 
 NS_IMETHODIMP
-nsMetricsService::LogEvent(const nsAString &eventNS,
-                           const nsAString &eventName,
-                           nsIPropertyBag *eventProperties)
+nsMetricsService::CreateEventItem(const nsAString &itemNamespace,
+                                  const nsAString &itemName,
+                                  nsIMetricsEventItem **result)
 {
-  NS_ENSURE_ARG_POINTER(eventProperties);
+  *result = nsnull;
+
+  nsMetricsEventItem *item = new nsMetricsEventItem(itemNamespace, itemName);
+  NS_ENSURE_TRUE(item, NS_ERROR_OUT_OF_MEMORY);
+
+  NS_ADDREF(*result = item);
+  return NS_OK;
+}
+
+nsresult
+nsMetricsService::BuildEventItem(nsIMetricsEventItem *item,
+                                 nsIDOMElement **itemElement)
+{
+  *itemElement = nsnull;
+
+  nsAutoString itemNS, itemName;
+  item->GetItemNamespace(itemNS);
+  item->GetItemName(itemName);
+
+  nsCOMPtr<nsIDOMElement> element;
+  nsresult rv = mDocument->CreateElementNS(itemNS, itemName,
+                                           getter_AddRefs(element));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Attach the given properties as attributes.
+  nsCOMPtr<nsIPropertyBag> properties;
+  item->GetProperties(getter_AddRefs(properties));
+  if (properties) {
+    nsCOMPtr<nsISimpleEnumerator> enumerator;
+    rv = properties->GetEnumerator(getter_AddRefs(enumerator));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    nsCOMPtr<nsISupports> propertySupports;
+    while (NS_SUCCEEDED(
+               enumerator->GetNext(getter_AddRefs(propertySupports)))) {
+      nsCOMPtr<nsIProperty> property = do_QueryInterface(propertySupports);
+      if (!property) {
+        NS_WARNING("PropertyBag enumerator has non-nsIProperty elements");
+        continue;
+      }
+
+      nsAutoString name;
+      rv = property->GetName(name);
+      if (NS_FAILED(rv)) {
+        NS_WARNING("Failed to get property name");
+        continue;
+      }
+
+      nsCOMPtr<nsIVariant> value;
+      rv = property->GetValue(getter_AddRefs(value));
+      if (NS_FAILED(rv) || !value) {
+        NS_WARNING("Failed to get property value");
+        continue;
+      }
+
+      // If the type is boolean, we want to use the strings "true" and "false",
+      // rather than "1" and "0" which is what nsVariant generates on its own.
+      PRUint16 dataType;
+      value->GetDataType(&dataType);
+
+      nsAutoString valueString;
+      if (dataType == nsIDataType::VTYPE_BOOL) {
+        PRBool valueBool;
+        rv = value->GetAsBool(&valueBool);
+        if (NS_FAILED(rv)) {
+          NS_WARNING("Variant has bool type but couldn't get bool value");
+          continue;
+        }
+        valueString = valueBool ? NS_LITERAL_STRING("true")
+                      : NS_LITERAL_STRING("false");
+      } else {
+        rv = value->GetAsDOMString(valueString);
+        if (NS_FAILED(rv)) {
+          NS_WARNING("Failed to convert property value to string");
+          continue;
+        }
+      }
+
+      rv = element->SetAttribute(name, valueString);
+      if (NS_FAILED(rv)) {
+        NS_WARNING("Failed to set attribute value");
+      }
+      continue;
+    }
+  }
+
+  // Now recursively build the child event items
+  PRInt32 childCount = 0;
+  item->GetChildCount(&childCount);
+  for (PRInt32 i = 0; i < childCount; ++i) {
+    nsCOMPtr<nsIMetricsEventItem> childItem;
+    item->ChildAt(i, getter_AddRefs(childItem));
+    NS_ASSERTION(childItem, "The child list cannot contain null items");
+
+    nsCOMPtr<nsIDOMElement> childElement;
+    rv = BuildEventItem(childItem, getter_AddRefs(childElement));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    nsCOMPtr<nsIDOMNode> nodeReturn;
+    rv = element->AppendChild(childElement, getter_AddRefs(nodeReturn));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  element.swap(*itemElement);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsMetricsService::LogEvent(nsIMetricsEventItem *item)
+{
+  NS_ENSURE_ARG_POINTER(item);
 
   if (mSuspendCount != 0)  // Ignore events while suspended
     return NS_OK;
@@ -104,71 +238,17 @@ nsMetricsService::LogEvent(const nsAString &eventNS,
     return NS_OK;
 
   // Restrict the types of events logged
+  nsAutoString eventNS, eventName;
+  item->GetItemNamespace(eventNS);
+  item->GetItemName(eventName);
+
   if (!mConfig.IsEventEnabled(eventNS, eventName))
     return NS_OK;
 
   // Create a DOM element for the event and append it to our document.
   nsCOMPtr<nsIDOMElement> eventElement;
-  nsresult rv = mDocument->CreateElementNS(eventNS, eventName,
-                                           getter_AddRefs(eventElement));
+  nsresult rv = BuildEventItem(item, getter_AddRefs(eventElement));
   NS_ENSURE_SUCCESS(rv, rv);
-
-  // Attach the given properties as attributes.
-  nsCOMPtr<nsISimpleEnumerator> enumerator;
-  rv = eventProperties->GetEnumerator(getter_AddRefs(enumerator));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsISupports> propertySupports;
-  while (NS_SUCCEEDED(enumerator->GetNext(getter_AddRefs(propertySupports)))) {
-    nsCOMPtr<nsIProperty> property = do_QueryInterface(propertySupports);
-    if (!property) {
-      NS_WARNING("PropertyBag enumerator has non-nsIProperty elements");
-      continue;
-    }
-
-    nsAutoString name;
-    rv = property->GetName(name);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("Failed to get property name");
-      continue;
-    }
-
-    nsCOMPtr<nsIVariant> value;
-    rv = property->GetValue(getter_AddRefs(value));
-    if (NS_FAILED(rv) || !value) {
-      NS_WARNING("Failed to get property value");
-      continue;
-    }
-
-    // If the type is boolean, we want to use the strings "true" and "false",
-    // rather than "1" and "0" which is what nsVariant generates on its own.
-    PRUint16 dataType;
-    value->GetDataType(&dataType);
-
-    nsAutoString valueString;
-    if (dataType == nsIDataType::VTYPE_BOOL) {
-      PRBool valueBool;
-      rv = value->GetAsBool(&valueBool);
-      if (NS_FAILED(rv)) {
-        NS_WARNING("Variant has bool type but couldn't get bool value");
-        continue;
-      }
-      valueString = valueBool ? NS_LITERAL_STRING("true")
-        : NS_LITERAL_STRING("false");
-    } else {
-      rv = value->GetAsDOMString(valueString);
-      if (NS_FAILED(rv)) {
-        NS_WARNING("Failed to convert property value to string");
-        continue;
-      }
-    }
-
-    rv = eventElement->SetAttribute(name, valueString);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("Failed to set attribute value");
-    }
-    continue;
-  }
 
   // Add the event timestamp
   nsAutoString timeString;
@@ -176,6 +256,10 @@ nsMetricsService::LogEvent(const nsAString &eventNS,
   rv = eventElement->SetAttribute(NS_LITERAL_STRING("time"), timeString);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  // Add the session id
+  rv = eventElement->SetAttribute(NS_LITERAL_STRING("session"), mSessionID);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
   nsCOMPtr<nsIDOMNode> outChild;
   rv = mRoot->AppendChild(eventElement, getter_AddRefs(outChild));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -184,6 +268,21 @@ nsMetricsService::LogEvent(const nsAString &eventNS,
   if ((++mEventCount % NS_EVENTLOG_FLUSH_POINT) == 0)
     Flush();
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsMetricsService::LogSimpleEvent(const nsAString &eventNS,
+                                 const nsAString &eventName,
+                                 nsIPropertyBag *eventProperties)
+{
+  NS_ENSURE_ARG_POINTER(eventProperties);
+
+  nsCOMPtr<nsIMetricsEventItem> item;
+  nsresult rv = CreateEventItem(eventNS, eventName, getter_AddRefs(item));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  item->SetProperties(eventProperties);
+  return LogEvent(item);
 }
 
 NS_IMETHODIMP
@@ -340,21 +439,25 @@ nsMetricsService::OnStopRequest(nsIRequest *request, nsISupports *context,
   // Apply possibly new upload interval:
   RegisterUploadTimer();
 
-  // Shutdown collectors that are no longer enabled.  For now, this only
-  // applies to the load collector since the window collector may be needed by
-  // other collectors.
-  //
-  // TODO(darin): Come up with a better solution for this.  A broadcast
-  //              notification to the collectors might be ideal.
-  //
-  if (mConfig.IsEventEnabled(NS_LITERAL_STRING(NS_METRICS_NAMESPACE),
-                             NS_LITERAL_STRING("load"))) {
-    nsLoadCollector::Startup();
-  } else {
-    nsLoadCollector::Shutdown();
-  }
+  EnableCollectors();
 
   mUploading = PR_FALSE;
+  return NS_OK;
+}
+
+nsresult
+nsMetricsService::EnableCollectors()
+{
+  // Start and stop collectors based on the current config.
+  nsresult rv;
+  rv = nsLoadCollector::SetEnabled(
+      IsEventEnabled(NS_LITERAL_STRING("document")));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = nsWindowCollector::SetEnabled(
+      IsEventEnabled(NS_LITERAL_STRING("window")));
+  NS_ENSURE_SUCCESS(rv, rv);
+
   return NS_OK;
 }
 
@@ -372,13 +475,83 @@ NS_IMETHODIMP
 nsMetricsService::Observe(nsISupports *subject, const char *topic,
                           const PRUnichar *data)
 {
-  if (strcmp(topic, NS_XPCOM_SHUTDOWN_OBSERVER_ID) == 0) {
+  if (strcmp(topic, kQuitApplicationTopic) == 0) {
     Flush();
-    nsLoadCollector::Shutdown();
-    nsWindowCollector::Shutdown();
+    nsLoadCollector::SetEnabled(PR_FALSE);
+    nsWindowCollector::SetEnabled(PR_FALSE);
   } else if (strcmp(topic, "profile-after-change") == 0) {
-    RegisterUploadTimer();
+    nsresult rv = ProfileStartup();
+    NS_ENSURE_SUCCESS(rv, rv);
+  } else if (strcmp(topic, NS_WEBNAVIGATION_DESTROY) == 0 ||
+             strcmp(topic, NS_CHROME_WEBNAVIGATION_DESTROY) == 0) {
+    // We handle dispatching to the window collector, if it's enabled,
+    // to avoid having an observer ordering dependency.
+    nsWindowCollector *wc = nsWindowCollector::GetInstance();
+    if (wc) {
+      wc->Observe(subject, topic, data);
+    }
+    
+    // Remove the window from our map.
+    mWindowMap.Remove(subject);
   }
+  
+  return NS_OK;
+}
+
+nsresult
+nsMetricsService::ProfileStartup()
+{
+  // Initialize configuration by reading our old config file if one exists.
+  NS_ENSURE_STATE(mConfig.Init());
+  nsCOMPtr<nsIFile> file;
+  GetConfigFile(getter_AddRefs(file));
+
+  PRBool loaded = PR_FALSE;
+  if (file) {
+    PRBool exists;
+    if (NS_SUCCEEDED(file->Exists(&exists)) && exists) {
+      loaded = NS_SUCCEEDED(mConfig.Load(file));
+    }
+  }
+  
+  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
+  NS_ENSURE_STATE(prefs);
+  nsresult rv = prefs->GetIntPref("metrics.event-count", &mEventCount);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Update the session id pref for the new session
+  static const char kSessionIDPref[] = "metrics.last-session-id";
+  PRInt32 sessionID = -1;
+  prefs->GetIntPref(kSessionIDPref, &sessionID);
+  mSessionID.Truncate();
+  mSessionID.AppendInt(++sessionID);
+  rv = prefs->SetIntPref(kSessionIDPref, sessionID);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  // Set up the window id map
+  NS_ENSURE_TRUE(mWindowMap.Init(32), NS_ERROR_OUT_OF_MEMORY);
+
+  // Create an XML document to serve as the owner document for elements.
+  mDocument = do_CreateInstance("@mozilla.org/xml/xml-document;1");
+  NS_ENSURE_TRUE(mDocument, NS_ERROR_FAILURE);
+
+  // Create a root log element.
+  rv = CreateRoot();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Start up the collectors
+  rv = EnableCollectors();
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  RegisterUploadTimer();
+
+  // If we didn't load a config, immediately upload our empty log.
+  // This will allow us to receive a config file from the server.
+  // If we fail to get a config, we'll try again later, see OnStopRequest().
+  if (!loaded) {
+    Upload();
+  }
+  
   return NS_OK;
 }
 
@@ -424,52 +597,36 @@ nsMetricsService::Create(nsISupports *outer, const nsIID &iid, void **result)
 nsresult
 nsMetricsService::Init()
 {
+  // We defer most of our initialization until the profile-after-change
+  // notification, because profile prefs aren't available until then.
+  // Register for notifications here though, since the observer service
+  // is set up.
+  
 #ifdef PR_LOGGING
   gMetricsLog = PR_NewLogModule("nsMetricsService");
 #endif
 
+  MS_LOG(("nsMetricsService::Init"));
+
   nsresult rv;
 
-  // Initialize configuration.
-  NS_ENSURE_STATE(mConfig.Init());
-  nsCOMPtr<nsIFile> file;
-  GetConfigFile(getter_AddRefs(file));
-  if (file)
-    mConfig.Load(file);
-
-  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  NS_ENSURE_STATE(prefs);
-  rv = prefs->GetIntPref("metrics.event-count", &mEventCount);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // Create an XML document to serve as the owner document for elements.
-  mDocument = do_CreateInstance("@mozilla.org/xml/xml-document;1");
-  NS_ENSURE_TRUE(mDocument, NS_ERROR_FAILURE);
-
-  // Create a root log element.
-  rv = CreateRoot();
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // Start up the collectors
-  rv = nsWindowCollector::Startup();
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = nsLoadCollector::Startup();
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // Hook ourselves up to observe notifications last.  This ensures that
-  // we don't end up with an extra reference to the metrics service if
-  // any of the above initialization fails.
-
-  // Hook ourselves up to receive the xpcom shutdown event so we can properly
-  // flush our data to disk.
   nsCOMPtr<nsIObserverService> obsSvc =
       do_GetService("@mozilla.org/observer-service;1", &rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = obsSvc->AddObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, PR_FALSE);
+  // The rest of startup will happen on profile-after-change
+  rv = obsSvc->AddObserver(this, "profile-after-change", PR_FALSE);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = obsSvc->AddObserver(this, "profile-after-change", PR_FALSE);
+  // Listen for quit-application so we can properly flush our data to disk
+  rv = obsSvc->AddObserver(this, kQuitApplicationTopic, PR_FALSE);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Listen for window destruction so that we can remove the windows
+  // from our window id map.
+  rv = obsSvc->AddObserver(this, NS_WEBNAVIGATION_DESTROY, PR_FALSE);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = obsSvc->AddObserver(this, NS_CHROME_WEBNAVIGATION_DESTROY, PR_FALSE);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
@@ -571,22 +728,6 @@ nsMetricsService::UploadData()
   rv = httpChannel->SetRequestMethod(NS_LITERAL_CSTRING("POST"));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  static const char kClientIDPref[] = "metrics.client-id";
-  
-  // Get the client id and set it in an HTTP header
-  nsXPIDLCString clientID;
-  rv = prefs->GetCharPref(kClientIDPref, getter_Copies(clientID));
-  if (NS_FAILED(rv) || clientID.IsEmpty()) {
-    rv = GenerateClientID(clientID);
-    NS_ENSURE_SUCCESS(rv, rv);
-    
-    rv = prefs->SetCharPref(kClientIDPref, clientID);
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
-  rv = httpChannel->SetRequestHeader(NS_LITERAL_CSTRING("X-Moz-Client-ID"),
-                                     clientID, PR_FALSE);
-  NS_ENSURE_SUCCESS(rv, rv);
-  
   rv = channel->AsyncOpen(this, nsnull);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -679,10 +820,25 @@ nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
                                        nsIInputStream **result)
 {
   // Construct a full XML document using the header, file contents, and
-  // footer.
+  // footer.  We need to generate a client id now if one doesn't exist.
+  static const char kClientIDPref[] = "metrics.client-id";
+
+  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
+  NS_ENSURE_STATE(prefs);
+  
+  nsXPIDLCString clientID;
+  nsresult rv = prefs->GetCharPref(kClientIDPref, getter_Copies(clientID));
+  if (NS_FAILED(rv) || clientID.IsEmpty()) {
+    rv = GenerateClientID(clientID);
+    NS_ENSURE_SUCCESS(rv, rv);
+    
+    rv = prefs->SetCharPref(kClientIDPref, clientID);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
   static const char METRICS_XML_HEAD[] =
       "<?xml version=\"1.0\"?>\n"
-      "<log xmlns=\"" NS_METRICS_NAMESPACE "\">\n";
+      "<log xmlns=\"" NS_METRICS_NAMESPACE "\" clientid=\"%s\">\n";
   static const char METRICS_XML_TAIL[] = "</log>";
 
   nsCOMPtr<nsIInputStream> fileStream;
@@ -693,12 +849,20 @@ nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
     do_CreateInstance(NS_MULTIPLEXINPUTSTREAM_CONTRACTID);
   NS_ENSURE_STATE(miStream);
 
+  char *head = PR_smprintf(METRICS_XML_HEAD, clientID.get());
+  
   nsCOMPtr<nsIInputStream> stringStream;
-  NS_NewByteInputStream(getter_AddRefs(stringStream), METRICS_XML_HEAD,
-                        sizeof(METRICS_XML_HEAD)-1);
+#ifdef MOZILLA_1_8_BRANCH
+  NS_NewCStringInputStream(getter_AddRefs(stringStream),
+                           nsDependentCString(head));
+#else
+  NS_NewByteInputStream(getter_AddRefs(stringStream), head, -1,
+                        NS_ASSIGNMENT_COPY);
+#endif
+  PR_smprintf_free(head);
   NS_ENSURE_STATE(stringStream);
 
-  nsresult rv = miStream->AppendStream(stringStream);
+  rv = miStream->AppendStream(stringStream);
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = miStream->AppendStream(fileStream);
@@ -753,12 +917,29 @@ nsMetricsService::GenerateClientID(nsCString &clientID)
 
   // {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}
   static const PRUint32 kGUIDLength = 38;
-  NS_ASSERTION(idstr.Length() == kGUIDLength);
+  NS_ASSERTION(strlen(idstr) == kGUIDLength, "Invalid GUID string");
   
   // Strip off the enclosing curly brackets
   clientID.Assign(idstr + 1, kGUIDLength - 2);
   PR_Free(idstr);
   return NS_OK;
+}
+
+/* static */ PRUint16
+nsMetricsService::GetWindowID(nsIDOMWindow *window)
+{
+  if (!sMetricsService) {
+    NS_NOTREACHED("metrics service not created");
+    return PR_UINT16_MAX;
+  }
+
+  PRUint16 id;
+  if (!sMetricsService->mWindowMap.Get(window, &id)) {
+    id = sMetricsService->mNextWindowID++;
+    sMetricsService->mWindowMap.Put(window, id);
+  }
+
+  return id;
 }
 
 /* static */ nsresult

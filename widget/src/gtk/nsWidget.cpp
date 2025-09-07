@@ -424,10 +424,7 @@ nsWidget::OnDestroySignal(GtkWidget* aGtkWidget)
 
 nsIWidget* nsWidget::GetParent(void)
 {
-  nsIWidget *ret;
-  ret = mParent;
-  NS_IF_ADDREF(ret);
-  return ret;
+  return mParent;
 }
 
 //-------------------------------------------------------------------------
@@ -1423,22 +1420,6 @@ void nsWidget::InitEvent(nsGUIEvent& event, nsPoint* aPoint)
 
   if (ge)
     gdk_event_free(ge);
-}
-
-PRBool nsWidget::ConvertStatus(nsEventStatus aStatus)
-{
-  switch(aStatus) {
-  case nsEventStatus_eIgnore:
-    return(PR_FALSE);
-  case nsEventStatus_eConsumeNoDefault:
-    return(PR_TRUE);
-  case nsEventStatus_eConsumeDoDefault:
-    return(PR_FALSE);
-  default:
-    NS_ASSERTION(0, "Illegal nsEventStatus enumeration value");
-    break;
-  }
-  return PR_FALSE;
 }
 
 PRBool nsWidget::DispatchWindowEvent(nsGUIEvent* event)

@@ -1780,9 +1780,11 @@ LookupArgOrVar(JSContext *cx, JSTreeContext *tc, JSParseNode *pn)
     fp = cx->fp;
     obj = fp->varobj;
     clasp = OBJ_GET_CLASS(cx, obj);
-    if (!(fp->flags & JSFRAME_SPECIAL) &&
-        clasp != &js_FunctionClass &&
-        clasp != &js_CallClass) {
+    if (clasp != &js_FunctionClass && clasp != &js_CallClass) {
+        /* Check for an eval or debugger frame. */
+        if (fp->flags & JSFRAME_SPECIAL) 
+            return JS_TRUE;
+
         /*
          * Optimize global variable accesses if there are at least 100 uses
          * in unambiguous contexts, or failing that, if least half of all the
@@ -2261,6 +2263,11 @@ EmitElemOp(JSContext *cx, JSParseNode *pn, JSOp op, JSCodeGenerator *cg)
 
         if (!js_EmitTree(cx, cg, left))
             return JS_FALSE;
+    }
+    /* The right side of the descendant operator is implicitly quoted. */
+    if (op == JSOP_DESCENDANTS && right->pn_op == JSOP_STRING &&
+        js_NewSrcNote(cx, cg, SRC_UNQUOTE) < 0) {
+        return JS_FALSE;
     }
     if (!js_EmitTree(cx, cg, right))
         return JS_FALSE;
@@ -4953,7 +4960,7 @@ JS_FRIEND_DATA(JSSrcNoteSpec) js_SrcNoteSpec[] = {
     {"pcdelta",         1,      0,      1},
     {"assignop",        0,      0,      0},
     {"cond",            1,      0,      1},
-    {"reserved0",       0,      0,      0},
+    {"unquote",         0,      0,      0},
     {"hidden",          0,      0,      0},
     {"pcbase",          1,      0,     -1},
     {"label",           1,      0,      0},

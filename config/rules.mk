@@ -582,12 +582,14 @@ ifndef SUPPRESS_DEFAULT_RULES
 all:: 
 	$(MAKE) export
 	$(MAKE) libs
+	$(MAKE) tools
 
 # Do depend as well
 alldep:: 
 	$(MAKE) export
 	$(MAKE) depend
 	$(MAKE) libs
+	$(MAKE) tools
 
 endif # SUPPRESS_DEFAULT_RULES
 
@@ -1488,12 +1490,12 @@ endif # SDK_XPIDLSRCS
 ifdef EXTRA_COMPONENTS
 libs:: $(EXTRA_COMPONENTS)
 ifndef NO_DIST_INSTALL
-	$(INSTALL) $(IFLAGS2) $^ $(FINAL_TARGET)/components
+	$(INSTALL) $(IFLAGS1) $^ $(FINAL_TARGET)/components
 endif
 
 install:: $(EXTRA_COMPONENTS)
 ifndef NO_INSTALL
-	$(SYSINSTALL) $(IFLAGS2) $^ $(DESTDIR)$(mozappdir)/components
+	$(SYSINSTALL) $(IFLAGS1) $^ $(DESTDIR)$(mozappdir)/components
 endif
 endif
 
@@ -1561,8 +1563,6 @@ ifndef NO_DIST_INSTALL
 	  $(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/make-jars.pl \
 	    -d $(MAKE_JARS_TARGET)/chrome -j $(FINAL_TARGET)/chrome \
 	    $(MAKE_JARS_FLAGS) -- "$(XULPPFLAGS) $(DEFINES) $(ACDEFINES)"; \
-	  $(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/make-chromelist.pl \
-	    $(FINAL_TARGET)/chrome $(JAR_MANIFEST) $(_NO_FLOCK); \
 	fi
 endif
 
@@ -1577,8 +1577,6 @@ ifndef NO_INSTALL
 	  $(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/make-jars.pl \
 	    -d $(MAKE_JARS_TARGET) -j $(DESTDIR)$(mozappdir)/chrome \
 	    $(MAKE_JARS_FLAGS) -- "$(XULPPFLAGS) $(DEFINES) $(ACDEFINES)"; \
-	  $(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/make-chromelist.pl \
-	    $(DESTDIR)$(mozappdir)/chrome $(JAR_MANIFEST) $(_NO_FLOCK); \
 	fi
 endif
 
@@ -1605,6 +1603,7 @@ endif
 ifneq ($(XPI_PKGNAME),)
 libs realchrome::
 ifdef STRIP_XPI
+ifndef MOZ_DEBUG
 	@echo "Stripping $(XPI_PKGNAME) package directory..."
 	@echo $(FINAL_TARGET)
 	@cd $(FINAL_TARGET) && find . ! -type d \
@@ -1630,6 +1629,7 @@ ifdef STRIP_XPI
 			! -name "*.reg" \
 			$(PLATFORM_EXCLUDE_LIST) \
 			-exec $(STRIP) $(STRIP_FLAGS) {} >/dev/null 2>&1 \;
+endif
 endif
 	@echo "Packaging $(XPI_PKGNAME).xpi..."
 	cd $(FINAL_TARGET) && $(ZIP) -qr ../$(XPI_PKGNAME).xpi *

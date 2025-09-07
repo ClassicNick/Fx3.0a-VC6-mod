@@ -108,6 +108,19 @@
 #define HISTORY_URI_LENGTH_MAX 65536
 #define HISTORY_TITLE_LENGTH_MAX 4096
 
+// Lazy adding
+
+#ifdef LAZY_ADD
+
+// time that we'll wait before committing messages
+#define LAZY_MESSAGE_TIMEOUT (3 * PR_MSEC_PER_SEC)
+
+// the maximum number of times we'll postpone a lazy timer before committing
+// See StartLazyTimer()
+#define MAX_LAZY_TIMER_DEFERMENTS 2
+
+#endif // LAZY_ADD
+
 NS_IMPL_ADDREF(nsNavHistory)
 NS_IMPL_RELEASE(nsNavHistory)
 
@@ -130,8 +143,6 @@ static void GetSubstringFromNthDot(const nsCString& aInput, PRInt32 aStartingSpo
 static nsresult GenerateTitleFromURI(nsIURI* aURI, nsAString& aTitle);
 static PRInt32 GetTLDCharCount(const nsCString& aHost);
 static PRInt32 GetTLDType(const nsCString& aHostTail);
-static void GetUnreversedHostname(const nsString& aBackward,
-                                  nsAString& aForward);
 static PRBool IsNumericHostName(const nsCString& aHost);
 static PRInt64 GetSimpleBookmarksQueryFolder(
     const nsCOMArray<nsNavHistoryQuery>& aQueries);
@@ -207,6 +218,10 @@ nsNavHistory::nsNavHistory() : mNowValid(PR_FALSE),
                                mExpireNowTimer(nsnull),
                                mBatchesInProgress(0)
 {
+#ifdef LAZY_ADD
+  mLazyTimerSet = PR_TRUE;
+  mLazyTimerDeferments = 0;
+#endif
   NS_ASSERTION(! gHistoryService, "YOU ARE CREATING 2 COPIES OF THE HISTORY SERVICE. Everything will break.");
   gHistoryService = this;
 
@@ -546,7 +561,7 @@ nsNavHistory::InitDB(PRBool *aDoImport)
   // mDBUpdatePageVisitStats (see InternalAdd)
   rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
       "UPDATE moz_history "
-      "SET visit_count = ?2, hidden = ?3 "
+      "SET visit_count = ?2, hidden = ?3, typed = ?4 "
       "WHERE id = ?1"),
     getter_AddRefs(mDBUpdatePageVisitStats));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -954,6 +969,17 @@ PRBool nsNavHistory::IsURIStringVisited(const nsACString& aURIString)
   mMemDBGetPage->Reset();
   return hasPage;
 #else
+
+#ifdef LAZY_ADD
+  // check the lazy list to see if this has recently been added
+  for (PRUint32 i = 0; i < mLazyMessages.Length(); i ++) {
+    if (mLazyMessages[i].type == LazyMessage::Type_AddURI) {
+      if (aURIString.Equals(mLazyMessages[i].uriSpec))
+        return PR_TRUE;
+    }
+  }
+#endif
+
   // check the main DB
   nsresult rv;
   mozStorageStatementScoper statementResetter(mDBGetURLPageInfo);
@@ -1031,6 +1057,8 @@ nsNavHistory::VacuumDB(PRTime aTimeAgo)
     // find the threshold for deleting old visits
     PRTime now = GetNow();
     PRInt64 expirationTime = now - aTimeAgo;
+    if (expirationTime < 0)
+      expirationTime = 0;
 
     // delete expired visits
     nsCOMPtr<mozIStorageStatement> visitDelete;
@@ -1123,8 +1151,7 @@ nsNavHistory::GetNow()
 
 // nsNavHistory::expireNowTimerCallback
 
-void nsNavHistory::expireNowTimerCallback(nsITimer* aTimer,
-                                                 void* aClosure)
+void nsNavHistory::expireNowTimerCallback(nsITimer* aTimer, void* aClosure)
 {
   nsNavHistory* history = NS_STATIC_CAST(nsNavHistory*, aClosure);
   history->mNowValid = PR_FALSE;
@@ -1439,6 +1466,10 @@ nsNavHistory::SetPageUserTitle(nsIURI* aURI, const nsAString& aUserTitle)
 NS_IMETHODIMP
 nsNavHistory::MarkPageAsFollowedBookmark(nsIURI* aURI)
 {
+  // if history expiration is set to 0 days it is disabled, so don't add
+  if (mExpireDays == 0)
+    return NS_OK;
+
   nsCAutoString uriString;
   aURI->GetSpec(uriString);
 
@@ -1598,6 +1629,7 @@ nsNavHistory::AddVisit(nsIURI* aURI, PRTime aTime, PRInt64 aReferringVisit,
 
   PRInt64 pageID = 0;
   PRBool hidden;
+  PRBool typed;
   PRBool newItem = PR_FALSE; // used to send out notifications at the end
   if (alreadyVisited) {
     // Update the existing entry...
@@ -1634,6 +1666,8 @@ nsNavHistory::AddVisit(nsIURI* aURI, PRTime aTime, PRInt64 aReferringVisit,
         aTransitionType != nsINavHistoryService::TRANSITION_EMBED)
       hidden = PR_FALSE; // unhide
 
+    typed = oldTypedState || (aTransitionType == TRANSITION_TYPED);
+
     // some items may have a visit count of 0 which will not count for link
     // visiting, so be sure to note this transition
     if (oldVisitCount == 0)
@@ -1646,6 +1680,8 @@ nsNavHistory::AddVisit(nsIURI* aURI, PRTime aTime, PRInt64 aReferringVisit,
     rv = mDBUpdatePageVisitStats->BindInt32Parameter(1, oldVisitCount + 1);
     NS_ENSURE_SUCCESS(rv, rv);
     rv = mDBUpdatePageVisitStats->BindInt32Parameter(2, hidden);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = mDBUpdatePageVisitStats->BindInt32Parameter(3, typed);
     NS_ENSURE_SUCCESS(rv, rv);
     rv = mDBUpdatePageVisitStats->Execute();
     NS_ENSURE_SUCCESS(rv, rv);
@@ -1661,20 +1697,23 @@ nsNavHistory::AddVisit(nsIURI* aURI, PRTime aTime, PRInt64 aReferringVisit,
     // See the hidden computation code above for a little more explanation.
     hidden = (aTransitionType == TRANSITION_EMBED || aIsRedirect);
 
-    // set as not typed, visited once, no title
+    typed = (aTransitionType == TRANSITION_TYPED);
+
+    // set as visited once, no title
     nsString voidString;
     voidString.SetIsVoid(PR_TRUE);
-    rv = InternalAddNewPage(aURI, voidString, hidden, PR_FALSE, 1, &pageID);
+    rv = InternalAddNewPage(aURI, voidString, hidden, typed, 1, &pageID);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
   rv = InternalAddVisit(pageID, aReferringVisit, aSessionID, aTime,
                         aTransitionType, aVisitID);
 
-  // Notify observers
+  // Notify observers: The hidden detection code must match that in
+  // GetQueryResults to maintain consistency.
   // FIXME bug 325241: make a way to observe hidden URLs
   transaction.Commit();
-  if (! hidden) {
+  if (! hidden && aTransitionType != TRANSITION_EMBED) {
     ENUMERATE_WEAKARRAY(mObservers, nsINavHistoryObserver,
                         OnVisit(aURI, *aVisitID, aTime, aSessionID,
                                 aReferringVisit, aTransitionType));
@@ -1830,8 +1869,18 @@ nsNavHistory::GetQueryResults(const nsCOMArray<nsNavHistoryQuery>& aQueries,
      aOptions->ResultType() == nsINavHistoryQueryOptions::RESULTS_AS_FULL_VISIT);
 
   nsCAutoString commonConditions("visit_count > 0 ");
-  if (! aOptions->IncludeHidden())
+  if (! aOptions->IncludeHidden()) {
+    // The hiding code here must match the notification behavior in AddVisit
     commonConditions.AppendLiteral("AND hidden <> 1 ");
+
+    // Some items are unhidden but are subframe navigations that we shouldn't
+    // show. This happens especially on imported profiles because the previous
+    // history system didn't hide as many things as we do now. Some sites,
+    // especially Javascript-heavy ones, load things in frames to display them,
+    // resulting in a lot of these entries. This filters those visits out.
+    if (asVisits)
+      commonConditions.AppendLiteral("AND v.visit_type <> 4 "); // not TRANSITION_EMBED
+  }
 
   // Query string: Output parameters should be in order of kGetInfoIndex_*
   // WATCH OUT: nsNavBookmarks::Init also creates some statements that share
@@ -2452,6 +2501,10 @@ nsNavHistory::HidePage(nsIURI *aURI)
 NS_IMETHODIMP
 nsNavHistory::MarkPageAsTyped(nsIURI *aURI)
 {
+  // if history expiration is set to 0 days it is disabled, so don't add
+  if (mExpireDays == 0)
+    return NS_OK;
+
   nsCAutoString uriString;
   aURI->GetSpec(uriString);
 
@@ -2478,11 +2531,41 @@ NS_IMETHODIMP
 nsNavHistory::AddURI(nsIURI *aURI, PRBool aRedirect,
                      PRBool aToplevel, nsIURI *aReferrer)
 {
+  // if history expiration is set to 0 days it is disabled, so don't add
+  if (mExpireDays == 0)
+    return NS_OK;
+
+#ifdef LAZY_ADD
+  LazyMessage message;
+  nsresult rv = message.Init(LazyMessage::Type_AddURI, aURI);
+  NS_ENSURE_SUCCESS(rv, rv);
+  message.isRedirect = aRedirect;
+  message.isToplevel = aToplevel;
+  if (aReferrer) {
+    rv = aReferrer->Clone(getter_AddRefs(message.referrer));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  message.time = PR_Now();
+  return AddLazyMessage(message);
+#else
+  return AddURIInternal(aURI, PR_Now(), aRedirect, aToplevel, aReferrer);
+#endif
+}
+
+
+// nsNavHistory::AddURIInternal
+//
+//    This does the work of AddURI so it can be done lazily.
+
+nsresult
+nsNavHistory::AddURIInternal(nsIURI* aURI, PRTime aTime, PRBool aRedirect,
+                             PRBool aToplevel, nsIURI* aReferrer)
+{
   mozStorageTransaction transaction(mDBConn, PR_FALSE);
 
   PRInt64 redirectBookmark = 0;
   PRInt64 visitID, sessionID;
-  nsresult rv = AddVisitChain(aURI, aToplevel, aRedirect, aReferrer,
+  nsresult rv = AddVisitChain(aURI, aTime, aToplevel, aRedirect, aReferrer,
                               &visitID, &sessionID, &redirectBookmark);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -2529,7 +2612,8 @@ nsNavHistory::AddURI(nsIURI *aURI, PRBool aRedirect,
 //    hashtable.
 
 nsresult
-nsNavHistory::AddVisitChain(nsIURI* aURI, PRBool aToplevel, PRBool aIsRedirect,
+nsNavHistory::AddVisitChain(nsIURI* aURI, PRTime aTime,
+                            PRBool aToplevel, PRBool aIsRedirect,
                             nsIURI* aReferrer, PRInt64* aVisitID,
                             PRInt64* aSessionID, PRInt64* aRedirectBookmark)
 {
@@ -2557,8 +2641,12 @@ nsNavHistory::AddVisitChain(nsIURI* aURI, PRBool aToplevel, PRBool aIsRedirect,
       GetUrlIdFor(redirectURI, aRedirectBookmark, PR_FALSE);
     }
 
-    // Find the visit for the source
-    rv = AddVisitChain(redirectURI, aToplevel, PR_TRUE, aReferrer,
+    // Find the visit for the source. Note that we decrease the time counter,
+    // which will ensure that the referrer and this page will appear in history
+    // in the correct order. Since the times are in microseconds, it should not
+    // normally be possible to get two pages within one microsecond of each
+    // other so the referrer won't appear before a previous page viewed.
+    rv = AddVisitChain(redirectURI, aTime - 1, aToplevel, PR_TRUE, aReferrer,
                        &referringVisit, aSessionID, aRedirectBookmark);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -2621,6 +2709,12 @@ nsNavHistory::AddVisitChain(nsIURI* aURI, PRBool aToplevel, PRBool aIsRedirect,
 NS_IMETHODIMP
 nsNavHistory::IsVisited(nsIURI *aURI, PRBool *_retval)
 {
+  // if history expiration is set to 0 days it is disabled, we can optimize
+  if (mExpireDays == 0) {
+    *_retval = PR_FALSE;
+    return NS_OK;
+  }
+
   nsCAutoString utf8URISpec;
   nsresult rv = aURI->GetSpec(utf8URISpec);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2651,7 +2745,16 @@ nsNavHistory::SetPageTitle(nsIURI *aURI,
 {
   if (aTitle.IsEmpty())
     return NS_OK;
+
+#ifdef LAZY_ADD
+  LazyMessage message;
+  nsresult rv = message.Init(LazyMessage::Type_Title, aURI);
+  NS_ENSURE_SUCCESS(rv, rv);
+  message.title = aTitle;
+  return AddLazyMessage(message);
+#else
   return SetPageTitleInternal(aURI, PR_FALSE, aTitle);
+#endif
 }
 
 
@@ -2758,11 +2861,18 @@ nsNavHistory::Observe(nsISupports *aSubject, const char *aTopic,
     if (NS_SUCCEEDED(rv))
       prefService->SavePrefFile(nsnull);
 
+    // Prevent Int64 overflow for people that type in huge numbers.
+    // This number is 2^63 / 24 / 60 / 60 / 1000000 (reversing the math below)
+    PRInt64 expireDays = mExpireDays;
+    const PRInt64 maxDays = 106751991;
+    if (mExpireDays > maxDays)
+      expireDays = maxDays;
+
     // compute how long ago to expire from
     const PRInt64 secsPerDay = 24*60*60;
     const PRInt64 usecsPerSec = 1000000;
     const PRInt64 usecsPerDay = secsPerDay * usecsPerSec;
-    const PRInt64 expireUsecsAgo = mExpireDays * usecsPerDay;
+    const PRInt64 expireUsecsAgo = expireDays * usecsPerDay;
 
     // FIXME: should we compress sometimes? It's slow, so we shouldn't do it
     // every time.
@@ -2780,6 +2890,123 @@ nsNavHistory::Observe(nsISupports *aSubject, const char *aTopic,
 
   return NS_OK;
 }
+
+
+// Lazy stuff ******************************************************************
+
+#ifdef LAZY_ADD
+
+// nsNavHistory::AddLazyLoadFaviconMessage
+
+nsresult
+nsNavHistory::AddLazyLoadFaviconMessage(nsIURI* aPage, nsIURI* aFavicon,
+                                        PRBool aForceReload)
+{
+  LazyMessage message;
+  nsresult rv = message.Init(LazyMessage::Type_Favicon, aPage);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = aFavicon->Clone(getter_AddRefs(message.favicon));
+  NS_ENSURE_SUCCESS(rv, rv);
+  message.alwaysLoadFavicon = aForceReload;
+  return AddLazyMessage(message);
+}
+
+
+// nsNavHistory::StartLazyTimer
+//
+//    This schedules flushing of the lazy message queue for the future.
+//
+//    If we already have timer set, we canel it and schedule a new timer in
+//    the future. This saves you from having to wait if you open a bunch of
+//    pages in a row. However, we don't want to defer too long, so we'll only
+//    push it back MAX_LAZY_TIMER_DEFERMENTS times. After that we always
+//    let the timer go the next time.
+
+nsresult
+nsNavHistory::StartLazyTimer()
+{
+  if (! mLazyTimer) {
+    mLazyTimer = do_CreateInstance("@mozilla.org/timer;1");
+    if (! mLazyTimer)
+      return NS_ERROR_OUT_OF_MEMORY;
+  } else {
+    if (mLazyTimerSet) {
+      if (mLazyTimerDeferments >= MAX_LAZY_TIMER_DEFERMENTS) {
+        // already set and we don't want to push it back any later, use that one
+        return NS_OK;
+      } else {
+        // push back the active timer
+        mLazyTimer->Cancel();
+        mLazyTimerDeferments ++;
+      }
+    }
+  }
+  nsresult rv = mLazyTimer->InitWithFuncCallback(LazyTimerCallback, this,
+                                                 LAZY_MESSAGE_TIMEOUT,
+                                                 nsITimer::TYPE_ONE_SHOT);
+  NS_ENSURE_SUCCESS(rv, rv);
+  mLazyTimerSet = PR_TRUE;
+  return NS_OK;
+}
+
+
+// nsNavHistory::AddLazyMessage
+
+nsresult
+nsNavHistory::AddLazyMessage(const LazyMessage& aMessage)
+{
+  if (! mLazyMessages.AppendElement(aMessage))
+    return NS_ERROR_OUT_OF_MEMORY;
+  return StartLazyTimer();
+}
+
+
+// nsNavHistory::LazyTimerCallback
+
+void // static
+nsNavHistory::LazyTimerCallback(nsITimer* aTimer, void* aClosure)
+{
+  nsNavHistory* that = NS_STATIC_CAST(nsNavHistory*, aClosure);
+  that->mLazyTimerSet = PR_FALSE;
+  that->mLazyTimerDeferments = 0;
+  that->CommitLazyMessages();
+}
+
+
+// nsNavHistory::CommitLazyMessages
+
+void
+nsNavHistory::CommitLazyMessages()
+{
+  for (PRUint32 i = 0; i < mLazyMessages.Length(); i ++) {
+    LazyMessage& message = mLazyMessages[i];
+    switch (message.type) {
+      case LazyMessage::Type_AddURI:
+        AddURIInternal(message.uri, message.time, message.isRedirect,
+                       message.isToplevel, message.referrer);
+        break;
+      case LazyMessage::Type_Title:
+        SetPageTitleInternal(message.uri, PR_FALSE, message.title);
+        break;
+      case LazyMessage::Type_Favicon: {
+        nsFaviconService* faviconService = nsFaviconService::GetFaviconService();
+        if (faviconService) {
+          nsCString spec;
+          message.uri->GetSpec(spec);
+          faviconService->DoSetAndLoadFaviconForPage(message.uri,
+                                                     message.favicon,
+                                                     message.alwaysLoadFavicon);
+        }
+        break;
+      }
+      default:
+        NS_NOTREACHED("Invalid lazy message type");
+    }
+  }
+  mLazyMessages.Clear();
+}
+#endif // LAZY_ADD
+
 
 // Query stuff *****************************************************************
 
@@ -3822,36 +4049,6 @@ GetReversedHostname(const nsString& aForward, nsAString& aRevHost)
 {
   ReverseString(aForward, aRevHost);
   aRevHost.Append(PRUnichar('.'));
-}
-
-
-// GetUnreversedHostname
-//
-//    This takes a reversed hostname as above and converts it to a
-//    "regular" hostname with no dot at the beginning.
-//
-//    Input:
-//      gor.allizom.
-//    Output
-//      mozilla.org
-//
-//    See GetReversedHostname() above
-
-void
-GetUnreversedHostname(const nsString& aBackward, nsAString& aForward)
-{
-  NS_ASSERTION(! aBackward.IsEmpty() && aBackward[aBackward.Length()-1] == '.',
-               "Malformed reversed hostname with no trailing dot");
-
-  aForward.Truncate(0);
-  if (! aBackward.IsEmpty() && aBackward[aBackward.Length()-1] == '.') {
-    // copy everything except the trailing dot
-    for (PRInt32 i = aBackward.Length() - 2; i >= 0; i -- )
-      aForward.Append(aBackward[i]);
-  } else {
-    NS_WARNING("Malformed reversed host name: no trailing dot");
-    ReverseString(aBackward, aForward);
-  }
 }
 
 

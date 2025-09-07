@@ -1,7 +1,5 @@
 <h2><strong>{$addon->Name}</strong> &raquo; Overview</h2>
 
-<script type="text/javascript" src="/js/auto.js"></script>
-
 {if $addon->PreviewURI}
 <p class="screenshot">
 <a href="{$config.webpath}/{$app}/{$addon->ID}/previews/" title="See more {$addon->Name} previews.">
@@ -21,21 +19,70 @@ released on {$addon->VersionDateAdded|date_format}
 <p>{$addon->Description}</p>
 
 <p class="requires">
-Requires:
+Works with:
 </p>
-<table>
-{section name=AppVersions loop=$addon->AppVersions}
-<tr>
-    <td><img src="{$config.webpath}/images/{$addon->AppVersions[AppVersions].AppName|lower}_icon.png" width="34" height="34" alt="{$addon->AppVersions[AppVersions].AppName}"></td>
-    <td>{$addon->AppVersions[AppVersions].AppName}</td>
-    <td>{$addon->AppVersions[AppVersions].MinAppVer} - {$addon->AppVersions[AppVersions].MaxAppVer}</td>
-</tr>
-{/section}
+<table summary="Compatible applications and their versions.">
+{foreach key=key item=item from=$addon->AppVersions}
+    {counter assign=count start=0}
+    <tr>
+        <td><img src="{$config.webpath}/images/{$item.AppName|lower}_icon.png" width="34" height="34" alt="{$item.AppName|escape}"></td>
+        <td>{$item.AppName|escape}</td>
+        <td>{$item.MinAppVer|escape} - {$item.MaxAppVer|escape}</td>
+        <td>{foreach key=throwaway item=os from=$item.os}{counter assign=count}{if $count > 1}, {/if}{$os|escape}{/foreach}</td>
+    </tr>
+{/foreach}
 </table>
+    <div class="key-point install-box">
+        <div class="install">
+            <script type="text/javascript">
+            //<![CDATA[
+                var installs = new Array(3);
+                    /* If an install has a URI, it's available.  Otherwise, you're
+                     * out of luck. :-/ */
+                    {foreach key=key item=item from=$addon->OsVersions}
+                        installs["{$key|escape}"] = "{$item.URI|escape}";
+                    {/foreach}
 
-<div class="key-point install-box">
-<div class="install">
-<b><a href="{$addon->URI}" onclick="return install(event,'{$addon->AppName|escape} {$addon->Version|escape}', '{$config.webpath}/images/default.png');" TITLE="Install {$addon->AppName|escape} {$addon->Version|escape} (Right-Click to Download)">Install Now</a></b> ({$addon->Size|escape} KB File)</div></div>
+                var platform = getPlatformName();
+
+                document.writeln("<div>");
+
+                if (installs[platform]) {ldelim}
+                        document.writeln("<a id=\"install-link\" href=\"" + installs[platform]+ "\" onclick=\"return install(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
+                {rdelim} else if ("{$key|escape}" == "ALL") {ldelim}
+                        document.writeln("<a id=\"install-link\" href=\"{$item.URI|escape}\" onclick=\"return install(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
+                {rdelim} else  {ldelim}
+                    document.writeln("<strong>{$addon->Name|escape}</strong> is not available for " + platform + ".");
+                {rdelim}
+                
+                document.writeln("</div>");
+
+            //]]>
+            </script>
+            <noscript>
+                {if $multiDownloadLinks}
+                    <b>Install Now:</b><br />
+                {/if}
+                    {foreach key=key item=item from=$addon->OsVersions}
+                        {if $item.URI}
+                            <div>
+                                <a href="{$item.URI|escape}" onclick="return install(event,'{$item.AppName|escape} {$item.Version|escape}', '{$config.webpath}/images/default.png');" title="Install for {$item.OSName|escape} {$item.Version|escape} (Right-Click to Download)">
+                                    {if $multiDownloadLinks}
+                                        {$item.OSName|escape}
+                                    {else}
+                                        Install Now
+                                    {/if}
+                                </a> ({$item.Size|escape} <abbr title="Kilobytes">KB</abbr>)
+                            </div>
+                        {/if}
+                    {/foreach}
+            </noscript>
+        </div>
+    </div>
+
+    <div class="install-other">
+        <a href="{$config.webpath}/{$app}/{$addon->ID}/history">Other Versions</a>
+    </div>
 
 <h3 id="user-comments">User Comments</h3>
 

@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* base class #1 for rendering objects that have child lists */
+
 #ifndef nsContainerFrame_h___
 #define nsContainerFrame_h___
 
@@ -56,7 +59,6 @@ public:
   // nsIFrame overrides
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
   NS_IMETHOD SetInitialChildList(nsPresContext* aPresContext,
                                  nsIAtom*        aListName,
@@ -185,7 +187,7 @@ public:
                               const nsDisplayListSet& aLists);
 
 protected:
-  nsContainerFrame();
+  nsContainerFrame(nsStyleContext* aContext) : nsSplittableFrame(aContext) {}
   ~nsContainerFrame();
 
   /**

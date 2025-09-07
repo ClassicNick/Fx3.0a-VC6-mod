@@ -104,11 +104,13 @@ typedef enum
 @class BrowserTabViewItem;
 @class AutoCompleteTextField;
 @class SearchTextField;
+@class ExtendedSplitView;
+
 
 @interface BrowserWindowController : NSWindowController<Find, BrowserUIDelegate>
 {
   IBOutlet BrowserTabView*    mTabBrowser;
-  IBOutlet NSSplitView*       mLocationToolbarView;     // parent splitter of location and search
+  IBOutlet ExtendedSplitView* mLocationToolbarView;     // parent splitter of location and search, strong
   IBOutlet AutoCompleteTextField* mURLBar;
   IBOutlet NSTextField*       mStatus;
   IBOutlet NSProgressIndicator* mProgress;              // STRONG reference
@@ -138,8 +140,6 @@ typedef enum
   IBOutlet NSMenuItem*          mBackItem;
   IBOutlet NSMenuItem*          mForwardItem;
   IBOutlet NSMenuItem*          mCopyItem;
-  IBOutlet NSMenuItem*          mAddToAddressBook;
-  IBOutlet NSMenuItem*          mAddToAddressBook2; // From the mailto link + image menu
   
   NSToolbarItem*                mSidebarToolbarItem;
   NSToolbarItem*                mBookmarkToolbarItem;
@@ -211,6 +211,7 @@ typedef enum
 - (IBAction)printDocument:(id)aSender;
 - (IBAction)pageSetup:(id)aSender;
 - (IBAction)performSearch:(id)aSender;
+- (IBAction)searchForSelection:(id)aSender;
 - (IBAction)sendURL:(id)aSender;
 - (IBAction)sendURLFromLink:(id)aSender;
 
@@ -283,9 +284,9 @@ typedef enum
 
 // Called when a context menu should be shown.
 - (void)onShowContextMenu:(int)flags domEvent:(nsIDOMEvent*)aEvent domNode:(nsIDOMNode*)aNode;
-- (void)prepareAddToAddressBookMenuItem:(NSMenuItem*)addToAddressBookItem address:(NSString*)emailAddress;
+- (NSMenuItem*)prepareAddToAddressBookMenuItem:(NSString*)emailAddress;
 - (NSMenu*)getContextMenu;
-- (NSString*)getMailAddressFromContextMenuLinkNode;
+- (NSArray*)mailAddressesInContextMenuLinkNode;
 - (NSString*)getContextMenuNodeHrefText;
 
 // Context menu methods

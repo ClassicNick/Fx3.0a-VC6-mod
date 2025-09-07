@@ -41,6 +41,7 @@
 
 #include "nsINavBookmarksService.h"
 #include "nsIStringBundle.h"
+#include "nsITransaction.h"
 #include "nsNavHistory.h"
 #include "nsNavHistoryResult.h" // need for Int64 hashtable
 #include "nsBrowserCompsCID.h"
@@ -81,6 +82,14 @@ public:
                                nsNavHistoryQueryOptions *aOptions,
                                nsCOMArray<nsNavHistoryResultNode> *children);
 
+  // If aFolder is -1, use the autoincrement id for folder index. 
+  nsresult CreateFolderWithID(PRInt64 aFolder, PRInt64 aParent, 
+                              const nsAString& title, PRInt32 aIndex,
+                              PRInt64* aNewFolder);
+  nsresult CreateContainerWithID(PRInt64 aFolder, PRInt64 aParent, 
+                                 const nsAString& title, PRInt32 aIndex, 
+                                 const nsAString& type, PRInt64* aNewFolder);
+
   // Returns a statement to get information about a folder id
   mozIStorageStatement* DBGetFolderInfo() { return mDBGetFolderInfo; }
   // constants for the above statement
@@ -116,6 +125,7 @@ private:
   PRInt64 mRoot;
   PRInt64 mBookmarksRoot;
   PRInt64 mToolbarRoot;
+  PRInt64 mTagRoot;
 
   // the level of nesting of batches, 0 when no batches are open
   PRInt32 mBatchLevel;
@@ -131,6 +141,10 @@ private:
   nsresult RecursiveAddBookmarkHash(PRInt64 aBookmarkId, PRInt64 aCurrentSource,
                                     PRTime aMinTime);
   nsresult UpdateBookmarkHashOnRemove(PRInt64 aBookmarkId);
+
+  nsresult GetParentAndIndexOfFolder(PRInt64 aFolder, PRInt64* aParent, 
+                                     PRInt32* aIndex);
+
   nsresult IsBookmarkedInDatabase(PRInt64 aBookmarkID, PRBool* aIsBookmarked);
 
   nsCOMPtr<mozIStorageStatement> mDBGetFolderInfo;    // kGetFolderInfoIndex_* results
@@ -160,6 +174,56 @@ private:
   nsCOMPtr<mozIStorageStatement> mDBGetURIForKeyword;
 
   nsCOMPtr<nsIStringBundle> mBundle;
+
+  class RemoveFolderTransaction : public nsITransaction {
+  public:
+    RemoveFolderTransaction(PRInt64 aID, PRInt64 aParent, 
+                            const nsAString& aTitle, PRInt32 aIndex,
+                            const nsACString& aType) 
+                            : mID(aID),
+                              mParent(aParent),
+                              mIndex(aIndex){
+      mTitle = aTitle;
+      mType = aType;
+    }
+    
+    NS_DECL_ISUPPORTS
+
+    NS_IMETHOD DoTransaction() {
+      nsNavBookmarks* bookmarks = nsNavBookmarks::GetBookmarksService();
+      return bookmarks->RemoveFolder(mID);
+    }
+
+    NS_IMETHOD UndoTransaction() {
+      nsNavBookmarks* bookmarks = nsNavBookmarks::GetBookmarksService();
+      PRInt64 newFolder;
+      if (mType.IsEmpty())
+        return bookmarks->CreateFolderWithID(mID, mParent, mTitle, mIndex, &newFolder);
+      nsAutoString type; type.AssignWithConversion(mType);
+      return bookmarks->CreateContainerWithID(mID, mParent, mTitle, mIndex, type, &newFolder); 
+    }
+
+    NS_IMETHOD RedoTransaction() {
+      return DoTransaction();
+    }
+
+    NS_IMETHOD GetIsTransient(PRBool* aResult) {
+      *aResult = PR_FALSE;
+      return NS_OK;
+    }
+    
+    NS_IMETHOD Merge(nsITransaction* aTransaction, PRBool* aResult) {
+      *aResult = PR_FALSE;
+      return NS_OK;
+    }
+
+  private:
+    PRInt64 mID;
+    PRInt64 mParent;
+    nsString mTitle;
+    nsCString mType;
+    PRInt32 mIndex;
+  };
 
   // in nsBookmarksHTML
   nsresult ImportBookmarksHTMLInternal(nsIURI* aURL,

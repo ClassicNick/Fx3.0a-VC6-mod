@@ -174,7 +174,6 @@
 static PRLogModuleInfo* gDOMLeakPRLog;
 #endif
 
-nsIScriptSecurityManager *nsGlobalWindow::sSecMan      = nsnull;
 nsIFactory *nsGlobalWindow::sComputedDOMStyleFactory   = nsnull;
 
 static nsIEntropyCollector *gEntropyCollector          = nsnull;
@@ -348,9 +347,6 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
            ("DOMWINDOW %p created outer=%p", this, aOuterWindow));
 #endif
 
-  if (!sSecMan) {
-    CallGetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID, &sSecMan);
-  }
 }
 
 nsGlobalWindow::~nsGlobalWindow()
@@ -413,7 +409,6 @@ nsGlobalWindow::~nsGlobalWindow()
 void
 nsGlobalWindow::ShutDown()
 {
-  NS_IF_RELEASE(sSecMan);
   NS_IF_RELEASE(sComputedDOMStyleFactory);
 }
 
@@ -632,9 +627,10 @@ nsGlobalWindow::WouldReuseInnerWindow(nsIDocument *aNewDocument)
     return PR_TRUE;
   }
 
-  if (mOpenerScriptPrincipal && sSecMan &&
-      NS_SUCCEEDED(sSecMan->CheckSameOriginPrincipal(mOpenerScriptPrincipal,
-                                                     newPrincipal))) {
+  if (mOpenerScriptPrincipal && nsContentUtils::GetSecurityManager() &&
+      NS_SUCCEEDED(nsContentUtils::GetSecurityManager()->
+        CheckSameOriginPrincipal(mOpenerScriptPrincipal,
+                                 newPrincipal))) {
     // The origin is the same.
     return PR_TRUE;
   }
@@ -837,8 +833,8 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
                                PRBool aClearScopeHint,
                                PRBool aIsInternalCall)
 {
-  NS_WARN_IF_FALSE(mDocumentPrincipal == nsnull,
-                   "mDocumentPrincipal prematurely set!");
+  NS_ASSERTION(mDocumentPrincipal == nsnull,
+               "mDocumentPrincipal prematurely set!");
 #ifdef PR_LOGGING
   if (IsInnerWindow() && aDocument && gDOMLeakPRLog &&
       PR_LOG_TEST(gDOMLeakPRLog, PR_LOG_DEBUG)) {
@@ -956,7 +952,8 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
     rv = NS_ERROR_FAILURE;
 
     if (newPrincipal) {
-      rv = sSecMan->CheckSameOriginPrincipal(oldPrincipal, newPrincipal);
+      rv = nsContentUtils::GetSecurityManager()->
+             CheckSameOriginPrincipal(oldPrincipal, newPrincipal);
     }
 
     if (NS_FAILED(rv)) {
@@ -1876,7 +1873,7 @@ nsGlobalWindow::GetContent(nsIDOMWindow** aContent)
 
   nsCOMPtr<nsIDocShellTreeItem> primaryContent;
 
-  if (!IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChrome()) {
     // If we're called by non-chrome code, make sure we don't return
     // the primary content window if the calling tab is hidden. In
     // such a case we return the same-type root in the hidden tab,
@@ -2168,7 +2165,7 @@ nsGlobalWindow::GetOpener(nsIDOMWindowInternal** aOpener)
   *aOpener = nsnull;
   // First, check if we were called from a privileged chrome script
 
-  if (IsCallerChrome()) {
+  if (nsContentUtils::IsCallerTrustedForRead()) {
     *aOpener = mOpener;
     NS_IF_ADDREF(*aOpener);
     return NS_OK;
@@ -2204,7 +2201,7 @@ nsGlobalWindow::SetOpener(nsIDOMWindowInternal* aOpener)
 {
   // check if we were called from a privileged chrome script.
   // If not, opener is settable only to null.
-  if (aOpener && !IsCallerChrome()) {
+  if (aOpener && !nsContentUtils::IsCallerTrustedForWrite()) {
     return NS_OK;
   }
 
@@ -2614,13 +2611,7 @@ nsGlobalWindow::CheckSecurityWidthAndHeight(PRInt32* aWidth, PRInt32* aHeight)
   if ((aWidth && *aWidth < 100) || (aHeight && *aHeight < 100)) {
     // Check security state for use in determing window dimensions
 
-    NS_ENSURE_TRUE(sSecMan, NS_ERROR_FAILURE);
-
-    PRBool enabled;
-    nsresult res = sSecMan->IsCapabilityEnabled("UniversalBrowserWrite",
-                                                &enabled);
-
-    if (NS_FAILED(res) || !enabled) {
+    if (!nsContentUtils::IsCallerTrustedForWrite()) {
       //sec check failed
       if (aWidth && *aWidth < 100) {
         *aWidth = 100;
@@ -2641,16 +2632,7 @@ nsGlobalWindow::CheckSecurityLeftAndTop(PRInt32* aLeft, PRInt32* aTop)
 
   // Check security state for use in determing window dimensions
 
-  NS_ENSURE_TRUE(sSecMan, NS_ERROR_FAILURE);
-
-  PRBool enabled;
-  nsresult res = sSecMan->IsCapabilityEnabled("UniversalBrowserWrite",
-                                              &enabled);
-  if (NS_FAILED(res)) {
-    enabled = PR_FALSE;
-  }
-
-  if (!enabled) {
+  if (!nsContentUtils::IsCallerTrustedForWrite()) {
     PRInt32 screenLeft, screenTop, screenWidth, screenHeight;
     PRInt32 winLeft, winTop, winWidth, winHeight;
 
@@ -2924,7 +2906,8 @@ nsGlobalWindow::SetFullScreen(PRBool aFullScreen)
   FORWARD_TO_OUTER(SetFullScreen, (aFullScreen), NS_ERROR_NOT_INITIALIZED);
 
   // Only chrome can change our fullScreen mode.
-  if (aFullScreen == mFullScreen || !IsCallerChrome()) {
+  if (aFullScreen == mFullScreen || 
+      !nsContentUtils::IsCallerTrustedForWrite()) {
     return NS_OK;
   }
 
@@ -3067,18 +3050,6 @@ nsGlobalWindow::SetTextZoom(float aZoom)
 }
 
 // static
-PRBool
-nsGlobalWindow::IsCallerChrome()
-{
-  NS_ENSURE_TRUE(sSecMan, PR_FALSE);
-
-  PRBool isChrome = PR_FALSE;
-  nsresult rv = sSecMan->SubjectPrincipalIsSystem(&isChrome);
-
-  return NS_SUCCEEDED(rv) ? isChrome : PR_FALSE;
-}
-
-// static
 void
 nsGlobalWindow::MakeScriptDialogTitle(const nsAString &aInTitle,
                                       nsAString &aOutTitle)
@@ -3089,10 +3060,12 @@ nsGlobalWindow::MakeScriptDialogTitle(const nsAString &aInTitle,
   // right thing for javascript: and data: documents.
 
   nsresult rv = NS_OK;
-  NS_WARN_IF_FALSE(sSecMan, "Global Window has no security manager!");
-  if (sSecMan) {
+  NS_ASSERTION(nsContentUtils::GetSecurityManager(),
+    "Global Window has no security manager!");
+  if (nsContentUtils::GetSecurityManager()) {
     nsCOMPtr<nsIPrincipal> principal;
-    rv = sSecMan->GetSubjectPrincipal(getter_AddRefs(principal));
+    rv = nsContentUtils::GetSecurityManager()->
+      GetSubjectPrincipal(getter_AddRefs(principal));
 
     if (NS_SUCCEEDED(rv) && principal) {
       nsCOMPtr<nsIURI> uri;
@@ -3938,7 +3911,7 @@ PRBool
 nsGlobalWindow::CanSetProperty(const char *aPrefName)
 {
   // Chrome can set any property.
-  if (IsCallerChrome()) {
+  if (nsContentUtils::IsCallerTrustedForWrite()) {
     return PR_TRUE;
   }
 
@@ -4150,7 +4123,7 @@ nsGlobalWindow::OpenDialog(const nsAString& aUrl, const nsAString& aName,
 NS_IMETHODIMP
 nsGlobalWindow::OpenDialog(nsIDOMWindow** _retval)
 {
-  if (!IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerTrustedForWrite()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -4274,33 +4247,24 @@ nsGlobalWindow::Close()
   // Don't allow scripts from content to close windows
   // that were not opened by script
   nsresult rv = NS_OK;
-  if (!mHadOriginalOpener) {
-    PRBool allowClose = PR_FALSE;
+  if (!mHadOriginalOpener && !nsContentUtils::IsCallerTrustedForWrite()) {
+    PRBool allowClose =
+      nsContentUtils::GetBoolPref("dom.allow_scripts_to_close_windows",
+                                  PR_TRUE);
+    if (!allowClose) {
+      // We're blocking the close operation
+      // report localized error msg in JS console
+      nsContentUtils::ReportToConsole(
+          nsContentUtils::eDOM_PROPERTIES,
+          "WindowCloseBlockedWarning",
+          nsnull, 0, // No params
+          nsnull, // No URI.  Not clear which URI we should be using
+                  // here anyway
+          EmptyString(), 0, 0, // No source, or column/line number
+          nsIScriptError::warningFlag,
+          "DOM Window");  // Better name for the category?
 
-    // UniversalBrowserWrite will be enabled if it's been explicitly
-    // enabled, or if we're called from chrome.
-    rv = sSecMan->IsCapabilityEnabled("UniversalBrowserWrite",
-                                      &allowClose);
-
-    if (NS_SUCCEEDED(rv) && !allowClose) {
-      allowClose =
-        nsContentUtils::GetBoolPref("dom.allow_scripts_to_close_windows",
-                                    PR_TRUE);
-      if (!allowClose) {
-        // We're blocking the close operation
-        // report localized error msg in JS console
-        nsContentUtils::ReportToConsole(
-            nsContentUtils::eDOM_PROPERTIES,
-            "WindowCloseBlockedWarning",
-            nsnull, 0, // No params
-            nsnull, // No URI.  Not clear which URI we should be using
-                    // here anyway
-            EmptyString(), 0, 0, // No source, or column/line number
-            nsIScriptError::warningFlag,
-            "DOM Window");  // Better name for the category?
-
-        return NS_OK;
-      }
+      return NS_OK;
     }
   }
 
@@ -4377,7 +4341,7 @@ nsGlobalWindow::Close()
   // frames, we crash. So, if we are called from Javascript, post an event
   // to really close the window.
   rv = NS_ERROR_FAILURE;
-  if (!IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChrome()) {
     nsCloseEvent *ev = new nsCloseEvent(this);
 
     if (ev) {
@@ -5616,13 +5580,15 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
   if (domReturn) {
     // Save the principal of the calling script
     // We need it to decide whether to clear the scope in SetNewDocument
-    NS_ASSERTION(sSecMan, "No Security Manager Found!");
+    NS_ASSERTION(nsContentUtils::GetSecurityManager(),
+                 "No Security Manager Found!");
     // Note that the opener script principal is not relevant for openDialog
     // callers, since those already have chrome privileges.  So we
-    // only want to do this wen aDoJSFixups is true.
-    if (aDoJSFixups && sSecMan) {
+    // only want to do this when aDoJSFixups is true.
+    if (aDoJSFixups && nsContentUtils::GetSecurityManager()) {
       nsCOMPtr<nsIPrincipal> principal;
-      sSecMan->GetSubjectPrincipal(getter_AddRefs(principal));
+      nsContentUtils::GetSecurityManager()->
+        GetSubjectPrincipal(getter_AddRefs(principal));
       if (principal) {
         nsCOMPtr<nsPIDOMWindow> domReturnPrivate(do_QueryInterface(domReturn));
         domReturnPrivate->SetOpenerScriptPrincipal(principal);
@@ -5866,14 +5832,42 @@ nsGlobalWindow::SetTimeoutOrInterval(PRBool aIsInterval, PRInt32 *aReturn)
 
   timeout->mVersion = ::JS_VersionToString(::JS_GetVersion(cx));
 
-  // Get principal of currently executing code, save for execution of timeout
+  // Get principal of currently executing code, save for execution of timeout.
+  // If either our principals subsume the subject principal, or we're from the
+  // same origin, then use the subject principal. Otherwise, use our principal
+  // to avoid running script in elevated principals.
 
-  rv = sSecMan->GetSubjectPrincipal(getter_AddRefs(timeout->mPrincipal));
-
+  nsCOMPtr<nsIPrincipal> subjectPrincipal;
+  rv = nsContentUtils::GetSecurityManager()->
+    GetSubjectPrincipal(getter_AddRefs(subjectPrincipal));
   if (NS_FAILED(rv)) {
     timeout->Release(scx);
 
     return NS_ERROR_FAILURE;
+  }
+
+  PRBool subsumes = PR_FALSE;
+  nsCOMPtr<nsIPrincipal> ourPrincipal = GetPrincipal();
+
+  // Note the direction of this test: We don't allow chrome setTimeouts on
+  // content windows, but we do allow content setTimeouts on chrome windows.
+  rv = ourPrincipal->Subsumes(subjectPrincipal, &subsumes);
+  if (NS_FAILED(rv)) {
+    timeout->Release(scx);
+
+    return NS_ERROR_FAILURE;
+  }
+
+  if (subsumes) {
+    timeout->mPrincipal = subjectPrincipal;
+  } else {
+    // Subsumes does a very strict equality test. Allow sites of the same origin
+    // to set timeouts on each other.
+
+    rv = nsContentUtils::GetSecurityManager()->
+      CheckSameOriginPrincipal(subjectPrincipal, ourPrincipal);
+    timeout->mPrincipal = NS_SUCCEEDED(rv) ? subjectPrincipal : ourPrincipal;
+    rv = NS_OK;
   }
 
   PRTime delta = (PRTime)interval * PR_USEC_PER_MSEC;
@@ -6578,7 +6572,7 @@ nsGlobalWindow::BuildURIfromBase(const char *aURL, nsIURI **aBuiltURI,
   nsCOMPtr<nsIDOMChromeWindow> chrome_win =
     do_QueryInterface(NS_STATIC_CAST(nsIDOMWindow *, this));
 
-  if (IsCallerChrome() && !chrome_win) {
+  if (nsContentUtils::IsCallerChrome() && !chrome_win) {
     // If open() is called from chrome on a non-chrome window, we'll
     // use the context from the window on which open() is being called
     // to prevent giving chrome priveleges to new windows opened in
@@ -6637,7 +6631,8 @@ nsGlobalWindow::SecurityCheckURL(const char *aURL)
   if (NS_FAILED(BuildURIfromBase(aURL, getter_AddRefs(uri), &freePass, &cx)))
     return NS_ERROR_FAILURE;
 
-  if (!freePass && NS_FAILED(sSecMan->CheckLoadURIFromScript(cx, uri)))
+  if (!freePass && NS_FAILED(nsContentUtils::GetSecurityManager()->
+        CheckLoadURIFromScript(cx, uri)))
     return NS_ERROR_FAILURE;
 
   return NS_OK;
@@ -7207,7 +7202,7 @@ nsNavigator::GetAppCodeName(nsAString& aAppCodeName)
 NS_IMETHODIMP
 nsNavigator::GetAppVersion(nsAString& aAppVersion)
 {
-  if (!nsGlobalWindow::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerTrustedForRead()) {
     const nsAdoptingCString& override = 
       nsContentUtils::GetCharPref("general.appversion.override");
 
@@ -7251,7 +7246,7 @@ nsNavigator::GetAppVersion(nsAString& aAppVersion)
 NS_IMETHODIMP
 nsNavigator::GetAppName(nsAString& aAppName)
 {
-  if (!nsGlobalWindow::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerTrustedForRead()) {
     const nsAdoptingCString& override =
       nsContentUtils::GetCharPref("general.appname.override");
 
@@ -7283,7 +7278,7 @@ nsNavigator::GetLanguage(nsAString& aLanguage)
 NS_IMETHODIMP
 nsNavigator::GetPlatform(nsAString& aPlatform)
 {
-  if (!nsGlobalWindow::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerTrustedForRead()) {
     const nsAdoptingCString& override =
       nsContentUtils::GetCharPref("general.platform.override");
 
@@ -7545,12 +7540,8 @@ nsNavigator::Preference()
       action = nsIXPCSecurityManager::ACCESS_SET_PROPERTY;
   }
 
-  nsCOMPtr<nsIScriptSecurityManager> secMan =
-      do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  rv = secMan->CheckPropertyAccess(cx, nsnull, "Navigator", sPrefInternal_id,
-                                   action);
+  rv = nsContentUtils::GetSecurityManager()->
+    CheckPropertyAccess(cx, nsnull, "Navigator", sPrefInternal_id, action);
   if (NS_FAILED(rv)) {
     return NS_OK;
   }

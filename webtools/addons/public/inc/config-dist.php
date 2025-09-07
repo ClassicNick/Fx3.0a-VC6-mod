@@ -111,6 +111,7 @@ $shadow_config = array(
     'extensions.php',
     'faq.php',
     'feeds.php',
+    'finalists.php',
     'history.php',
     'index.php',
     'policy.php',
@@ -119,7 +120,8 @@ $shadow_config = array(
     'search-engines.php',
     'search.php',
     'themes.php',
-    'update.php'
+    'update.php',
+    'winners.php'
 );
 
 /**
@@ -142,6 +144,8 @@ $cache_config = array(
     'feeds.php' => 900,
     'history.php' => 900,
     'index.php' => 20,
+    'pfs.php' => 36000,
+    'plugins.php' => 36000,
     'policy.php' => 900,
     'recommended.php' => 900,
     'rss.php' => 900,
@@ -178,6 +182,7 @@ $memcache_config = array(
  */
 $contentType_config = array(
     'update.php' => 'text/xml; charset=utf-8',
-    'rss.php'    => 'text/xml; charset=utf-8'
+    'rss.php'    => 'text/xml; charset=utf-8',
+    'pfs.php'    => 'text/xml; charset=utf-8'
 );
 ?>

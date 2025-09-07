@@ -4,12 +4,6 @@
  *
  * @package amo
  * @subpackage docs
- *
- * @todo figure out why some addon listings have incorrect applications.
- * @todo add page links ( 1 2 3 4 5 ..... n ) for big result sets?  is this necessary?
- * @todo take pagination and throw it into a class so we can reuse the methodology.
- * @todo check validation - the form has some errors in it.
- * @todo fix CSS so the pull-downs look symmetrical before design freaks start crying.
  */
 
 // Get our cache_id based on what we have in our query string.
@@ -49,10 +43,8 @@ if (isset($_GET['date'])&&$_GET['date']!='null'&&ctype_alpha($_GET['date'])) {
 }
 
 // Application.
-if (isset($_GET['app'])&&$_GET['app']!='null'&&ctype_alpha($_GET['app'])) {
-    $clean['app'] = $_GET['app'];
-} elseif ($_GET['app']=='null') {
-    unset($clean['app']);
+if (isset($_GET['appfilter'])&&$_GET['appfilter']!='null'&&is_numeric($_GET['appfilter'])) {
+    $clean['appfilter'] = $_GET['appfilter'];
 }
 
 // Query.
@@ -109,12 +101,6 @@ $sort = array(
     'downloads' => 'Popularity'
 );
 
-$apps = array(
-    'firefox'     => 'Firefox',
-    'thunderbird' => 'Thunderbird',
-    'mozilla'     => 'Mozilla'
-);
-
 $perpage = array(
     10 => '10',
     25 => '25',
@@ -124,17 +110,21 @@ $perpage = array(
 
 // Now we need to build our query.  Our query starts with four parts:
 
-// Select and joins.
-$select = "
-    SELECT DISTINCT
+// Select top.
+$selectTop = "
+    SELECT DISTINCT SQL_CALC_FOUND_ROWS
         main.ID
     FROM
         main
 ";
 
+// Select joins.
+$select = "";
+
 // Where clause.
 $where = "
     WHERE
+        version.approved = 'YES' AND
 ";
 
 // Order by.
@@ -142,9 +132,7 @@ $orderby = "
     ORDER BY
 ";
 
-if (!empty($sql['platform'])||!empty($sql['app'])) {
-    $select .= " INNER JOIN version ON version.ID = main.ID ";
-}
+$select .= " INNER JOIN version ON version.ID = main.ID ";
 
 if (!empty($sql['cat'])) {
     $select .= " INNER JOIN categoryxref ON categoryxref.ID = main.ID ";
@@ -157,7 +145,7 @@ if (!empty($sql['platform'])) {
 
 if (!empty($sql['app'])) {
     $select .= " INNER JOIN applications ON version.AppID = applications.AppID ";
-    $where .= " applications.AppName = '{$sql['app']}' AND ";
+    $where .= " applications.AppID = '{$sql['appfilter']}' AND ";
 }
 
 if (!empty($sql['q'])) {
@@ -214,23 +202,32 @@ if (!empty($sql['sort'])) {
 
 $where .= ' 1 ';
 
-$query = $select.$where.$orderby;
+$limit = " LIMIT {$page['left']}, {$page['right']} ";
+
+$query = $selectTop.$select.$where.$orderby.$limit;
 
 $results = array();
 $rawResults = array();
 
+// Get results.
 $db->query($query, SQL_ALL);
-
-unset($select);
-unset($where);
-unset($orderby);
-unset($query);
 
 if (is_array($db->record)) {
     foreach ($db->record as $row) {
         $rawResults[] = $row[0]; 
     }
 }
+
+// Get our result count.
+$db->query("SELECT FOUND_ROWS()", SQL_INIT);
+if (!empty($db->record)) {
+    $resultCount = $db->record[0];
+}
+if ($resultCount<$page['right']) {
+    $page['right'] = $resultCount;
+}
+
+
 
 // If we have only one result, redirect to the addon page.
 if ( count($rawResults) == 1) {
@@ -242,11 +239,6 @@ if ( count($rawResults) == 1) {
             $results[] = new Addon($rawResults[$i]);
         }
     }
-}
-
-$resultCount = count($rawResults);
-if ($resultCount<$page['right']) {
-    $page['right'] = $resultCount;
 }
 
 // Do we even have a next or previous page?
@@ -272,12 +264,13 @@ $tpl->assign(
         'clean'         => $clean,
         'cats'          => $amo->getCats(),
         'platforms'     => $amo->getPlatforms(),
-        'apps'          => $apps,
+        'apps'          => $amo->getApps(),
         'dates'         => $dates,
         'sort'          => $sort,
         'perpage'       => $perpage,
         'content'       => 'search.tpl',
-        'title'         => 'Search'
+        'title'         => 'Search',
+        'extraHeaders'  => '<script src="'.WEB_PATH.'/js/search.js" type="text/javascript"></script>'
     )
 );
 ?>

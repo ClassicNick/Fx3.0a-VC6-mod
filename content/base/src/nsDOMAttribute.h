@@ -34,6 +34,11 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * Implementation of DOM Core's nsIDOMAttr node.
+ */
+
 #ifndef nsDOMAttribute_h___
 #define nsDOMAttribute_h___
 

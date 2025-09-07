@@ -3400,8 +3400,9 @@ nsDOMClassInfo::ResolveConstructor(JSContext *cx, JSObject *obj,
     // return the Object constructor.
 
     JSString *str = JSVAL_TO_STRING(sConstructor_id);
-    if (!::JS_SetUCProperty(cx, obj, ::JS_GetStringChars(str),
-                            ::JS_GetStringLength(str), &val)) {
+    if (!::JS_DefineUCProperty(cx, obj, ::JS_GetStringChars(str),
+                               ::JS_GetStringLength(str), val, nsnull, nsnull,
+                               JSPROP_ENUMERATE)) {
       return NS_ERROR_UNEXPECTED;
     }
 
@@ -3845,7 +3846,7 @@ nsWindowSH::PreCreate(nsISupports *nativeObj, JSContext *cx,
   // after the wrapper is found.
 
   nsCOMPtr<nsIScriptGlobalObject> sgo(do_QueryInterface(nativeObj));
-  NS_WARN_IF_FALSE(sgo, "nativeObj not a global object!");
+  NS_ASSERTION(sgo, "nativeObj not a global object!");
 
   if (sgo) {
     *parentObj = sgo->GetGlobalJSObject();
@@ -5508,8 +5509,9 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
 
     v = OBJECT_TO_JSVAL(dot_prototype);
 
-    if (!::JS_DefineProperty(cx, class_obj, "prototype", v, NULL, NULL,
-                             JSPROP_ENUMERATE)) {
+    // Per ECMA, the prototype property is {DontEnum, DontDelete, ReadOnly}
+    if (!::JS_DefineProperty(cx, class_obj, "prototype", v, nsnull, nsnull,
+                             JSPROP_PERMANENT | JSPROP_READONLY)) {
       return NS_ERROR_UNEXPECTED;
     }
 
@@ -5714,8 +5716,13 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
         // A numeric property accessed and the numeric property is a
         // child frame. Define a property for this index.
 
+        PRBool doSecurityCheckInAddProperty = sDoSecurityCheckInAddProperty;
+        sDoSecurityCheckInAddProperty = PR_FALSE;
+
         *_retval = ::JS_DefineElement(cx, obj, JSVAL_TO_INT(id), JSVAL_VOID,
                                       nsnull, nsnull, 0);
+
+        sDoSecurityCheckInAddProperty = doSecurityCheckInAddProperty;
 
         if (*_retval) {
           *objp = obj;
@@ -5911,6 +5918,9 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
     }
 
     JSObject *funObj = ::JS_GetFunctionObject(fun);
+
+    nsAutoGCRoot root(&funObj, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     if (!::JS_DefineUCProperty(cx, windowObj, ::JS_GetStringChars(str),
                                ::JS_GetStringLength(str), JSVAL_VOID,
@@ -7940,8 +7950,10 @@ nsHTMLDocumentSH::DocumentAllHelperNewResolve(JSContext *cx, JSObject *obj,
     JSObject *helper = GetDocumentAllHelper(cx, obj);
 
     if (helper) {
-      jsval v = JSVAL_VOID;
-      ::JS_SetProperty(cx, helper, "all", &v);
+      if (!::JS_DefineProperty(cx, helper, "all", JSVAL_VOID, nsnull, nsnull,
+                               JSPROP_ENUMERATE)) {
+        return JS_FALSE;
+      }
 
       *objp = helper;
     }

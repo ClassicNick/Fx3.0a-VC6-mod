@@ -37,6 +37,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * A class that handles loading and evaluation of <script> elements.
+ */
+
 #include "nsScriptLoader.h"
 #include "nsIDOMCharacterData.h"
 #include "nsParserUtils.h"
@@ -60,6 +64,8 @@
 #include "nsContentUtils.h"
 #include "nsUnicharUtils.h"
 #include "nsAutoPtr.h"
+#include "nsIXPConnect.h"
+#include "nsContentErrors.h"
 
 static NS_DEFINE_CID(kCharsetConverterManagerCID, NS_ICHARSETCONVERTERMANAGER_CID);
 

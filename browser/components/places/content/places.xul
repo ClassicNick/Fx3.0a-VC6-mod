@@ -31,6 +31,14 @@
     <stringbundle id="brandBundle" src="chrome://branding/locale/brand.properties"/>
   </stringbundleset>
   
+  <commandset id="TMCommandSet"
+              commandupdater="true" events="*" 
+              oncommandupdate="PlacesController.updateTMCommands()">
+    <command id="cmd_undo" label="&cmd.edit_undo.label;" accesskey="&cmd.edit_undo.accesskey;"
+             oncommand="PlacesController.doCommand(this.id);" disabled="true"/>
+    <command id="cmd_redo" label="&cmd.edit_redo.label;" accesskey="&cmd.edit_redo.accesskey;"
+             oncommand="PlacesController.doCommand(this.id);" disabled="true"/>
+  </commandset>
 #include commands.inc
 
   <keyset id="placesOrganizerKeyset">
@@ -46,8 +54,11 @@
     <key id="placesKey_edit:paste" command="placesCmd_edit:paste" key="&cmd.edit_paste.key;" modifiers="accel"/>
     <key id="placesKey_edit:delete" command="placesCmd_edit:delete" keycode="VK_DELETE"/>
     <key id="placesKey_open" command="placesCmd_open" keycode="VK_ENTER"/>
+    <key id="placesKey_open" command="placesCmd_open" keycode="VK_RETURN"/>
     <key id="placesKey_open:window" command="placesCmd_open:window" keycode="VK_ENTER" modifiers="shift"/>
+    <key id="placesKey_open:window" command="placesCmd_open:window" keycode="VK_RETURN" modifiers="shift"/>
     <key id="placesKey_open:tab" command="placesCmd_open:tab" keycode="VK_ENTER" modifiers="accel"/>
+    <key id="placesKey_open:tab" command="placesCmd_open:tab" keycode="VK_RETURN" modifiers="accel"/>
     <key id="placesKey_show:info" command="placesCmd_show:info" key="&cmd.show_info.key;" modifiers="accel"/>
     <key id="placesKey_rename" command="placesCmd_rename" keycode="VK_F2"/>
     <key id="placesKey_reload" command="placesCmd_reload" key="&cmd.reload.key;" modifiers="accel"/>
@@ -79,10 +90,8 @@
       </menu>
       <menu id="editMenu" label="&edit.label;" accesskey="&edit.accesskey;">
         <menupopup>
-          <menuitem id="editUndo" command="cmd_undo"
-                    label="&edit.undo.label;" accesskey="&edit.undo.accesskey;"/>
-          <menuitem id="editRedo" command="cmd_redo"
-                    label="&edit.redo.label;" accesskey="&edit.redo.label;"/>
+          <menuitem id="editUndo" command="cmd_undo"/>
+          <menuitem id="editRedo" command="cmd_redo"/>
           <menuseparator/>
           <menuitem id="editCut" command="placesCmd_edit:cut"/>
           <menuitem id="editCopy" command="placesCmd_edit:copy"/>
@@ -90,6 +99,8 @@
           <menuitem id="editDelete" command="placesCmd_edit:delete"/>
           <menuseparator/>
           <menuitem id="editSelectAll" command="placesCmd_select:all"/>
+          <menuseparator/>
+          <menuitem id="editSortByName" command="placesCmd_sortby:name"/>
           <menuseparator/>
           <menuitem id="editFind" command="placesCmd_find"/>
 #ifdef XP_MACOSX
@@ -108,8 +119,8 @@
                     label="&view.toolbar.label;" accesskey="&view.toolbar.accesskey;"/>
           <menu id="viewColumns" 
                 label="&view.columns.label;" accesskey="&view.columns.accesskey;">
-            <menupopup onpopupshowing="ViewMenu.fillWithColumns(event, null, null, 'checkbox');"
-                       oncommand="ViewMenu.showHideColumn(event.target); event.preventBubble();"/>
+            <menupopup onpopupshowing="ViewMenu.fillWithColumns(event, null, null, 'checkbox', null);"
+                       oncommand="ViewMenu.showHideColumn(event.target); event.stopPropagation();"/>
           </menu>
           <menuseparator id="groupingSeparator" observes="placesBC_grouping:separator"/>
           <menuitem id="viewGroupNone" type="radio" name="group"
@@ -123,10 +134,10 @@
           <menuseparator id="directionSeparator"/>
           <menuitem id="viewSortAscending" type="radio" name="direction" 
                     label="&view.sortAscending.label;" accesskey="&view.sortAscending.accesskey;"
-                    oncommand="ViewMenu.setSortColumn(null, 'ascending'); event.preventBubble();"/>
+                    oncommand="ViewMenu.setSortColumn(null, 'ascending'); event.stopPropagation();"/>
           <menuitem id="viewSortDescending" type="radio" name="direction" 
                     label="&view.sortDescending.label;" accesskey="&view.sortDescending.accesskey;"
-                    oncommand="ViewMenu.setSortColumn(null, 'descending'); event.preventBubble();"/>
+                    oncommand="ViewMenu.setSortColumn(null, 'descending'); event.stopPropagation();"/>
         </menupopup>
       </menu>
       <menu id="helpMenu">
@@ -158,7 +169,10 @@
       <toolbarbutton id="toolbarNewFolder" command="placesCmd_new:folder"/>
       <toolbarbutton id="toolbarDelete" command="placesCmd_edit:delete"/>
       <spacer flex="1"/>
-      <toolbarbutton id="toolbarGroup" command="placesCmd_groupby:site" type="checkbox"/>
+      <toolbarbutton id="toolbarGroup" type="radio" group="grouping" 
+                     observes="placesBC_grouping:off"/>
+      <toolbarbutton id="toolbarGroup" type="radio" group="grouping" 
+                     observes="placesBC_grouping:on" />
     </toolbar>
   </toolbox>
   <hbox flex="1" id="placesView">
@@ -166,6 +180,7 @@
           place="place:&amp;folder=1&amp;group=3&amp;excludeItems=1" 
           hidecolumnpicker="true" context="placesContext"
           onselect="PlacesOrganizer.onPlaceSelected(event);"
+          onclick="PlacesOrganizer.onTreeClick(event);"
           seltype="single">
       <treecols>
         <treecol id="title" flex="1" primary="true" hideheader="true"/>
@@ -204,7 +219,8 @@
 #include advancedSearch.inc          
           <tree id="placeContent" class="placesTree" context="placesContext" 
                 flex="1" type="places" 
-                ondblclick="PlacesController.mouseLoadURI(event);">
+                ondblclick="PlacesController.mouseLoadURI(event);"
+                onclick="PlacesOrganizer.onTreeClick(event);">
             <treecols id="placeContentColumns">
               <treecol label="&col.title.label;" id="title" flex="5" primary="true" 
                        persist="width hidden ordinal sortActive sortDirection"/>

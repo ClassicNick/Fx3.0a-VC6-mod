@@ -35,6 +35,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * Implementation of DOM Core's nsIDOMDocumentType node.
+ */
+
 #ifndef nsDOMDocumentType_h___
 #define nsDOMDocumentType_h___
 

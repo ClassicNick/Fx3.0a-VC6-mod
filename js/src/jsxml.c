@@ -193,8 +193,7 @@ namespace_finalize(JSContext *cx, JSObject *obj)
 }
 
 static void
-namespace_mark_vector(JSContext *cx, JSXMLNamespace **vec, uint32 len,
-                      void *arg)
+namespace_mark_vector(JSContext *cx, JSXMLNamespace **vec, uint32 len)
 {
     uint32 i;
     JSXMLNamespace *ns;
@@ -208,10 +207,8 @@ namespace_mark_vector(JSContext *cx, JSXMLNamespace **vec, uint32 len,
             JS_snprintf(buf, sizeof buf, "%s=%s",
                         ns->prefix ? JS_GetStringBytes(ns->prefix) : "",
                         JS_GetStringBytes(ns->uri));
-#else
-            const char *buf = NULL;
 #endif
-            JS_MarkGCThing(cx, ns, buf, arg);
+            GC_MARK(cx, ns, buf);
         }
     }
 }
@@ -222,7 +219,7 @@ namespace_mark(JSContext *cx, JSObject *obj, void *arg)
     JSXMLNamespace *ns;
 
     ns = (JSXMLNamespace *) JS_GetPrivate(cx, obj);
-    JS_MarkGCThing(cx, ns, js_private_str, arg);
+    GC_MARK(cx, ns, "private");
     return 0;
 }
 
@@ -305,11 +302,11 @@ js_NewXMLNamespace(JSContext *cx, JSString *prefix, JSString *uri,
 }
 
 void
-js_MarkXMLNamespace(JSContext *cx, JSXMLNamespace *ns, void *arg)
+js_MarkXMLNamespace(JSContext *cx, JSXMLNamespace *ns)
 {
-    JS_MarkGCThing(cx, ns->object, js_object_str, arg);
-    JS_MarkGCThing(cx, ns->prefix, js_prefix_str, arg);
-    JS_MarkGCThing(cx, ns->uri, js_uri_str, arg);
+    GC_MARK(cx, ns->object, "object");
+    GC_MARK(cx, ns->prefix, "prefix");
+    GC_MARK(cx, ns->uri, "uri");
 }
 
 void
@@ -415,7 +412,7 @@ qname_mark(JSContext *cx, JSObject *obj, void *arg)
     JSXMLQName *qn;
 
     qn = (JSXMLQName *) JS_GetPrivate(cx, obj);
-    JS_MarkGCThing(cx, qn, js_private_str, arg);
+    GC_MARK(cx, qn, "private");
     return 0;
 }
 
@@ -569,12 +566,12 @@ js_NewXMLQName(JSContext *cx, JSString *uri, JSString *prefix,
 }
 
 void
-js_MarkXMLQName(JSContext *cx, JSXMLQName *qn, void *arg)
+js_MarkXMLQName(JSContext *cx, JSXMLQName *qn)
 {
-    JS_MarkGCThing(cx, qn->object, js_object_str, arg);
-    JS_MarkGCThing(cx, qn->uri, js_uri_str, arg);
-    JS_MarkGCThing(cx, qn->prefix, js_prefix_str, arg);
-    JS_MarkGCThing(cx, qn->localName, js_localName_str, arg);
+    GC_MARK(cx, qn->object, "object");
+    GC_MARK(cx, qn->uri, "uri");
+    GC_MARK(cx, qn->prefix, "prefix");
+    GC_MARK(cx, qn->localName, "localName");
 }
 
 void
@@ -2969,6 +2966,7 @@ ToAttributeName(JSContext *cx, jsval v)
     JSObject *obj;
     JSClass *clasp;
     JSXMLQName *qn;
+    JSTempValueRooter tvr;
 
     if (JSVAL_IS_STRING(v)) {
         name = JSVAL_TO_STRING(v);
@@ -3009,7 +3007,16 @@ ToAttributeName(JSContext *cx, jsval v)
     qn = js_NewXMLQName(cx, uri, prefix, name);
     if (!qn)
         return NULL;
-    if (!js_GetAttributeNameObject(cx, qn))
+
+    /*
+     * Temp and local root scope APIs take GC-thing pointers tagged as jsvals
+     * and blindly untag.  Since qn is a GC-thing pointer, we can treat it as
+     * an object pointer.
+     */
+    JS_PUSH_SINGLE_TEMP_ROOT(cx, OBJECT_TO_JSVAL(qn), &tvr);
+    obj = js_GetAttributeNameObject(cx, qn);
+    JS_POP_TEMP_ROOT(cx, &tvr);
+    if (!obj)
         return NULL;
     return qn;
 }
@@ -3854,11 +3861,11 @@ DeleteProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp)
             if (xml->xml_class != JSXML_CLASS_ELEMENT)
                 goto out;
             array = &xml->xml_attrs;
+            length = array->length;
             matcher = MatchAttrName;
         } else {
             matcher = MatchElemName;
         }
-        length = array->length;
         if (length != 0) {
             deleteCount = 0;
             for (index = 0; index < length; index++) {
@@ -4904,7 +4911,7 @@ xml_finalize(JSContext *cx, JSObject *obj)
 }
 
 static void
-xml_mark_vector(JSContext *cx, JSXML **vec, uint32 len, void *arg)
+xml_mark_vector(JSContext *cx, JSXML **vec, uint32 len)
 {
     uint32 i;
     JSXML *elt;
@@ -4933,10 +4940,8 @@ xml_mark_vector(JSContext *cx, JSXML **vec, uint32 len, void *arg)
                 js_DeflateStringToBuffer(cx, JSSTRING_CHARS(str), srclen,
                                          buf, &dstlen);
             }
-#else
-            const char *buf = NULL;
 #endif
-            JS_MarkGCThing(cx, elt, buf, arg);
+            GC_MARK(cx, elt, buf);
         }
     }
 }
@@ -5164,8 +5169,8 @@ xml_mark(JSContext *cx, JSObject *obj, void *arg)
     JSXML *xml;
 
     xml = (JSXML *) JS_GetPrivate(cx, obj);
-    JS_MarkGCThing(cx, xml, js_private_str, arg);
-    return js_Mark(cx, obj, arg);
+    GC_MARK(cx, xml, "private");
+    return js_Mark(cx, obj, NULL);
 }
 
 static void
@@ -5551,13 +5556,12 @@ xml_attribute(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
               jsval *rval)
 {
     JSXMLQName *qn;
-    jsval name;
 
     qn = ToAttributeName(cx, argv[0]);
     if (!qn)
         return JS_FALSE;
-    name = OBJECT_TO_JSVAL(qn->object);
-    return GetProperty(cx, obj, name, rval);
+    argv[0] = OBJECT_TO_JSVAL(qn->object);      /* local root */
+    return GetProperty(cx, obj, argv[0], rval);
 }
 
 /* XML and XMLList */
@@ -5567,13 +5571,18 @@ xml_attributes(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
 {
     jsval name;
     JSXMLQName *qn;
+    JSTempValueRooter tvr;
+    JSBool ok;
 
     name = ATOM_KEY(cx->runtime->atomState.starAtom);
     qn = ToAttributeName(cx, name);
     if (!qn)
         return JS_FALSE;
     name = OBJECT_TO_JSVAL(qn->object);
-    return GetProperty(cx, obj, name, rval);
+    JS_PUSH_SINGLE_TEMP_ROOT(cx, name, &tvr);
+    ok = GetProperty(cx, obj, name, rval);
+    JS_POP_TEMP_ROOT(cx, &tvr);
+    return ok;
 }
 
 static JSXML *
@@ -7237,144 +7246,38 @@ js_NewXML(JSContext *cx, JSXMLClass xml_class)
     return xml;
 }
 
-/*
- * Code factored from js_MarkXML for use by xml_DeutschScorrWaite, see below.
- * All things marked here cannot lead to overlong lists (mark stack overflow).
- */
-static void
-xml_mark_tail(JSContext *cx, JSXML *xml, void *arg)
+void
+js_MarkXML(JSContext *cx, JSXML *xml)
 {
+    GC_MARK(cx, xml->object, "object");
+    GC_MARK(cx, xml->name, "name");
+    GC_MARK(cx, xml->parent, "xml_parent");
+
+    if (JSXML_HAS_VALUE(xml)) {
+        GC_MARK(cx, xml->xml_value, "value");
+        return;
+    }
+
+    xml_mark_vector(cx,
+                    (JSXML **) xml->xml_kids.vector,
+                    xml->xml_kids.length);
     XMLArrayTrim(&xml->xml_kids);
 
     if (xml->xml_class == JSXML_CLASS_LIST) {
         if (xml->xml_target)
-            JS_MarkGCThing(cx, xml->xml_target, "target", arg);
+            GC_MARK(cx, xml->xml_target, "target");
         if (xml->xml_targetprop)
-            JS_MarkGCThing(cx, xml->xml_targetprop, "targetprop", arg);
+            GC_MARK(cx, xml->xml_targetprop, "targetprop");
     } else {
         namespace_mark_vector(cx,
                               (JSXMLNamespace **) xml->xml_namespaces.vector,
-                              xml->xml_namespaces.length,
-                              arg);
+                              xml->xml_namespaces.length);
         XMLArrayTrim(&xml->xml_namespaces);
 
         xml_mark_vector(cx,
                         (JSXML **) xml->xml_attrs.vector,
-                        xml->xml_attrs.length,
-                        arg);
+                        xml->xml_attrs.length);
         XMLArrayTrim(&xml->xml_attrs);
-    }
-}
-
-static void
-xml_DeutschSchorrWaite(JSContext *cx, JSXML *xml, void *arg)
-{
-    JSXML *top, *kid;
-    uint8 *flagp;
-    uint32 i, n;
-#ifdef JS_GCMETER
-    JSRuntime *rt = cx->runtime;
-# define GCMETER(x)     x
-#else
-# define GCMETER(x)     /* nothing */
-#endif
-
-    top = NULL;
-    flagp = js_GetGCThingFlags(xml);
-
-down:
-    GCMETER(if (++rt->gcStats.dswdepth > rt->gcStats.maxdswdepth)
-                rt->gcStats.maxdswdepth = rt->gcStats.dswdepth);
-
-    *flagp |= GCF_MARK;
-
-    i = 0;
-    for (;;) {
-        /*
-         * Let (i == n) index xml->parent, not any child in xml->xml_kids.
-         * Use JSXML_LENGTH here and below in case xml is a leaf node whose
-         * parent we are marking non-recursively.  In the case where parent
-         * is being marked, the "kid/down" sense is backwards -- humor me.
-         */
-        for (n = JSXML_LENGTH(xml); i <= n; i++) {
-            if (i < n) {
-                kid = XMLARRAY_MEMBER(&xml->xml_kids, i, JSXML);
-            } else {
-                kid = xml->parent;
-                if (!kid)
-                    continue;
-            }
-
-            flagp = js_GetGCThingFlags(kid);
-            if (*flagp & GCF_MARK)
-                continue;
-
-            /*
-             * Don't descend if a for..in loop is enumerating xml's kids, i.e.
-             * if xml has kids and its xml_kids.cursors member is non-null.
-             */
-            if (JSXML_HAS_KIDS(kid) &&
-                (JSXML_HAS_VALUE(xml) || !xml->xml_kids.cursors)) {
-                if (i < n)
-                    XMLARRAY_SET_MEMBER(&xml->xml_kids, i, top);
-                else
-                    xml->parent = top;
-                if (JSXML_HAS_KIDS(xml))
-                    xml->xml_kids.cursors = JS_UINT32_TO_PTR(i);
-                top = xml;
-                xml = kid;
-                goto down;
-            }
-
-            js_MarkXML(cx, kid, arg);
-        }
-
-        /* If we are back at the root (or we never left it), we're done. */
-        GCMETER(rt->gcStats.dswdepth--);
-        xml->xml_kids.cursors = NULL;
-        if (!top)
-            return;
-
-        /* Time to go back up the spanning tree. */
-        GCMETER(rt->gcStats.dswup++);
-        i = JSXML_HAS_KIDS(top) ? JS_PTR_TO_UINT32(top->xml_kids.cursors) : 0;
-        if (i < JSXML_LENGTH(top)) {
-            kid = XMLARRAY_MEMBER(&top->xml_kids, i, JSXML);
-            XMLARRAY_SET_MEMBER(&top->xml_kids, i, xml);
-        } else {
-            JS_ASSERT(i == JSXML_LENGTH(top));
-            kid = top->parent;
-            top->parent = xml;
-        }
-        xml = top;
-        top = kid;
-        i++;
-    }
-#undef GCMETER
-}
-
-void
-js_MarkXML(JSContext *cx, JSXML *xml, void *arg)
-{
-    int stackDummy;
-
-    JS_MarkGCThing(cx, xml->object, js_object_str, arg);
-    JS_MarkGCThing(cx, xml->name, js_name_str, arg);
-    if (!JS_CHECK_STACK_SIZE(cx, stackDummy)) {
-        xml_DeutschSchorrWaite(cx, xml, arg);
-    } else {
-        JS_MarkGCThing(cx, xml->parent, js_xml_parent_str, arg);
-
-        if (JSXML_HAS_VALUE(xml)) {
-            JS_MarkGCThing(cx, xml->xml_value, "value", arg);
-        } else {
-            xml_mark_vector(cx,
-                            (JSXML **) xml->xml_kids.vector,
-                            xml->xml_kids.length,
-                            arg);
-
-            xml_mark_tail(cx, xml, arg);
-        }
     }
 }
 
@@ -7425,11 +7328,16 @@ JSObject *
 js_NewXMLObject(JSContext *cx, JSXMLClass xml_class)
 {
     JSXML *xml;
+    JSObject *obj;
+    JSTempValueRooter tvr;
 
     xml = js_NewXML(cx, xml_class);
     if (!xml)
         return NULL;
-    return js_GetXMLObject(cx, xml);
+    JS_PUSH_SINGLE_TEMP_ROOT(cx, OBJECT_TO_JSVAL(xml), &tvr);
+    obj = js_GetXMLObject(cx, xml);
+    JS_POP_TEMP_ROOT(cx, &tvr);
+    return obj;
 }
 
 static JSObject *
@@ -7774,7 +7682,7 @@ js_AddAttributePart(JSContext *cx, JSBool isName, JSString *str, JSString *str2)
      * Reallocating str (because we know it has no other references) requires
      * purging any deflated string cached for it.
      */
-    js_PurgeDeflatedStringCache(str);
+    js_PurgeDeflatedStringCache(cx->runtime, str);
 
     str->chars = chars;
     str->length = newlen;

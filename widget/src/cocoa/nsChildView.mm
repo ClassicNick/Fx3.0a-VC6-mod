@@ -68,7 +68,7 @@
 #include "nsGfxUtils.h" // for StPortSetter
 #endif
 
-#define NSAppKitVersionNumber10_2 663
+static NSView* sLastViewEntered = nil;
 
 // category of NSView methods to quiet warnings
 @interface NSView(ChildViewExtensions)
@@ -700,7 +700,6 @@ NS_IMETHODIMP nsChildView::Show(PRBool bState)
 nsIWidget*
 nsChildView::GetParent(void)
 {
-  NS_IF_ADDREF(mParentWidget);
   return mParentWidget;
 }
     
@@ -1582,25 +1581,6 @@ NS_IMETHODIMP nsChildView::Scroll(PRInt32 aDx, PRInt32 aDy, nsRect *aClipRect)
 
 //-------------------------------------------------------------------------
 //
-//
-//-------------------------------------------------------------------------
-
-PRBool nsChildView::ConvertStatus(nsEventStatus aStatus)
-{
-  switch (aStatus)
-  {
-    case nsEventStatus_eIgnore:             return(PR_FALSE);
-    case nsEventStatus_eConsumeNoDefault:   return(PR_TRUE);  // don't do default processing
-    case nsEventStatus_eConsumeDoDefault:   return(PR_FALSE);
-    default:
-      NS_ASSERTION(0, "Illegal nsEventStatus enumeration value");
-      break;
-  }
-  return(PR_FALSE);
-}
-
-//-------------------------------------------------------------------------
-//
 // Invokes callback and  ProcessEvent method on Event Listener object
 //
 //-------------------------------------------------------------------------
@@ -1650,39 +1630,22 @@ PRBool nsChildView::DispatchWindowEvent(nsGUIEvent &event,nsEventStatus &aStatus
 //-------------------------------------------------------------------------
 PRBool nsChildView::DispatchMouseEvent(nsMouseEvent &aEvent)
 {
-
   PRBool result = PR_FALSE;
-  if (nsnull == mEventCallback && nsnull == mMouseListener) {
+  
+  if (mEventCallback == nsnull && mMouseListener == nsnull)
+    return result;
+
+  // call the event callback 
+  if (mEventCallback != nsnull) {
+    result = (DispatchWindowEvent(aEvent));
     return result;
   }
 
-  // call the event callback 
-  if (nsnull != mEventCallback) 
-    {
-    result = (DispatchWindowEvent(aEvent));
-    return result;
-    }
-
-  if (nsnull != mMouseListener) {
+  if (mMouseListener != nsnull) {
     switch (aEvent.message) {
-      case NS_MOUSE_MOVE: {
+      case NS_MOUSE_MOVE:
         result = ConvertStatus(mMouseListener->MouseMoved(aEvent));
-        nsRect rect;
-        GetBounds(rect);
-        if (rect.Contains(aEvent.refPoint.x, aEvent.refPoint.y)) 
-          {
-          //if (mWindowPtr == NULL || mWindowPtr != this) 
-            //{
-            // printf("Mouse enter");
-            //mCurrentWindow = this;
-            //}
-          } 
-        else 
-          {
-          // printf("Mouse exit");
-          }
-
-      } break;
+        break;
 
       case NS_MOUSE_LEFT_BUTTON_DOWN:
       case NS_MOUSE_MIDDLE_BUTTON_DOWN:
@@ -1711,7 +1674,7 @@ PRBool nsChildView::ReportDestroyEvent()
 {
   // nsEvent
   nsGUIEvent event(PR_TRUE, NS_DESTROY, this);
-  event.time        = PR_IntervalNow();
+  event.time = PR_IntervalNow();
 
   // dispatch event
   return (DispatchWindowEvent(event));
@@ -2123,15 +2086,8 @@ nsChildView::GetThebesSurface()
 {
   if ((self = [super initWithFrame:inFrame])) {
     mGeckoChild = inChild;
-    mEventSink = inSink;
     mIsPluginView = NO;
     mCurKeyEvent = nil;
-
-    // See if hack code for enabling and disabling mouse move
-    // events is necessary. Fixed by at least 10.2.8
-    long version = 0;
-    ::Gestalt(gestaltSystemVersion, &version);
-    mToggleMouseMoveEventWatching = (version < 0x00001028);
     
     // initialization for NSTextInput
     mMarkedRange.location = NSNotFound;
@@ -2146,6 +2102,9 @@ nsChildView::GetThebesSurface()
 
 - (void)dealloc
 {
+  if (sLastViewEntered == self)
+    sLastViewEntered = nil;
+  
   [super dealloc];    // This sets the current port to _savePort (which should be
                       // a valid port, checked with the assertion above.
   SetPort(NULL);      // Bullet-proof against future changes in NSQDView
@@ -2154,7 +2113,6 @@ nsChildView::GetThebesSurface()
 - (void)widgetDestroyed
 {
   mGeckoChild = nsnull;
-  mEventSink = nsnull;
 }
 
 //
@@ -2515,25 +2473,14 @@ nsChildView::GetThebesSurface()
 
 #else /* MOZ_CAIRO_GFX */
   // tell gecko to paint.
-  // If < 10.3, just paint the rect
-  if (floor(NSAppKitVersionNumber) <= NSAppKitVersionNumber10_2) {
+  const NSRect *rects;
+  int count, i;
+  [self getRectsBeingDrawn:&rects count:&count];
+  for (i = 0; i < count; ++i) {
     nsRect r;
-    ConvertFlippedCocoaToGeckoRect(aRect, r);
+    ConvertFlippedCocoaToGeckoRect(rects[i], r);
     nsCOMPtr<nsIRenderingContext> rendContext = getter_AddRefs(mGeckoChild->GetRenderingContext());
     mGeckoChild->UpdateWidget(r, rendContext);
-  }
-  // If >10.3, only paint the sub-rects that need it. This avoids the
-  // nasty coalesced updates that result in big white areas.
-  else {
-    const NSRect *rects;
-    int count, i;
-    [self getRectsBeingDrawn:&rects count:&count];
-    for (i = 0; i < count; ++i) {
-      nsRect r;
-      ConvertFlippedCocoaToGeckoRect(rects[i], r);
-      nsCOMPtr<nsIRenderingContext> rendContext = getter_AddRefs(mGeckoChild->GetRenderingContext());
-      mGeckoChild->UpdateWidget(r, rendContext);
-    }
   }
 #endif
 }
@@ -2731,27 +2678,89 @@ nsChildView::GetThebesSurface()
   // XXX maybe call markedTextSelectionChanged:client: here?
 }
 
+static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w,
+                                    nsMouseEvent::reasonType aReason,
+                                    NSPoint* localEventLocation,
+                                    nsChildView* receiver)
+{
+  nsEventStatus status;
+  nsMouseEvent event(isTrusted, msg, w, aReason);
+  event.refPoint.x = nscoord((PRInt32)localEventLocation->x);
+  event.refPoint.y = nscoord((PRInt32)localEventLocation->y);
+  receiver->DispatchEvent(&event, status);
+  return status;
+}
+
 - (void)mouseEntered:(NSEvent*)theEvent
 {
+  // Getting nil for theEvent is a special case. That only happens if we called 
+  // this from mouseExited: because the mouse exited a view that is a subview of this.
+  if (theEvent == nil) {
+    NSPoint windowEventLocation = [[self window] convertScreenToBase:[NSEvent mouseLocation]];
+    NSPoint localEventLocation = [self convertPoint:windowEventLocation fromView:nil];
+    // NSLog(@"sending NS_MOUSE_ENTER event with point %f,%f\n", localEventLocation.x, localEventLocation.y);
+    SendMouseEvent(PR_TRUE, NS_MOUSE_ENTER, mGeckoChild, nsMouseEvent::eReal, &localEventLocation, mGeckoChild);
+    
+    // mark this view as the last view entered
+    sLastViewEntered = (NSView*)self;
+    
+    // don't continue because this isn't a standard NSView mouseEntered: call
+    return;
+  }
+  
+  NSView* view = [[[self window] contentView] hitTest:[theEvent locationInWindow]];
+  if (view == (NSView*)self) {    
+    // if we entered from another gecko view then we need to send NS_MOUSE_EXIT to that view
+    if (sLastViewEntered)
+      [sLastViewEntered mouseExited:nil];
+    
+    NSPoint eventLocation = [theEvent locationInWindow];
+    NSPoint localEventLocation = [self convertPoint:eventLocation fromView:nil];
+    // NSLog(@"sending NS_MOUSE_ENTER event with point %f,%f\n", localEventLocation.x, localEventLocation.y);
+    SendMouseEvent(PR_TRUE, NS_MOUSE_ENTER, mGeckoChild, nsMouseEvent::eReal, &localEventLocation, mGeckoChild);
+    
+    // mark this view as the last view entered
+    sLastViewEntered = (NSView*)self;
+  }
+  
   // checks to see if we should change to the hand cursor
   [self flagsChanged:theEvent];
-  
-  // we need to forward mouse move events to gecko when the mouse
-  // is over a gecko view
-  if (mToggleMouseMoveEventWatching)
-    [[self window] setAcceptsMouseMovedEvents: YES];
 }
 
 - (void)mouseExited:(NSEvent*)theEvent
 {
+  // Getting nil for theEvent is a special case. That only happens if we called this
+  // from mouseEntered: because the mouse entered a view that is a subview of this.
+  if (theEvent == nil) {    
+    NSPoint windowEventLocation = [[self window] convertScreenToBase:[NSEvent mouseLocation]];
+    NSPoint localEventLocation = [self convertPoint:windowEventLocation fromView:nil];
+    // NSLog(@"sending NS_MOUSE_EXIT event with point %f,%f\n", localEventLocation.x, localEventLocation.y);
+    SendMouseEvent(PR_TRUE, NS_MOUSE_EXIT, mGeckoChild, nsMouseEvent::eReal, &localEventLocation, mGeckoChild);
+    
+    // don't continue because this isn't a standard NSView mouseExited: call
+    return;
+  }
+  
+  if (sLastViewEntered == (NSView*)self) {
+    NSPoint eventLocation = [theEvent locationInWindow];
+    NSPoint localEventLocation = [self convertPoint:eventLocation fromView:nil];
+    // NSLog(@"sending NS_MOUSE_EXIT event with point %f,%f\n", localEventLocation.x, localEventLocation.y);
+    SendMouseEvent(PR_TRUE, NS_MOUSE_EXIT, mGeckoChild, nsMouseEvent::eReal, &localEventLocation, mGeckoChild);
+    
+    // Now we need to send NS_MOUSE_ENTERED to whatever view we're over now.
+    // Otherwise that view won't get get the Cocoa mouseEntered: if it was a
+    // superview of this view. Be careful with this logic, remember that the mouse
+    // can move onto another window from another app that overlaps this view.
+    NSView* view = [[[self window] contentView] hitTest:eventLocation];
+    if (view && view != self && [view isKindOfClass:[ChildView class]] && [self isDescendantOf:view])
+      [(ChildView*)view mouseEntered:nil];
+    else
+      sLastViewEntered = nil;
+  }
+  
   // Gecko may have set the cursor to ibeam or link hand, or handscroll may
   // have set it to the open hand cursor. Cocoa won't call this during a drag.
   mGeckoChild->SetCursor(eCursor_standard);
-   
-  // no need to monitor mouse movements outside of the gecko view,
-  // but make sure we are not a plugin view.
-  if (mToggleMouseMoveEventWatching && ![[self superview] isKindOfClass: [ChildView class]])
-    [[self window] setAcceptsMouseMovedEvents: NO];
 }
 
 - (void)rightMouseDown:(NSEvent *)theEvent

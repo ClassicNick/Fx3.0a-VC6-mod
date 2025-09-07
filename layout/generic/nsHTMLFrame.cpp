@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object that goes directly inside the document's scrollbars */
+
 #include "nsIServiceManager.h"
 #include "nsHTMLParts.h"
 #include "nsHTMLContainerFrame.h"
@@ -85,14 +88,14 @@ class CanvasFrame : public nsHTMLContainerFrame,
                     public nsIScrollPositionListener, 
                     public nsICanvasFrame {
 public:
-  CanvasFrame() : mDoPaintFocus(PR_FALSE) {}
+  CanvasFrame(nsStyleContext* aContext)
+  : nsHTMLContainerFrame(aContext), mDoPaintFocus(PR_FALSE) {}
 
    // nsISupports
   NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);
 
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
   NS_IMETHOD Destroy(nsPresContext* aPresContext);
 
@@ -155,9 +158,9 @@ private:
 //----------------------------------------------------------------------
 
 nsIFrame*
-NS_NewCanvasFrame(nsIPresShell* aPresShell)
+NS_NewCanvasFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell)CanvasFrame;
+  return new (aPresShell)CanvasFrame(aContext);
 }
 
 //--------------------------------------------------------------
@@ -187,10 +190,9 @@ CanvasFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
 NS_IMETHODIMP
 CanvasFrame::Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow)
 {
-  nsresult rv = nsHTMLContainerFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv = nsHTMLContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   mViewManager = GetPresContext()->GetViewManager();
 

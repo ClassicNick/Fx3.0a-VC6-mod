@@ -36,6 +36,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * A struct that represents the value (type and actual data) of an
+ * attribute.
+ */
+
 #ifndef nsAttrValue_h___
 #define nsAttrValue_h___
 
@@ -43,7 +48,6 @@
 #include "nsString.h"
 #include "nsStringBuffer.h"
 #include "nsColor.h"
-#include "nsCOMArray.h"
 #include "nsCaseTreatment.h"
 
 typedef unsigned long PtrBits;
@@ -52,6 +56,8 @@ class nsIAtom;
 class nsICSSStyleRule;
 class nsISVGValue;
 class nsIDocument;
+template<class E> class nsCOMArray;
+class nsVoidArray;
 
 #define NS_ATTRVALUE_MAX_STRINGLENGTH_ATOM 12
 

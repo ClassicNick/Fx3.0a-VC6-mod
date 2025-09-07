@@ -28,12 +28,13 @@
         ]]></getter>
         <setter><![CDATA[ 
           // Make sure the last result doesn't hold a reference to us anymore
-          var result = this.getResult();
-          if (result)
-            result.removeObserver(this._viewObserver);
+          var resultview = this.getResultView();
+          if (resultview)
+            resultview.removeViewObserver(this._viewObserver);
           this.treeBoxObject.view = val;
-          this.getResult().addObserver(this._viewObserver, false);
-        ]]></setter>        
+          val.QueryInterface(Ci.nsINavHistoryResultViewer).addViewObserver(
+            this._viewObserver, false);
+        ]]></setter>
       </property>
       
       <method name="getBestOptions">
@@ -89,10 +90,18 @@
         <body><![CDATA[ 
           // override with our local options
           options.excludeItems = this.excludeItems;
+          options.excludeQueries = this.excludeQueries;
           options.expandQueries = this.expandQueries;
           var result = this.history.executeQueries(queries, queries.length, 
                                                    options);
-          this.view = result.QueryInterface(Ci.nsITreeView);
+
+          var treeviewer = 
+              Cc["@mozilla.org/browser/nav-history/result-tree-viewer;1"].
+              createInstance(Ci.nsINavHistoryResultViewer);
+          result.viewer = treeviewer;
+
+          treeviewer.QueryInterface(Ci.nsITreeView);
+          this.view = treeviewer;
         ]]></body>
       </method>
       
@@ -159,15 +168,15 @@
           
           // Walk the list backwards (opening from the root of the hierarchy)
           // opening each folder as we go.
-          var result = this.getResult();
+          var resultview = this.getResultView();
           var view = this.view;
           for (var i = parents.length - 1; i >= 0; --i) {
-            var index = result.treeIndexForNode(parents[i]);
+            var index = resultview.treeIndexForNode(parents[i]);
             if (view.isContainer(index) && !view.isContainerOpen(index)) 
               view.toggleOpenState(index);
           }
           // Select the specified node...
-          index = result.treeIndexForNode(node);
+          index = resultview.treeIndexForNode(node);
           view.selection.select(index);
           // ... and ensure it's visible, not scrolled off somewhere. 
           this.treeBoxObject.ensureRowIsVisible(index);
@@ -178,7 +187,17 @@
       <method name="getResult">
         <body><![CDATA[
           try {
-            return this.view.QueryInterface(Ci.nsINavHistoryResult);
+            return this.view.QueryInterface(Ci.nsINavHistoryResultViewer).result;
+          }
+          catch (e) {
+            return null;
+          }
+        ]]></body>
+      </method>
+      <method name="getResultView">
+        <body><![CDATA[
+          try {
+            return this.view.QueryInterface(Ci.nsINavHistoryResultTreeViewer);
           }
           catch (e) {
           }
@@ -229,13 +248,13 @@
           var selection = this.view.selection;
           var rc = selection.getRangeCount();
           var nodes = [];
-          var result = this.getResult();
+          var resultview = this.getResultView();
           for (var i = 0; i < rc; ++i) {
             var min = { }, max = { };
             selection.getRangeAt(i, min, max);
             
             for (var j = min.value; j <= max.value; ++j)
-              nodes.push(result.nodeForTreeIndex(j));
+              nodes.push(resultview.nodeForTreeIndex(j));
           }
           return nodes;
         ]]></body>
@@ -270,7 +289,7 @@
           var selection = this.view.selection;
           var rc = selection.getRangeCount();
           var nodes = [];
-          var result = this.getResult();
+          var resultview = this.getResultView();
           // This list is kept independently of the range selected (i.e. OUTSIDE
           // the for loop) since the row index of a container is unique for the
           // entire view, and we could have some really wacky selection and we
@@ -285,7 +304,7 @@
               if (this.view.isContainer(j))
                 containers[j] = true;
               if (!(this.view.getParentIndex(j) in containers))
-                range.push(result.nodeForTreeIndex(j));
+                range.push(resultview.nodeForTreeIndex(j));
             }
             nodes.push(range);
           }
@@ -324,7 +343,7 @@
           var min = { }, max = { };
           selection.getRangeAt(0, min, max);
           
-          return this.getResult().nodeForTreeIndex(min.value);
+          return this.getResultView().nodeForTreeIndex(min.value);
         ]]></getter>
       </property>
       
@@ -340,7 +359,7 @@
           selection.getRangeAt(0, min, max);
 
           // only URI nodes should be returned
-          var node = this.getResult().nodeForTreeIndex(min.value);
+          var node = this.getResultView().nodeForTreeIndex(min.value);
           if (PlacesController.nodeIsURI(node))
             return node;
           return null;
@@ -350,31 +369,66 @@
       <!-- nsIPlacesView -->
       <property name="insertionPoint">
         <getter><![CDATA[
+          var orientation = NHRVO.DROP_AFTER;
+
+          // If there is no selection, insert at the end of the container. 
+          if (!this.hasSelection) {
+            var index = this.view.rowCount - 1;
+            return this._getInsertionPoint(index, orientation);
+          }
+
+          // This is a two-part process. The first part is determining the drop
+          // orientation. 
+          // * The default orientation is to drop _after_ the selected item. 
+          // * If the selected item is an open container, the default 
+          //   orientation is to drop _into_ that container.
+          // * If the selected item is in the system area, the default action
+          //   is to insert before the first user-editable item.
+          //
+          // Warning: It may be tempting to use tree indexes in this code, but
+          //          you must not, since the tree is nested and as your tree 
+          //          index may change when folders before you are opened and
+          //          closed. You must convert your tree index to a node, and
+          //          then use getIndexOfNode to find your absolute index in
+          //          the parent container instead. 
+          //
           var selection = this.view.selection;
           var rc = selection.getRangeCount();
           var min = { }, max = { };
           selection.getRangeAt(rc - 1, min, max);
           
-          // If an open container is selected, insert into the container rather
-          // than adjacent to it.
-          var orientation = NHRVO.DROP_AFTER;
-          if (this.view.isContainer(max.value) && 
+          var resultView = this.getResultView();
+          
+          // If the sole selection is an open container, insert into it rather 
+          // than adjacent to it. Note that this only applies to _single_ 
+          // selections - if the last element within a multi-selection is an
+          // open folder, insert _adajacent_ to the selection. 
+          if (this.hasSingleSelection && this.view.isContainer(max.value) && 
               this.view.isContainerOpen(max.value))
             orientation = NHRVO.DROP_ON;
-          
-          // If an item in the static region is selected, insert the new item 
-          // before the first drop index. 
-          var node = this.getResult().nodeForTreeIndex(max.value);
-          var container = asContainer(this.getResult().root);
-          var cc = container.childCount;
-          for (var i = 0; i < cc; ++i) {
-            if (container.getChild(i) == node && 
-                i < this.peerDropIndex) {
-              max.value = this.peerDropIndex;
-              orientation = NHRVO.DROP_BEFORE;
-              break;
+          else {
+            // If the selection is in the static "system" area, the insertion
+            // point is at the start of the user-editable area, i.e. before the
+            // first user editable item. This index (relative to the container, 
+            // not the tree) is defined in this.peerDropIndex. 
+            // We walk the list of top level ("system" area only applies to the
+            // top level) children, looking for the last selected node. If the
+            // last selected node is inside the "system" area, get the node for
+            // the first user editable item instead, compute its tree index, and
+            // insert _before_ that. 
+            node = resultView.nodeForTreeIndex(max.value);
+            var container = asContainer(this.getResult().root);
+            var cc = container.childCount;
+            for (var i = 0; i < cc; ++i) {
+              if (container.getChild(i) == node && 
+                  i < this.peerDropIndex) {
+                var firstUserChild = container.getChild(this.peerDropIndex);
+                max.value = resultView.treeIndexForNode(firstUserChild);
+                orientation = NHRVO.DROP_BEFORE;
+                break;
+              }
             }
-          } 
+          }
           return this._getInsertionPoint(max.value, orientation);
         ]]></getter>
       </property>
@@ -384,14 +438,14 @@
         <parameter name="orientation"/>
         <body><![CDATA[ 
           var result = this.getResult();
+          var resultview = this.getResultView();
           var container = result.root;
           NS_ASSERT(container, "null container");
           // When there's no selection, assume the container is the container
           // the view is populated from (i.e. the result's folderId).
           if (index != -1) {
-            var lastSelected = result.nodeForTreeIndex(index);
-            if (this.view.isContainer(index) && 
-                (this.view.isContainerOpen(index) || orientation == NHRVO.DROP_ON)) {
+            var lastSelected = resultview.nodeForTreeIndex(index);
+            if (resultview.isContainer(index) && orientation == NHRVO.DROP_ON) {
               // If the last selected item is an open container, append _into_
               // it, rather than insert adjacent to it. 
               container = lastSelected;
@@ -406,7 +460,9 @@
               index = orientation == NHRVO.DROP_BEFORE ? lsi : lsi + 1;
             }
           }
-          return new InsertionPoint(asFolder(container).folderId, index, orientation);
+          if (PlacesController.nodeIsFolder(container)) 
+            return new InsertionPoint(asFolder(container).folderId, index, orientation);
+          return null;
         ]]></body>
       </method>
       
@@ -421,6 +477,9 @@
       
       <!-- nsIPlacesView -->
       <field name="excludeItems">false</field>
+      
+      <!-- nsIPlacesView -->
+      <field name="excludeQueries">false</field>
       
       <!-- nsIPlacesView -->
       <field name="expandQueries">false</field>
@@ -532,11 +591,11 @@
           
           // For all the nodes we've found, highlight the corresponding
           // index in the tree.
-          var result = this.getResult();
+          var resultview = this.getResultView();
           var selection = this.view.selection;
           selection.clearSelection();
           for(idx in nodes) {
-            var index = result.treeIndexForNode(nodes[idx]);
+            var index = resultview.treeIndexForNode(nodes[idx]);
             selection.rangedSelect(index, index, true);
           }
         ]]></body>
@@ -572,7 +631,7 @@
             // "static" top level "special" items cannot be dragged. They are 
             // at the root level of the view and are at a lower index in the 
             // root container than user-configurable items. 
-            var treeIndex = this.getResult().treeIndexForNode(nodes[i]);
+            var treeIndex = this.getResultView().treeIndexForNode(nodes[i]);
             if (this.view.getLevel(treeIndex) == 0) {
               var index = PlacesController.getIndexOfNode(nodes[i]);
               if (index < this.peerDropIndex)
@@ -642,13 +701,45 @@
         <parameter name="insertionPoint"/>
         <parameter name="excludeItems"/>
         <body><![CDATA[ 
-          var folder = 
-            PlacesController.getFolderContents(insertionPoint.folderId,
-                                               excludeItems, false);
+          // The InsertionPoint defines a place within the view hierarchy where 
+          // items may be inserted. This function returns the node adjacent to 
+          // that point. In order to get the right node, we must enumerate the
+          // contents of the containing folder, but we cannot construct a new
+          // query for this, because if we do so the node will be a member of
+          // another result node (that constructed by |getFolderContents| say, 
+          // instead of the displayed tree view). So we need to walk the 
+          // children of the result to find the right folder. 
+          function findFolder(folderId, container) {
+            var wasOpen = container.containerOpen;
+            container.containerOpen = true;
+            var cc = container.childCount;
+            var foundNode = null;
+            for (var i = 0; i < cc; ++i) {
+              var node = container.getChild(i);
+              if (PlacesController.nodeIsFolder(node)) {
+                var folder = asFolder(node);
+                if (folder.folderId == folderId) {
+                  foundNode = node;
+                  break;
+                }
+                foundNode = findFolder(folderId, folder);
+                if (foundNode)
+                  break;
+              }
+            }
+            container.containerOpen = wasOpen;
+            return foundNode;
+          }
+          var folder = null;
+          var root = asContainer(this.getResult().root);
+          if (PlacesController.nodeIsFolder(root) && 
+              asFolder(root).folderId == insertionPoint.folderId)
+            folder = root;
+          else
+            folder = findFolder(insertionPoint.folderId, root);
+
           var index = insertionPoint.index;
-          if (insertionPoint.index == 0) 
-            index = 0;
-          else if (insertionPoint.index == -1 || insertionPoint.index >= folder.childCount)
+          if (insertionPoint.index == -1 || insertionPoint.index >= folder.childCount)
             index = folder.childCount - 1;
           NS_ASSERT(index < folder.childCount, 
                     "index out of range: " + index + " > " + folder);
@@ -674,7 +765,7 @@
           var node = this._getInsertionNode(insertionPoint, excludeItems);
           // This is the insertion index of the pivot. 
           if (node)
-            return this.getResult().treeIndexForNode(node);
+            return this.getResultView().treeIndexForNode(node);
           else if (insertionPoint.orientation == NHRVO.DROP_ON)
             return Ci.nsINavHistoryResult.INDEX_INVISIBLE;
           return -1;
@@ -686,7 +777,8 @@
         
         canDrop: function VO_canDrop(index, orientation) {
           var result = this._self.getResult();
-          var node = index != -1 ? result.nodeForTreeIndex(index) : result.root;
+          var resultview = this._self.getResultView();
+          var node = index != -1 ? resultview.nodeForTreeIndex(index) : result.root;
           // Cannot drop before fixed items in the list. 
           if (node.parent == result.root && 
               PlacesController.getIndexOfNode(node) < this._self.peerDropIndex &&
@@ -716,7 +808,7 @@
           
           // If the dropped items are invisible, we don't need to adjust the 
           // insertion point. 
-          if (index == Ci.nsINavHistoryResult.INDEX_INVISIBLE)
+          if (index == Ci.nsINavHistoryResultTreeViewer.INDEX_INVISIBLE)
             return;
         
           var selection = this._self.view.selection;
@@ -741,7 +833,7 @@
          */
         _getSourceView: function VO__getSourceView() {
           var session = this._getCurrentSession();
-          var sourceView = session.sourceNode.wrappedJSObject;
+          var sourceView = session.sourceNode;
           while (sourceView && sourceView.localName != "tree")
             sourceView = sourceView.parentNode;
           return sourceView;
@@ -772,9 +864,9 @@
           
           var sourceView = this._getSourceView();
           
-          // Determine how many items will be visible in the target view after
-          // the drop operation completes. This can be zero if all items are
-          // dropped into a closed folder.
+          // Determine how many items will be visibly inserted in the target 
+          // view after the drop operation completes. This can be zero if all 
+          // items are dropped into a closed folder.
           var session = this._getCurrentSession();
           var visibleInsertCount = session.numDropItems;
           if (orientation == NHRVO.DROP_ON &&
@@ -786,6 +878,8 @@
           // parameters into a container id and index within the container, 
           // since this information is specific to the tree view. 
           var ip = this._self._getInsertionPoint(index, orientation);
+          if (!ip)
+            throw Cr.NS_ERROR_NOT_AVAILABLE;
           if (sourceView == this._self) {
             // We are moving nodes within the same view, we need to adjust the
             // insertion point to take into account the fact that rows may

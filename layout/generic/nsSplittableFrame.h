@@ -34,6 +34,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * base class for rendering objects that can be split across lines,
+ * columns, or pages
+ */
+
 #ifndef nsSplittableFrame_h___
 #define nsSplittableFrame_h___
 
@@ -45,7 +51,6 @@ class nsSplittableFrame : public nsFrame
 public:
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
   
   NS_IMETHOD  IsSplittable(nsSplittableType& aIsSplittable) const;
@@ -101,6 +106,8 @@ public:
   static void BreakFromPrevFlow(nsIFrame* aFrame);
 
 protected:
+  nsSplittableFrame(nsStyleContext* aContext) : nsFrame(aContext) {}
+
 #ifdef DEBUG
   virtual void DumpBaseRegressionData(nsPresContext* aPresContext, FILE* out, PRInt32 aIndent, PRBool aIncludeStyleData);
 #endif

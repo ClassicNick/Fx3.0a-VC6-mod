@@ -35,11 +35,14 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * A class for handing out nodeinfos and ensuring sharing of them as needed.
+ */
+
 #ifndef nsNodeInfoManager_h___
 #define nsNodeInfoManager_h___
 
-#include "nsCOMArray.h"
-#include "nsCOMPtr.h"
+#include "nsCOMPtr.h" // for already_AddRefed
 #include "plhash.h"
 
 class nsIAtom;
@@ -148,7 +151,9 @@ private:
   PLHashTable *mNodeInfoHash;
   nsIDocument *mDocument; // WEAK
   nsIPrincipal *mPrincipal; // STRONG, but not nsCOMPtr to avoid include hell
-                            // while inlining of GetPrincipal()
+                            // while inlining of GetPrincipal().  Never null
+                            // after Init() succeeds.
+  nsCOMPtr<nsIPrincipal> mDefaultPrincipal; // Never null after Init() succeeds
   nsINodeInfo *mTextNodeInfo; // WEAK to avoid circular ownership
   nsINodeInfo *mCommentNodeInfo; // WEAK to avoid circular ownership
   nsINodeInfo *mDocumentNodeInfo; // WEAK to avoid circular ownership

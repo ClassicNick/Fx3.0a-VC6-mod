@@ -65,6 +65,11 @@ var PlacesOrganizer = {
     if ("arguments" in window)
       placeURI = window.arguments[0];
     selectPlaceURI(placeURI);
+    
+    // Initialize the active view so that all commands work properly without
+    // the user needing to explicitly click in a view (since the search box is
+    // focused by default). 
+    PlacesController.activeView = this._places;
 
     // Set up the search UI.
     PlacesSearchBox.init();
@@ -129,35 +134,36 @@ var PlacesOrganizer = {
    * Called when a place folder is selected in the left pane.
    */
   onPlaceSelected: function PP_onPlaceSelected(event) {
-    var node = asQuery(this._places.selectedNode);
-    if (!node)
+    if (!this._places.hasSelection)
       return;
+    var node = asQuery(this._places.selectedNode);
     LOG("NODEURI: " + node.uri);
-
     this._content.place = node.uri;
-
-    Groupers.setGroupingOptions(this._content.getResult(), true);
+    
+    Groupers.setGroupingOptions();
 
     this._setHeader("showing", node.title);
   },
-
-  /**
-   * Shows all subscribed feeds (Live Bookmarks) grouped under their parent 
-   * feed.
-   */
-  groupByFeed: function PP_groupByFeed() {
-    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
-    var sortingMode = Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
-    PlacesController.groupByAnnotation("livemark/feedURI", [], 0);
-  },
   
   /**
-   * Shows all subscribed feed (Live Bookmarks) content in a flat list
+   * Handle clicks on the tree. If the user middle clicks on a URL, load that 
+   * URL according to rules. Single clicks or modified clicks do not result in 
+   * any special action, since they're related to selection. 
+   * @param   event
+   *          The mouse event.
    */
-  groupByPost: function PP_groupByPost() {
-    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
-    var sortingMode = Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
-    PlacesController.groupByAnnotation("livemark/bookmarkFeedURI", [], 0);
+  onTreeClick: function PP_onURLClicked(event) {
+    var v = PlacesController.activeView;
+    if (v.hasSingleSelection && event.button == 1) {
+      if (PlacesController.nodeIsURI(v.selectedNode))
+        PlacesController.mouseLoadURI(event);
+      else if (PlacesController.nodeIsContainer(v.selectedNode)) {
+        // The command execution function will take care of seeing the 
+        // selection is a folder/container and loading its contents in 
+        // tabs for us. 
+        PlacesController.openLinksInTabs();
+      }
+    }
   },
   
   /**
@@ -176,6 +182,15 @@ var PlacesOrganizer = {
   getCurrentOptions: function PP_getCurrentOptions() {
     var result = this._content.getResult();
     return result.root.QueryInterface(Ci.nsINavHistoryQueryResultNode).queryOptions;
+  },
+  
+  /**
+   * Show the migration wizard for importing from a file.
+   */
+  importBookmarks: function PO_import() {
+    var features = "modal,centerscreen,chrome,resizable=no";
+    openDialog("chrome://browser/content/migration/migration.xul",
+               "", features, "bookmarks");
   }
 };
 
@@ -699,21 +714,28 @@ var ViewMenu = {
    *          the type of the menuitem, e.g. "radio" or "checkbox". 
    *          Can be null (no-type). 
    *          Checkboxes are checked if the column is visible.
+   * @param   labelFormat
+   *          A format string to be applied to item labels. If null, no format
+   *          is used. 
    */
-  fillWithColumns: function VM_fillWithColumns(event, startID, endID, type) {
+  fillWithColumns: function VM_fillWithColumns(event, startID, endID, type, labelFormat) {
     var popup = event.target;  
     var pivot = this._clean(popup, startID, endID);
     
     // If no column is "sort-active", the "Unsorted" item needs to be checked, 
     // so track whether or not we find a column that is sort-active. 
     var isSorted = false;
-    var content = document.getElementById("placeContent");      
+    var content = document.getElementById("placeContent");
+    var strings = document.getElementById("placeBundle");
     var columns = content.columns;
     for (var i = 0; i < columns.count; ++i) {
       var column = columns.getColumnAt(i).element;
       var menuitem = document.createElementNS(XUL_NS, "menuitem");
       menuitem.id = "menucol_" + column.id;
-      menuitem.setAttribute("label", column.getAttribute("label"));
+      var label = column.getAttribute("label");
+      if (labelFormat)
+        label = strings.getFormattedString(labelFormat, [label]);
+      menuitem.setAttribute("label", label);
       if (type == "radio") {
         menuitem.setAttribute("type", "radio");
         menuitem.setAttribute("name", "columns");
@@ -737,14 +759,14 @@ var ViewMenu = {
       else
         popup.appendChild(menuitem);      
     }
-    event.preventBubble();
+    event.stopPropagation();
   },
   
   /**
    * Set up the content of the view menu.
    */
   populate: function VM_populate(event) {
-    this.fillWithColumns(event, "viewUnsorted", "directionSeparator", "radio");  
+    this.fillWithColumns(event, "viewUnsorted", "directionSeparator", "radio", "sortByPrefix");
     
     var sortColumn = this._getSortColumn();
     var viewSortAscending = document.getElementById("viewSortAscending");
@@ -899,26 +921,27 @@ var Groupers = {
                          placeBundle.getString("defaultGroupOnAccesskey"),
                          placeBundle.getString("defaultGroupOffLabel"),
                          placeBundle.getString("defaultGroupOffAccesskey"),
-                         "PlacesOrganizer.groupBySite()",
-                         "PlacesOrganizer.groupByPage()");
+                         "Groupers.groupBySite()",
+                         "Groupers.groupByPage()");
     var subscriptionConfig = 
       new GroupingConfig("livemark/", placeBundle.getString("livemarkGroupOnLabel"),
                          placeBundle.getString("livemarkGroupOnAccesskey"),
                          placeBundle.getString("livemarkGroupOffLabel"),
                          placeBundle.getString("livemarkGroupOffAccesskey"),
-                         "PlacesOrganizer.groupByFeed()",
-                         "PlacesOrganizer.groupByPost()");
+                         "Groupers.groupByFeed()",
+                         "Groupers.groupByPost()");
     this.annotationGroupers.push(subscriptionConfig);
   },
   
   /**
    * Updates the grouping broadcasters for the given result. 
-   * @param   result
-   *          
-   * @param   on
-   *
    */
-  setGroupingOptions: function G_setGroupingOptions(result, on) {
+  setGroupingOptions: function G_setGroupingOptions() {
+    var result = PlacesOrganizer._content.getResult();
+    var query = asQuery(result.root);
+    var groupingsCountRef = { };
+    query.queryOptions.getGroupingMode(groupingsCountRef);
+
     var node = asQuery(result.root);
     
     var separator = document.getElementById("placesBC_grouping:separator");
@@ -960,16 +983,75 @@ var Groupers = {
       groupOff.setAttribute("accesskey", config.offAccesskey);
       groupOff.setAttribute("oncommand", config.offOncommand);
       // Update the checked state of the UI
-      if (on) {
-        groupOn.setAttribute("checked", "true");
-        groupOff.removeAttribute("checked");
-      }
-      else {
-        groupOff.setAttribute("checked", "true");
-        groupOn.removeAttribute("checked");
-      }
+      this.updateBroadcasters(groupingsCountRef.value > 0);
     }
-  }
+  },
+
+  /**
+   * Update the visual state of UI that controls grouping. 
+   */
+  updateBroadcasters: function PO_updateGroupingBroadcasters(on) {
+    var groupingOn = document.getElementById("placesBC_grouping:on");
+    var groupingOff = document.getElementById("placesBC_grouping:off");
+    if (on) {    
+      groupingOn.setAttribute("checked", "true");
+      groupingOff.removeAttribute("checked");
+    }
+    else {
+      groupingOff.setAttribute("checked", "true");
+      groupingOn.removeAttribute("checked");
+    }
+  },
+  
+  /**
+   * Shows visited pages grouped by site. 
+   */
+  groupBySite: function PO_groupBySite() {
+    var query = asQuery(PlacesOrganizer._content.getResult().root);
+    var queries = query.getQueries({ });
+    var options = query.queryOptions;
+    var newOptions = options.clone();
+    const NHQO = Ci.nsINavHistoryQueryOptions;
+    newOptions.setGroupingMode([NHQO.GROUP_BY_DOMAIN], 1);
+    PlacesOrganizer._content._load(queries, newOptions);
+    
+    this.updateBroadcasters(true);
+  },
+  
+  /**
+   * Shows visited pages without grouping. 
+   */
+  groupByPage: function PO_groupByPage() {
+    var query = asQuery(PlacesOrganizer._content.getResult().root);
+    var queries = query.getQueries({ });
+    var options = query.queryOptions;
+    var newOptions = options.clone();
+    newOptions.setGroupingMode([], 0);
+    PlacesOrganizer._content._load(queries, newOptions);
+
+    this.updateBroadcasters(false);
+  },
+
+  /**
+   * Shows all subscribed feeds (Live Bookmarks) grouped under their parent 
+   * feed.
+   */
+  groupByFeed: function PP_groupByFeed() {
+    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
+    var sortingMode = Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
+    PlacesController.groupByAnnotation("livemark/feedURI", [], 0);
+  },
+  
+  /**
+   * Shows all subscribed feed (Live Bookmarks) content in a flat list
+   */
+  groupByPost: function PP_groupByPost() {
+    var groupings = [Ci.nsINavHistoryQueryOptions.GROUP_BY_FOLDER];
+    var sortingMode = Ci.nsINavHistoryQueryOptions.SORT_BY_DATE_DESCENDING;
+    PlacesController.groupByAnnotation("livemark/bookmarkFeedURI", [], 0);
+  },
+  
+  
 };
 
 #include ../../../../toolkit/content/debug.js

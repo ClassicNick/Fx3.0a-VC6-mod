@@ -479,7 +479,7 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
     // "on top" window.
     {
       nsMouseEvent* mouseEvent = NS_STATIC_CAST(nsMouseEvent*, aEvent);
-      nsCOMPtr<nsIWidget> parentWidget = getter_AddRefs(mouseEvent->widget->GetParent());
+      nsIWidget* parentWidget = mouseEvent->widget->GetParent();
       nsPoint eventPoint;
       eventPoint = nsLayoutUtils::TranslateWidgetToView(aPresContext,
                                                         mouseEvent->widget,
@@ -800,7 +800,7 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
       if (!focusedWindow)
         focusedWindow = win;
 
-      NS_WARN_IF_FALSE(focusedWindow,"check why focusedWindow is null!!!");
+      NS_ASSERTION(focusedWindow,"check why focusedWindow is null!!!");
 
       // Focus the DOM window.
       if (focusedWindow) {
@@ -1462,7 +1462,7 @@ void
 nsEventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
                                          nsMouseEvent *aEvent)
 {
-  NS_WARN_IF_FALSE(aPresContext, "This shouldn't happen.");
+  NS_ASSERTION(aPresContext, "This shouldn't happen.");
   if ( IsTrackingDragGesture() ) {
     mCurrentTarget = aPresContext->GetPresShell()->GetPrimaryFrameFor(mGestureDownFrameOwner);
 

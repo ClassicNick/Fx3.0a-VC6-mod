@@ -208,7 +208,7 @@ nsLoadCollector::OnStateChange(nsIWebProgress *webProgress,
     nsHashPropertyBag *props = entry.properties;
 
     rv = nsMetricsUtils::PutUint16(props, NS_LITERAL_STRING("window"),
-                                   nsWindowCollector::GetWindowID(window));
+                                   nsMetricsService::GetWindowID(window));
     NS_ENSURE_SUCCESS(rv, rv);
 
     if (flags & STATE_RESTORING) {
@@ -256,8 +256,13 @@ nsLoadCollector::OnStateChange(nsIWebProgress *webProgress,
   } else if (flags & STATE_STOP) {
     RequestEntry entry;
     if (mRequestMap.Get(request, &entry)) {
-      nsHashPropertyBag *props = entry.properties;
+      // Log a <document action="load"> event
 
+      nsHashPropertyBag *props = entry.properties;
+      rv = props->SetPropertyAsACString(NS_LITERAL_STRING("action"),
+                                        NS_LITERAL_CSTRING("load"));
+      NS_ENSURE_SUCCESS(rv, rv);
+      
       // Compute the load time now that we have the end time.
       PRInt64 loadTime = (PR_Now() - entry.startTime) / PR_USEC_PER_MSEC;
       rv = props->SetPropertyAsUint64(NS_LITERAL_STRING("loadtime"), loadTime);
@@ -272,7 +277,7 @@ nsLoadCollector::OnStateChange(nsIWebProgress *webProgress,
       }
 
       nsMetricsService *ms = nsMetricsService::get();
-      rv = ms->LogEvent(NS_LITERAL_STRING("load"), props);
+      rv = ms->LogEvent(NS_LITERAL_STRING("document"), props);
 
       mRequestMap.Remove(request);
       NS_ENSURE_SUCCESS(rv, rv);
@@ -318,30 +323,26 @@ nsLoadCollector::OnSecurityChange(nsIWebProgress *webProgress,
 }
 
 /* static */ nsresult
-nsLoadCollector::Startup()
+nsLoadCollector::SetEnabled(PRBool enabled)
 {
-  if (sLoadCollector)
-    return NS_OK;
+  if (enabled) {
+    if (!sLoadCollector) {
+      sLoadCollector = new nsLoadCollector();
+      NS_ENSURE_TRUE(sLoadCollector, NS_ERROR_OUT_OF_MEMORY);
+      NS_ADDREF(sLoadCollector);
 
-  sLoadCollector = new nsLoadCollector();
-  NS_ENSURE_TRUE(sLoadCollector, NS_ERROR_OUT_OF_MEMORY);
-  NS_ADDREF(sLoadCollector);
-
-  nsresult rv = sLoadCollector->Init();
-  if (NS_FAILED(rv)) {
-    NS_RELEASE(sLoadCollector);
-    return rv;
+      nsresult rv = sLoadCollector->Init();
+      if (NS_FAILED(rv)) {
+        MS_LOG(("Failed to initialize the load collector"));
+        NS_RELEASE(sLoadCollector);
+        return rv;
+      }
+    }
+  } else {
+    NS_IF_RELEASE(sLoadCollector);
+    GetMemUsage_Shutdown();
   }
-
   return NS_OK;
-}
-
-/* static */ void
-nsLoadCollector::Shutdown()
-{
-  NS_RELEASE(sLoadCollector);
-
-  GetMemUsage_Shutdown();
 }
 
 nsresult

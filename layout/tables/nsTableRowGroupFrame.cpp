@@ -57,7 +57,8 @@
 
 #include "nsCellMap.h"//table cell navigation
 
-nsTableRowGroupFrame::nsTableRowGroupFrame()
+nsTableRowGroupFrame::nsTableRowGroupFrame(nsStyleContext* aContext):
+  nsHTMLContainerFrame(aContext)
 {
   SetRepeatable(PR_FALSE);
 #ifdef DEBUG_TABLE_REFLOW_TIMING
@@ -1017,10 +1018,9 @@ nsTableRowGroupFrame::SplitRowGroup(nsPresContext*          aPresContext,
   if (!aPresContext->IsPaginated())
     return  NS_ERROR_NOT_IMPLEMENTED;
   // get the page height
-  nsRect actualRect;
-  nsRect adjRect;
-  aPresContext->GetPageDim(&actualRect, &adjRect);
-  nscoord pageHeight = actualRect.height;
+  nscoord pageHeight = aPresContext->GetPageSize().height;
+  NS_ASSERTION(pageHeight != NS_UNCONSTRAINEDSIZE, 
+               "The table shouldn't be split when there should be space");
 
   PRBool isTopOfPage = aReflowState.mFlags.mIsTopOfPage;
   nsTableRowFrame* firstRowThisPage = GetFirstRow();
@@ -1061,8 +1061,8 @@ nsTableRowGroupFrame::SplitRowGroup(nsPresContext*          aPresContext,
           if ((rowMetrics.height <= rowReflowState.availableHeight) || isTopOfPage) {
             // The row stays on this page because either it split ok or we're on the top of page.
             // If top of page and the height exceeded the avail height, then there will be data loss
-            NS_WARN_IF_FALSE(rowMetrics.height <= rowReflowState.availableHeight, 
-                            "data loss - incomplete row needed more height than available, on top of page");
+            NS_ASSERTION(rowMetrics.height <= rowReflowState.availableHeight, 
+                         "data loss - incomplete row needed more height than available, on top of page");
             CreateContinuingRowFrame(*aPresContext, *rowFrame, (nsIFrame**)&contRow);
             if (contRow) {
               aDesiredSize.height += rowMetrics.height;
@@ -1770,21 +1770,18 @@ nsTableRowGroupFrame::GetType() const
 /* ----- global methods ----- */
 
 nsIFrame*
-NS_NewTableRowGroupFrame(nsIPresShell* aPresShell)
+NS_NewTableRowGroupFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsTableRowGroupFrame;
+  return new (aPresShell) nsTableRowGroupFrame(aContext);
 }
 
 NS_IMETHODIMP
 nsTableRowGroupFrame::Init(nsIContent*      aContent,
                            nsIFrame*        aParent,
-                           nsStyleContext*  aContext,
                            nsIFrame*        aPrevInFlow)
 {
-  nsresult  rv;
-
   // Let the base class do its processing
-  rv = nsHTMLContainerFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv = nsHTMLContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   // record that children that are ignorable whitespace should be excluded 
   mState |= NS_FRAME_EXCLUDE_IGNORABLE_WHITESPACE;

@@ -66,6 +66,7 @@
 #import "DraggableImageAndTextCell.h"
 #import "MVPreferencesController.h"
 #import "ViewCertificateDialogController.h"
+#import "ExtendedSplitView.h"
 #import "wallet.h"
 
 #include "nsString.h"
@@ -142,6 +143,7 @@ const float kMininumURLAndSearchBarWidth = 128.0;
 
 static NSString* const NavigatorWindowFrameSaveName = @"NavigatorWindow";
 static NSString* const NavigatorWindowSearchBarWidth = @"SearchBarWidth";
+static NSString* const NavigatorWindowSearchBarHidden = @"SearchBarHidden";
 
 static NSString* const kViewSourceProtocolString = @"view-source:";
 const unsigned long kNoToolbarsChromeMask = (nsIWebBrowserChrome::CHROME_ALL & ~(nsIWebBrowserChrome::CHROME_TOOLBAR |
@@ -588,10 +590,12 @@ enum BWCOpenDest {
   if (mShouldAutosave) {
     [[self window] saveFrameUsingName: NavigatorWindowFrameSaveName];
     
-    // save the width of the search bar so it's consistent regardless of the
+    // save the width and visibility of the search bar so it's consistent regardless of the
     // size of the next window we create
     const float searchBarWidth = [mSearchBar frame].size.width;
     [[NSUserDefaults standardUserDefaults] setFloat:searchBarWidth forKey:NavigatorWindowSearchBarWidth];
+    BOOL isCollapsed = [mLocationToolbarView isSubviewCollapsed:mSearchBar];
+    [[NSUserDefaults standardUserDefaults] setBool:isCollapsed forKey:NavigatorWindowSearchBarHidden];
   }
 }
 
@@ -714,6 +718,7 @@ enum BWCOpenDest {
   [self stopThrobber];
   [mThrobberImages release];
   [mURLFieldEditor release];
+  [mLocationToolbarView release];
 
   delete mDataOwner;    // paranoia; should have been deleted in -windowWillClose
 
@@ -730,6 +735,15 @@ enum BWCOpenDest {
 {
     [super windowDidLoad];
 
+    // we shouldn't have to do this, yet for some reason removing it from
+    // the toolbar destroys the view. However, this also helps us by ensuring
+    // that we always have a search bar alive to do things with, like redirect
+    // context menu searches to.
+    [mLocationToolbarView retain];
+    // explicitly don't save the splitter position, we want to save it oursevles
+    // since we want a different behavior.
+    [mLocationToolbarView setAutosaveSplitterPosition:NO];
+    
     BOOL mustResizeChrome = NO;
     
     // hide the resize control if specified by the chrome mask
@@ -805,17 +819,23 @@ enum BWCOpenDest {
 
     [self setupToolbar];
 
-    // set the size of the search bar to the width it was last time
-    float searchBarWidth = [[NSUserDefaults standardUserDefaults] floatForKey:NavigatorWindowSearchBarWidth];
-    if (searchBarWidth <= 0)
-      searchBarWidth = kMininumURLAndSearchBarWidth;
-    const float currentWidth = [mLocationToolbarView frame].size.width;
-    float newDividerPosition = currentWidth - searchBarWidth - [mLocationToolbarView dividerThickness];
-    if (newDividerPosition < kMininumURLAndSearchBarWidth)
-      newDividerPosition = kMininumURLAndSearchBarWidth;
-    [mLocationToolbarView setLeftWidth:newDividerPosition];
-    [mLocationToolbarView adjustSubviews];
-
+    // set the size of the search bar to the width it was last time and hide it
+    // programmatically if it wasn't visible
+    BOOL searchBarHidden = [[NSUserDefaults standardUserDefaults] boolForKey:NavigatorWindowSearchBarHidden];
+    if (searchBarHidden)
+      [mLocationToolbarView collapseSubviewAtIndex:1];
+    else {
+      float searchBarWidth = [[NSUserDefaults standardUserDefaults] floatForKey:NavigatorWindowSearchBarWidth];
+      if (searchBarWidth <= 0)
+        searchBarWidth = kMininumURLAndSearchBarWidth;
+      const float currentWidth = [mLocationToolbarView frame].size.width;
+      float newDividerPosition = currentWidth - searchBarWidth - [mLocationToolbarView dividerThickness];
+      if (newDividerPosition < kMininumURLAndSearchBarWidth)
+        newDividerPosition = kMininumURLAndSearchBarWidth;
+      [mLocationToolbarView setLeftWidth:newDividerPosition];
+      [mLocationToolbarView adjustSubviews];
+    }
+    
     // set up autohide behavior on tab browser and register for changes on that pref. The
     // default is for it to hide when only 1 tab is visible, so if no pref is found, it will
     // be NO, and that works. However, if any of the JS chrome flags are set, we don't want
@@ -1379,12 +1399,12 @@ enum BWCOpenDest {
 // -splitView:canCollapseSubview:
 // NSSplitView delegate
 // 
-// We don't want to allow the user to collapse either the url bar or the search bar
+// Allow the user (read: smokey) to collapse the search bar but not the url bar.
 //
 - (BOOL)splitView:(NSSplitView *)sender canCollapseSubview:(NSView *)subview
 {
   if (sender == mLocationToolbarView)
-    return NO;
+    return (subview == mSearchBar);
   return YES;
 }
 
@@ -1768,26 +1788,10 @@ enum BWCOpenDest {
 //
 - (void)performAppropriateSearchAction
 {
-  NSToolbar *toolbar = [[self window] toolbar];
-  if ( [toolbar isVisible] )
-  {
-    if ( ([[[self window] toolbar] displayMode] == NSToolbarDisplayModeIconAndLabel) ||
-         ([[[self window] toolbar] displayMode] == NSToolbarDisplayModeIconOnly) )
-    {
-      NSArray *itemsWeCanSee = [toolbar visibleItems];
-
-      for (unsigned int i = 0; i < [itemsWeCanSee count]; i++)
-      {
-        if ([[[itemsWeCanSee objectAtIndex:i] itemIdentifier] isEqual:CombinedLocationToolbarItemIdentifier])
-        {
-          [self focusSearchBar];
-          return;
-        }
-      }
-    }
-  }
-
-  [self beginSearchSheet];
+  if ([mSearchBar window] && ![mLocationToolbarView isSubviewCollapsed:mSearchBar])
+    [self focusSearchBar];
+  else 
+    [self beginSearchSheet];
 }
 
 - (void)focusSearchBar
@@ -1974,14 +1978,14 @@ enum BWCOpenDest {
 
 - (IBAction)viewSource:(id)aSender
 {
-  BOOL loadInBackground = ((GetCurrentKeyModifiers() & shiftKey) != 0);
+  BOOL loadInBackground = (([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask) != 0);
   NSString* urlStr = [[mBrowserView getBrowserView] getFocusedURLString];
   [self loadSourceOfURL:urlStr inBackground:loadInBackground];
 }
 
 - (IBAction)viewPageSource:(id)aSender
 {
-  BOOL loadInBackground = ((GetCurrentKeyModifiers() & shiftKey) != 0);
+  BOOL loadInBackground = (([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask) != 0);
   NSString* urlStr = [[mBrowserView getBrowserView] getCurrentURI];
   [self loadSourceOfURL:urlStr inBackground:loadInBackground];
 }
@@ -2001,6 +2005,22 @@ enum BWCOpenDest {
   // If we have a valid SearchTextField, perform a search using its contents
   if ([aSender isKindOfClass:[SearchTextField class]]) 
     [self performSearch:(SearchTextField *)aSender inView:kDestinationCurrentView inBackground:NO];
+}
+
+//
+// -searchForSelection:
+//
+// Get the selection, stick it into the search bar, and do a search with the
+// currently selected search engine in the search bar. If there is no search
+// bar in the toolbar, that's still ok because we've guaranteed that we always
+// have a search bar even if it's not on a toolbar.
+//
+- (IBAction)searchForSelection:(id)aSender
+{
+  NSString* selection = [[mBrowserView getBrowserView] getSelection];
+  [mSearchBar becomeFirstResponder];
+  [mSearchBar setStringValue:selection];
+  [self performSearch:mSearchBar];
 }
 
 //
@@ -2105,9 +2125,15 @@ enum BWCOpenDest {
 
   [[self getBrowserWrapper] getTitle:&titleString andHref:&urlString];
   
-  if (!titleString) titleString = @"";
-  if (!urlString)   urlString   = @"";
-  
+  if (!urlString)
+    return;
+
+  if (!titleString)
+    titleString = @"";
+
+  // put < > around the URL to minimise problems when e-mailing
+  urlString = [NSString stringWithFormat:@"<%@>", urlString];
+
   // we need to encode entities in the title and url strings first. For some reason
   // CFURLCreateStringByAddingPercentEscapes is only happy with UTF-8 strings.
   CFStringRef urlUTF8String   = CFStringCreateWithCString(kCFAllocatorDefault, [urlString   UTF8String], kCFStringEncodingUTF8);
@@ -2141,12 +2167,13 @@ enum BWCOpenDest {
   if (!linkContent || href.IsEmpty())
     return;
   
-  NSString* urlString = [NSString stringWith_nsAString: href];
+  // put < > around the URL to minimise problems when e-mailing
+  NSString* urlString = [NSString stringWithFormat:@"<%@>", [NSString stringWith_nsAString:href]];
   
   // we need to encode entities in the title and url strings first. For some reason
   // CFURLCreateStringByAddingPercentEscapes is only happy with UTF-8 strings.
-  CFStringRef urlUTF8String   = CFStringCreateWithCString(kCFAllocatorDefault, [urlString   UTF8String], kCFStringEncodingUTF8);
-  CFStringRef escapedURL   = CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, urlUTF8String,   NULL, CFSTR("&?="), kCFStringEncodingUTF8);
+  CFStringRef urlUTF8String = CFStringCreateWithCString(kCFAllocatorDefault, [urlString UTF8String], kCFStringEncodingUTF8);
+  CFStringRef escapedURL    = CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, urlUTF8String, NULL, CFSTR("&?="), kCFStringEncodingUTF8);
   
   NSString* mailtoURLString = [NSString stringWithFormat:@"mailto:?body=%@", (NSString*)escapedURL];
   
@@ -2471,7 +2498,7 @@ enum BWCOpenDest {
 {
   unsigned int reloadFlags = NSLoadFlagsNone;
   
-  if (([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask) != 0)
+  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
     reloadFlags = NSLoadFlagsBypassCacheAndProxy;
   
   [[mBrowserView getBrowserView] reload: reloadFlags];
@@ -2823,7 +2850,7 @@ enum BWCOpenDest {
 - (IBAction)reloadAllTabs:(id)sender
 {
   unsigned int reloadFlags = NSLoadFlagsNone;
-  if (([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask) != 0)
+  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
     reloadFlags = NSLoadFlagsBypassCacheAndProxy;
 
   NSEnumerator* tabsEnum = [[mTabBrowser tabViewItems] objectEnumerator];
@@ -3014,21 +3041,21 @@ enum BWCOpenDest {
     BrowserTabViewItem* tabViewItem = nil;
     
     if (tabPolicy == eReplaceTabs && i < curNumTabs)
-      tabViewItem = [mTabBrowser tabViewItemAtIndex: i];
+      tabViewItem = (BrowserTabViewItem*)[mTabBrowser tabViewItemAtIndex:i];
     else if (tabPolicy == eReplaceFromCurrentTab && selectedTabIndex < curNumTabs)
-      tabViewItem = [mTabBrowser tabViewItemAtIndex: selectedTabIndex++];
+      tabViewItem = (BrowserTabViewItem*)[mTabBrowser tabViewItemAtIndex:selectedTabIndex++];
     else
     {
       tabViewItem = [self createNewTabItem];
-      [tabViewItem setLabel: NSLocalizedString(@"UntitledPageTitle", @"")];
-      [mTabBrowser addTabViewItem: tabViewItem];
+      [tabViewItem setLabel:NSLocalizedString(@"UntitledPageTitle", @"")];
+      [mTabBrowser addTabViewItem:tabViewItem];
     }
     
     if (!tabViewToSelect)
       tabViewToSelect = tabViewItem;
 
-    [[tabViewItem view] loadURI: thisURL referrer:nil
-                          flags: NSLoadFlagsNone activate:(i == 0) allowPopups:inAllowPopups];
+    [[tabViewItem view] loadURI:thisURL referrer:nil
+                          flags:NSLoadFlagsNone activate:(i == 0) allowPopups:inAllowPopups];
   }
   
   // if we replace all tabs (because we opened a tab group), or we open additional tabs
@@ -3184,26 +3211,27 @@ enum BWCOpenDest {
   return @"";
 }
 
+//
 // Determine if the node the context menu has been invoked for is an <a> node
-// indicating a mailto: link. If so return the indicated e-mail address
-// otherwise return nil
-- (NSString*)getMailAddressFromContextMenuLinkNode
+// indicating a mailto: link. If so return an array containing the e-mail addresses
+// in the link. Otherwise return nil.
+//
+- (NSArray*)mailAddressesInContextMenuLinkNode
 {
   NSString* hrefStr = [self getContextMenuNodeHrefText];
   
   if ([hrefStr hasPrefix:@"mailto:"]) {
     NSString* linkTargetText = [hrefStr substringFromIndex:7];
     
-    // mailto: links can contain arguments (after '?') and/or multiple e-mail
-    // addresses (comma separated). We want just the first e-mail address.
-    NSRange separatorRange = [linkTargetText rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@",?"]];
+    // mailto: links can contain arguments (after '?')
+    NSRange separatorRange = [linkTargetText rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"?"]];
     
     if (separatorRange.length != 0)
       linkTargetText = [linkTargetText substringToIndex:separatorRange.location];
       
-    return linkTargetText;
+    return [linkTargetText componentsSeparatedByString:@","];
   }
-  
+
   return nil;
 }
 
@@ -3212,7 +3240,7 @@ enum BWCOpenDest {
 // open the address book at the record containing it.
 - (IBAction)addToAddressBook:(id)aSender
 {
-  NSString* emailAddress = [self getMailAddressFromContextMenuLinkNode];
+  NSString* emailAddress = [aSender representedObject];
   if (emailAddress) {
     ABAddressBook* abook = [ABAddressBook sharedAddressBook];
     if ([abook emailAddressExistsInAddressBook:emailAddress] )
@@ -3222,11 +3250,11 @@ enum BWCOpenDest {
   }
 }
 
-// Copy the e-mail address from the mailto: link of the context menu node
+// Copy the e-mail address(es) from the mailto: link of the context menu node
 // onto the clipboard.
 - (IBAction)copyAddressToClipboard:(id)aSender
 {
-  NSString* emailAddress = [self getMailAddressFromContextMenuLinkNode];
+  NSString* emailAddress = [[self mailAddressesInContextMenuLinkNode] componentsJoinedByString:@","];
   
   if (emailAddress) {
     NSPasteboard* clipboard = [NSPasteboard generalPasteboard];
@@ -3238,16 +3266,30 @@ enum BWCOpenDest {
   }
 }
 
-- (void)prepareAddToAddressBookMenuItem:(NSMenuItem*)addToAddressBookItem address:(NSString*)emailAddress
+//
+// Create a menu item to add/open the specified e-mail address to Address Book
+//
+- (NSMenuItem*)prepareAddToAddressBookMenuItem:(NSString*)emailAddress
 {
-  if ([[ABAddressBook sharedAddressBook] emailAddressExistsInAddressBook:emailAddress]) {
-    NSString* realName = [[ABAddressBook sharedAddressBook] getRealNameForEmailAddress:[self getMailAddressFromContextMenuLinkNode]];
-    [addToAddressBookItem setTitle:[NSString stringWithFormat:NSLocalizedString(@"Open %@ in Address Book", @""), realName != nil ? realName : @""]];
+  NSMenuItem* addToAddressBookItem = nil;
+
+  if ([emailAddress length] > 0) {
+    addToAddressBookItem = [[NSMenuItem alloc] init];
+
+    if ([[ABAddressBook sharedAddressBook] emailAddressExistsInAddressBook:emailAddress]) {
+      NSString* realName = [[ABAddressBook sharedAddressBook] getRealNameForEmailAddress:emailAddress];
+      [addToAddressBookItem setTitle:[NSString stringWithFormat:NSLocalizedString(@"Open %@ in Address Book", @""), realName != nil ? realName : @""]];
+    } else {
+      [addToAddressBookItem setTitle:[NSString stringWithFormat:NSLocalizedString(@"Add %@ to Address Book", @""), emailAddress]];
+    }
+
     [addToAddressBookItem setEnabled:YES];
-  } else {
-    [addToAddressBookItem setTitle:NSLocalizedString(@"Add to Address Book", @"")];
-    [addToAddressBookItem setEnabled:([emailAddress length] > 0) ];
+    [addToAddressBookItem setRepresentedObject:emailAddress];
+    [addToAddressBookItem setAction:@selector(addToAddressBook:)];
+    [addToAddressBookItem autorelease];
   }
+  
+  return addToAddressBookItem;
 }
 
 - (NSMenu*)getContextMenu
@@ -3260,23 +3302,26 @@ enum BWCOpenDest {
   NSMenu* menuPrototype = nil;
   int contextMenuFlags = mDataOwner->mContextMenuFlags;
   
+  NSArray* emailAddresses = nil;
+  unsigned numEmailAddresses = 0;
+
+  BOOL hasSelection = [[mBrowserView getBrowserView] canCopy];
+
   if ((contextMenuFlags & nsIContextMenuListener::CONTEXT_LINK) != 0)
   {
-    NSString* emailAddress = [self getMailAddressFromContextMenuLinkNode];
-    
+    emailAddresses = [self mailAddressesInContextMenuLinkNode];
+    if (emailAddresses != nil)
+      numEmailAddresses = [emailAddresses count];
+
     if ((contextMenuFlags & nsIContextMenuListener::CONTEXT_IMAGE) != 0) {
-      if (emailAddress) {
-        [self prepareAddToAddressBookMenuItem:mAddToAddressBook2 address:emailAddress];
+      if (numEmailAddresses > 0)
         menuPrototype = mImageMailToLinkMenu;
-      } 
       else
         menuPrototype = mImageLinkMenu;
     } 
     else {
-      if (emailAddress) {
-        [self prepareAddToAddressBookMenuItem:mAddToAddressBook address:emailAddress];
+      if (numEmailAddresses > 0)
         menuPrototype = mMailToLinkMenu;
-      } 
       else
         menuPrototype = mLinkMenu;
     }
@@ -3293,11 +3338,11 @@ enum BWCOpenDest {
     // show the document menu. This prevents us from failing to find a case
     // and not showing the context menu.
     menuPrototype = mPageMenu;
-    [mBackItem 		setEnabled: [[mBrowserView getBrowserView] canGoBack]];
+    [mBackItem    setEnabled: [[mBrowserView getBrowserView] canGoBack]];
     [mForwardItem setEnabled: [[mBrowserView getBrowserView] canGoForward]];
-    [mCopyItem		setEnabled: [[mBrowserView getBrowserView] canCopy]];
+    [mCopyItem		setEnabled:hasSelection];
   }
-  
+    
   if (mDataOwner->mContextMenuNode) {
     nsCOMPtr<nsIDOMDocument> ownerDoc;
     mDataOwner->mContextMenuNode->GetOwnerDocument(getter_AddRefs(ownerDoc));
@@ -3315,8 +3360,17 @@ enum BWCOpenDest {
   // our only copy of the menu
   NSMenu* result = [[menuPrototype copy] autorelease];
 
-  const int kFrameRelatedItemsTag 			= 100;
-  const int kFrameInapplicableItemsTag 	= 101;
+  const int kFrameRelatedItemsTag = 100;
+  const int kFrameInapplicableItemsTag = 101;
+  const int kSelectionRelatedItemsTag = 102;
+  
+  // if there's no selection or no search bar in the toolbar, hide the search item.
+  // We need a search item to know what the user's preferred search is.
+  if (!hasSelection) {
+    NSMenuItem* selectionItem;
+    while ((selectionItem = [result itemWithTag:kSelectionRelatedItemsTag]) != nil)
+      [result removeItem:selectionItem];
+  }
   
   if (showFrameItems) {
     NSMenuItem* frameItem;
@@ -3327,6 +3381,18 @@ enum BWCOpenDest {
     NSMenuItem* frameItem;
     while ((frameItem = [result itemWithTag:kFrameRelatedItemsTag]) != nil)
       [result removeItem:frameItem];
+  }
+  
+  // Add items to add/open each e-mail address in a mailto: link and
+  // change "address" to the plural form if necessary
+  if (numEmailAddresses > 0) {
+    for (signed i = (signed) numEmailAddresses - 1; i >= 0 ; --i) {
+      NSMenuItem* item = [self prepareAddToAddressBookMenuItem:[emailAddresses objectAtIndex:i]];
+      if (item)
+        [result insertItem:item atIndex:1];
+    }
+    if (numEmailAddresses > 1)
+      [[result itemWithTarget:self andAction:@selector(copyAddressToClipboard:)] setTitle:NSLocalizedString(@"Copy Addresses", @"")];
   }
   
   return result;

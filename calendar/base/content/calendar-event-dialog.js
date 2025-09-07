@@ -42,6 +42,8 @@ var gReadOnlyMode = false;
 // load/check the stuff in this area, because it hasn't changed.
 var gDetailsShown = false;
 
+var gItemDuration;
+
 /* dialog stuff */
 function onLoad()
 {
@@ -131,11 +133,13 @@ function loadDialog(item)
     if (isEvent(item)) {
         var startDate = item.startDate.getInTimezone(kDefaultTimezone);
         var endDate = item.endDate.getInTimezone(kDefaultTimezone);
+        gItemDuration = endDate.subtractDate(startDate);
         
         // Check if an all-day event has been passed in (to adapt endDate).
         if (startDate.isDate) {
             setElementValue("event-all-day", true, "checked");
             endDate.day -= 1;
+            gItemDuration.days -= 1;
 
             // The date/timepicker uses jsDate internally. Because jsDate does
             // not know the concept of dates we end up displaying times unequal
@@ -162,6 +166,9 @@ function loadDialog(item)
         setElementValue("todo-has-duedate", hasDueDate, "checked");
         if (hasDueDate)
             setElementValue("todo-duedate", item.dueDate.jsDate);
+        if (hasEntryDate && hasDueDate) {
+            gItemDuration = item.dueDate.subtractDate(item.entryDate);
+        }
         document.getElementById("component-type").selectedIndex = 1;
     }
 
@@ -297,6 +304,17 @@ function saveDialog(item)
             dueDate = dueDate.getInTimezone(kDefaultTimezone);
         }
         setItemProperty(item, "dueDate",     dueDate);
+
+        var percentCompleteInteger = 0;
+        if (getElementValue("percent-complete-textbox") != "") {
+            percentCompleteInteger = parseInt(getElementValue("percent-complete-textbox"));
+        }
+        if (percentCompleteInteger < 0) {
+            percentCompleteInteger = 0;
+        } else if (percentCompleteInteger > 100) {
+            percentCompleteInteger = 100;
+        }
+        setItemProperty(item, "PERCENT-COMPLETE", percentCompleteInteger);
     }
 
     /* recurrence */
@@ -332,6 +350,9 @@ function saveDialog(item)
         status = getElementValue("event-status");
     } else {
         status = getElementValue("todo-status");
+        if (status != "COMPLETED") {
+            item.completedDate = null;
+        }
     }
 
     setItemProperty(item, "STATUS",   status);
@@ -341,8 +362,6 @@ function saveDialog(item)
     if (item.status == "COMPLETED" && isToDo(item)) {
         item.completedDate = jsDateToDateTime(getElementValue("completed-date-picker"));
     }
-
-    setItemProperty(item, "PERCENT-COMPLETE", getElementValue("percent-complete-menulist"));
 
     /* attendence */
     item.removeAllAttendees();
@@ -420,6 +439,51 @@ function updateStyle()
     }
 }
 
+function onStartTimeChange()
+{
+    if (!gItemDuration) {
+        return;
+    }
+    var startWidgetId;
+    var endWidgetId;
+    if (isEvent(window.calendarItem)) {
+        startWidgetId = "event-starttime";
+        endWidgetId = "event-endtime";
+    } else {
+        if (!getElementValue("todo-has-entrydate", "checked") || !getElementValue("todo-has-duedate", "checked")) {
+            gItemDuration = null;
+            return;
+        }
+        startWidgetId = "todo-entrydate";
+        endWidgetId = "todo-duedate";
+    }
+    var start = jsDateToDateTime(getElementValue(startWidgetId));
+    start.addDuration(gItemDuration);
+    setElementValue(endWidgetId, start.getInTimezone(calendarDefaultTimezone()).jsDate);
+    updateAccept();
+}
+
+function onEndTimeChange()
+{
+    var startWidgetId;
+    var endWidgetId;
+    if (isEvent(window.calendarItem)) {
+        startWidgetId = "event-starttime";
+        endWidgetId = "event-endtime";
+    } else {
+        if (!getElementValue("todo-has-entrydate", "checked") || 
+            !getElementValue("todo-has-duedate", "checked")) {
+            gItemDuration = null;
+            return;
+        }
+        startWidgetId = "todo-entrydate";
+        endWidgetId = "todo-duedate";
+    }
+    var start = jsDateToDateTime(getElementValue(startWidgetId));
+    var end = jsDateToDateTime(getElementValue(endWidgetId));
+    gItemDuration = end.subtractDate(start);
+    updateAccept();
+}
 function updateAccept()
 {
     var kDefaultTimezone = calendarDefaultTimezone();
@@ -495,6 +559,13 @@ function updateDueDate()
     setElementValue("todo-duedate", getElementValue("todo-duedate"));
 
     setElementValue("todo-duedate", !getElementValue("todo-has-duedate", "checked"), "disabled");
+    if (getElementValue("todo-has-entrydate", "checked") && getElementValue("todo-has-duedate", "checked")) {
+        var start = jsDateToDateTime(getElementValue("todo-entrydate"));
+        var end = jsDateToDateTime(getElementValue("todo-duedate"));
+        gItemDuration = end.subtractDate(start);
+    } else {
+        gItemDuration = null;
+    }
 
     updateAccept();
 }
@@ -508,6 +579,14 @@ function updateEntryDate()
     setElementValue("todo-entrydate", getElementValue("todo-entrydate"));
 
     setElementValue("todo-entrydate", !getElementValue("todo-has-entrydate", "checked"), "disabled");
+
+    if (getElementValue("todo-has-entrydate", "checked") && getElementValue("todo-has-duedate", "checked")) {
+        var start = jsDateToDateTime(getElementValue("todo-entrydate"));
+        var end = jsDateToDateTime(getElementValue("todo-duedate"));
+        gItemDuration = end.subtractDate(start);
+    } else {
+        gItemDuration = null;
+    }
 
     updateAccept();
 }
@@ -751,6 +830,21 @@ function loadDetails() {
         updateToDoStatus(item.status);
     }
 
+    /* Task percent complete */
+    if (isToDo(item)) {
+        var percentCompleteInteger = 0;
+        var percentCompleteProperty = item.getProperty("PERCENT-COMPLETE");
+        if (percentCompleteProperty != null) {
+            percentCompleteInteger = parseInt(percentCompleteProperty);
+        }
+        if (percentCompleteInteger < 0) {
+            percentCompleteInteger = 0;
+        } else if (percentCompleteInteger > 100) {
+            percentCompleteInteger = 100;
+        }
+        setElementValue("percent-complete-textbox", percentCompleteInteger);
+    }
+
     /* Priority */
     var priorityInteger = parseInt(item.priority);
     if (priorityInteger >= 1 && priorityInteger <= 4) {
@@ -817,6 +911,9 @@ function loadDetails() {
     updateAlarm();
 
     updateTaskAlarmWarnings();
+
+    updateURL(item.getProperty("URL"));
+    return;
 }
 
 function updateToDoStatus(status, passedInCompletedDate)
@@ -835,24 +932,24 @@ function updateToDoStatus(status, passedInCompletedDate)
     }
 
     // remember the original values
-    var oldPercentComplete = getElementValue("percent-complete-menulist");
+    var oldPercentComplete = getElementValue("percent-complete-textbox");
     var oldCompletedDate   = getElementValue("completed-date-picker");
 
     switch (status) {
     case "":
     case "NONE":
         document.getElementById("todo-status").selectedIndex = 0;
-        disableElement("percent-complete-menulist");
+        disableElement("percent-complete-textbox");
         disableElement("percent-complete-label");
         break;
     case "CANCELLED":
         document.getElementById("todo-status").selectedIndex = 4;
-        disableElement("percent-complete-menulist");
+        disableElement("percent-complete-textbox");
         disableElement("percent-complete-label");
         break;
     case "COMPLETED":
         document.getElementById("todo-status").selectedIndex = 3;
-        enableElement("percent-complete-menulist");
+        enableElement("percent-complete-textbox");
         enableElement("percent-complete-label");
         // if there isn't a completedDate, set it to now
         if (!completedDate)
@@ -861,23 +958,58 @@ function updateToDoStatus(status, passedInCompletedDate)
     case "IN-PROCESS":
         document.getElementById("todo-status").selectedIndex = 2;
         disableElement("completed-date-picker");
-        enableElement("percent-complete-menulist");
+        enableElement("percent-complete-textbox");
         enableElement("percent-complete-label");
         break;
     case "NEEDS-ACTION":
         document.getElementById("todo-status").selectedIndex = 1;
-        enableElement("percent-complete-menulist");
+        enableElement("percent-complete-textbox");
         enableElement("percent-complete-label");
         break;
     }
 
     if (status == "COMPLETED") {
-        setElementValue("percent-complete-menulist", "100");
+        setElementValue("percent-complete-textbox", "100");
         setElementValue("completed-date-picker", completedDate);
         enableElement("completed-date-picker");
     } else {
-        setElementValue("percent-complete-menulist", oldPercentComplete);
+        setElementValue("percent-complete-textbox", oldPercentComplete);
         setElementValue("completed-date-picker", oldCompletedDate);
         disableElement("completed-date-picker");
     }
+}
+
+function updateURL(aValue) 
+{
+    var button = document.getElementById("load-url-button");
+    button.setAttribute("disabled", true)
+
+    if (!aValue) {
+        return;
+    }
+
+    // The user might have just put in 'www.foo.com', correct that here
+    if (aValue.indexOf( ":" ) == -1) {
+        aValue = "http://" + aValue;
+    }
+    try {
+        makeURL(aValue);
+        // If we made it this far, that means it's a valid url
+        button.removeAttribute("disabled");
+    } catch(ex) {}
+
+    return;
+}
+
+function loadURL()
+{
+    var url = getElementValue("item-url");
+
+    // The user might have just put in 'www.foo.com', correct that here
+    if (url.indexOf( ":" ) == -1) {
+       url = "http://" + url;
+    }
+
+    launchBrowser(url);
+    return;
 }

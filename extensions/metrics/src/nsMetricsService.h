@@ -45,15 +45,18 @@
 #include "nsIAboutModule.h"
 #include "nsIStreamListener.h"
 #include "nsIOutputStream.h"
-#include "nsILocalFile.h"
 #include "nsIObserver.h"
 #include "nsITimer.h"
-#include "nsIDOMDocument.h"
-#include "nsIDOMNode.h"
 #include "nsCOMPtr.h"
-#include "nsHashPropertyBag.h"
 #include "prio.h"
 #include "prlog.h"
+#include "nsHashPropertyBag.h"
+#include "nsDataHashtable.h"
+
+class nsILocalFile;
+class nsIDOMWindow;
+class nsIDOMDocument;
+class nsIDOMNode;
 
 #ifdef PR_LOGGING
 // Shared log for the metrics service and collectors.
@@ -98,29 +101,27 @@ public:
   nsresult LogEvent(const nsAString &eventName,
                     nsHashPropertyBag *eventProperties)
   {
-    return LogEvent(NS_LITERAL_STRING(NS_METRICS_NAMESPACE),
-                    eventName,
-                    NS_STATIC_CAST(nsIWritablePropertyBag*, eventProperties));
+    return LogSimpleEvent(NS_LITERAL_STRING(NS_METRICS_NAMESPACE), eventName,
+                          NS_STATIC_CAST(nsIWritablePropertyBag*,
+                                         eventProperties));
   }
+
+  // Get the window id for the given DOMWindow.  If a window id has not
+  // yet been assigned for the window, the next id will be used.
+  static PRUint16 GetWindowID(nsIDOMWindow *window);
 
 private:
-  nsMetricsService()
-      : mEventCount(0),
-        mSuspendCount(0),
-        mUploading(PR_FALSE)
-  {
-    NS_ASSERTION(!sMetricsService, ">1 MetricsService object created");
-    sMetricsService = this;
-  }
-
-  ~nsMetricsService()
-  {
-    NS_ASSERTION(sMetricsService == this, ">1 MetricsService object created");
-    sMetricsService = nsnull;
-  }
+  nsMetricsService();
+  ~nsMetricsService();
 
   nsresult Init();
 
+  // Post-profile-initialization startup code
+  nsresult ProfileStartup();
+
+  // Starts and stops collectors based on the current configuration
+  nsresult EnableCollectors();
+  
   // Creates a new root element to hold event nodes
   nsresult CreateRoot();
 
@@ -142,7 +143,18 @@ private:
 
   // Generate a new random client id string
   nsresult GenerateClientID(nsCString &clientID);
-  
+
+  // Check if a built-in event is enabled
+  PRBool IsEventEnabled(const nsAString &event) const
+  {
+    return mConfig.IsEventEnabled(NS_LITERAL_STRING(NS_METRICS_NAMESPACE),
+                                  event);
+  }
+
+  // Builds up a DOMElement tree from the given item and its children
+  nsresult BuildEventItem(nsIMetricsEventItem *item,
+                          nsIDOMElement **itemElement);
+
 private:
   // Pointer to the metrics service singleton
   static nsMetricsService* sMetricsService;
@@ -157,9 +169,15 @@ private:
   // Root element of the XML document
   nsCOMPtr<nsIDOMNode> mRoot;
 
+  // Window to incrementing-id map.  The keys are nsIDOMWindow*.
+  nsDataHashtable<nsVoidPtrHashKey, PRUint16> mWindowMap;
+
   PRInt32 mEventCount;
   PRInt32 mSuspendCount;
   PRBool mUploading;
+  nsString mSessionID;
+  // the next window id to hand out
+  PRUint16 mNextWindowID;
 };
 
 // Helper functions

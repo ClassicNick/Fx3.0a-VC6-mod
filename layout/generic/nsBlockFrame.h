@@ -35,6 +35,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * rendering object for CSS display:block and display:list-item objects,
+ * also used inside table cells
+ */
+
 #ifndef nsBlockFrame_h___
 #define nsBlockFrame_h___
 
@@ -131,7 +137,7 @@ public:
   const_reverse_line_iterator rbegin_lines() const { return mLines.rbegin(); }
   const_reverse_line_iterator rend_lines() const { return mLines.rend(); }
 
-  friend nsIFrame* NS_NewBlockFrame(nsIPresShell* aPresShell, PRUint32 aFlags);
+  friend nsIFrame* NS_NewBlockFrame(nsIPresShell* aPresShell, nsStyleContext* aContext, PRUint32 aFlags);
 
   // nsISupports
   NS_IMETHOD  QueryInterface(const nsIID& aIID, void** aInstancePtr);
@@ -139,7 +145,6 @@ public:
   // nsIFrame
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
   NS_IMETHOD SetInitialChildList(nsPresContext* aPresContext,
                                  nsIAtom*        aListName,
@@ -252,7 +257,12 @@ public:
     nsBlockReflowState& aState, nsLineBox* aLine);
 
 protected:
-  nsBlockFrame();
+  nsBlockFrame(nsStyleContext* aContext) : nsHTMLContainerFrame(aContext)
+  {
+#ifdef DEBUG
+  InitDebugFlags();
+#endif
+  }
   virtual ~nsBlockFrame();
 
   already_AddRefed<nsStyleContext> GetFirstLetterStyle(nsPresContext* aPresContext)

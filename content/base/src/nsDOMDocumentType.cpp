@@ -35,6 +35,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/*
+ * Implementation of DOM Core's nsIDOMDocumentType node.
+ */
+
 #include "nsDOMDocumentType.h"
 #include "nsDOMAttributeMap.h"
 #include "nsIDOMNamedNodeMap.h"

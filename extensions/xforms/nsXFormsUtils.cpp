@@ -264,6 +264,7 @@ nsXFormsUtils::GetNodeContext(nsIDOMElement           *aElement,
                               nsIModelElementPrivate **aModel,
                               nsIDOMElement          **aBindElement,
                               PRBool                  *aOuterBind,
+                              nsIXFormsControl       **aParentControl,
                               nsIDOMNode             **aContextNode,
                               PRInt32                 *aContextPosition,
                               PRInt32                 *aContextSize)
@@ -273,6 +274,8 @@ nsXFormsUtils::GetNodeContext(nsIDOMElement           *aElement,
   NS_ENSURE_ARG_POINTER(aContextNode);
   NS_ENSURE_ARG_POINTER(aBindElement);
   *aBindElement = nsnull;
+  if (aParentControl)
+    *aParentControl = nsnull;
 
   // Set default context size and position
   if (aContextSize)
@@ -330,6 +333,7 @@ nsXFormsUtils::GetNodeContext(nsIDOMElement           *aElement,
     // Search for a parent setting context for us
     nsresult rv = FindParentContext(aElement,
                                     aModel,
+                                    aParentControl,
                                     aContextNode,
                                     aContextPosition,
                                     aContextSize);
@@ -361,8 +365,9 @@ nsXFormsUtils::GetNodeContext(nsIDOMElement           *aElement,
 }
 
 /* static */ already_AddRefed<nsIModelElementPrivate>
-nsXFormsUtils::GetModel(nsIDOMElement  *aElement,
-                        PRUint32        aElementFlags)
+nsXFormsUtils::GetModel(nsIDOMElement     *aElement,
+                        nsIXFormsControl **aParentControl,
+                        PRUint32           aElementFlags)
 
 {
   nsCOMPtr<nsIModelElementPrivate> model;
@@ -375,6 +380,7 @@ nsXFormsUtils::GetModel(nsIDOMElement  *aElement,
                  getter_AddRefs(model),
                  getter_AddRefs(bind),
                  &outerbind,
+                 aParentControl,
                  getter_AddRefs(contextNode));
 
   NS_ENSURE_TRUE(model, nsnull);
@@ -435,7 +441,8 @@ nsXFormsUtils::EvaluateXPath(const nsAString        &aExpression,
                               &aExpression,
                               aSet,
                               aContextPosition,
-                              aContextSize);
+                              aContextSize,
+                              aResultType == nsIDOMXPathResult::STRING_TYPE);
         NS_ENSURE_SUCCESS(rv, nsnull);
 
         if (aIndexesUsed)
@@ -471,6 +478,7 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
                                    nsIModelElementPrivate **aModel,
                                    nsIDOMXPathResult      **aResult,
                                    PRBool                  *aUsesModelBind,
+                                   nsIXFormsControl       **aParentControl,
                                    nsCOMArray<nsIDOMNode>  *aDeps,
                                    nsStringArray           *aIndexesUsed)
 {
@@ -492,6 +500,7 @@ nsXFormsUtils::EvaluateNodeBinding(nsIDOMElement           *aElement,
                                aModel,
                                getter_AddRefs(bindElement),
                                &outerBind,
+                               aParentControl,
                                getter_AddRefs(contextNode),
                                &contextPosition,
                                &contextSize);
@@ -977,7 +986,7 @@ nsXFormsUtils::EventHandlingAllowed(nsIDOMEvent* aEvent, nsIDOMNode* aTarget)
       }
     }
   }
-  NS_WARN_IF_FALSE(allow, "Event handling not allowed!");
+  NS_ASSERTION(allow, "Event handling not allowed!");
   return allow;
 }
 
@@ -1038,6 +1047,7 @@ nsXFormsUtils::CloneScriptingInterfaces(const nsIID *aIIDList,
 /* static */ nsresult
 nsXFormsUtils::FindParentContext(nsIDOMElement           *aElement,
                                  nsIModelElementPrivate **aModel,
+                                 nsIXFormsControl       **aParentControl,
                                  nsIDOMNode             **aContextNode,
                                  PRInt32                 *aContextPosition,
                                  PRInt32                 *aContextSize)
@@ -1086,6 +1096,15 @@ nsXFormsUtils::FindParentContext(nsIDOMElement           *aElement,
           *aContextSize = cSize;
         if (aContextPosition)
           *aContextPosition = cPosition;
+        // We QI from nsIXFormsContextControl to nsIXFormsControl here. This
+        // will always suceed when needed, as the only element not
+        // implementing both is the model element, and no children of model
+        // need to register with the model (which is what aParentControl is
+        // needed for).
+        if (aParentControl) {
+          CallQueryInterface(contextControl, aParentControl); // addrefs
+        }
+
         break;
       }
     }
@@ -1567,7 +1586,8 @@ nsXFormsUtils::GetElementById(nsIDOMDocument   *aDoc,
 
 /* static */
 PRBool
-nsXFormsUtils::HandleBindingException(nsIDOMElement *aElement)
+nsXFormsUtils::HandleFatalError(nsIDOMElement    *aElement,
+                                const nsAString  &aName)
 {
   if (!aElement) {
     return PR_FALSE;
@@ -1610,13 +1630,15 @@ nsXFormsUtils::HandleBindingException(nsIDOMElement *aElement)
   // Show popup
   nsCOMPtr<nsIDOMWindow> messageWindow;
   rv = internal->OpenDialog(NS_LITERAL_STRING("chrome://xforms/content/bindingex.xul"),
-                            NS_LITERAL_STRING("XFormsBindingException"),
+                            aName,
                             NS_LITERAL_STRING("modal,dialog,chrome,dependent"),
-                            nsnull, getter_AddRefs(messageWindow));
+                            nsnull,
+                            getter_AddRefs(messageWindow));
   return NS_SUCCEEDED(rv);
 }
 
-/* static */ PRBool
+/* static */
+PRBool
 nsXFormsUtils::AreEntitiesEqual(nsIDOMNamedNodeMap *aEntities1,
                                 nsIDOMNamedNodeMap *aEntities2)
 {

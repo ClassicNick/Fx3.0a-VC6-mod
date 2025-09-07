@@ -34,6 +34,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * construction of a frame tree that is nearly isomorphic to the content
+ * tree and updating of that tree in response to dynamic changes
+ */
+
 #ifndef nsCSSFrameConstructor_h___
 #define nsCSSFrameConstructor_h___
 
@@ -211,7 +217,6 @@ private:
   nsresult InitAndRestoreFrame (const nsFrameConstructorState& aState,
                                 nsIContent*                    aContent,
                                 nsIFrame*                      aParentFrame,
-                                nsStyleContext*                aStyleContext,
                                 nsIFrame*                      aPrevInFlow,
                                 nsIFrame*                      aNewFrame,
                                 PRBool                         aAllowCounters = PR_TRUE);
@@ -672,7 +677,7 @@ private:
                             nsFrameItems&            aFrameItems);
 
   // A function that can be invoked to create some sort of image frame.
-  typedef nsIFrame* (* ImageFrameCreatorFunc)(nsIPresShell*);
+  typedef nsIFrame* (* ImageFrameCreatorFunc)(nsIPresShell*, nsStyleContext*);
 
   /**
    * CreateHTMLImageFrame will do some tests on aContent, and if it determines

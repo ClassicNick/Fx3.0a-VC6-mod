@@ -35,6 +35,8 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/* interface for all rendering objects */
+
 #ifndef nsIFrame_h___
 #define nsIFrame_h___
 
@@ -240,8 +242,7 @@ enum nsSelectionAmount {
   eSelectBeginLine = 3,
   eSelectEndLine   = 4,
   eSelectNoAmount  = 5,   //just bounce back current offset.
-  eSelectDir       = 6,   //select next/previous frame based on direction
-  eSelectParagraph = 7    //select a "paragraph"
+  eSelectParagraph = 6    //select a "paragraph"
 };
 
 enum nsDirection {
@@ -420,7 +421,6 @@ public:
    */
   NS_IMETHOD  Init(nsIContent*      aContent,
                    nsIFrame*        aParent,
-                   nsStyleContext*  aContext,
                    nsIFrame*        aPrevInFlow) = 0;
 
   /**
@@ -556,6 +556,18 @@ public:
       if (aContext) {
         aContext->AddRef();
         DidSetStyleContext();
+      }
+    }
+  }
+  
+  void SetStyleContextWithoutNotification(nsStyleContext* aContext)
+  {
+    if (aContext != mStyleContext) {
+      if (mStyleContext)
+        mStyleContext->Release();
+      mStyleContext = aContext;
+      if (aContext) {
+        aContext->AddRef();
       }
     }
   }

@@ -128,7 +128,6 @@ public:
 
   ePrintDataType               mType;            // the type of data this is (Printing or Print Preview)
   nsCOMPtr<nsIDeviceContext>   mPrintDC;
-  nsIView                     *mPrintView;
   FILE                        *mDebugFilePtr;    // a file where information can go to when printing
 
   nsPrintObject *                mPrintObject;
@@ -148,7 +147,6 @@ public:
   nsCOMPtr<nsIDOMWindow>      mPrintDocDW;
   PRPackedBool                mIsIFrameSelected;
   PRPackedBool                mIsParentAFrameSet;
-  PRPackedBool                mPrintingAsIsSubDoc;
   PRPackedBool                mOnStartSent;
   PRPackedBool                mIsAborted;           // tells us the document is being aborted
   PRPackedBool                mPreparingForPrint;   // see comments above
@@ -163,15 +161,11 @@ public:
   float                       mOrigDCScale;
   float                       mOrigZoom;
 
-  nsCOMPtr<nsIPrintSession>   mPrintSession;
   nsCOMPtr<nsIPrintSettings>  mPrintSettings;
   nsCOMPtr<nsIPrintOptions>   mPrintOptions;
   nsPrintPreviewListener*     mPPEventListeners;
 
   PRUnichar*            mBrandName; //  needed as a substitute name for a document
-
-  nsPagePrintTimer* mPagePrintTimer;
-  nsIPageSequenceFrame* mPageSeqFrame;
 
 private:
   nsPrintData() {}

@@ -60,18 +60,6 @@ calendarPrefObserver.prototype =
         // when calendar pref was changed, we reinitialize 
         switch( prefName )
         {
-            case "calendar.previousweeks.inview":
-            case "calendar.week.d0sundaysoff":
-            case "calendar.week.d1mondaysoff":
-            case "calendar.week.d2tuesdaysoff":
-            case "calendar.week.d3wednesdaysoff":
-            case "calendar.week.d4thursdaysoff":
-            case "calendar.week.d5fridaysoff":
-            case "calendar.week.d6saturdaysoff":
-                if (this.CalendarPreferences.calendarWindow.currentView != null) {
-                  this.CalendarPreferences.calendarWindow.currentView.refresh();
-                }
-                break;
             case "calendar.week.start":
                 if (this.CalendarPreferences.calendarWindow.currentView != null) {
                   this.CalendarPreferences.calendarWindow.currentView.refresh();
@@ -94,12 +82,8 @@ calendarPrefObserver.prototype =
                 }
                 break;
 
-            case "calendar.local-time-zone":
+            case "calendar.timezone.local":
                 gDefaultTimezone = subject.getCharPref( prefName );
-
-                if (this.CalendarPreferences.calendarWindow.currentView != null) {
-                  this.CalendarPreferences.calendarWindow.currentView.refresh();
-                }
                 refreshEventTree();
                 toDoUnifinderRefresh();
                 break;

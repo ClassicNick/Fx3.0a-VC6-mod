@@ -69,7 +69,8 @@
 #include "nsILookAndFeel.h"
 
 
-nsTableCellFrame::nsTableCellFrame()
+nsTableCellFrame::nsTableCellFrame(nsStyleContext* aContext) :
+  nsHTMLContainerFrame(aContext)
 {
   mBits.mColIndex  = 0;
   mPriorAvailWidth = 0;
@@ -109,13 +110,10 @@ nsTableCellFrame::GetNextCell() const
 NS_IMETHODIMP
 nsTableCellFrame::Init(nsIContent*      aContent,
                        nsIFrame*        aParent,
-                       nsStyleContext*  aContext,
                        nsIFrame*        aPrevInFlow)
 {
-  nsresult  rv;
-  
   // Let the base class do its initialization
-  rv = nsHTMLContainerFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv = nsHTMLContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   if (aPrevInFlow) {
     // Set the column index
@@ -401,20 +399,16 @@ nsTableCellFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
       (NS_STYLE_TABLE_EMPTY_CELLS_HIDE != emptyCellStyle)) {
     nsTableFrame* tableFrame = nsTableFrame::GetTableFrame(this);
 
-    // display background if we need to. Note that we don't try to display
-    // a background item to catch events; our anonymous inner block will catch
-    // events for us.
-    if (!tableFrame->IsBorderCollapse() ||
-        aBuilder->IsAtRootOfPseudoStackingContext()) {
+    // display background if we need to.
+    if (aBuilder->IsForEventDelivery() ||
+        (((!tableFrame->IsBorderCollapse() || aBuilder->IsAtRootOfPseudoStackingContext()) &&
+        (!GetStyleBackground()->IsTransparent() || GetStyleDisplay()->mAppearance)))) {
       // The cell background was not painted by the nsTablePainter,
       // so we need to do it. We have special background processing here
       // so we need to duplicate some code from nsFrame::DisplayBorderBackgroundOutline
-      if (!GetStyleBackground()->IsTransparent() ||
-          GetStyleDisplay()->mAppearance) {
-        nsresult rv = aLists.BorderBackground()->AppendNewToTop(new (aBuilder)
-            nsDisplayTableCellBackground(this));
-        NS_ENSURE_SUCCESS(rv, rv);
-      }
+      nsresult rv = aLists.BorderBackground()->AppendNewToTop(new (aBuilder)
+             nsDisplayTableCellBackground(this));
+      NS_ENSURE_SUCCESS(rv, rv);
     }
     
     // display borders if we need to
@@ -732,8 +726,6 @@ NS_METHOD nsTableCellFrame::Reflow(nsPresContext*          aPresContext,
   if (NS_UNCONSTRAINEDSIZE != availHeight) {
     availHeight = nsTableFrame::RoundToPixel(availHeight, p2t, eAlwaysRoundDown);
   }
-
-  nsresult rv = NS_OK;
 
   // see if a special height reflow needs to occur due to having a pct height
   if (!NeedSpecialReflow()) 
@@ -1143,13 +1135,14 @@ nsTableCellFrame::GetNextCellInColumn(nsITableCellLayout **aCellLayout)
 }
 
 nsIFrame*
-NS_NewTableCellFrame(nsIPresShell* aPresShell, 
-                     PRBool        aIsBorderCollapse)
+NS_NewTableCellFrame(nsIPresShell*   aPresShell,
+                     nsStyleContext* aContext,
+                     PRBool          aIsBorderCollapse)
 {
   if (aIsBorderCollapse)
-    return new (aPresShell) nsBCTableCellFrame;
+    return new (aPresShell) nsBCTableCellFrame(aContext);
   else
-    return new (aPresShell) nsTableCellFrame;
+    return new (aPresShell) nsTableCellFrame(aContext);
 }
 
 nsMargin* 
@@ -1176,8 +1169,8 @@ nsTableCellFrame::GetFrameName(nsAString& aResult) const
 
 // nsBCTableCellFrame
 
-nsBCTableCellFrame::nsBCTableCellFrame()
-:nsTableCellFrame()
+nsBCTableCellFrame::nsBCTableCellFrame(nsStyleContext* aContext)
+:nsTableCellFrame(aContext)
 {
   mTopBorder = mRightBorder = mBottomBorder = mLeftBorder = 0;
 }

@@ -34,6 +34,13 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * Base class for all element classes; this provides an implementation
+ * of DOM Core's nsIDOMElement, implements nsIContent, provides
+ * utility methods for subclasses, and so forth.
+ */
+
 #include "nsGenericElement.h"
 
 #include "nsDOMAttribute.h"
@@ -2285,9 +2292,6 @@ nsGenericElement::InsertChildAt(nsIContent* aKid,
 {
   NS_PRECONDITION(aKid, "null ptr");
 
-  nsresult rv = WillAddOrRemoveChild(aKid, aIndex, PR_FALSE);
-  NS_ENSURE_SUCCESS(rv, rv);
-
   return doInsertChildAt(aKid, aIndex, aNotify, this, GetCurrentDoc(),
                          mAttrsAndChildren);
 }
@@ -2374,11 +2378,10 @@ nsGenericElement::AppendChildTo(nsIContent* aKid, PRBool aNotify)
 nsresult
 nsGenericElement::RemoveChildAt(PRUint32 aIndex, PRBool aNotify)
 {
-  nsCOMPtr<nsIContent> oldKid = GetChildAt(aIndex);
-  if (oldKid) {
-    nsresult rv = WillAddOrRemoveChild(oldKid, aIndex, PR_TRUE);
-    NS_ENSURE_SUCCESS(rv, rv);
+  nsCOMPtr<nsIContent> oldKid = mAttrsAndChildren.GetSafeChildAt(aIndex);
+  NS_ASSERTION(oldKid == GetChildAt(aIndex), "Unexpected child in RemoveChildAt");
 
+  if (oldKid) {
     return doRemoveChildAt(aIndex, aNotify, oldKid, this, GetCurrentDoc(),
                            mAttrsAndChildren);
   }
@@ -2405,37 +2408,40 @@ nsGenericElement::doRemoveChildAt(PRUint32 aIndex, PRBool aNotify,
   }
   
   NS_PRECONDITION(aKid && aKid->GetParent() == aParent &&
-                  aKid == container->GetChildAt(aIndex), "Bogus aKid");
+                  aKid == container->GetChildAt(aIndex) &&
+                  container->IndexOf(aKid) == aIndex, "Bogus aKid");
 
   mozAutoDocUpdate updateBatch(aDocument, UPDATE_CONTENT_MODEL, aNotify);
 
-  PRBool hasListeners = 
-    aParent &&
-    nsGenericElement::HasMutationListeners(aParent,
-                                           NS_EVENT_BITS_MUTATION_NODEREMOVED);
+  nsMutationGuard guard;
 
-  if (hasListeners) {
+  if (aParent && nsGenericElement::HasMutationListeners(aParent,
+        NS_EVENT_BITS_MUTATION_NODEREMOVED)) {
     nsMutationEvent mutation(PR_TRUE, NS_MUTATION_NODEREMOVED);
     mutation.mRelatedNode = do_QueryInterface(aParent);
     nsEventDispatcher::Dispatch(aKid, nsnull, &mutation);
   }
 
-  // Someone may have removed the kid while that event was processing...
-  if (!hasListeners ||
-      (aKid->GetParent() == aParent &&
-       aKid == container->GetChildAt(aIndex))) {
-    if (aParent) {
-      nsRange::OwnerChildRemoved(aParent, aIndex, aKid);
+  // Someone may have removed the kid or any of its siblings while that event
+  // was processing.
+  if (guard.Mutated(0)) {
+    aIndex = container->IndexOf(aKid);
+    if (aIndex < 0) {
+      return NS_OK;
     }
-
-    aChildArray.RemoveChildAt(aIndex);
-
-    if (aNotify && aDocument) {
-      aDocument->ContentRemoved(aParent, aKid, aIndex);
-    }
-    
-    aKid->UnbindFromTree();
   }
+
+  if (aParent) {
+    nsRange::OwnerChildRemoved(aParent, aIndex, aKid);
+  }
+
+  aChildArray.RemoveChildAt(aIndex);
+
+  if (aNotify && aDocument) {
+    aDocument->ContentRemoved(aParent, aKid, aIndex);
+  }
+
+  aKid->UnbindFromTree();
 
   return NS_OK;
 }
@@ -3235,14 +3241,6 @@ nsGenericElement::InternalGetExistingAttrNameFromQName(const nsAString& aStr) co
 {
   return mAttrsAndChildren.GetExistingAttrNameFromQName(
     NS_ConvertUTF16toUTF8(aStr));
-}
-
-nsresult 
-nsGenericElement::WillAddOrRemoveChild(nsIContent* /*aKid*/,
-                                       PRUint32 /*aIndex*/,
-                                       PRBool /*aRemove*/)
-{
-  return NS_OK;
 }
 
 nsresult

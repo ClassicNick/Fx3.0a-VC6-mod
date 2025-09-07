@@ -59,10 +59,12 @@ calViewController.prototype.createNewEvent = function (aCalendar, aStartTime, aE
                             .getService(Components.interfaces.nsIStringBundleService);
         var props = sbs.createBundle("chrome://calendar/locale/calendar.properties");
         event.title = props.GetStringFromName("newEvent");
+        setDefaultAlarmValues(event);
         doTransaction('add', event, aCalendar, null, null);
     } else if (aStartTime && aStartTime.isDate) {
         var event = createEvent();
         event.startDate = aStartTime;
+        setDefaultAlarmValues(event);
         doTransaction('add', event, aCalendar, null, null);
     } else {
         newEvent();
@@ -89,7 +91,7 @@ calViewController.prototype.deleteOccurrence = function (aOccurrence) {
         event.recurrenceInfo.removeOccurrenceAt(itemToDelete.recurrenceId);
         doTransaction('modify', event, event.calendar, itemToDelete.parentItem, null);
     } else {
-        doTransaction('delete', aOccurrence, aOccurrence.calendar, null, null);
+        doTransaction('delete', itemToDelete, itemToDelete.calendar, null, null);
     }
 }
 
@@ -101,7 +103,6 @@ var gViewController = new calViewController();
 *  Maintains the three calendar views and the selection.
 *
 * PROPERTIES
-*     dateFormater           - a date formatter, an instance of DateFormater
 *     selectedDate           - selected date, instance of Date 
 *  
 */
@@ -126,9 +127,6 @@ function CalendarWindow( )
    //setup the calendar event selection
    this.EventSelection = new CalendarEventSelection( this );
    gViewController.selectionManager = this.EventSelection;
-
-   //global date formater
-   this.dateFormater = new DateFormater( this );
 
    /** This object only exists to keep too many things from breaking during the
     *   switch to the new views

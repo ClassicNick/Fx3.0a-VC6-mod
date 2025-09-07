@@ -257,7 +257,7 @@ void nsMacEventDispatchHandler::SetDeactivated(nsWindow *aDeactivatedWidget)
     if (mActiveWidget) {
       nsCOMPtr<nsIWidget> curWin = do_QueryInterface(NS_STATIC_CAST(nsIWidget*, mActiveWidget));
       for (;;) {
-        nsCOMPtr<nsIWidget> parent = dont_AddRef(curWin->GetParent());
+        nsIWidget* parent = curWin->GetParent();
         if (!parent)
           break;
         curWin = parent;
@@ -502,8 +502,8 @@ PRBool nsMacEventHandler::HandleMenuCommand(
 		// the event is supposed to not have been handled)
 		if (focusedWidget == gEventDispatchHandler.GetActive())
 		{
-			nsCOMPtr<nsIWidget> grandParent;
-			nsCOMPtr<nsIWidget> parent ( dont_AddRef(focusedWidget->GetParent()) );
+      // Hold a ref across event dispatch
+			nsCOMPtr<nsIWidget> parent = focusedWidget->GetParent();
 			while (parent)
 			{
 				menuEvent.widget = parent;
@@ -514,8 +514,7 @@ PRBool nsMacEventHandler::HandleMenuCommand(
 				}
 				else
 				{
-					grandParent = dont_AddRef(parent->GetParent());
-					parent = grandParent;
+					parent = parent->GetParent();
 				}
 			}
 		}
@@ -1390,6 +1389,13 @@ nsMacEventHandler::Scroll(EventMouseWheelAxis inAxis, PRInt32 inDelta,
   // the title bar.
   if (!widgetToScroll)
     return PR_FALSE;
+
+  if (gRollupListener && gRollupWidget && gRollupWidget != widgetToScroll) {
+    PRBool rollup = PR_FALSE;
+    gRollupListener->ShouldRollupOnMouseWheelEvent(&rollup);
+    if (rollup)
+      gRollupListener->Rollup();
+  }
 
   nsMouseScrollEvent scrollEvent(PR_TRUE, NS_MOUSE_SCROLL, widgetToScroll);
 

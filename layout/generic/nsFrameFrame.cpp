@@ -36,6 +36,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * rendering object for replaced elements that contain a document, such
+ * as <frame>, <iframe>, and some <object>s
+ */
+
 #include "nsCOMPtr.h"
 #include "nsLeafFrame.h"
 #include "nsGenericHTMLElement.h"
@@ -103,7 +109,7 @@ class nsSubDocumentFrame : public nsLeafFrame,
                            public nsIFrameFrame
 {
 public:
-  nsSubDocumentFrame();
+  nsSubDocumentFrame(nsStyleContext* aContext);
 
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const;
@@ -118,7 +124,6 @@ public:
 
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
 
   NS_IMETHOD Destroy(nsPresContext* aPresContext);
@@ -169,8 +174,8 @@ protected:
   PRPackedBool mIsInline;
 };
 
-nsSubDocumentFrame::nsSubDocumentFrame()
-  : nsLeafFrame(), mDidCreateDoc(PR_FALSE), mOwnsFrameLoader(PR_FALSE),
+nsSubDocumentFrame::nsSubDocumentFrame(nsStyleContext* aContext)
+  : nsLeafFrame(aContext), mDidCreateDoc(PR_FALSE), mOwnsFrameLoader(PR_FALSE),
     mIsInline(PR_FALSE)
 {
 }
@@ -211,7 +216,6 @@ nsSubDocumentFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
 NS_IMETHODIMP
 nsSubDocumentFrame::Init(nsIContent*     aContent,
                          nsIFrame*       aParent,
-                         nsStyleContext* aContext,
                          nsIFrame*       aPrevInFlow)
 {
   // determine if we are a <frame> or <iframe>
@@ -220,7 +224,7 @@ nsSubDocumentFrame::Init(nsIContent*     aContent,
     mIsInline = frameElem ? PR_FALSE : PR_TRUE;
   }
 
-  nsresult rv =  nsLeafFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult rv =  nsLeafFrame::Init(aContent, aParent, aPrevInFlow);
   if (NS_FAILED(rv))
     return rv;
     
@@ -576,9 +580,9 @@ nsSubDocumentFrame::AttributeChanged(PRInt32 aNameSpaceID,
 }
 
 nsIFrame*
-NS_NewSubDocumentFrame(nsIPresShell* aPresShell)
+NS_NewSubDocumentFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsSubDocumentFrame;
+  return new (aPresShell) nsSubDocumentFrame(aContext);
 }
 
 NS_IMETHODIMP

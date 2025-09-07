@@ -47,7 +47,7 @@ class nsSharedPageData;
 class nsPageFrame : public nsContainerFrame {
 
 public:
-  friend nsIFrame* NS_NewPageFrame(nsIPresShell* aPresShell);
+  friend nsIFrame* NS_NewPageFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
   // nsIFrame
   NS_IMETHOD  SetInitialChildList(nsPresContext* aPresContext,
@@ -83,8 +83,6 @@ public:
   // Tell the page which page number it is out of how many
   virtual void  SetPageNumInfo(PRInt32 aPageNumber, PRInt32 aTotalPages);
 
-  virtual void  SuppressHeadersAndFooters(PRBool aDoSup) { mSupressHF = aDoSup; }
-
   virtual void SetSharedPageData(nsSharedPageData* aPD);
 
 // XXX Part of Temporary fix for Bug 127263
@@ -100,7 +98,7 @@ public:
                       nsPoint              aPt);
                       
 protected:
-  nsPageFrame();
+  nsPageFrame(nsStyleContext* aContext);
   virtual ~nsPageFrame();
 
   typedef enum {
@@ -143,8 +141,6 @@ protected:
   PRInt32     mTotNumPages;
   nsMargin    mMargin;
 
-  PRPackedBool mSupressHF;
-
   nsSharedPageData* mPD;
 
 // XXX Part of Temporary fix for Bug 127263
@@ -154,7 +150,7 @@ protected:
 
 class nsPageBreakFrame : public nsLeafFrame {
 
-  nsPageBreakFrame();
+  nsPageBreakFrame(nsStyleContext* aContext);
   ~nsPageBreakFrame();
 
   NS_IMETHOD Reflow(nsPresContext*          aPresContext,
@@ -171,7 +167,7 @@ protected:
                               nsHTMLReflowMetrics&     aDesiredSize);
     PRBool mHaveReflowed;
 
-    friend nsIFrame* NS_NewPageBreakFrame(nsIPresShell* aPresShell);
+    friend nsIFrame* NS_NewPageBreakFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 };
 
 #endif /* nsPageFrame_h___ */

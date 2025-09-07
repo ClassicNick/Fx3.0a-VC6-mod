@@ -14,7 +14,7 @@
  * The Original Code is Mozilla
  *
  * The Initial Developer of the Original Code is 
- # Netscape Communications Corp.
+ * Netscape Communications Corp.
  * Portions created by the Initial Developer are Copyright (C) 2002
  * the Initial Developer. All Rights Reserved.
  *
@@ -67,7 +67,8 @@ class nsPalmSyncSupport : public nsIPalmSyncSupport,
         DWORD   m_dwRegister;
         CPalmSyncFactory *m_nsPalmSyncFactory;
 
-#ifdef MOZ_THUNDERBIRD
+// XXX test for this as long as there are still non-xul-app suite builds
+#ifdef MOZ_XUL_APP
         nsresult LaunchPalmSyncInstallExe();
         nsresult GetPalmSyncInstall(nsILocalFile ** aLocalFile);
 #endif

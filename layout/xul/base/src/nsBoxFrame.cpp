@@ -131,13 +131,17 @@ nsIBox* nsBoxFrame::mDebugChild = nsnull;
 #endif
 
 nsIFrame*
-NS_NewBoxFrame(nsIPresShell* aPresShell, PRBool aIsRoot, nsIBoxLayout* aLayoutManager)
+NS_NewBoxFrame(nsIPresShell* aPresShell, nsStyleContext* aContext, PRBool aIsRoot, nsIBoxLayout* aLayoutManager)
 {
-  return new (aPresShell) nsBoxFrame(aPresShell, aIsRoot, aLayoutManager);
+  return new (aPresShell) nsBoxFrame(aPresShell, aContext, aIsRoot, aLayoutManager);
 } // NS_NewBoxFrame
 
-nsBoxFrame::nsBoxFrame(nsIPresShell* aPresShell, PRBool aIsRoot, nsIBoxLayout* aLayoutManager)
-  : mMouseThrough(unset)
+nsBoxFrame::nsBoxFrame(nsIPresShell* aPresShell,
+                       nsStyleContext* aContext,
+                       PRBool aIsRoot,
+                       nsIBoxLayout* aLayoutManager) :
+  nsContainerFrame(aContext),
+  mMouseThrough(unset)
 {
   mState |= NS_FRAME_IS_BOX;
   mState |= NS_STATE_IS_HORIZONTAL;
@@ -204,10 +208,9 @@ nsBoxFrame::SetInitialChildList(nsPresContext* aPresContext,
 NS_IMETHODIMP
 nsBoxFrame::Init(nsIContent*      aContent,
                  nsIFrame*        aParent,
-                 nsStyleContext*  aContext,
                  nsIFrame*        aPrevInFlow)
 {
-  nsresult  rv = nsContainerFrame::Init(aContent, aParent, aContext, aPrevInFlow);
+  nsresult  rv = nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
 
   // see if we need a widget
   if (aParent && aParent->IsBoxFrame()) {
@@ -694,7 +697,8 @@ nsBoxFrame::IsInitialReflowForPrintPreview(nsBoxLayoutState& aState,
   const nsHTMLReflowState* reflowState = aState.GetReflowState();
   if (reflowState->reason == eReflowReason_Initial) {
     // See if we are doing Print Preview
-    if (aState.PresContext()->Type() == nsPresContext::eContext_PrintPreview) {
+    if (aState.PresContext()->Type() == nsPresContext::eContext_PrintPreview ||
+      aState.PresContext()->Type() == nsPresContext::eContext_PageLayout) {
       // Now, get the current URI to see if we doing chrome
       nsIPresShell *presShell = aState.PresShell();
       if (!presShell) return PR_FALSE;
@@ -1310,13 +1314,20 @@ nsBoxFrame::AttributeChanged(PRInt32 aNameSpaceID,
   }
   else if (aAttribute == nsXULAtoms::ordinal) {
     nsBoxLayoutState state(GetPresContext()->PresShell());
+
+    nsIFrame* frameToMove = this;
+    if (GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
+      GetPresContext()->PresShell()->GetPlaceholderFrameFor(this,
+                                                            &frameToMove);
+      NS_ASSERTION(frameToMove, "Out of flow without placeholder?");
+    }
     
     nsIBox* parent;
-    GetParentBox(&parent);
+    frameToMove->GetParentBox(&parent);
     // If our parent is not a box, there's not much we can do... but in that
     // case our ordinal doesn't matter anyway, so that's ok.
     if (parent) {
-      parent->RelayoutChildAtOrdinal(state, this);
+      parent->RelayoutChildAtOrdinal(state, frameToMove);
       parent->MarkDirty(state);
     }
   }

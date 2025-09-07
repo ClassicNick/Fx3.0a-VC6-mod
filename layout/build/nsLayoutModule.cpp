@@ -129,6 +129,7 @@
 #include "nsILanguageAtomService.h"
 #include "nsTextControlFrame.h"
 #include "nsStyleSheetService.h"
+#include "nsNodeInfo.h"
 
 // Transformiix stuff
 #include "nsXPathEvaluator.h"
@@ -136,6 +137,7 @@
 #include "txXSLTProcessor.h"
 #include "nsXPath1Scheme.h"
 #include "nsXFormsXPathEvaluator.h"
+#include "txXSLTProcessor.h"
 
 // view stuff
 #include "nsViewsCID.h"
@@ -300,6 +302,15 @@ Initialize(nsIModule* aSelf)
     return rv;
   }
 
+  rv = nsTextFragment::Init();
+  if (NS_FAILED(rv)) {
+    NS_ERROR("Could not initialize nsAttrValue");
+
+    Shutdown();
+
+    return rv;
+  }
+
   // Register all of our atoms once
   nsCSSAnonBoxes::AddRefAtoms();
   nsCSSPseudoClasses::AddRefAtoms();
@@ -380,6 +391,7 @@ Shutdown()
 
   gInitialized = PR_FALSE;
 
+  nsNodeInfo::ClearCache();
   txXSLTProcessor::shutdown();
   nsDOMAttribute::Shutdown();
   nsRange::Shutdown();
@@ -423,6 +435,7 @@ Shutdown()
   NS_IF_RELEASE(nsRuleNode::gLangService);
   nsGenericHTMLElement::Shutdown();
 
+  nsTextFragment::Shutdown();
   nsAttrValue::Shutdown();
   nsContentUtils::Shutdown();
   nsLayoutStylesheetCache::Shutdown();

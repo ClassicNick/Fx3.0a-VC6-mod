@@ -38,10 +38,8 @@
 #define nsIDocument_h___
 
 #include "nsINode.h"
-#include "nsEvent.h"
 #include "nsStringGlue.h"
-#include "nsCOMArray.h"
-#include "nsIDocumentObserver.h"
+#include "nsIDocumentObserver.h" // for nsUpdateType
 #include "nsCOMPtr.h"
 #include "nsIURI.h"
 #include "nsIBindingManager.h"
@@ -50,7 +48,6 @@
 #include "nsILoadGroup.h"
 #include "nsCRT.h"
 #include "mozFlushType.h"
-#include "nsAutoPtr.h"
 #include "nsIAtom.h"
 
 class nsIContent;
@@ -89,6 +86,8 @@ class nsIHTMLCSSStyleSheet;
 class nsILayoutHistoryState;
 class nsIVariant;
 class nsIDOMUserDataHandler;
+template<class E> class nsCOMArray;
+class nsIDocumentObserver;
 
 // IID for the nsIDocument interface
 #define NS_IDOCUMENT_IID      \
@@ -363,7 +362,10 @@ public:
   /**
    * Return the root content object for this document.
    */
-  virtual nsIContent *GetRootContent() const = 0;
+  nsIContent *GetRootContent() const
+  {
+    return mRootContent;
+  }
 
   /**
    * Accessors to the collection of stylesheets owned by this document.
@@ -910,6 +912,10 @@ protected:
 
   // This is just a weak pointer; the parent document owns its children.
   nsIDocument* mParentDocument;
+
+  // A weak reference to the only child element, or null if no
+  // such element exists.
+  nsIContent* mRootContent;
 
   nsCOMPtr<nsIBindingManager> mBindingManager;
   nsNodeInfoManager* mNodeInfoManager; // [STRONG]

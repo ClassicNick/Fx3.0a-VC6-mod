@@ -432,7 +432,6 @@ NS_IMETHODIMP nsWindow::Destroy()
 nsIWidget* nsWindow::GetParent(void)
 {
   if (mIsTopWidgetWindow) return nsnull;
-  NS_IF_ADDREF(mParent);
   return  mParent;
 }
 
@@ -1771,25 +1770,6 @@ scrollChildren:
 
 //-------------------------------------------------------------------------
 //
-//
-//-------------------------------------------------------------------------
-
-PRBool nsWindow::ConvertStatus(nsEventStatus aStatus)
-{
-  switch (aStatus)
-  {
-    case nsEventStatus_eIgnore:							return(PR_FALSE);
-    case nsEventStatus_eConsumeNoDefault:		return(PR_TRUE);	// don't do default processing
-    case nsEventStatus_eConsumeDoDefault:		return(PR_FALSE);
-    default:
-      NS_ERROR("Illegal nsEventStatus enumeration value");
-      break;
-  }
-  return(PR_FALSE);
-}
-
-//-------------------------------------------------------------------------
-//
 // Invokes callback and  ProcessEvent method on Event Listener object
 //
 //-------------------------------------------------------------------------
@@ -2055,7 +2035,7 @@ nsWindow::CalcOffset(PRInt32 &aX, PRInt32 &aY)
 {
   aX = aY = 0;
 
-  nsCOMPtr<nsIWidget> theParent = dont_AddRef(GetParent());
+  nsIWidget* theParent = GetParent();
   while (theParent)
   {
     nsRect theRect;
@@ -2063,8 +2043,7 @@ nsWindow::CalcOffset(PRInt32 &aX, PRInt32 &aY)
     aX += theRect.x;
     aY += theRect.y;
 
-    nsIWidget* grandparent = theParent->GetParent();
-    theParent = dont_AddRef(grandparent);
+    theParent = theParent->GetParent();
   }
 }
 
@@ -2072,7 +2051,7 @@ nsWindow::CalcOffset(PRInt32 &aX, PRInt32 &aY)
 PRBool
 nsWindow::ContainerHierarchyIsVisible()
 {
-  nsCOMPtr<nsIWidget> theParent = dont_AddRef(GetParent());
+  nsIWidget* theParent = GetParent();
   
   while (theParent)
   {
@@ -2081,8 +2060,7 @@ nsWindow::ContainerHierarchyIsVisible()
     if (!visible)
       return PR_FALSE;
     
-    nsIWidget* grandparent = theParent->GetParent();
-    theParent = dont_AddRef(grandparent);
+    theParent = theParent->GetParent();
   }
   
   return PR_TRUE;
@@ -2159,7 +2137,6 @@ NS_IMETHODIMP nsWindow::WidgetToScreen(const nsRect& aLocalRect, nsRect& aGlobal
 		//
 		// Convert the local rect to global, except for this level.
 		theParent->WidgetToScreen(aLocalRect, aGlobalRect);
-	  NS_RELEASE(theParent);
 
 		// the offset from our parent is in the x/y of our bounding rect
 		nsRect myBounds;
@@ -2200,7 +2177,6 @@ NS_IMETHODIMP nsWindow::ScreenToWidget(const nsRect& aGlobalRect, nsRect& aLocal
 		//
 		// Convert the local rect to global, except for this level.
 		theParent->WidgetToScreen(aGlobalRect, aLocalRect);
-	  NS_RELEASE(theParent);
 	  
 		// the offset from our parent is in the x/y of our bounding rect
 		nsRect myBounds;
@@ -2341,7 +2317,7 @@ NS_IMETHODIMP nsWindow::GetPluginClipRect(nsRect& outClipRect, nsPoint& outOrigi
   widgetClipRect.y = 0;
 
   // Gather up the absolute position of the widget, clip window, and visibilty
-  nsCOMPtr<nsIWidget> widget = getter_AddRefs(GetParent());
+  nsIWidget* widget = GetParent();
   while (widget)
   {
     if (isVisible)
@@ -2358,7 +2334,7 @@ NS_IMETHODIMP nsWindow::GetPluginClipRect(nsRect& outClipRect, nsPoint& outOrigi
     widgetClipRect.IntersectRect(widgetClipRect, widgetRect);
     absX += wx;
     absY += wy;
-    widget = getter_AddRefs(widget->GetParent());
+    widget = widget->GetParent();
     if (!widget)
     {
       // Don't include the top-level windows offset
@@ -2421,12 +2397,12 @@ NS_IMETHODIMP nsWindow::ResetInputState()
 {
 	// currently, the nsMacEventHandler is owned by nsMacWindow, which is the top level window
 	// we delegate this call to its parent
-  nsCOMPtr<nsIWidget> parent = getter_AddRefs(GetParent());
-  NS_WARN_IF_FALSE(parent, "cannot get parent");
+  nsIWidget* parent = GetParent();
+  NS_ASSERTION(parent, "cannot get parent");
   if (parent)
   {
     nsCOMPtr<nsIKBStateControl> kb = do_QueryInterface(parent);
-    NS_WARN_IF_FALSE(kb, "cannot get parent");
+    NS_ASSERTION(kb, "cannot get parent");
   	if (kb) {
   		return kb->ResetInputState();
   	}

@@ -76,6 +76,7 @@
 #include "nsIFrameTraversal.h"
 #include "nsLayoutUtils.h"
 #include "nsLayoutCID.h"
+#include "nsBidiPresUtils.h"
 static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 
 #include "nsIDOMText.h"
@@ -245,10 +246,12 @@ public:
   nsresult     StartAutoScrollTimer(nsPresContext *aPresContext, nsIView *aView, nsPoint& aPoint, PRUint32 aDelay);
   nsresult     StopAutoScrollTimer();
   nsresult     DoAutoScrollView(nsPresContext *aPresContext, nsIView *aView, nsPoint& aPoint, PRBool aScrollParentViews);
+private:
   nsresult     ScrollPointIntoClipView(nsPresContext *aPresContext, nsIView *aView, nsPoint& aPoint, PRBool *aDidScroll);
   nsresult     ScrollPointIntoView(nsPresContext *aPresContext, nsIView *aView, nsPoint& aPoint, PRBool aScrollParentViews, PRBool *aDidScroll);
   nsresult     GetViewAncestorOffset(nsIView *aView, nsIView *aAncestorView, nscoord *aXOffset, nscoord *aYOffset);
 
+public:
   SelectionType GetType(){return mType;}
   void          SetType(SelectionType aType){mType = aType;}
 
@@ -359,6 +362,7 @@ public:
   NS_IMETHOD GetPrevNextBidiLevels(nsPresContext *aPresContext,
                                    nsIContent *aNode,
                                    PRUint32 aContentOffset,
+                                   PRBool aJumpLines,
                                    nsIFrame **aPrevFrame,
                                    nsIFrame **aNextFrame,
                                    PRUint8 *aPrevLevel,
@@ -397,6 +401,7 @@ private:
                                    nsIContent *aNode,
                                    PRUint32 aContentOffset,
                                    HINT aHint,
+                                   PRBool aJumpLines,
                                    nsIFrame **aPrevFrame,
                                    nsIFrame **aNextFrame,
                                    PRUint8 *aPrevLevel,
@@ -1376,17 +1381,18 @@ nsSelection::MoveCaret(PRUint32 aKeycode, PRBool aContinueSelection, nsSelection
   pos.SetData(mShell, desiredX, aAmount, eDirPrevious, offsetused, PR_FALSE,
               PR_TRUE, PR_TRUE, mLimiter != nsnull, PR_TRUE);
 
+  nsBidiLevel baseLevel = nsBidiPresUtils::GetFrameBaseLevel(frame);
+  
   HINT tHint(mHint); //temporary variable so we dont set mHint until it is necessary
   switch (aKeycode){
     case nsIDOMKeyEvent::DOM_VK_RIGHT : 
         InvalidateDesiredX();
-        pos.mDirection = eDirNext;
-        tHint = HINTLEFT;//stick to this line
+        pos.mDirection = (baseLevel & 1) ? eDirPrevious : eDirNext;
         PostReason(nsISelectionListener::KEYPRESS_REASON);
       break;
     case nsIDOMKeyEvent::DOM_VK_LEFT  : //no break
         InvalidateDesiredX();
-        tHint = HINTRIGHT;//stick to opposite of movement
+        pos.mDirection = (baseLevel & 1) ? eDirNext : eDirPrevious;
         PostReason(nsISelectionListener::KEYPRESS_REASON);
       break;
     case nsIDOMKeyEvent::DOM_VK_DOWN : 
@@ -1413,23 +1419,36 @@ nsSelection::MoveCaret(PRUint32 aKeycode, PRBool aContinueSelection, nsSelection
   default :return NS_ERROR_FAILURE;
   }
   pos.mPreferLeft = tHint;
-  if (NS_SUCCEEDED(result) && NS_SUCCEEDED(result = frame->PeekOffset(context, &pos)) && pos.mResultContent)
+  if (NS_SUCCEEDED(result = frame->PeekOffset(context, &pos)) && pos.mResultContent)
   {
-    tHint = (HINT)pos.mPreferLeft;
+    nsIFrame *theFrame;
+    PRInt32 currentOffset, frameStart, frameEnd;
+
+    if (aKeycode == nsIDOMKeyEvent::DOM_VK_RIGHT ||
+        aKeycode == nsIDOMKeyEvent::DOM_VK_LEFT)
+    {
+      // For left/right, PeekOffset() sets pos.mResultFrame correctly, but does not set pos.mPreferLeft,
+      // so determine the hint here based on the result frame and offset:
+      // If we're at the end of a text frame, set the hint to HINTLEFT to indicate that we
+      // want the caret displayed at the end of this frame, not at the beginning of the next one.
+      theFrame = pos.mResultFrame;
+      theFrame->GetOffsets(frameStart, frameEnd);
+      currentOffset = pos.mContentOffset;
+      if (frameEnd == currentOffset && !(frameStart == 0 && frameEnd == 0))
+        tHint = HINTLEFT;
+      else
+        tHint = HINTRIGHT;
+    } else {
+      // For up/down and home/end, pos.mResultFrame might not be set correctly, or not at all.
+      // In these cases, get the frame based on the content and hint returned by PeekOffset().
+      tHint = (HINT)pos.mPreferLeft;
+      result = GetFrameForNodeOffset(pos.mResultContent, pos.mContentOffset, tHint, &theFrame, &currentOffset);
+      NS_ENSURE_SUCCESS(result, result);
+      theFrame->GetOffsets(frameStart, frameEnd);
+    }
+
     if (context->BidiEnabled())
     {
-      nsIFrame *theFrame;
-      PRInt32 currentOffset, frameStart, frameEnd;
-
-      // XXX - I expected to be able to use pos.mResultFrame, but when we move from frame to frame
-      //       and |PeekOffset| is called recursively, pos.mResultFrame on exit is sometimes set to the original
-      //       frame, not the frame that we ended up in, so I need this call to |GetFrameForNodeOffset|.
-      //       I don't know if that could or should be changed or if it would break something else.
-      result = GetFrameForNodeOffset(pos.mResultContent, pos.mContentOffset, tHint, &theFrame, &currentOffset);
-      if (NS_FAILED(result))
-        return result;
-      theFrame->GetOffsets(frameStart, frameEnd);
-
       switch (aKeycode) {
         case nsIDOMKeyEvent::DOM_VK_HOME:
         case nsIDOMKeyEvent::DOM_VK_END:
@@ -1440,7 +1459,6 @@ nsSelection::MoveCaret(PRUint32 aKeycode, PRBool aContinueSelection, nsSelection
         default:
           // If the current position is not a frame boundary, it's enough just to take the Bidi level of the current frame
           if ((pos.mContentOffset != frameStart && pos.mContentOffset != frameEnd)
-              || (eSelectDir == aAmount)
               || (eSelectLine == aAmount))
           {
             mShell->SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(theFrame));
@@ -2004,12 +2022,13 @@ NS_IMETHODIMP
 nsSelection::GetPrevNextBidiLevels(nsPresContext *aPresContext,
                                    nsIContent *aNode,
                                    PRUint32 aContentOffset,
+                                   PRBool aJumpLines,
                                    nsIFrame **aPrevFrame,
                                    nsIFrame **aNextFrame,
                                    PRUint8 *aPrevLevel,
                                    PRUint8 *aNextLevel)
 {
-  return GetPrevNextBidiLevels(aPresContext, aNode, aContentOffset, mHint,
+  return GetPrevNextBidiLevels(aPresContext, aNode, aContentOffset, mHint, aJumpLines,
                                aPrevFrame, aNextFrame, aPrevLevel, aNextLevel);
 }
 
@@ -2018,6 +2037,7 @@ nsSelection::GetPrevNextBidiLevels(nsPresContext *aPresContext,
                                    nsIContent *aNode,
                                    PRUint32 aContentOffset,
                                    HINT aHint,
+                                   PRBool aJumpLines,
                                    nsIFrame **aPrevFrame,
                                    nsIFrame **aNextFrame,
                                    PRUint8 *aPrevLevel,
@@ -2061,111 +2081,109 @@ nsSelection::GetPrevNextBidiLevels(nsPresContext *aPresContext,
   XXX is there a simpler way to do this? 
   */
 
-  nsIFrame *blockFrame = currentFrame;
-  nsIFrame *thisBlock = nsnull;
-  PRInt32   thisLine;
-  nsILineIteratorNavigator* it;  // This is qi'd off a frame, and those aren't
-                                 // refcounted
-  result = NS_ERROR_FAILURE;
-  while (NS_FAILED(result) && blockFrame)
-  {
-    thisBlock = blockFrame;
-    blockFrame = blockFrame->GetParent();
-    if (blockFrame) {
-      result = CallQueryInterface(blockFrame, &it);
+  if (!aJumpLines) {
+    nsIFrame *blockFrame = currentFrame;
+    nsIFrame *thisBlock = nsnull;
+    PRInt32   thisLine;
+    nsILineIteratorNavigator* it;  // This is qi'd off a frame, and those aren't
+                                   // refcounted
+    result = NS_ERROR_FAILURE;
+    while (NS_FAILED(result) && blockFrame)
+    {
+      thisBlock = blockFrame;
+      blockFrame = blockFrame->GetParent();
+      if (blockFrame) {
+        result = CallQueryInterface(blockFrame, &it);
+      }
     }
-  }
-  if (!blockFrame || !it)
-    return NS_ERROR_FAILURE;
-  result = it->FindLineContaining(thisBlock, &thisLine);
-  if (NS_FAILED(result))
-    return result;
+    if (!blockFrame || !it)
+      return NS_ERROR_FAILURE;
+    result = it->FindLineContaining(thisBlock, &thisLine);
+    if (NS_FAILED(result))
+      return result;
 
-  if (thisLine < 0) 
-    return NS_ERROR_FAILURE;
+    if (thisLine < 0) 
+      return NS_ERROR_FAILURE;
 
-  nsIFrame *firstFrame;
-  nsIFrame *lastFrame;
-  nsRect    nonUsedRect;
-  PRInt32   lineFrameCount;
-  PRUint32  lineFlags;
+    nsIFrame *firstFrame;
+    nsIFrame *lastFrame;
+    nsRect    nonUsedRect;
+    PRInt32   lineFrameCount;
+    PRUint32  lineFlags;
 
-  result = it->GetLine(thisLine, &firstFrame, &lineFrameCount,nonUsedRect,
-                       &lineFlags);
-  if (NS_FAILED(result))
-    return result;
+    result = it->GetLine(thisLine, &firstFrame, &lineFrameCount,nonUsedRect,
+                         &lineFlags);
+    if (NS_FAILED(result))
+      return result;
 
-  lastFrame = firstFrame;
+    lastFrame = firstFrame;
 
-  for (;lineFrameCount > 1;lineFrameCount --) {
-    lastFrame = lastFrame->GetNextSibling();
-  }
+    for (;lineFrameCount > 1;lineFrameCount --) {
+      lastFrame = lastFrame->GetNextSibling();
+    }
 
-  // GetFirstLeaf
-  nsIFrame *lookahead;
-  while (1) {
-    lookahead = firstFrame->GetFirstChild(nsnull);
-    if (!lookahead)
-      break; //nothing to do
-    firstFrame = lookahead;
-  }
+    // GetFirstLeaf
+    nsIFrame *lookahead;
+    while (1) {
+      lookahead = firstFrame->GetFirstChild(nsnull);
+      if (!lookahead)
+        break; //nothing to do
+      firstFrame = lookahead;
+    }
 
-  // GetLastLeaf
-  while (1) {
-    lookahead = lastFrame->GetFirstChild(nsnull);
-    if (!lookahead)
-      break; //nothing to do
-    lastFrame = lookahead;
-    while ((lookahead = lastFrame->GetNextSibling()) != nsnull)
+    // GetLastLeaf
+    while (1) {
+      lookahead = lastFrame->GetFirstChild(nsnull);
+      if (!lookahead)
+        break; //nothing to do
       lastFrame = lookahead;
-  }
-  //END LINE DATA CODE
+      while ((lookahead = lastFrame->GetNextSibling()) != nsnull)
+        lastFrame = lookahead;
+    }
+    //END LINE DATA CODE
 
-  if (direction == eDirNext && lastFrame == currentFrame) { // End of line: set aPrevFrame to the current frame
-                                                            //              set aPrevLevel to the embedding level of the current frame
-                                                            //              set aNextFrame to null
-                                                            //              set aNextLevel to the paragraph embedding level
-    *aPrevFrame = currentFrame;
-    *aPrevLevel = NS_GET_EMBEDDING_LEVEL(currentFrame);
-    *aNextLevel = NS_GET_BASE_LEVEL(currentFrame);
-    *aNextFrame = nsnull;
-    return NS_OK;
-  }
+    if (direction == eDirNext && lastFrame == currentFrame) { // End of line: set aPrevFrame to the current frame
+                                                              //              set aPrevLevel to the embedding level of the current frame
+                                                              //              set aNextFrame to null
+                                                              //              set aNextLevel to the paragraph embedding level
+      *aPrevFrame = currentFrame;
+      *aPrevLevel = NS_GET_EMBEDDING_LEVEL(currentFrame);
+      *aNextLevel = NS_GET_BASE_LEVEL(currentFrame);
+      *aNextFrame = nsnull;
+      return NS_OK;
+    }
 
-  if (direction == eDirPrevious && firstFrame == currentFrame) { // Beginning of line: set aPrevFrame to null
-                                                                 //                    set aPrevLevel to the paragraph embedding level
-                                                                 //                    set aNextFrame to the current frame
-                                                                 //                    set aNextLevel to the embedding level of the current frame
-    *aNextFrame = currentFrame;
-    *aNextLevel = NS_GET_EMBEDDING_LEVEL(currentFrame);
-    *aPrevLevel = NS_GET_BASE_LEVEL(currentFrame);
-    *aPrevFrame = nsnull;
-    return NS_OK;
-  }
+    if (direction == eDirPrevious && firstFrame == currentFrame) { // Beginning of line: set aPrevFrame to null
+                                                                   //                    set aPrevLevel to the paragraph embedding level
+                                                                   //                    set aNextFrame to the current frame
+                                                                   //                    set aNextLevel to the embedding level of the current frame
+      *aNextFrame = currentFrame;
+      *aNextLevel = NS_GET_EMBEDDING_LEVEL(currentFrame);
+      *aPrevLevel = NS_GET_BASE_LEVEL(currentFrame);
+      *aPrevFrame = nsnull;
+      return NS_OK;
+    }
+  } //if (!aJumpLines)
 
   // Find the adjacent frame
 
   nsCOMPtr<nsIBidirectionalEnumerator> frameTraversal;
-  nsCOMPtr<nsIFrameTraversal> trav(do_CreateInstance(kFrameTraversalCID,&result));
+  result = NS_NewFrameTraversal(getter_AddRefs(frameTraversal),LEAF, aPresContext, currentFrame, PR_TRUE);
   if (NS_FAILED(result))
     return result;
-
-  result = trav->NewFrameTraversal(getter_AddRefs(frameTraversal),LEAF, aPresContext, currentFrame);
-  if (NS_FAILED(result))
-    return result;
+  
   nsISupports *isupports = nsnull;
   if (direction == eDirNext)
     result = frameTraversal->Next();
   else 
     result = frameTraversal->Prev();
 
-  if (NS_FAILED(result))
-    return result;
-  result = frameTraversal->CurrentItem(&isupports);
-  if (NS_FAILED(result))
-    return result;
-  if (!isupports)
-    return NS_ERROR_NULL_POINTER;
+  if (NS_SUCCEEDED(result)) {
+    result = frameTraversal->CurrentItem(&isupports);
+    if (NS_FAILED(result))
+      return result;
+  }
+
   //we must CAST here to an nsIFrame. nsIFrame doesn't really follow the rules
   //for speed reasons
   nsIFrame *newFrame = (nsIFrame *)isupports;
@@ -2174,13 +2192,13 @@ nsSelection::GetPrevNextBidiLevels(nsPresContext *aPresContext,
     *aPrevFrame = currentFrame;
     *aPrevLevel = NS_GET_EMBEDDING_LEVEL(currentFrame);
     *aNextFrame = newFrame;
-    *aNextLevel = NS_GET_EMBEDDING_LEVEL(newFrame);
+    *aNextLevel = newFrame ? NS_GET_EMBEDDING_LEVEL(newFrame) : NS_GET_BASE_LEVEL(currentFrame);
   }
   else {
     *aNextFrame = currentFrame;
     *aNextLevel = NS_GET_EMBEDDING_LEVEL(currentFrame);
     *aPrevFrame = newFrame;
-    *aPrevLevel = NS_GET_EMBEDDING_LEVEL(newFrame);
+    *aPrevLevel = newFrame ? NS_GET_EMBEDDING_LEVEL(newFrame) : NS_GET_BASE_LEVEL(currentFrame);
   }
 
   return NS_OK;
@@ -2299,7 +2317,7 @@ void nsSelection::BidiLevelFromMove(nsPresContext* aContext,
     // Right and Left: the new cursor Bidi level is the level of the character moved over
     case nsIDOMKeyEvent::DOM_VK_RIGHT:
     case nsIDOMKeyEvent::DOM_VK_LEFT:
-      GetPrevNextBidiLevels(aContext, aNode, aContentOffset, aHint, &firstFrame, &secondFrame, &firstLevel, &secondLevel);
+      GetPrevNextBidiLevels(aContext, aNode, aContentOffset, aHint, PR_FALSE, &firstFrame, &secondFrame, &firstLevel, &secondLevel);
       if (HINTLEFT == aHint)
         aPresShell->SetCaretBidiLevel(firstLevel);
       else
@@ -5186,66 +5204,30 @@ nsTypedSelection::ScrollPointIntoClipView(nsPresContext *aPresContext, nsIView *
   }
 
   //
-  // Now clip the scroll amounts so that we don't scroll
-  // beyond the ends of the document.
+  // Now scroll the view if necessary.
   //
 
-  nscoord scrollX = 0, scrollY = 0;
-  nscoord docWidth = 0, docHeight = 0;
-
-  result = scrollableView->GetScrollPosition(scrollX, scrollY);
-
-  if (NS_SUCCEEDED(result))
-    result = scrollableView->GetContainerSize(&docWidth, &docHeight);
-
-  if (NS_SUCCEEDED(result))
+  if (dx != 0 || dy != 0)
   {
-    if (dx < 0 && scrollX == 0)
-      dx = 0;
-    else if (dx > 0)
-    {
-      nscoord x1 = scrollX + dx + bounds.width;
+    // Make sure latest bits are available before we scroll them.
+    aPresContext->GetViewManager()->Composite();
 
-      if (x1 > docWidth)
-        dx -= x1 - docWidth;
-    }
+    // Now scroll the view!
 
+    result = scrollableView->ScrollTo(bounds.x + dx, bounds.y + dy,
+                                      NS_VMREFRESH_NO_SYNC);
 
-    if (dy < 0 && scrollY == 0)
-      dy = 0;
-    else if (dy > 0)
-    {
-      nscoord y1 = scrollY + dy + bounds.height;
+    if (NS_FAILED(result))
+      return result;
 
-      if (y1 > docHeight)
-        dy -= y1 - docHeight;
-    }
+    nsPoint newPos;
 
-    //
-    // Now scroll the view if necessary.
-    //
+    result = scrollableView->GetScrollPosition(newPos.x, newPos.y);
 
-    if (dx != 0 || dy != 0)
-    {
-      // Make sure latest bits are available before we scroll them.
-      aPresContext->GetViewManager()->Composite();
+    if (NS_FAILED(result))
+      return result;
 
-      // Now scroll the view!
-
-      result = scrollableView->ScrollTo(scrollX + dx, scrollY + dy, NS_VMREFRESH_NO_SYNC);
-
-      if (NS_FAILED(result))
-        return result;
-
-      nsPoint newPos;
-
-      result = scrollableView->GetScrollPosition(newPos.x, newPos.y);
-
-      if (NS_FAILED(result))
-        return result;
-
-      *aDidScroll = (bounds.x != newPos.x || bounds.y != newPos.y);
-    }
+    *aDidScroll = (bounds.x != newPos.x || bounds.y != newPos.y);
   }
 
   return result;
@@ -6861,37 +6843,6 @@ nsTypedSelection::GetSelectionRegionRectAndScrollableView(SelectionRegion aRegio
     }
     else
       aRect->width = 60; // Arbitrary
-
-    //
-    // Clip the x dimensions of aRect so that they are
-    // completely within the bounds of the scrolledView.
-    // This helps avoid unnecessary scrolling of parent
-    // scrolled views.
-    //
-    // Note that aRect is in the coordinate system
-    // of the scrolledView, so there is no need to take
-    // into account scrolledView's x and y position.
-    // We can just assume that (0,0) corresponds to the
-    // upper left corner, and (svRect.width, svRect.height)
-    // the lower right corner of the scrolledView.
-    //
-
-    nsIView* scrolledView = 0;
-
-    result = (*aScrollableView)->GetScrolledView(scrolledView);
-
-    if (NS_FAILED(result))
-      return result;
-
-    nsRect svRect = scrolledView->GetBounds();
-
-    if (aRect->x < 0)
-      aRect->x = 0;
-    else if (aRect->x >= svRect.width)
-      aRect->x = svRect.width - 1;
-
-    if (aRect->XMost() > svRect.width)
-      aRect->width = svRect.width - aRect->x;
   }
   else
   {
@@ -6905,6 +6856,19 @@ nsTypedSelection::GetSelectionRegionRectAndScrollableView(SelectionRegion aRegio
   }
 
   return result;
+}
+
+static void
+ClampPointInsideRect(nsPoint& aPoint, const nsRect& aRect)
+{
+  if (aPoint.x < aRect.x)
+    aPoint.x = aRect.x;
+  if (aPoint.x > aRect.XMost())
+    aPoint.x = aRect.XMost();
+  if (aPoint.y < aRect.y)
+    aPoint.y = aRect.y;
+  if (aPoint.y > aRect.YMost())
+    aPoint.y = aRect.YMost();
 }
 
 nsresult
@@ -7011,12 +6975,24 @@ nsTypedSelection::ScrollRectIntoView(nsIScrollableView *aScrollableView,
 
       if (parentSV)
       {
+        // 
+        // Clip the x dimensions of aRect so that they are
+        // completely within the bounds of the scrolledView.
+        // This helps avoid unnecessary scrolling of parent
+        // scrolled views.
+        //
+        nsRect svRect = scrolledView->GetBounds() - scrolledView->GetPosition();
+        nsPoint topLeft = aRect.TopLeft();
+        nsPoint bottomRight = aRect.BottomRight();
+        ClampPointInsideRect(topLeft, svRect);
+        ClampPointInsideRect(bottomRight, svRect);
+        nsRect newRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x,
+                       bottomRight.y - topLeft.y);
+
         //
         // We have a parent scrollable view, so now map aRect
         // into it's scrolled view's coordinate space.
         //
-        
-        nsRect newRect;
 
         rv = parentSV->GetScrolledView(view);
 
@@ -7026,15 +7002,14 @@ nsTypedSelection::ScrollRectIntoView(nsIScrollableView *aScrollableView,
         if (!view)
           return NS_ERROR_FAILURE;
 
-        rv = GetViewAncestorOffset(scrolledView, view, &newRect.x, &newRect.y);
+        nscoord offsetX, offsetY;
+        rv = GetViewAncestorOffset(scrolledView, view, &offsetX, &offsetY);
 
         if (NS_FAILED(rv))
           return rv;
 
-        newRect.x     += aRect.x;
-        newRect.y     += aRect.y;
-        newRect.width  = aRect.width;
-        newRect.height = aRect.height;
+        newRect.x     += offsetX;
+        newRect.y     += offsetY;
 
         //
         // Now scroll the rect into the parent's view.
@@ -7313,7 +7288,7 @@ nsTypedSelection::SelectionLanguageChange(PRBool aLangRTL)
     }
     mFrameSelection->SetHint(hint);
     */
-    mFrameSelection->GetPrevNextBidiLevels(context, focusContent, focusOffset, &frameBefore, &frameAfter, &levelBefore, &levelAfter);
+    mFrameSelection->GetPrevNextBidiLevels(context, focusContent, focusOffset, PR_FALSE, &frameBefore, &frameAfter, &levelBefore, &levelAfter);
   }
 
   nsIPresShell* shell = context->GetPresShell();

@@ -34,13 +34,19 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * rendering object for the point that anchors out-of-flow rendering
+ * objects such as floats and absolutely positioned elements
+ */
+
 #ifndef nsPlaceholderFrame_h___
 #define nsPlaceholderFrame_h___
 
 #include "nsSplittableFrame.h"
 #include "nsLayoutAtoms.h"
 
-nsIFrame* NS_NewPlaceholderFrame(nsIPresShell* aPresShell);
+nsIFrame* NS_NewPlaceholderFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
 /**
  * Implementation of a frame that's used as a placeholder for a frame that
@@ -51,8 +57,8 @@ public:
   /**
    * Create a new placeholder frame
    */
-  friend nsIFrame* NS_NewPlaceholderFrame(nsIPresShell* aPresShell);
-  nsPlaceholderFrame();
+  friend nsIFrame* NS_NewPlaceholderFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
+  nsPlaceholderFrame(nsStyleContext* aContext) : nsSplittableFrame(aContext) {}
   virtual ~nsPlaceholderFrame();
 
   // Get/Set the associated out of flow frame

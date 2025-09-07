@@ -34,6 +34,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * rendering object for the point that anchors out-of-flow rendering
+ * objects such as floats and absolutely positioned elements
+ */
+
 #include "nsPlaceholderFrame.h"
 #include "nsLineLayout.h"
 #include "nsIContent.h"
@@ -44,14 +50,9 @@
 #include "nsDisplayList.h"
 
 nsIFrame*
-NS_NewPlaceholderFrame(nsIPresShell* aPresShell)
+NS_NewPlaceholderFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsPlaceholderFrame;
-}
-
-// These are useful for debugging
-nsPlaceholderFrame::nsPlaceholderFrame()
-{
+  return new (aPresShell) nsPlaceholderFrame(aContext);
 }
 
 nsPlaceholderFrame::~nsPlaceholderFrame()

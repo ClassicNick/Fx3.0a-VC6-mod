@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* a presentation of a document, part 1 */
+
 #ifndef nsPresContext_h___
 #define nsPresContext_h___
 
@@ -56,6 +59,7 @@
 #include "nsCRT.h"
 #include "nsIPrintSettings.h"
 #include "nsPropertyTable.h"
+#include "nsLayoutAtoms.h"
 #ifdef IBMBIDI
 class nsBidiPresUtils;
 #endif // IBMBIDI
@@ -103,12 +107,18 @@ enum nsLanguageSpecificTransformType {
 };
 
 // supported values for cached bool types
-const PRUint32 kPresContext_UseDocumentColors = 0x01;
-const PRUint32 kPresContext_UseDocumentFonts = 0x02;
-const PRUint32 kPresContext_UnderlineLinks = 0x03;
+enum nsPresContext_CachedBoolPrefType {
+  kPresContext_UseDocumentColors = 1,
+  kPresContext_UseDocumentFonts,
+  kPresContext_UnderlineLinks
+};
 
 // supported values for cached integer pref types
-const PRUint32 kPresContext_MinimumFontSize = 0x01;
+enum nsPresContext_CachedIntPrefType {
+  kPresContext_MinimumFontSize = 1,
+  kPresContext_ScrollbarSide,
+  kPresContext_BidiDirection
+};
 
 // IDs for the default variable and fixed fonts (not to be changed, see nsFont.h)
 // To be used for Get/SetDefaultFont(). The other IDs in nsFont.h are also supported.
@@ -127,7 +137,8 @@ public:
   enum nsPresContextType {
     eContext_Galley,       // unpaginated screen presentation
     eContext_PrintPreview, // paginated screen presentation
-    eContext_Print         // paginated printer presentation
+    eContext_Print,        // paginated printer presentation
+    eContext_PageLayout    // paginated & editable.
   };
 
   nsPresContext(nsPresContextType aType) NS_HIDDEN;
@@ -249,7 +260,7 @@ public:
 
   /** Get a cached boolean pref, by its type */
   // *  - initially created for bugs 31816, 20760, 22963
-  PRBool GetCachedBoolPref(PRUint32 aPrefType) const
+  PRBool GetCachedBoolPref(nsPresContext_CachedBoolPrefType aPrefType) const
   {
     // If called with a constant parameter, the compiler should optimize
     // this switch statement away.
@@ -269,13 +280,17 @@ public:
 
   /** Get a cached integer pref, by its type */
   // *  - initially created for bugs 30910, 61883, 74186, 84398
-  PRInt32 GetCachedIntPref(PRUint32 aPrefType) const
+  PRInt32 GetCachedIntPref(nsPresContext_CachedIntPrefType aPrefType) const
   {
     // If called with a constant parameter, the compiler should optimize
     // this switch statement away.
     switch (aPrefType) {
     case kPresContext_MinimumFontSize:
       return mMinimumFontSize;
+    case kPresContext_ScrollbarSide:
+      return mPrefScrollbarSide;
+    case kPresContext_BidiDirection:
+      return mPrefBidiDirection;
     default:
       NS_ERROR("invalid arg passed to GetCachedIntPref");
     }
@@ -369,24 +384,19 @@ public:
   PRBool HasPaginatedScrolling() const { return mCanPaginatedScroll; }
 
   /**
-   * Gets the rect for the page dimensions,
-   * this includes X,Y Offsets which are used to determine 
-   * the inclusion of margins
-   * Also, indicates whether the size has been overridden
-   *
-   * @param aActualRect returns the size of the actual device/surface
-   * @param aRect returns the adjusted size 
+   * Get/set the size of a page
    */
-  NS_HIDDEN_(void) GetPageDim(nsRect* aActualRect, nsRect* aAdjRect);
+  nsSize GetPageSize() { return mPageSize; }
+  void SetPageSize(nsSize aSize) { mPageSize = aSize; }
 
   /**
-   * Sets the "adjusted" rect for the page Dimimensions, 
-   * this includes X,Y Offsets which are used to determine 
-   * the inclusion of margins
-   *
-   * @param aRect returns the adjusted size 
+   * Get/set whether this document should be treated as having real pages
+   * XXX This raises the obvious question of why a document that isn't a page
+   *     is paginated; there isn't a good reason except history
    */
-  NS_HIDDEN_(void) SetPageDim(const nsRect& aRect);
+  PRBool IsRootPaginatedDocument() { return mIsRootPaginatedDocument; }
+  void SetIsRootPaginatedDocument(PRBool aIsRootPaginatedDocument)
+    { mIsRootPaginatedDocument = aIsRootPaginatedDocument; }
 
   /**
    * Conversion from device pixels to twips.
@@ -623,6 +633,11 @@ public:
    */
   const nscoord* GetBorderWidthTable() { return mBorderWidthTable; }
 
+  PRBool IsDynamic() { return (mType == eContext_PageLayout || mType == eContext_Galley); };
+  PRBool IsScreen() { return (mMedium == nsLayoutAtoms::screen ||
+                              mType == eContext_PageLayout ||
+                              mType == eContext_PrintPreview); };
+
 protected:
   NS_HIDDEN_(void) SetImgAnimations(nsIContent *aParent, PRUint16 aMode);
   NS_HIDDEN_(void) GetDocumentColorPreferences();
@@ -678,7 +693,7 @@ protected:
   nscoord               mMinimumFontSize;
 
   nsRect                mVisibleArea;
-  nsRect                mPageDim;
+  nsSize                mPageSize;
 
   nscolor               mDefaultColor;
   nscolor               mBackgroundColor;
@@ -721,6 +736,10 @@ protected:
   unsigned              mCanPaginatedScroll : 1;
   unsigned              mDoScaledTwips : 1;
   unsigned              mEnableJapaneseTransform : 1;
+  unsigned              mIsRootPaginatedDocument : 1;
+  unsigned              mPrefBidiDirection : 1;
+  unsigned              mPrefScrollbarSide : 2;
+
 #ifdef IBMBIDI
   unsigned              mIsVisual : 1;
   unsigned              mIsBidiSystem : 1;

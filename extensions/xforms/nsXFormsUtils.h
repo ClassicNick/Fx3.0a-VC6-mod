@@ -183,6 +183,7 @@ public:
    * @param aModel            The \<model\> for the element
    * @param aBindElement      The \<bind\> the element is bound to (if any)
    * @param aOuterBind        Whether the \<bind\> is an outermost bind
+   * @param aParentControl    The parent control, ie the one setting the context
    * @param aContextNode      The context node for the element
    * @param aContextPosition  The context position for the element
    * @param aContextSize      The context size for the element
@@ -193,6 +194,7 @@ public:
                    nsIModelElementPrivate **aModel,
                    nsIDOMElement          **aBindElement,
                    PRBool                  *aOuterBind,
+                   nsIXFormsControl       **aParentControl,
                    nsIDOMNode             **aContextNode,
                    PRInt32                 *aContextPosition = nsnull,
                    PRInt32                 *aContextSize = nsnull);
@@ -203,12 +205,14 @@ public:
    * @note Actually it is just a shortcut for GetNodeContext().
    *
    * @param aElement          The element
+   * @param aParentControl    The parent control setting the context
    * @param aElementFlags     Flags describing characteristics of aElement
    * @return                  The model
    */
   static NS_HIDDEN_(already_AddRefed<nsIModelElementPrivate>)
-    GetModel(nsIDOMElement  *aElement,
-             PRUint32        aElementFlags = ELEMENT_WITH_MODEL_ATTR);
+    GetModel(nsIDOMElement     *aElement,
+             nsIXFormsControl **aParentControl = nsnull,
+             PRUint32           aElementFlags = ELEMENT_WITH_MODEL_ATTR);
 
   /**
    * Evaluate a 'bind' or |aBindingAttr| attribute on |aElement|.
@@ -229,6 +233,7 @@ public:
                         nsIModelElementPrivate **aModel,
                         nsIDOMXPathResult      **aResult,
                         PRBool                  *aUsesModelBind,
+                        nsIXFormsControl       **aParentControl = nsnull,
                         nsCOMArray<nsIDOMNode>  *aDeps = nsnull,
                         nsStringArray           *aIndexesUsed = nsnull);
 
@@ -345,16 +350,19 @@ public:
   /**
    * Returns the context for the element, if set by a parent node.
    *
-   * Controls inheriting from nsIXFormsContextControl sets the context for its children.
+   * Controls inheriting from nsIXFormsContextControl sets the context for its
+   * children.
    *
    * @param aElement          The document element of the caller
    * @param aModel            The model for |aElement| (if (!*aModel), it is set)
+   * @param aParentControl    The parent control setting the context
    * @param aContextNode      The resulting context node
    * @param aContextPosition  The resulting context position
    * @param aContextSize      The resulting context size
    */
   static NS_HIDDEN_(nsresult) FindParentContext(nsIDOMElement           *aElement,
                                                 nsIModelElementPrivate **aModel,
+                                                nsIXFormsControl       **aParentControl,
                                                 nsIDOMNode             **aContextNode,
                                                 PRInt32                 *aContextPosition,
                                                 PRInt32                 *aContextSize);
@@ -463,18 +471,18 @@ public:
                                              const PRBool      aOnlyXForms,
                                              nsIDOMElement    *aCaller,
                                              nsIDOMElement   **aElement);
-
-
+  
   /**
-   * Shows an error dialog for the user the first time an
-   * xforms-binding-exception event is received by the control.
+   * Shows an error dialog for fatal errors.
    *
    * The dialog can be disabled via the |xforms.disablePopup| preference.
    *
    * @param aElement         Element the exception occured at
+   * @param aName            The name to use for the new window
    * @return                 Whether handling was successful
    */
-  static PRBool HandleBindingException(nsIDOMElement *aElement);
+  static NS_HIDDEN_(PRBool) HandleFatalError(nsIDOMElement   *aElement,
+                                             const nsAString &aName);
 
   /**
    * Returns whether the given NamedNodeMaps of Entities are equal

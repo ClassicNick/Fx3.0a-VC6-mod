@@ -34,6 +34,13 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * Base class for all element classes; this provides an implementation
+ * of DOM Core's nsIDOMElement, implements nsIContent, provides
+ * utility methods for subclasses, and so forth.
+ */
+
 #ifndef nsGenericElement_h___
 #define nsGenericElement_h___
 
@@ -906,22 +913,6 @@ protected:
    * Internal hook for converting an attribute name-string to an atomized name
    */
   virtual const nsAttrName* InternalGetExistingAttrNameFromQName(const nsAString& aStr) const;
-
-  /**
-   * Will be called when InsertChildAt, AppendChildTo or RemoveChildAt is used,
-   * before anything else is done.
-   * The processing of the calling method will be cancelled if this method
-   * does not succeed.
-   * @param aKid    the content object which will be added or removed. Never null.
-   * @param aIndex  the same index which is used as a parameter with InsertChildAt;
-   *                aIndex gets value from GetChildCount() when AppendChildTo is
-   *                called. When a child will be removed, this is the index of
-   *                the aKid.
-   * @param aRemove PR_TRUE, if a child object is being removed.
-   */
-  virtual nsresult WillAddOrRemoveChild(nsIContent* aKid,
-                                        PRUint32 aIndex,
-                                        PRBool aRemove);
 
   PRBool HasDOMSlots() const
   {

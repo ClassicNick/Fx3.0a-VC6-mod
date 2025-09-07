@@ -283,22 +283,7 @@ function newEvent(startDate, endDate, allDay)
 
    calendarEvent.endDate.jsDate = endDate
 
-   var prefService = Components.classes["@mozilla.org/preferences-service;1"]
-                               .getService(Components.interfaces.nsIPrefService);
-   var alarmsBranch = prefService.getBranch("calendar.alarms.");
-
-   if (alarmsBranch.getIntPref("onforevents") == 1) {
-       var alarmOffset = Components.classes["@mozilla.org/calendar/duration;1"]
-                                   .createInstance(Components.interfaces.calIDuration);
-       try {
-           var units = alarmsBranch.getCharPref("eventalarmunit");
-           alarmOffset[units] = alarmsBranch.getIntPref("eventalarmlen");
-       } catch(ex) {
-           alarmOffset.minutes = 15;
-       }
-       calendarEvent.alarmOffset = alarmOffset;
-       calendarEvent.alarmRelated = calendarEvent.ALARM_RELATED_START;
-   }
+   setDefaultAlarmValues(calendarEvent);
 
    if (allDay)
        calendarEvent.startDate.isDate = true;
@@ -324,26 +309,7 @@ function newToDo ( startDate, dueDate )
     if (dueDate)
         calendarToDo.dueDate = jsDateToDateTime(startDate);
 
-   var prefService = Components.classes["@mozilla.org/preferences-service;1"]
-                               .getService(Components.interfaces.nsIPrefService);
-   var alarmsBranch = prefService.getBranch("calendar.alarms.");
-
-   if (alarmsBranch.getIntPref("onfortodos") == 1) {
-       // You can't have an alarm if the entryDate doesn't exist.
-       if (!calendarToDo.entryDate)
-           calendarToDo.entryDate = jsDateToDateTime(
-                                    gCalendarWindow.currentView.getNewEventDate());
-       var alarmOffset = Components.classes["@mozilla.org/calendar/duration;1"]
-                                   .createInstance(Components.interfaces.calIDuration);
-       try {
-           var units = alarmsBranch.getCharPref("todoalarmunit");
-           alarmOffset[units] = alarmsBranch.getIntPref("todoalarmlen");
-       } catch(ex) {
-           alarmOffset.minutes = 15;
-       }
-       calendarToDo.alarmOffset = alarmOffset;
-       calendarToDo.alarmRelated = calendarToDo.ALARM_RELATED_START;
-   }
+    setDefaultAlarmValues(calendarToDo);
 
     var calendar = getSelectedCalendarOrNull();
     
@@ -656,39 +622,6 @@ function CalendarToolboxCustomizeDone(aToolboxChanged)
   window.focus();
 }
 
-var gTransactionMgr = Components.classes["@mozilla.org/transactionmanager;1"]
-                                .createInstance(Components.interfaces.nsITransactionManager);
-function doTransaction(aAction, aItem, aCalendar, aOldItem, aListener) {
-    var txn = new calTransaction(aAction, aItem, aCalendar, aOldItem, aListener);
-    gTransactionMgr.doTransaction(txn);
-    updateUndoRedoMenu();
-}
-
-function undo() {
-    gTransactionMgr.undoTransaction();
-    updateUndoRedoMenu();
-}
-
-function redo() {
-    gTransactionMgr.redoTransaction();
-    updateUndoRedoMenu();
-}
-
-function startBatchTransaction() {
-    gTransactionMgr.beginBatch();
-}
-function endBatchTransaction() {
-    gTransactionMgr.endBatch();
-    updateUndoRedoMenu();
-}
-
-function canUndo() {
-    return (gTransactionMgr.numberOfUndoItems > 0);
-}
-function canRedo() {
-    return (gTransactionMgr.numberOfRedoItems > 0);
-}
-
 function updateUndoRedoMenu() {
     if (gTransactionMgr.numberOfUndoItems)
         document.getElementById('undo_command').removeAttribute('disabled');
@@ -699,80 +632,6 @@ function updateUndoRedoMenu() {
         document.getElementById('redo_command').removeAttribute('disabled');
     else    
         document.getElementById('redo_command').setAttribute('disabled', true);
-}
-
-// Valid values for aAction: 'add', 'modify', 'delete', 'move'
-// aOldItem is only needed for aAction == 'modify'
-function calTransaction(aAction, aItem, aCalendar, aOldItem, aListener) {
-    this.mAction = aAction;
-    this.mItem = aItem;
-    this.mCalendar = aCalendar;
-    this.mOldItem = aOldItem;
-    this.mListener = aListener;
-}
-
-calTransaction.prototype = {
-    mAction: null,
-    mItem: null,
-    mCalendar: null,
-    mOldItem: null,
-    mOldCalendar: null,
-    mListener: null,
-
-    QueryInterface: function (aIID) {
-        if (!aIID.equals(Components.interfaces.nsISupports) &&
-            !aIID.equals(Components.interfaces.nsITransaction))
-        {
-            throw Components.results.NS_ERROR_NO_INTERFACE;
-        }
-        return this;
-    },
-
-    doTransaction: function () {
-        switch (this.mAction) {
-            case 'add':
-                this.mCalendar.addItem(this.mItem, this.mListener);
-                break;
-            case 'modify':
-                this.mCalendar.modifyItem(this.mItem, this.mOldItem,
-                                          this.mListener);
-                break;
-            case 'delete':
-                this.mCalendar.deleteItem(this.mItem, this.mListener);
-                break;
-            case 'move':
-                this.mOldCalendar = this.mOldItem.calendar;
-                this.mOldCalendar.deleteItem(this.mOldItem, this.mListener);
-                this.mCalendar.addItem(this.mItem, this.mListener);
-                break;
-        }
-    },
-    undoTransaction: function () {
-        switch (this.mAction) {
-            case 'add':
-                this.mCalendar.deleteItem(this.mItem, null);
-                break;
-            case 'modify':
-                this.mCalendar.modifyItem(this.mOldItem, this.mItem, null);
-                break;
-            case 'delete':
-                this.mCalendar.addItem(this.mItem, null);
-                break;
-            case 'move':
-                this.mCalendar.deleteItem(this.mItem, this.mListener);
-                this.mOldCalendar.addItem(this.mOldItem, this.mListener);
-                break;
-        }
-    },
-    redoTransaction: function () {
-        this.doTransaction();
-    },
-    isTransient: false,
-    
-    merge: function (aTransaction) {
-        // No support for merging
-        return false;
-    }
 }
 
 function openLocalCalendar() {

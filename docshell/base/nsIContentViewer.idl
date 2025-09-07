@@ -2,6 +2,7 @@
 
 interface nsIDOMDocument;
 interface nsISHEntry;
+interface nsIPrintSettings;
 
 
 %{ C++
@@ -14,7 +15,7 @@ struct nsRect;
 [ptr] native nsIDeviceContextPtr(nsIDeviceContext);
 [ref] native nsRectRef(nsRect);
 
-[scriptable, uuid(13a1028c-7720-4ea1-9c49-688ef1574528)]
+[scriptable, uuid(1d587109-9df7-4614-9a96-309902269e9e)]
 interface nsIContentViewer : nsISupports
 {
 
@@ -96,4 +97,10 @@ interface nsIContentViewer : nsISupports
    * the saved presentation state.
    */
   void clearHistoryEntry();
+
+  /*
+   * Change the layout to view the document with page layout (like print preview), but
+   * dynamic and editable (like Galley layout).
+  */
+  void setPageMode(in PRBool aPageMode, in nsIPrintSettings aPrintSettings);
 };

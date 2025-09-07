@@ -36,6 +36,8 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/* rendering object for the HTML <canvas> element */
+
 #include "nsHTMLParts.h"
 #include "nsCOMPtr.h"
 #include "nsIServiceManager.h"
@@ -46,13 +48,9 @@
 #include "nsDisplayList.h"
 
 nsIFrame*
-NS_NewHTMLCanvasFrame(nsIPresShell* aPresShell)
+NS_NewHTMLCanvasFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) nsHTMLCanvasFrame;
-}
-
-nsHTMLCanvasFrame::nsHTMLCanvasFrame()
-{
+  return new (aPresShell) nsHTMLCanvasFrame(aContext);
 }
 
 nsHTMLCanvasFrame::~nsHTMLCanvasFrame()

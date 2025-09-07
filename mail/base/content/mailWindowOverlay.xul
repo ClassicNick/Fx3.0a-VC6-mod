@@ -257,7 +257,7 @@
             oncommandupdate="goUpdateMailMenuItems(this)">
 
     <command id="cmd_getMsgsForAuthAccounts" 
-             oncommand="goDoCommand('cmd_getMsgsForAuthAccounts'); event.preventBubble()" 
+             oncommand="goDoCommand('cmd_getMsgsForAuthAccounts'); event.stopPropagation()" 
              disabled="true"/>
 </commandset>
 
@@ -266,13 +266,13 @@
               events="create-menu-mark"
               oncommandupdate="goUpdateMailMenuItems(this)">
 
-    <command id="cmd_markAsRead" oncommand="goDoCommand('cmd_markAsRead'); event.preventBubble()" disabled="true"/>
-    <command id="cmd_markAllRead" oncommand="goDoCommand('cmd_markAllRead'); event.preventBubble()" disabled="true"/>
-    <command id="cmd_markThreadAsRead" oncommand="goDoCommand('cmd_markThreadAsRead'); event.preventBubble()" disabled="true"/>
+    <command id="cmd_markAsRead" oncommand="goDoCommand('cmd_markAsRead'); event.stopPropagation()" disabled="true"/>
+    <command id="cmd_markAllRead" oncommand="goDoCommand('cmd_markAllRead'); event.stopPropagation()" disabled="true"/>
+    <command id="cmd_markThreadAsRead" oncommand="goDoCommand('cmd_markThreadAsRead'); event.stopPropagation()" disabled="true"/>
     <command id="cmd_markReadByDate" oncommand="goDoCommand('cmd_markReadByDate');" disabled="true"/>
-    <command id="cmd_markAsFlagged" oncommand="goDoCommand('cmd_markAsFlagged'); event.preventBubble()" disabled="true"/>
-    <command id="cmd_markAsJunk" oncommand="goDoCommand('cmd_markAsJunk'); event.preventBubble()" disabled="true"/>
-    <command id="cmd_markAsNotJunk" oncommand="goDoCommand('cmd_markAsNotJunk'); event.preventBubble()" disabled="true"/>
+    <command id="cmd_markAsFlagged" oncommand="goDoCommand('cmd_markAsFlagged'); event.stopPropagation()" disabled="true"/>
+    <command id="cmd_markAsJunk" oncommand="goDoCommand('cmd_markAsJunk'); event.stopPropagation()" disabled="true"/>
+    <command id="cmd_markAsNotJunk" oncommand="goDoCommand('cmd_markAsNotJunk'); event.stopPropagation()" disabled="true"/>
     <command id="cmd_recalculateJunkScore" oncommand="goDoCommand('cmd_recalculateJunkScore');" disabled="true"/>
 </commandset>
 
@@ -696,7 +696,12 @@
 
   <popup id="folderPaneContext" onpopupshowing="return fillFolderPaneContextMenu();"
     onpopuphiding="if (event.target == this) folderPaneOnPopupHiding();">
-    
+
+    <menuitem id="folderPaneContext-openNewWindow" 
+              label="&folderContextOpenNewWindow.label;"
+              accesskey="&folderContextOpenNewWindow.accesskey;"
+              oncommand="MsgOpenNewWindowForFolder(null,-1);"/>              
+              
     <menuitem id="folderPaneContext-searchMessages"
         label="&folderContextSearchMessages.label;"
         accesskey="&folderContextSearchMessages.accesskey;"
@@ -2033,30 +2038,31 @@
 <!-- The msgNotificationBar appears on top of the message and displays 
      information like: junk, contains remote images, or is a suspected phishing URL 
 -->
-<deck id="msgNotificationBar" selectedIndex="0" collapsed="true">
-  <hbox id="msgNotificationNoStatus"/>
 
-  <hbox id="junkBar" class="msgNotificationBar" align="center">
-    <image id="junkBarImage"/>
-    <description flex="1" class="msgNotificationBarText">&junkBarMessage.label;</description>
-    <spacer flex="1"/>
-    <button label="&junkBarButton.label;" oncommand="JunkSelectedMessages(false);"/>
-  </hbox>
+  <deck id="msgNotificationBar" selectedIndex="0" collapsed="true">
+    <hbox id="msgNotificationNoStatus"/>
 
-  <hbox id="remoteContentBar" class="msgNotificationBar" align="center">
-    <image id="remoteContentImage"/>
-    <description flex="1" class="msgNotificationBarText">&remoteContentMessage.label;</description>
-    <spacer flex="1"/>
-    <button label="&loadRemoteContentButton.label;" oncommand="LoadMsgWithRemoteContent();"/>
-  </hbox>
+    <hbox id="phishingBar" class="msgNotificationBar" align="center">
+      <image id="phishingBarImage"/>
+      <description flex="1" class="msgNotificationBarText">&phishingBarMessage.label;</description>
+      <spacer flex="1"/>
+      <button label="&removePhishingBarButton.label;" oncommand="MsgIsNotAScam();"/>
+    </hbox>
 
-  <hbox id="phishingBar" class="msgNotificationBar" align="center">
-    <image id="phishingBarImage"/>
-    <description flex="1" class="msgNotificationBarText">&phishingBarMessage.label;</description>
-    <spacer flex="1"/>
-    <button label="&removePhishingBarButton.label;" oncommand="MsgIsNotAScam();"/>
-  </hbox>
-</deck>
+    <hbox id="junkBar" class="msgNotificationBar" align="center">
+      <image id="junkBarImage"/>
+      <description flex="1" class="msgNotificationBarText">&junkBarMessage.label;</description>
+      <spacer flex="1"/>
+      <button label="&junkBarButton.label;" oncommand="JunkSelectedMessages(false);"/>
+    </hbox>
+
+    <hbox id="remoteContentBar" class="msgNotificationBar" align="center">
+      <image id="remoteContentImage"/>
+      <description flex="1" class="msgNotificationBarText">&remoteContentMessage.label;</description>
+      <spacer flex="1"/>
+      <button label="&loadRemoteContentButton.label;" oncommand="LoadMsgWithRemoteContent();"/>
+    </hbox>
+  </deck>
 
 #include ../../../toolkit/components/typeaheadfind/content/findBar.inc
 

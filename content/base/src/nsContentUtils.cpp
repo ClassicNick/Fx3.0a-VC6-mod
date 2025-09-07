@@ -1018,6 +1018,34 @@ nsContentUtils::IsCallerChrome()
   return is_caller_chrome;
 }
 
+static PRBool IsCallerTrustedForCapability(const char* aCapability)
+{
+  // The secman really should handle UniversalXPConnect case, since that
+  // should include UniversalBrowserRead... doesn't right now, though.
+  PRBool hasCap;
+  nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
+  if (NS_FAILED(ssm->IsCapabilityEnabled(aCapability, &hasCap)))
+    return PR_FALSE;
+  if (hasCap)
+    return PR_TRUE;
+    
+  if (NS_FAILED(ssm->IsCapabilityEnabled("UniversalXPConnect", &hasCap)))
+    return PR_FALSE;
+  return hasCap;
+}
+
+PRBool
+nsContentUtils::IsCallerTrustedForRead()
+{
+  return IsCallerTrustedForCapability("UniversalBrowserRead");
+}
+
+PRBool
+nsContentUtils::IsCallerTrustedForWrite()
+{
+  return IsCallerTrustedForCapability("UniversalBrowserWrite");
+}
+
 // static
 PRBool
 nsContentUtils::InSameDoc(nsIDOMNode* aNode, nsIDOMNode* aOther)
@@ -1997,7 +2025,7 @@ nsContentUtils::LoadImage(nsIURI* aURI, nsIDocument* aLoadingDocument,
   }
 
   nsCOMPtr<nsILoadGroup> loadGroup = aLoadingDocument->GetDocumentLoadGroup();
-  NS_WARN_IF_FALSE(loadGroup, "Could not get loadgroup; onload may fire too early");
+  NS_ASSERTION(loadGroup, "Could not get loadgroup; onload may fire too early");
 
   nsIURI *documentURI = aLoadingDocument->GetDocumentURI();
 
@@ -2244,6 +2272,19 @@ nsContentUtils::GetEventArgName(PRInt32 aNameSpaceID)
     return gSVGEventName;
 
   return gEventName;
+}
+
+nsCxPusher::nsCxPusher(nsISupports *aCurrentTarget)
+    : mScriptIsRunning(PR_FALSE)
+{
+  if (aCurrentTarget) {
+    Push(aCurrentTarget);
+  }
+}
+
+nsCxPusher::~nsCxPusher()
+{
+  Pop();
 }
 
 void

@@ -38,7 +38,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 /*
- * nsTreeWalker.cpp: Implementation of the nsIDOMTreeWalker object.
+ * Implementation of DOM Traversal's nsIDOMTreeWalker
  */
 
 #include "nsTreeWalker.h"
@@ -53,6 +53,7 @@
 
 #include "nsContentUtils.h"
 #include "nsMemory.h"
+#include "nsCOMArray.h"
 
 /*
  * Factories, constructors and destructors

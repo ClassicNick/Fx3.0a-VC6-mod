@@ -1449,7 +1449,7 @@ nsCrypto::GenerateCRMFRequest(nsIDOMCRMFObject** aReturn)
   /*
    * Get all of the parameters.
    */
-  if (((argc-5) % 3) != 0) {
+  if (argc < 5 || ((argc-5) % 3) != 0) {
     JS_ReportError(cx, "%s", "%s%s\n", JS_ERROR,
                   "incorrect number of parameters");
     return NS_ERROR_FAILURE;
@@ -2167,7 +2167,7 @@ nsCrypto::SignText(const nsAString& aStringToSign, const nsAString& aCaOption,
 
         return NS_OK;
       }
-      caNames[i] = JS_GetStringBytes(caName);
+      caNames[i - 2] = JS_GetStringBytes(caName);
     }
 
     if (certList &&

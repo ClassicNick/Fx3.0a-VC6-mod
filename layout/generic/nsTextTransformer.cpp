@@ -35,6 +35,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * class for transformation of text before rendering, including CSS
+ * text-transform
+ */
+
 #include <ctype.h>
 #include "nsCOMPtr.h"
 #include "nsTextTransformer.h"
@@ -1723,7 +1729,8 @@ nsTextTransformer::SelfTest(nsPresContext* aPresContext)
       cp++;
     }
 
-    nsTextFragment frag(st->text);
+    nsTextFragment frag;
+    frag.SetTo(st->text, nsCRT::strlen(st->text));
     nsTextTransformer tx(aPresContext);
 
     for (PRInt32 preMode = 0; preMode < NUM_MODES; preMode++) {

@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object for CSS display:inline objects */
+
 #ifndef nsInlineFrame_h___
 #define nsInlineFrame_h___
 
@@ -68,7 +71,7 @@ class nsAnonymousBlockFrame;
 class nsInlineFrame : public nsInlineFrameSuper
 {
 public:
-  friend nsIFrame* NS_NewInlineFrame(nsIPresShell* aPresShell);
+  friend nsIFrame* NS_NewInlineFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
   // nsISupports overrides
   NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);
@@ -127,7 +130,7 @@ protected:
     };
   };
 
-  nsInlineFrame();
+  nsInlineFrame(nsStyleContext* aContext) : nsInlineFrameSuper(aContext) {}
 
   virtual PRIntn GetSkipSides() const;
 
@@ -161,7 +164,7 @@ protected:
  */
 class nsFirstLineFrame : public nsInlineFrame {
 public:
-  friend nsIFrame* NS_NewFirstLineFrame(nsIPresShell* aPresShell);
+  friend nsIFrame* NS_NewFirstLineFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const;
@@ -177,7 +180,7 @@ public:
   void StealFramesFrom(nsIFrame* aFrame);
 
 protected:
-  nsFirstLineFrame();
+  nsFirstLineFrame(nsStyleContext* aContext) : nsInlineFrame(aContext) {}
 
   virtual nsIFrame* PullOneFrame(nsPresContext* aPresContext,
                                  InlineReflowState& rs,
@@ -193,7 +196,7 @@ protected:
 class nsPositionedInlineFrame : public nsInlineFrame
 {
 public:
-  nsPositionedInlineFrame() { }          // useful for debugging
+  nsPositionedInlineFrame(nsStyleContext* aContext) : nsInlineFrame(aContext) {}
 
   virtual ~nsPositionedInlineFrame() { } // useful for debugging
 

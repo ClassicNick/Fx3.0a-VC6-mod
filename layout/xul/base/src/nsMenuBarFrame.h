@@ -57,12 +57,12 @@
 class nsIContent;
 class nsIMenuFrame;
 
-nsIFrame* NS_NewMenuBarFrame(nsIPresShell* aPresShell);
+nsIFrame* NS_NewMenuBarFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
 class nsMenuBarFrame : public nsBoxFrame, public nsIMenuParent
 {
 public:
-  nsMenuBarFrame(nsIPresShell* aShell);
+  nsMenuBarFrame(nsIPresShell* aShell, nsStyleContext* aContext);
   virtual ~nsMenuBarFrame();
 
   NS_DECL_ISUPPORTS
@@ -103,12 +103,10 @@ public:
 
   NS_IMETHOD GetWidget(nsIWidget **aWidget);
   // The dismissal listener gets created and attached to the window.
-  NS_IMETHOD CreateDismissalListener();
   NS_IMETHOD AttachedDismissalListener() { return NS_OK; }
 
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
-                  nsStyleContext*  aContext,
                   nsIFrame*        aPrevInFlow);
 
   NS_IMETHOD Destroy(nsPresContext* aPresContext);

@@ -52,12 +52,9 @@ use vars qw(
   @legal_platform
   @legal_priority
   @legal_severity
-  %target_milestone
 );
 
-# If we're using bug groups to restrict bug entry, we need to know who the 
-# user is right from the start. 
-Bugzilla->login(LOGIN_REQUIRED) if AnyEntryGroups();
+my $user = Bugzilla->login(LOGIN_REQUIRED);
 
 my $cloned_bug;
 my $cloned_bug_id;
@@ -69,8 +66,6 @@ my $vars = {};
 my $product = trim($cgi->param('product') || '');
 
 if ($product eq '') {
-    my $user = Bugzilla->login();
-
     # If the user cannot enter bugs in any product, stop here.
     my @enterable_products = @{$user->get_enterable_products};
     ThrowUserError('no_products') unless scalar(@enterable_products);
@@ -294,8 +289,6 @@ sub pickos {
 # End of subroutines
 ##############################################################################
 
-Bugzilla->login(LOGIN_REQUIRED) if (!(AnyEntryGroups()));
-
 # If a user is trying to clone a bug
 #   Check that the user has authorization to view the parent bug
 #   Create an instance of Bug that holds the info from the parent
@@ -303,7 +296,7 @@ $cloned_bug_id = $cgi->param('cloned_bug_id');
 
 if ($cloned_bug_id) {
     ValidateBugID($cloned_bug_id);
-    $cloned_bug = new Bugzilla::Bug($cloned_bug_id, Bugzilla->user->id);
+    $cloned_bug = new Bugzilla::Bug($cloned_bug_id, $user->id);
 }
 
 # We need to check and make sure
@@ -311,15 +304,15 @@ if ($cloned_bug_id) {
 my $prod_obj = new Bugzilla::Product({name => $product});
 # Update the product name to get the correct case.
 $product = $prod_obj->name if defined $prod_obj;
-Bugzilla->user->can_enter_product($product, 1);
+$user->can_enter_product($product, 1);
 
 GetVersionTable();
 
 my $product_id = get_product_id($product);
 
-if (1 == @{$::components{$product}}) {
+if (scalar(@{$prod_obj->components}) == 1) {
     # Only one component; just pick it.
-    $cgi->param('component', $::components{$product}->[0]);
+    $cgi->param('component', $prod_obj->components->[0]->name);
 }
 
 my @components;
@@ -464,7 +457,7 @@ trick_taint($product);
 
 # Get list of milestones.
 if ( Param('usetargetmilestone') ) {
-    $vars->{'target_milestone'} = $::target_milestone{$product};
+    $vars->{'target_milestone'} = [map($_->name, @{$prod_obj->milestones})];
     if (formvalue('target_milestone')) {
        $default{'target_milestone'} = formvalue('target_milestone');
     } else {

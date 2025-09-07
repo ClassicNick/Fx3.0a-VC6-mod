@@ -37,6 +37,8 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+/* class to notify frames of background image loads */
+
 #include "nsImageLoader.h"
 
 #include "imgILoader.h"
@@ -56,6 +58,7 @@
 #include "nsIViewManager.h"
 
 #include "nsStyleContext.h"
+#include "nsLayoutAtoms.h"
 
 // Paint forcing
 #include "prenv.h"
@@ -254,6 +257,11 @@ nsImageLoader::RedrawDirtyFrame(const nsRect* aDamageRect)
   // XXX We really only need to invalidate the client area of the frame...    
 
   nsRect bounds(nsPoint(0, 0), mFrame->GetSize());
+
+  if (mFrame->GetType() == nsLayoutAtoms::canvasFrame) {
+    // The canvas's background covers the whole viewport.
+    bounds = mFrame->GetOverflowRect();
+  }
 
   // XXX this should be ok, but there is some crappy ass bug causing it not to work
   // XXX seems related to the "body fixup rule" dealing with the canvas and body frames...

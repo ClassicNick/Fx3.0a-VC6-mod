@@ -1,42 +1,61 @@
 dnl -*- Mode: Autoconf; tab-width: 4; indent-tabs-mode: nil; -*-
 dnl vi: set tabstop=4 shiftwidth=4 expandtab:
-dnl The contents of this file are subject to the Mozilla Public
-dnl License Version 1.1 (the "License"); you may not use this file
-dnl except in compliance with the License. You may obtain a copy of
-dnl the License at http://www.mozilla.org/MPL/
+dnl ***** BEGIN LICENSE BLOCK *****
+dnl Version: MPL 1.1/GPL 2.0/LGPL 2.1
 dnl
-dnl Software distributed under the License is distributed on an "AS
-dnl IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
-dnl implied. See the License for the specific language governing
-dnl rights and limitations under the License.
+dnl The contents of this file are subject to the Mozilla Public License Version
+dnl 1.1 (the "License"); you may not use this file except in compliance with
+dnl the License. You may obtain a copy of the License at
+dnl http://www.mozilla.org/MPL/
+dnl
+dnl Software distributed under the License is distributed on an "AS IS" basis,
+dnl WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+dnl for the specific language governing rights and limitations under the
+dnl License.
 dnl
 dnl The Original Code is this file as it was released upon August 6, 1998.
 dnl
-dnl The Initial Developer of the Original Code is Christopher
-dnl Seawood. Portions created by Christopher Seawood are
-dnl Copyright (C) 1998-2001 Christopher Seawood. All Rights Reserved.
+dnl The Initial Developer of the Original Code is
+dnl Christopher Seawood.
+dnl Portions created by the Initial Developer are Copyright (C) 1998-2001
+dnl the Initial Developer. All Rights Reserved.
 dnl
-dnl Contributor(s): Jamie Zawinski <jwz@jwz.org>
-dnl                 gettimeofday args check
-dnl               Christopher Blizzard <blizzard@appliedtheory.com>
-dnl                 gnomefe update & enable-pthreads
-dnl               Ramiro Estrugo <ramiro@netscape.com>
-dnl                 X11 makedepend support
-dnl                 Insure support.
-dnl               Henry Sobotka <sobotka@axess.com>
-dnl                 OS/2 support
-dnl               Dan Mosedale <dmose@mozilla.org>
-dnl                 LDAP support
-dnl               Seth Spitzer <sspitzer@netscape.com>
-dnl                 xpctools support
-dnl               Benjamin Smedberg <benjamin@smedbergs.us>
-dnl               Howard Chu <hyc@symas.com>
-dnl                 MSYS support
-dnl               Mark Mentovai <mark@moxienet.com>:
-dnl                 Mac OS X 10.4 support
-dnl               Giorgio Maone <g.maone@informaction.com>
-dnl                 MSVC l10n compatible version check
+dnl Contributor(s):
+dnl   Jamie Zawinski <jwz@jwz.org>
+dnl   gettimeofday args check
+dnl   Christopher Blizzard <blizzard@appliedtheory.com>
+dnl   gnomefe update & enable-pthreads
+dnl   Ramiro Estrugo <ramiro@netscape.com>
+dnl   X11 makedepend support
+dnl   Insure support.
+dnl   Henry Sobotka <sobotka@axess.com>
+dnl   OS/2 support
+dnl   Dan Mosedale <dmose@mozilla.org>
+dnl   LDAP support
+dnl   Seth Spitzer <sspitzer@netscape.com>
+dnl   xpctools support
+dnl   Benjamin Smedberg <benjamin@smedbergs.us>
+dnl   Howard Chu <hyc@symas.com>
+dnl   MSYS support
+dnl   Mark Mentovai <mark@moxienet.com>:
+dnl   Mac OS X 10.4 support
+dnl   Giorgio Maone <g.maone@informaction.com>
+dnl   MSVC l10n compatible version check
 dnl
+dnl Alternatively, the contents of this file may be used under the terms of
+dnl either the GNU General Public License Version 2 or later (the "GPL"), or
+dnl the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+dnl in which case the provisions of the GPL or the LGPL are applicable instead
+dnl of those above. If you wish to allow use of your version of this file only
+dnl under the terms of either the GPL or the LGPL, and not to allow others to
+dnl use your version of this file under the terms of the MPL, indicate your
+dnl decision by deleting the provisions above and replace them with the notice
+dnl and other provisions required by the GPL or the LGPL. If you do not delete
+dnl the provisions above, a recipient may use your version of this file under
+dnl the terms of any one of the MPL, the GPL or the LGPL.
+dnl
+dnl ***** END LICENSE BLOCK *****
+
 dnl Process this file with autoconf to produce a configure script.
 dnl ========================================================
 
@@ -1378,6 +1397,8 @@ case "$target" in
         DSO_CFLAGS='-qflag=w:w'
         DSO_PIC_CFLAGS=
         LDFLAGS="$LDFLAGS -Wl,-brtl -blibpath:/usr/lib:/lib"
+        AC_MSG_WARN([Clearing MOZ_FIX_LINK_PATHS till we can fix bug 332075.])
+        MOZ_FIX_LINK_PATHS=
         MKSHLIB='$(CXX) $(DSO_LDOPTS) -o $@'
         MKCSHLIB='$(CC) $(DSO_LDOPTS) -o $@'
         if test "$COMPILE_ENVIRONMENT"; then
@@ -2156,6 +2177,7 @@ dnl the qsort routine under solaris is faulty
     LDFLAGS="$LDFLAGS -z ignore -R '\$\$ORIGIN:\$\$ORIGIN/..'"
     if test -z "$GNU_CC"; then
        NS_USE_NATIVE=1
+       MOZ_FIX_LINK_PATHS='-R $(LIBXUL_DIST)/bin'
        AC_DEFINE(NSCAP_DISABLE_DEBUG_PTR_TYPES)
        CFLAGS="$CFLAGS -xstrconst -xbuiltin=%all"
        CXXFLAGS="$CXXFLAGS -xbuiltin=%all -features=tmplife -norunpath"
@@ -4278,6 +4300,7 @@ MOZ_PREF_EXTENSIONS=1
 MOZ_PROFILELOCKING=1
 MOZ_PROFILESHARING=1
 MOZ_PSM=1
+MOZ_PYTHON_EXTENSIONS="xpcom"
 MOZ_PYTHON=
 MOZ_PYTHON_DEBUG_SUFFIX=
 MOZ_PYTHON_DLL_SUFFIX=
@@ -4461,7 +4484,7 @@ calendar)
   MOZ_SUNBIRD=1
   MOZ_CALENDAR=1
   MOZ_APP_VERSION=`cat $topsrcdir/calendar/sunbird/config/version.txt`
-  MOZ_EXTENSIONS_DEFAULT=" pref"
+  MOZ_EXTENSIONS_DEFAULT=
   MOZ_UNIVERSALCHARDET=
   AC_DEFINE(MOZ_SUNBIRD)
   ;;
@@ -4477,6 +4500,7 @@ xulrunner)
   MOZ_JAVAXPCOM=1
   MOZ_PLACES=1
   MOZ_EXTENSIONS_DEFAULT=" xml-rpc gnomevfs"
+  MOZ_NO_XPCOM_OBSOLETE=1
   AC_DEFINE(MOZ_XULRUNNER)
   ;;
 
@@ -4907,16 +4931,6 @@ MOZ_ARG_DISABLE_BOOL(crypto,
     MOZ_PSM=,
     MOZ_PSM=1 )
 
-if test "$COMPILE_ENVIRONMENT"; then
-    case $target in
-    *-cygwin*|*-mingw*|*-msvc*|*-mks*|*-wince)
-        if test -n "$MOZ_PSM" -a ! -e "$AS_BIN"; then
-            AC_MSG_ERROR([Building crypto support requires a valid version of the standalone assembler (ml.exe for MSVC).])
-        fi
-        ;;
-    esac
-fi
-
 dnl ========================================================
 dnl = JS Debugger XPCOM component (js/jsd)
 dnl ========================================================
@@ -5061,7 +5075,7 @@ MOZ_ARG_ENABLE_BOOL(native-uconv,
 if test "$MOZ_USE_NATIVE_UCONV"; then
     AC_DEFINE(MOZ_USE_NATIVE_UCONV)
 fi
-if test "$OS_ARCH" != "WINCE" -a "$MOZ_USE_NATIVE_UCONV" -a "$ac_cv_func_iconv" != "yes"; then
+if test "$OS_ARCH" != "WINCE" -a "$OS_ARCH" != "WINNT" -a "$MOZ_USE_NATIVE_UCONV" -a "$ac_cv_func_iconv" != "yes"; then
     AC_MSG_ERROR([iconv() not found.  Cannot enable native uconv support.])
 fi
 
@@ -5098,9 +5112,6 @@ MOZ_ARG_DISABLE_BOOL(xpcom-obsolete,
     MOZ_NO_XPCOM_OBSOLETE=)
 
 if test -n "$MOZ_NO_XPCOM_OBSOLETE"; then
-if test -n "$MOZ_XPINSTALL"; then
-    AC_MSG_ERROR([Building without xpcom-obsolete isn't support when building xpinstal.])
-fi
 if test -z "$MOZ_SINGLE_PROFILE"; then
     AC_MSG_ERROR([Building without xpcom-obsolete isn't support when building full profile support.])
 fi
@@ -5476,6 +5487,14 @@ if test -z "$MOZ_XPINSTALL"; then
     MOZ_INSTALLER=
 fi
 AC_SUBST(MOZ_INSTALLER)
+
+AC_MSG_CHECKING([for tar archiver])
+AC_CHECK_PROGS(TAR, gnutar gtar tar, "")
+if test -z "$TAR"; then
+    AC_MSG_ERROR([no tar archiver found in \$PATH])
+fi
+AC_MSG_RESULT([$TAR])
+AC_SUBST(TAR)
 
 dnl ========================================================
 dnl Updater
@@ -6862,17 +6881,21 @@ fi
 AC_SUBST(MOZ_XUL)
 
 dnl ========================================================
-dnl Python XPCOM bindings - if enabled, we must locate Python.
+dnl Two ways to enable Python support:
+dnl   --enable-extensions=python # select all available.
+dnl    (MOZ_PYTHON_EXTENSIONS contains the list of extensions)
+dnl or:
+dnl   --enable-extensions=python/xpcom,... # select individual ones
+dnl
+dnl If either is used, we locate the Python to use.
 dnl ========================================================
 dnl
-dnl Allow PYTHON to point to the Python interpreter to use.
-dnl If not set, we use whatever Python we can find.  Setting
-dnl PYTHON will allow you to build from any Python version you nominate
-dnl
-dnl If future Python based extensions are added, some of this should
-dnl be split out appropriately.
-if test `echo "$MOZ_EXTENSIONS" | grep -c python/xpcom` -ne 0; then
-    dnl If PYTHON is in the environment, we use that
+dnl If 'python' appears anywhere in the extensions list, go lookin'...
+if test `echo "$MOZ_EXTENSIONS" | grep -c python` -ne 0; then
+    dnl Allow PYTHON to point to the Python interpreter to use
+    dnl (note that it must be the python executable - which we
+    dnl run to locate the relevant paths etc)
+    dnl If not set, we use whatever Python we can find.
     if test -z "$PYTHON"; then
         AC_PATH_PROG(PYTHON, python, :)
     fi
@@ -6941,8 +6964,10 @@ if test `echo "$MOZ_EXTENSIONS" | grep -c python/xpcom` -ne 0; then
     else
         MOZ_PYTHON_DEBUG_SUFFIX=
     fi
-    AC_MSG_RESULT(Building PyXPCOM using Python-$MOZ_PYTHON_VER_DOTTED from $MOZ_PYTHON_PREFIX)
+    AC_MSG_RESULT(Building Python extensions using python-$MOZ_PYTHON_VER_DOTTED from $MOZ_PYTHON_PREFIX)
 fi
+dnl Later we may allow MOZ_PYTHON_EXTENSIONS to be specified, but not necessary now.
+AC_SUBST(MOZ_PYTHON_EXTENSIONS)
 AC_SUBST(MOZ_PYTHON)
 AC_SUBST(MOZ_PYTHON_PREFIX)
 AC_SUBST(MOZ_PYTHON_INCLUDES)

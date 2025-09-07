@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* rendering object for HTML <br> elements */
+
 #include "nsCOMPtr.h"
 #include "nsFrame.h"
 #include "nsHTMLParts.h"
@@ -53,6 +56,8 @@
 
 class BRFrame : public nsFrame {
 public:
+  friend nsIFrame* NS_NewBRFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
+
   virtual ContentOffsets CalcContentOffsetsFromFramePoint(nsPoint aPoint);
 
   NS_IMETHOD PeekOffset(nsPresContext* aPresContext, 
@@ -65,13 +70,14 @@ public:
   virtual nsIAtom* GetType() const;
   
 protected:
+  BRFrame(nsStyleContext* aContext) : nsFrame(aContext) {}
   virtual ~BRFrame();
 };
 
 nsIFrame*
-NS_NewBRFrame(nsIPresShell* aPresShell)
+NS_NewBRFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
-  return new (aPresShell) BRFrame;
+  return new (aPresShell) BRFrame(aContext);
 }
 
 BRFrame::~BRFrame()

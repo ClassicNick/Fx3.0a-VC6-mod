@@ -34,6 +34,9 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/* a presentation of a document, part 1 */
+
 #include "nsCOMPtr.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
@@ -52,7 +55,6 @@
 #include "nsIURL.h"
 #include "nsIDocument.h"
 #include "nsStyleContext.h"
-#include "nsLayoutAtoms.h"
 #include "nsILookAndFeel.h"
 #include "nsWidgetsCID.h"
 #include "nsIComponentManager.h"
@@ -153,8 +155,9 @@ static NS_DEFINE_CID(kSelectionImageService, NS_SELECTIONIMAGESERVICE_CID);
   // bother initializing members to 0.
 
 nsPresContext::nsPresContext(nsPresContextType aType)
-  : mType(aType),
-    mTextZoom(1.0),
+  : mType(aType), mTextZoom(1.0),
+    mPageSize(-1, -1), mIsRootPaginatedDocument(PR_FALSE),
+    mCanPaginatedScroll(PR_TRUE),
     mViewportStyleOverflow(NS_STYLE_OVERFLOW_AUTO, NS_STYLE_OVERFLOW_AUTO),
     mCompatibilityMode(eCompatibility_FullStandards),
     mImageAnimationModePref(imgIContainer::kNormalAnimMode),
@@ -200,20 +203,19 @@ nsPresContext::nsPresContext(nsPresContextType aType)
   mLanguageSpecificTransformType = eLanguageSpecificTransformType_Unknown;
   if (aType == eContext_Galley) {
     mMedium = nsLayoutAtoms::screen;
-    mImageAnimationMode = imgIContainer::kNormalAnimMode;
   } else {
     SetBackgroundImageDraw(PR_FALSE);
     SetBackgroundColorDraw(PR_FALSE);
-    mImageAnimationMode = imgIContainer::kDontAnimMode;
-    mNeverAnimate = PR_TRUE;
     mMedium = nsLayoutAtoms::print;
     mPaginated = PR_TRUE;
-    if (aType == eContext_PrintPreview) {
-      mCanPaginatedScroll = PR_TRUE;
-      mPageDim.SetRect(-1, -1, -1, -1);
-    } else {
-      mPageDim.SetRect(0, 0, 0, 0);
-    }
+  }
+
+  if (!IsDynamic()) {
+    mImageAnimationMode = imgIContainer::kDontAnimMode;
+    mNeverAnimate = PR_TRUE;
+  } else {
+    mImageAnimationMode = imgIContainer::kNormalAnimMode;
+    mNeverAnimate = PR_FALSE;
   }
 }
 
@@ -564,6 +566,9 @@ nsPresContext::GetUserPreferences()
   mEnableJapaneseTransform =
     nsContentUtils::GetBoolPref("layout.enable_japanese_specific_transform");
 
+  mPrefScrollbarSide =
+    nsContentUtils::GetIntPref("layout.scrollbar.side");
+
   GetFontPreferences();
 
   // * image animation
@@ -576,36 +581,36 @@ nsPresContext::GetUserPreferences()
   else if (animatePref.Equals("once"))
     mImageAnimationModePref = imgIContainer::kLoopOnceAnimMode;
 
-#ifdef IBMBIDI
   PRUint32 bidiOptions = GetBidi();
 
   PRInt32 prefInt =
-    nsContentUtils::GetIntPref("bidi.direction",
+    nsContentUtils::GetIntPref(IBMBIDI_TEXTDIRECTION_STR,
                                GET_BIDI_OPTION_DIRECTION(bidiOptions));
   SET_BIDI_OPTION_DIRECTION(bidiOptions, prefInt);
+  mPrefBidiDirection = prefInt;
 
   prefInt =
-    nsContentUtils::GetIntPref("bidi.texttype",
+    nsContentUtils::GetIntPref(IBMBIDI_TEXTTYPE_STR,
                                GET_BIDI_OPTION_TEXTTYPE(bidiOptions));
   SET_BIDI_OPTION_TEXTTYPE(bidiOptions, prefInt);
 
   prefInt =
-    nsContentUtils::GetIntPref("bidi.controlstextmode",
+    nsContentUtils::GetIntPref(IBMBIDI_CONTROLSTEXTMODE_STR,
                                GET_BIDI_OPTION_CONTROLSTEXTMODE(bidiOptions));
   SET_BIDI_OPTION_CONTROLSTEXTMODE(bidiOptions, prefInt);
 
   prefInt =
-    nsContentUtils::GetIntPref("bidi.numeral",
+    nsContentUtils::GetIntPref(IBMBIDI_NUMERAL_STR,
                                GET_BIDI_OPTION_NUMERAL(bidiOptions));
   SET_BIDI_OPTION_NUMERAL(bidiOptions, prefInt);
 
   prefInt =
-    nsContentUtils::GetIntPref("bidi.support",
+    nsContentUtils::GetIntPref(IBMBIDI_SUPPORTMODE_STR,
                                GET_BIDI_OPTION_SUPPORT(bidiOptions));
   SET_BIDI_OPTION_SUPPORT(bidiOptions, prefInt);
 
   prefInt =
-    nsContentUtils::GetIntPref("bidi.characterset",
+    nsContentUtils::GetIntPref(IBMBIDI_CHARSET_STR,
                                GET_BIDI_OPTION_CHARACTERSET(bidiOptions));
   SET_BIDI_OPTION_CHARACTERSET(bidiOptions, prefInt);
 
@@ -613,7 +618,6 @@ nsPresContext::GetUserPreferences()
   // prescontext or we are being called from UpdateAfterPreferencesChanged()
   // which triggers a reflow anyway.
   SetBidi(bidiOptions, PR_FALSE);
-#endif
 }
 
 void
@@ -764,7 +768,7 @@ nsPresContext::SetShell(nsIPresShell* aShell)
     if (doc) {
       nsIURI *docURI = doc->GetDocumentURI();
 
-      if (mMedium != nsLayoutAtoms::print && docURI) {
+      if (IsDynamic() && docURI) {
         PRBool isChrome = PR_FALSE;
         PRBool isRes = PR_FALSE;
         docURI->SchemeIs("chrome", &isChrome);
@@ -909,7 +913,7 @@ nsPresContext::SetImageAnimationModeInternal(PRUint16 aMode)
                aMode == imgIContainer::kLoopOnceAnimMode, "Wrong Animation Mode is being set!");
 
   // Image animation mode cannot be changed when rendering to a printer.
-  if (mMedium == nsLayoutAtoms::print)
+  if (!IsDynamic())
     return;
 
   // This hash table contains a list of background images
@@ -1255,36 +1259,9 @@ nsPresContext::SysColorChanged()
 }
 
 void
-nsPresContext::GetPageDim(nsRect* aActualRect, nsRect* aAdjRect)
-{
-  if (mMedium == nsLayoutAtoms::print) {
-    if (aActualRect) {
-      PRInt32 width, height;
-      nsresult rv = mDeviceContext->GetDeviceSurfaceDimensions(width, height);
-      if (NS_SUCCEEDED(rv))
-        aActualRect->SetRect(0, 0, width, height);
-    }
-    if (aAdjRect)
-      *aAdjRect = mPageDim;
-  } else {
-    if (aActualRect)
-      aActualRect->SetRect(0, 0, 0, 0);
-    if (aAdjRect)
-      aAdjRect->SetRect(0, 0, 0, 0);
-  }
-}
-
-void
-nsPresContext::SetPageDim(const nsRect& aPageDim)
-{
-  if (mMedium == nsLayoutAtoms::print)
-    mPageDim = aPageDim;
-}
-
-void
 nsPresContext::SetPaginatedScrolling(PRBool aPaginated)
 {
-  if (mType == eContext_PrintPreview)
+  if (mType == eContext_PrintPreview || mType == eContext_PageLayout)
     mCanPaginatedScroll = aPaginated;
 }
 

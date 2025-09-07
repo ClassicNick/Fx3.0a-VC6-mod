@@ -34,6 +34,12 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+/*
+ * rendering object that is the root of the frame tree, which contains
+ * the document's scrollbars and contains fixed-positioned elements
+ */
+
 #ifndef nsViewportFrame_h___
 #define nsViewportFrame_h___
 
@@ -61,8 +67,7 @@ public:
   */
 class ViewportFrame : public nsContainerFrame {
 public:
-  ViewportFrame() { }          // useful for debugging
-
+  ViewportFrame(nsStyleContext* aContext) : nsContainerFrame(aContext) {}
   virtual ~ViewportFrame() { } // useful for debugging
 
   NS_IMETHOD Destroy(nsPresContext* aPresContext);
