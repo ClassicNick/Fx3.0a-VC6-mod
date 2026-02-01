@@ -11,12 +11,15 @@
 
 <p class="first">
 <strong><a href="{$config.webpath}/{$app}/{$addon->ID}/">{$addon->Name} {$addon->Version}</a></strong>,
-by <a href="{$config.webpath}/{$app}/{$addon->UserID}/author/">{$addon->UserName}</a>,
+by 
+{foreach key=key item=item from=$addon->Authors}
+    <a href="{$config.webpath}/{$app}/{$item.UserID|escape}/author/">{$item.UserName|escape}</a>,
+{/foreach}
 released on {$addon->VersionDateAdded|date_format}
 </p>
 
 
-<p>{$addon->Description}</p>
+<p>{$addon->Description|nl2br}</p>
 
 <p class="requires">
 Works with:
@@ -48,9 +51,9 @@ Works with:
                 document.writeln("<div>");
 
                 if (installs[platform]) {ldelim}
-                        document.writeln("<a id=\"install-link\" href=\"" + installs[platform]+ "\" onclick=\"return install(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
+                        document.writeln("<a id=\"install-link\" href=\"" + installs[platform]+ "\" onclick=\"return {$addon->installFunc}(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
                 {rdelim} else if ("{$key|escape}" == "ALL") {ldelim}
-                        document.writeln("<a id=\"install-link\" href=\"{$item.URI|escape}\" onclick=\"return install(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
+                        document.writeln("<a id=\"install-link\" href=\"{$item.URI|escape}\" onclick=\"return {$addon->installFunc}(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
                 {rdelim} else  {ldelim}
                     document.writeln("<strong>{$addon->Name|escape}</strong> is not available for " + platform + ".");
                 {rdelim}
@@ -66,7 +69,7 @@ Works with:
                     {foreach key=key item=item from=$addon->OsVersions}
                         {if $item.URI}
                             <div>
-                                <a href="{$item.URI|escape}" onclick="return install(event,'{$item.AppName|escape} {$item.Version|escape}', '{$config.webpath}/images/default.png');" title="Install for {$item.OSName|escape} {$item.Version|escape} (Right-Click to Download)">
+                                <a href="{$item.URI|escape}" onclick="return {$addon->installFunc}(event,'{$item.AppName|escape} {$item.Version|escape}', '{$config.webpath}/images/default.png');" title="Install for {$item.OSName|escape} {$item.Version|escape} (Right-Click to Download)">
                                     {if $multiDownloadLinks}
                                         {$item.OSName|escape}
                                     {else}
@@ -83,6 +86,11 @@ Works with:
     <div class="install-other">
         <a href="{$config.webpath}/{$app}/{$addon->ID}/history">Other Versions</a>
     </div>
+
+{if $addon->devcomments}
+<h2>Developer Comments</h2>
+<p>{$addon->devcomments|nl2br}</p>
+{/if}
 
 <h3 id="user-comments">User Comments</h3>
 

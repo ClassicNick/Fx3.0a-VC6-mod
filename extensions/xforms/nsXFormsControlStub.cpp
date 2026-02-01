@@ -320,12 +320,18 @@ nsXFormsControlStubBase::ProcessNodeBinding(const nsString          &aBindingAtt
 }
 
 nsresult
-nsXFormsControlStubBase::BindToModel()
+nsXFormsControlStubBase::BindToModel(PRBool aSetBoundNode)
 {
   nsCOMPtr<nsIModelElementPrivate> oldModel(mModel);
 
   nsCOMPtr<nsIXFormsControl> parentControl;
-  mModel = nsXFormsUtils::GetModel(mElement, getter_AddRefs(parentControl));
+  nsCOMPtr<nsIDOMNode> boundNode;
+  mModel = nsXFormsUtils::GetModel(mElement, getter_AddRefs(parentControl),
+                                   kElementFlags,
+                                   getter_AddRefs(boundNode));
+  if (aSetBoundNode) {
+    mBoundNode.swap(boundNode);
+  }
 
   return MaybeAddToModel(oldModel, parentControl);
 }
@@ -512,9 +518,6 @@ nsXFormsControlStubBase::Create(nsIXTFElementWrapper *aWrapper)
 
   ResetHelpAndHint(PR_TRUE);
 
-  // enabled is on pr. default
-  aWrapper->SetIntrinsicState(NS_EVENT_STATE_ENABLED);
-
 #ifdef DEBUG_smaug
   sControlList->AppendElement(this);
 #endif
@@ -561,7 +564,16 @@ nsXFormsControlStubBase::DocumentChanged(nsIDOMDocument *aNewDocument)
 {
   // We need to re-evaluate our instance data binding when our document
   // changes, since our context can change
-  return aNewDocument ? ForceModelRebind() : NS_OK;
+
+  if (aNewDocument) {
+    // The intrinsic state needs to be initialized here since
+    // SetIntrinsicState will do nothing until the element lives in a document.
+    ResetProperties();
+  
+    return ForceModelRebind();
+  }
+
+  return NS_OK;
 }
 
 nsresult
@@ -626,8 +638,7 @@ nsXFormsControlStubBase::GetContext(nsAString      &aModelID,
   if (aContextNode) {
     if (mBoundNode) {
       // We are bound to a node: This is the context node
-      CallQueryInterface(mBoundNode, aContextNode); // addrefs
-      NS_ASSERTION(*aContextNode, "could not QI context node from bound node?");
+      NS_ADDREF(*aContextNode = mBoundNode);
     } else if (mModel) {
       // We are bound to a model: The document element of its default instance
       // document is the context node

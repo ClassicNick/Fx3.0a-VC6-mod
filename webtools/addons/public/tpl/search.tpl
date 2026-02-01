@@ -2,6 +2,7 @@
 <div class="key-point">
 
 <form action="{$smarty.server.PHP_SELF}" method="get" class="amo-form">
+<input type="hidden" name="app" value="{$app}"/>
 
 <div>
 <input type="text" name="q" value="{$clean.q}" maxlength="32"/><input class="amo-submit" type="submit" value="Search"/> 
@@ -77,6 +78,7 @@
 <!-- end search-options -->
 </div>
 
+<input type="hidden" name="app" value="{$app}"/>
 </form>
 
 </div>
@@ -109,7 +111,7 @@ Next Page &raquo;
 
 {section name=r loop=$results}
 <div class="item">
-    <div class="rating" title="4.67 Stars out of 5">Rating: {$results[r]->Rating}</div>
+    <div class="rating" title="{$results[r]->Rating} out of 5">Rating: {$results[r]->Rating}</div>
     <h2 class="first"><a href="{$config.webpath}/{$app}/{$results[r]->ID}/">{$results[r]->Name} {$results[r]->Version}</a></h2>
 
     {if $results[r]->PreviewURI}
@@ -122,7 +124,7 @@ Next Page &raquo;
     {/if}
 
     <p class="first">By <a href="{$config.webpath}/{$app}/{$results[r]->UserID}/author/">{$results[r]->UserName}</a></p>
-    <p class="first">{$results[r]->Description}</p>
+    <p class="first">{$results[r]->Description|nl2br}</p>
     <div class="baseline">Last Update:  {$results[r]->DateUpdated|date_format} | Downloads Last 7 Days: {$results[r]->downloadcount} | Total Downloads: {$results[r]->TotalDownloads}</DIV>
 </div>
 {/section}
