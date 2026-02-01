@@ -359,7 +359,9 @@ void KeyboardLayout::LoadLayout ()
 
   ReleaseDeadKeyTables ();
 
+#ifndef DEBUG
   PRBool keyboardInputAlreadyBlocked = !BlockInputProc (PR_TRUE);
+#endif
 
   // For each shift state gather all printable characters that are produced
   // for normal case when no any dead-key is active.
@@ -447,8 +449,10 @@ void KeyboardLayout::LoadLayout ()
     }
   }
 
+#ifndef DEBUG
   if (!keyboardInputAlreadyBlocked)
     BlockInputProc (PR_FALSE);
+#endif
 #endif
 }
 
