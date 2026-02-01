@@ -33,17 +33,15 @@
 
         <div>
         <label class="amo-label-large" for="email">E-Mail Address:</label>
-        <input id="email" name="email" type="text" value="{$email_value|escape}"/>
+        <input id="email" name="email" type="text" value="{$email_value|escape}" size="40"/>
         </div>
 
         <div>
         <label class="amo-label-large" for="emailconfirm">Confirm E-Mail:</label>
-        <input id="emailconfirm" name="emailconfirm" type="text" value="{$emailconfirm_value|escape}"/>
+        <input id="emailconfirm" name="emailconfirm" type="text" value="{$emailconfirm_value|escape}" size="40"/>
         </div>
 
-        <p>How do you want to be known to visitors of Mozilla Update? This is your "author
-        name" and it will be shown with your extension/theme listings on the Mozilla Update
-        web site.</p>
+        <p>How do you want to be known to visitors of Mozilla Addons?</p>
 
         {if $error_name_empty}
             <div class="amo-form-error">Name is a required field.</div>
@@ -51,17 +49,17 @@
 
         <div>
         <label class="amo-label-large" for="name">Your Name:</label>
-        <input id="name" name="name" type="text" value="{$name_value|escape}"/>
+        <input id="name" name="name" type="text" value="{$name_value|escape}" size="40"/>
         </div>
 
         <p>If you have a website, enter the URL here. (including the http:// ) Your website
         will be shown to site visitors on your author profile page. This field is optional;
-        if you don't have a website or don't want it linked to from Mozilla Update, leave 
+        if you don't have a website or don't want it linked to from Mozilla Addons, leave 
         this box blank.</p>
 
         <div>
         <label class="amo-label-large" for="website">Your Website:</label>
-        <input id="website" name="website" type="text" value="{$website_value|escape}"/>
+        <input id="website" name="website" type="text" value="{$website_value|escape}" size="40"/>
         </div>
 
         {if $error_password_empty}
@@ -73,19 +71,19 @@
         
         <div>
         <label class="amo-label-large" for="password">Password:</label>
-        <input id="password" name="password" type="password" />
+        <input id="password" name="password" type="password" size="40"/>
         </div>
 
         <div>
         <label class="amo-label-large" for="passwordconfirm">Confirm Password:</label>
-        <input id="passwordconfirm" name="passwordconfirm" type="password" />
+        <input id="passwordconfirm" name="passwordconfirm" type="password" size="40"/>
         </div>
 
         <p>Review what you entered above. If everything's correct, click the "Join Mozilla
-        Update" button. If you want to start over, click "Clear Form".</p>
+        Addons" button.</p>
 
         <div>
-        <input name="submit" type="submit" value="Join Mozilla Update &raquo;" class="amo-submit"/>
+        <input name="submit" type="submit" value="Join Mozilla Addons &raquo;" class="amo-submit"/>
         </div>
     </form>
 {/if}

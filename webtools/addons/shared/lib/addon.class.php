@@ -22,6 +22,7 @@ class AddOn extends AMO_Object {
     var $db;
     var $tpl;
     var $installFunc;
+    var $isThunderbirdAddon;
 
     // AddOn author metadata.
     var $UserID;
@@ -292,23 +293,23 @@ class AddOn extends AMO_Object {
         // Set order by.
         switch ($orderBy) {
             case 'ratinghigh':
-                $_orderBySql = " ORDER BY CommentVote desc ";
+                $_orderBySql = " ORDER BY CommentVote desc, helpful_yes desc ";
                 break;
             case 'ratinglow':
                 $_orderBySql = " ORDER BY CommentVote asc ";
                 break;
             case 'dateoldest':
-                $_orderBySql = " ORDER BY CommentDate asc ";
+                $_orderBySql = " ORDER BY CommentDate asc, helpful_yes desc ";
                 break;
+            default:
             case 'datenewest':
-                $_orderBySql = " ORDER BY CommentDate desc ";
+                $_orderBySql = " ORDER BY CommentDate desc, helpful_yes desc ";
                 break;
             case 'leasthelpful':
-                $_orderBySql = " ORDER BY helpful_no desc, helpful_yes asc ";
+                $_orderBySql = " ORDER BY helpful_no desc, helpful_yes asc, CommentDate desc ";
                 break;
             case 'mosthelpful':
-            default:
-                $_orderBySql = " ORDER BY helpful_yes desc ";
+                $_orderBySql = " ORDER BY helpful_yes desc, CommentDate desc ";
                 break;
         }
     
@@ -323,9 +324,14 @@ class AddOn extends AMO_Object {
                 CommentVote,
                 `helpful-yes` as helpful_yes,
                 `helpful-no` as helpful_no,
-                `helpful-yes` + `helpful-no` as helpful_total
+                `helpful-yes` + `helpful-no` as helpful_total,
+                UserName
             FROM
                 feedback
+            LEFT JOIN
+                userprofiles
+            ON
+                userprofiles.UserID = feedback.UserID
             WHERE
                 ID = '{$this->ID}' AND
                 CommentVote IS NOT NULL
@@ -395,6 +401,13 @@ class AddOn extends AMO_Object {
         ", SQL_ALL, SQL_ASSOC);
 
         foreach ($this->db->record as $var => $val) {
+
+            // If we find Thunderbird in here somewhere, set the isThunderbirdAddon flag to true.
+            // This is so we can trigger install instructions under the install box in the template.
+            if ($val['AppName'] == 'Thunderbird') {
+                $this->isThunderbirdAddon = true;
+            }
+        
             $_key = "{$val['AppName']} {$val['MinAppVer']} - {$val['MaxAppVer']}";
 
             // We've already got at least one hit, just add the OS

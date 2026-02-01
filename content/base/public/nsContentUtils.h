@@ -102,7 +102,7 @@ public:
   // the actual ownerDocument of aContent may not yet be aNewDocument.
   // XXXbz but then if it gets wrapped after we do this call but before its
   // ownerDocument actually changes, things will break...
-  static nsresult ReparentContentWrapper(nsIContent *aContent,
+  static nsresult ReparentContentWrapper(nsIContent *aNode,
                                          nsIContent *aNewParent,
                                          nsIDocument *aNewDocument,
                                          nsIDocument *aOldDocument);
@@ -790,7 +790,7 @@ private:
   static nsresult doReparentContentWrapper(nsIContent *aChild,
                                            JSContext *cx,
                                            JSObject *aOldGlobal,
-                                           JSObject *parent_obj);
+                                           JSObject *aNewGlobal);
 
   static nsresult EnsureStringBundle(PropertiesFile aFile);
 
@@ -895,6 +895,13 @@ private:
   void* mPtr;
   nsresult mResult;
 };
+
+#define NS_AUTO_GCROOT_PASTE2(tok,line) tok##line
+#define NS_AUTO_GCROOT_PASTE(tok,line) \
+  NS_AUTO_GCROOT_PASTE2(tok,line)
+#define NS_AUTO_GCROOT(ptr, result) \ \
+  nsAutoGCRoot NS_AUTO_GCROOT_PASTE(_autoGCRoot_, __LINE__) \
+  (ptr, result)
 
 #define NS_INTERFACE_MAP_ENTRY_CONTENT_CLASSINFO(_class)                      \
   if (aIID.Equals(NS_GET_IID(nsIClassInfo))) {                                \

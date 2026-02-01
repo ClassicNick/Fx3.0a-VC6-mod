@@ -2,9 +2,9 @@
 <div class="key-point">
 
 <form action="{$smarty.server.PHP_SELF}" method="get" class="amo-form">
-<input type="hidden" name="app" value="{$app}"/>
 
 <div>
+<input type="hidden" name="app" value="{$app}"/>
 <input type="text" name="q" value="{$clean.q}" maxlength="32"/><input class="amo-submit" type="submit" value="Search"/> 
 <div id="show-search-options"><a href="javascript:toggle('hide-search-options','show-search-options','inline');show('search-options','inline');">Show Options</a></div>
 <div id="hide-search-options"><a href="javascript:toggle('show-search-options','hide-search-options','inline');hide('search-options');">Hide Options</a></div>
@@ -76,9 +76,9 @@
 <p><input class="amo-submit" type="submit" value="Search"/></p>
 
 <!-- end search-options -->
+<input type="hidden" name="app" value="{$app}"/>
 </div>
 
-<input type="hidden" name="app" value="{$app}"/>
 </form>
 
 </div>
@@ -123,7 +123,13 @@ Next Page &raquo;
     </p>
     {/if}
 
-    <p class="first">By <a href="{$config.webpath}/{$app}/{$results[r]->UserID}/author/">{$results[r]->UserName}</a></p>
+    <p class="first">By 
+
+{foreach key=key item=item from=$results[r]->Authors}
+        <a href="{$config.webpath}/{$app}/{$item.UserID|escape}/author/">{$item.UserName|escape}</a>{if $item != end($results[r]->Authors)},{/if}
+{/foreach}
+
+    </p>
     <p class="first">{$results[r]->Description|nl2br}</p>
     <div class="baseline">Last Update:  {$results[r]->DateUpdated|date_format} | Downloads Last 7 Days: {$results[r]->downloadcount} | Total Downloads: {$results[r]->TotalDownloads}</DIV>
 </div>
@@ -151,7 +157,7 @@ Next Page &raquo;
 {else}
 
 <h2>Addon Search</h2>
-<p class="first">There are currently no results.  Please use the options at the left to begin a search or try adjusting your search terms.</p>
+<p class="first">There are currently no results.  Please use the options above to adjust your search terms.</p>
 
 {/if}
 

@@ -1,3 +1,4 @@
+<div class="rating" title="{$addon->Rating} out of 5">Rating: {$addon->Rating}</div>
 <h2><strong>{$addon->Name}</strong> &raquo; Overview</h2>
 
 {if $addon->PreviewURI}
@@ -19,7 +20,7 @@ released on {$addon->VersionDateAdded|date_format}
 </p>
 
 
-<p>{$addon->Description|nl2br}</p>
+<p>{$addon->Description|strip_tags|nl2br}</p>
 
 <p class="requires">
 Works with:
@@ -51,9 +52,9 @@ Works with:
                 document.writeln("<div>");
 
                 if (installs[platform]) {ldelim}
-                        document.writeln("<a id=\"install-link\" href=\"" + installs[platform]+ "\" onclick=\"return {$addon->installFunc}(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
+                        document.writeln("<a id=\"install-link\" href=\"" + installs[platform]+ "\" onclick=\"return {$addon->installFunc}(event,'{$addon->Name|escape} {$addon->Version|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
                 {rdelim} else if ("{$key|escape}" == "ALL") {ldelim}
-                        document.writeln("<a id=\"install-link\" href=\"{$item.URI|escape}\" onclick=\"return {$addon->installFunc}(event,'{$item.AppName|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
+                        document.writeln("<a id=\"install-link\" href=\"{$item.URI|escape}\" onclick=\"return {$addon->installFunc}(event,'{$addon->Name|escape} {$addon->Version|escape}', '{$config.webpath}/images/default.png');\" title=\"Install for " + platform + " (Right-Click to Download)\">Install Now for " + platform + "</a> ({$item.Size|escape} <abbr title=\"Kilobytes\">KB</abbr>)");
                 {rdelim} else  {ldelim}
                     document.writeln("<strong>{$addon->Name|escape}</strong> is not available for " + platform + ".");
                 {rdelim}
@@ -87,9 +88,20 @@ Works with:
         <a href="{$config.webpath}/{$app}/{$addon->ID}/history">Other Versions</a>
     </div>
 
+    {if $addon->isThunderbirdAddon}
+    <div class="install-thunderbird">
+        <p>How to Install in Thunderbird:</p>
+        <ol>
+        <li>Right-Click the link above and choose "Save Link As..." to Download and save the file to your hard disk.</li>
+        <li>In Mozilla Thunderbird, open the extension manager (Tools Menu/Extensions)</li>
+        <li>Click the Install button, and locate/select the file you downloaded and click "OK"</li>
+        </ol>
+    </div>
+    {/if}
+
 {if $addon->devcomments}
 <h2>Developer Comments</h2>
-<p>{$addon->devcomments|nl2br}</p>
+<p>{$addon->devcomments|strip_tags|nl2br}</p>
 {/if}
 
 <h3 id="user-comments">User Comments</h3>
@@ -100,9 +112,15 @@ Works with:
 {section name=comments loop=$addon->Comments max=10}
 <li>
 <div class="opinions-vote">{$addon->Comments[comments].CommentVote} <span class="opinions-caption">out of 5</span></div>
-<h4 class="opinions-title">{$addon->Comments[comments].CommentTitle}</h4>
-<p class="opinions-info">by {$addon->Comments[comments].CommentName}, {$addon->Comments[comments].CommentDate|date_format}</p>
-<p class="opinions-text">{$addon->Comments[comments].CommentNote}</p>
+<h4 class="opinions-title">{$addon->Comments[comments].CommentTitle|strip_tags}</h4>
+<p class="opinions-info">by 
+{if $addon->Comments[comments].CommentName}
+{$addon->Comments[comments].CommentName|strip_tags}
+{else}
+{$addon->Comments[comments].UserName|strip_tags}
+{/if}
+, {$addon->Comments[comments].CommentDate|date_format}</p>
+<p class="opinions-text">{$addon->Comments[comments].CommentNote|strip_tags}</p>
 <p class="opinions-helpful"><strong>{$addon->Comments[comments].helpful_yes}</strong> out of <strong>{$addon->Comments[comments].helpful_total}</strong> viewers found this comment helpful<br>
 Was this comment helpful? <a href="{$config.webpath}/ratecomment.php?aid={$addon->ID}&amp;cid={$addon->Comments[comments].CommentID}&amp;r=yes&amp;app={$app}">Yes</a> &#124; <a href="{$config.webpath}/ratecomment.php?aid={$addon->ID}&amp;cid={$addon->Comments[comments].CommentID}&amp;r=no&amp;app={$app}">No</a></p>
 </li>
@@ -123,7 +141,7 @@ Was this comment helpful? <a href="{$config.webpath}/ratecomment.php?aid={$addon
 <li>Last Updated: {$addon->DateUpdated|date_format}</li>
 <li>Total Downloads: {$addon->TotalDownloads} &nbsp;&#8212;&nbsp; Downloads this Week: {$addon->downloadcount}</li>
 <li>See <a href="{$config.webpath}/{$app}/{$addon->ID}/history/">all previous releases</a> of this addon.</li>
-{if $addon->UserWebsite}
+{if $addon->Homepage}
 <li>View the <a href="{$addon->Homepage}">Author's homepage</a> for this addon.</li>
 {/if}
 </ul>

@@ -114,8 +114,10 @@ AVAILABLE_PROJECTS = \
   macbrowser \
   $(NULL)
 
+# Trailing / on top-level mozilla dir required to stop fast-update thinking
+# it is a module name.
 MODULES_NS_core :=                              \
-  mozilla                                       \
+  mozilla/                                      \
   mozilla/js                                    \
   mozilla/js/src                                \
   mozilla/js/jsd                                \
@@ -225,6 +227,9 @@ MODULES_suite :=                                \
 
 LOCALES_suite :=                                \
   $(LOCALES_toolkit)                            \
+  suite                                         \
+  editor/ui                                     \
+  extensions/reporter                           \
   $(NULL)
 
 BOOTSTRAP_suite :=                              \
@@ -364,7 +369,7 @@ MODULES_all :=                                  \
 #MOZ_CO_TAG          = <tag>
 NSPR_CO_TAG          = NSPRPUB_PRE_4_2_CLIENT_BRANCH
 NSS_CO_TAG           = NSS_3_11_20060403_TAG
-LDAPCSDK_CO_TAG      = ldapcsdk_50_client_branch
+LDAPCSDK_CO_TAG      = ldapcsdk_5_17_client_branch
 LOCALES_CO_TAG       =
 
 BUILD_MODULES = all
@@ -649,7 +654,7 @@ ifeq (,$(MOZ_MODULE_LIST_NS))
 FASTUPDATE_MODULES_NS := true
 CHECKOUT_MODULES_NS   := true
 else
-FASTUPDATE_MODULES_NS := fast_update $(CVSCO_MODULES_NS)
+FASTUPDATE_MODULES_NS := fast_update $(filter-out mozilla/,$(CVSCO_MODULES_NS))
 CHECKOUT_MODULES_NS   := cvs_co      $(CVSCO_MODULES_NS)
 endif
 
@@ -796,6 +801,7 @@ real_fast-update:
 	cd $(ROOTDIR); \
 	cvs_co $(CVSCO_NSS); \
 	cd mozilla; \
+	cvs -z3 -q -f up -l -d .; \
 	fast_update $(CVSCO_LDAPCSDK); \
 	$(FASTUPDATE_MODULES); \
 	$(FASTUPDATE_MODULES_NS); \

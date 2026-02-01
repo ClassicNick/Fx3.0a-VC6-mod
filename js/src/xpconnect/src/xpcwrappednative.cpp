@@ -461,8 +461,10 @@ XPCWrappedNative::GetNewOrUsed(XPCCallContext& ccx,
         XPCNativeScriptableInfo* si = wrapper->GetScriptableInfo();
         if(si && si->GetFlags().WantPostCreate())
         {
-            si->GetCallback()->
-                PostCreate(wrapper, ccx, wrapper->GetFlatJSObject());
+            rv = si->GetCallback()->
+                     PostCreate(wrapper, ccx, wrapper->GetFlatJSObject());
+            if(NS_FAILED(rv))
+                return rv;
         }
     }
 
@@ -1121,7 +1123,8 @@ XPCWrappedNative::ReparentWrapperIfFound(XPCCallContext& ccx,
                 wrapper->mScriptableInfo = newProto->GetScriptableInfo();
             }
 
-            NS_ASSERTION(!newMap->Find(wrapper), "wrapper already in new scope!");
+            NS_ASSERTION(!newMap->Find(wrapper->GetIdentityObject()),
+                         "wrapper already in new scope!");
 
             (void) newMap->Add(wrapper);
         }

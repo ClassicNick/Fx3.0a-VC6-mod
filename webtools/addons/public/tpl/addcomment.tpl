@@ -1,13 +1,17 @@
+<div class="rating" title="{$addon->Rating} out of 5">Rating: {$addon->Rating}</div>
 <h2><strong>{$addon->Name}</strong> &raquo; Add a Comment</h2>
 
 <p class="first">
 <strong><a href="{$config.webpath}/{$app}/{$addon->ID}/">{$addon->Name} {$addon->Version}</a></strong>,
-by <a href="{$config.webpath}/{$app}/{$addon->UserID}/author/">{$addon->UserName}</a>,
+by
+{foreach key=key item=item from=$addon->Authors}
+    <a href="{$config.webpath}/{$app}/{$item.UserID|escape}/author/">{$item.UserName|escape}</a>,
+{/foreach}
 released on {$addon->VersionDateAdded|date_format}
 </p>
 
 {if $c_added_comment}
-<p>You comment has been added successfully.</p>
+<p>Your comment has been added successfully.</p>
 <ul>
 <li><a href="addon.php?id={$addon->ID}">Return to {$addon->Name|escape}</a></li>
 </ul>
