@@ -75,6 +75,9 @@
 #include "nsICabProfileMigrator.h"
 #endif
 #include "rdf.h"
+#ifdef MOZ_FEEDS
+#include "nsFeedSniffer.h"
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -114,6 +117,10 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsMacIEProfileMigrator)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsCaminoProfileMigrator)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsICabProfileMigrator)
 #endif
+#ifdef MOZ_FEEDS
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsFeedSniffer)
+#endif
+
 /////////////////////////////////////////////////////////////////////////////
 
 static const nsModuleComponentInfo components[] =
@@ -203,6 +210,14 @@ static const nsModuleComponentInfo components[] =
 
 #endif
 
+#ifdef MOZ_FEEDS
+  { "Feed Sniffer",
+    NS_FEEDSNIFFER_CID,
+    NS_FEEDSNIFFER_CONTRACTID,
+    nsFeedSnifferConstructor,
+    nsFeedSniffer::Register },
+#endif
+
   { "Profile Migrator",
     NS_FIREFOX_PROFILEMIGRATOR_CID,
     NS_PROFILEMIGRATOR_CONTRACTID,
@@ -264,8 +279,6 @@ static const nsModuleComponentInfo components[] =
     NS_SEAMONKEYPROFILEMIGRATOR_CID,
     NS_BROWSERPROFILEMIGRATOR_CONTRACTID_PREFIX "seamonkey",
     nsSeamonkeyProfileMigratorConstructor }
-
-
 };
 
 NS_IMPL_NSGETMODULE(nsBrowserCompsModule, components)

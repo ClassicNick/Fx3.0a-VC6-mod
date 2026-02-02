@@ -86,7 +86,7 @@
 #include "nsTextFragment.h"
 #include "nsHTMLAtoms.h"
 #include "nsLayoutAtoms.h"
-#include "nsIFrameSelection.h"
+#include "nsFrameSelection.h"
 #include "nsISelection.h"
 #include "nsIDOMRange.h"
 #include "nsILookAndFeel.h"
@@ -253,7 +253,11 @@ protected:
 
 class nsTextFrame : public nsFrame {
 public:
-  nsTextFrame(nsStyleContext* aContext) : nsFrame(aContext) {}
+  nsTextFrame(nsStyleContext* aContext) : nsFrame(aContext)
+  {
+    NS_ASSERTION(mContentOffset == 0, "Bogus content offset");
+    NS_ASSERTION(mContentLength == 0, "Bogus content length");
+  }
   
   // nsIFrame
   NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
@@ -262,6 +266,10 @@ public:
                               
   void PaintText(nsIRenderingContext& aRenderingContext, nsPoint aPt);
   
+  NS_IMETHOD Init(nsIContent*      aContent,
+                  nsIFrame*        aParent,
+                  nsIFrame*        aPrevInFlow);
+
   virtual void Destroy();
   
   NS_IMETHOD GetCursor(const nsPoint& aPoint,
@@ -1377,7 +1385,7 @@ nsTextPaintStyle::GetResolvedForeColor(nscolor aColor,
 #ifdef ACCESSIBILITY
 NS_IMETHODIMP nsTextFrame::GetAccessible(nsIAccessible** aAccessible)
 {
-  if (mRect.width > 0 || mRect.height > 0) {
+  if (mRect.width > 0 || mRect.height > 0 || GetNextInFlow()) {
 
     nsCOMPtr<nsIAccessibilityService> accService = do_GetService("@mozilla.org/accessibilityService;1");
 
@@ -1391,6 +1399,28 @@ NS_IMETHODIMP nsTextFrame::GetAccessible(nsIAccessible** aAccessible)
 
 
 //-----------------------------------------------------------------------------
+NS_IMETHODIMP
+nsTextFrame::Init(nsIContent*      aContent,
+                  nsIFrame*        aParent,
+                  nsIFrame*        aPrevInFlow)
+{
+  nsresult rv = nsFrame::Init(aContent, aParent, aPrevInFlow);
+  if (NS_SUCCEEDED(rv) && !aPrevInFlow &&
+      GetStyleText()->WhiteSpaceIsSignificant()) {
+    // We care about our actual length in this case, so we can report the right
+    // thing from HasTerminalNewline().  Since we're not a continuing frame, we
+    // should map the whole content node.
+
+    // Note that if we're created due to bidi splitting the bidi code
+    // will override what we compute here, so it's ok.
+    nsCOMPtr<nsITextContent> tc = do_QueryInterface(mContent);
+    if (tc) {
+      mContentLength = tc->Text()->GetLength();
+    }
+  }
+  return rv;
+}
+
 void
 nsTextFrame::Destroy()
 {
@@ -1929,11 +1959,15 @@ nsTextFrame::CharacterDataChanged(nsPresContext* aPresContext,
   }
 
   if (markAllDirty) {
-    // Mark this frame and all the next-in-flow frames as dirty
+    // Mark this frame and all the next-in-flow frames as dirty and reset all
+    // the content offsets and lengths to 0, since they no longer know what
+    // content is ok to access.
     nsTextFrame*  textFrame = this;
     while (textFrame) {
       textFrame->mState &= ~TEXT_WHITESPACE_FLAGS;
       textFrame->mState |= NS_FRAME_IS_DIRTY;
+      textFrame->mContentOffset = 0;
+      textFrame->mContentLength = 0;
       textFrame = NS_STATIC_CAST(nsTextFrame*, textFrame->GetNextContinuation());
     }
   }
@@ -2779,9 +2813,8 @@ nsTextFrame::IsTextInSelection()
                                                    getter_AddRefs(content),
                                                    &offset, &length);
     if (NS_SUCCEEDED(rv) && content) {
-      rv = GetFrameSelection()->LookUpSelection(content, mContentOffset,
-                                                mContentLength, &details,
-                                                PR_FALSE);
+      details = GetFrameSelection()->LookUpSelection(content, mContentOffset,
+                                                     mContentLength, PR_FALSE);
     }
       
     //where are the selection points "really"
@@ -2931,9 +2964,8 @@ nsTextFrame::PaintUnicodeText(nsPresContext* aPresContext,
                                                      getter_AddRefs(content),
                                                      &offset, &length);
       if (NS_SUCCEEDED(rv) && content) {
-        rv = GetFrameSelection()->LookUpSelection(content, mContentOffset, 
-                                                 mContentLength, &details,
-                                                 PR_FALSE);
+        details = GetFrameSelection()->LookUpSelection(content, mContentOffset,
+                                                       mContentLength, PR_FALSE);
       }
         
       //where are the selection points "really"
@@ -3657,9 +3689,8 @@ nsTextFrame::PaintTextSlowly(nsPresContext* aPresContext,
                                                      getter_AddRefs(content),
                                                      &offset, &length);
       if (NS_SUCCEEDED(rv)) {
-        rv = GetFrameSelection()->LookUpSelection(content, mContentOffset, 
-                                                  mContentLength, &details,
-                                                  PR_FALSE);
+        details = GetFrameSelection()->LookUpSelection(content, mContentOffset,
+                                                       mContentLength, PR_FALSE);
       }
 
       //where are the selection points "really"
@@ -3902,9 +3933,8 @@ nsTextFrame::PaintAsciiText(nsPresContext* aPresContext,
                                                      getter_AddRefs(content),
                                                      &offset, &length);
       if (NS_SUCCEEDED(rv)) {
-        rv = GetFrameSelection()->LookUpSelection(content, mContentOffset, 
-                                                  mContentLength, &details,
-                                                  PR_FALSE);
+        details = GetFrameSelection()->LookUpSelection(content, mContentOffset,
+                                                       mContentLength, PR_FALSE);
       }
         
       //where are the selection points "really"
@@ -4270,8 +4300,8 @@ nsTextFrame::SetSelected(nsPresContext* aPresContext,
                                                    getter_AddRefs(content),
                                                    &offset, &length);
     if (NS_SUCCEEDED(rv) && content) {
-      rv = GetFrameSelection()->LookUpSelection(content, offset,
-                                                length, &details, PR_TRUE);
+      details = GetFrameSelection()->LookUpSelection(content, offset,
+                                                     length, PR_TRUE);
       // PR_TRUE last param used here! we need to see if we are still selected. so no shortcut
     }
     if (!details)

@@ -113,7 +113,7 @@
 #include "nsIScrollableView.h"
 #include "nsIParser.h"
 #include "nsParserCIID.h"
-#include "nsIFrameSelection.h"
+#include "nsFrameSelection.h"
 #include "nsIDOMNSHTMLInputElement.h" //optimization for ::DoXXX commands
 #include "nsIDOMNSHTMLTextAreaElement.h"
 #include "nsViewsCID.h"
@@ -1042,8 +1042,9 @@ public:
   NS_IMETHOD SelectAlternateStyleSheet(const nsString& aSheetTitle);
   NS_IMETHOD ListAlternateStyleSheets(nsStringArray& aTitleList);
   NS_IMETHOD SetPreferenceStyleRules(PRBool aForceReflow);
-
+  
   NS_IMETHOD GetSelection(SelectionType aType, nsISelection** aSelection);
+  virtual nsISelection* GetCurrentSelection(SelectionType aType);
 
   NS_IMETHOD SetDisplaySelection(PRInt16 aToggle);
   NS_IMETHOD GetDisplaySelection(PRInt16 *aToggle);
@@ -1302,6 +1303,7 @@ protected:
 
   void     WillCauseReflow() { ++mChangeNestCount; }
   nsresult DidCauseReflow();
+  void     WillDoReflow();
   void     DidDoReflow();
   nsresult ProcessReflowCommands(PRBool aInterruptible);
   nsresult ClearReflowEventStatus();  
@@ -1749,11 +1751,8 @@ PresShell::Init(nsIDocument* aDocument,
     return result;
   }
 
-  result = mSelection->Init(this, nsnull);
-  if (NS_FAILED(result)) {
-    mStyleSet = nsnull;
-    return result;
-  }
+  mSelection->Init(this, nsnull);
+
   // Important: this has to happen after the selection has been set up
 #ifdef SHOW_CARET
   // make the caret
@@ -2547,13 +2546,15 @@ nsresult PresShell::SetPrefFocusRules(void)
 NS_IMETHODIMP
 PresShell::SetDisplaySelection(PRInt16 aToggle)
 {
-  return mSelection->SetDisplaySelection(aToggle);
+  mSelection->SetDisplaySelection(aToggle);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
 PresShell::GetDisplaySelection(PRInt16 *aToggle)
 {
-  return mSelection->GetDisplaySelection(aToggle);
+  *aToggle = mSelection->GetDisplaySelection();
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -2561,7 +2562,24 @@ PresShell::GetSelection(SelectionType aType, nsISelection **aSelection)
 {
   if (!aSelection || !mSelection)
     return NS_ERROR_NULL_POINTER;
-  return mSelection->GetSelection(aType, aSelection);
+
+  *aSelection = mSelection->GetSelection(aType);
+
+  if (!(*aSelection))
+    return NS_ERROR_INVALID_ARG;
+
+  NS_ADDREF(*aSelection);
+
+  return NS_OK;
+}
+
+nsISelection*
+PresShell::GetCurrentSelection(SelectionType aType)
+{
+  if (!mSelection)
+    return nsnull;
+
+  return mSelection->GetSelection(aType);
 }
 
 NS_IMETHODIMP
@@ -2579,7 +2597,7 @@ PresShell::RepaintSelection(SelectionType aType)
   if (!mSelection)
     return NS_ERROR_NULL_POINTER;
 
-  return mSelection->RepaintSelection(mPresContext, aType);
+  return mSelection->RepaintSelection(aType);
 }
 
 // Make shell be a document observer
@@ -2607,17 +2625,6 @@ PresShell::EndObservingDocument()
   if (mDocument) {
     mDocument->RemoveObserver(this);
   }
-  if (mSelection){
-    nsCOMPtr<nsISelection> domselection;
-    nsresult result;
-    result = mSelection->GetSelection(nsISelectionController::SELECTION_NORMAL, getter_AddRefs(domselection));
-    if (NS_FAILED(result))
-      return result;
-    if (!domselection)
-      return NS_ERROR_UNEXPECTED;
-    mSelection->ShutDown();
-  }
-
   return NS_OK;
 }
 
@@ -2738,6 +2745,7 @@ PresShell::InitialReflow(nscoord aWidth, nscoord aHeight)
   mViewManager->BeginUpdateViewBatch();
 
   WillCauseReflow();
+  WillDoReflow();
 
   if (mPresContext) {
     nsRect r(0, 0, aWidth, aHeight);
@@ -2905,9 +2913,7 @@ PresShell::ResizeReflow(nscoord aWidth, nscoord aHeight)
   mViewManager->BeginUpdateViewBatch();
 
   WillCauseReflow();
-
-  if (mCaret)
-    mCaret->EraseCaret();
+  WillDoReflow();
 
   // If we don't have a root frame yet, that means we haven't had our initial
   // reflow... If that's the case, and aWidth or aHeight is unconstrained,
@@ -3207,7 +3213,7 @@ PresShell::PageMove(PRBool aForward, PRBool aExtend)
     return NS_ERROR_UNEXPECTED;
   nsIView *scrolledView;
   result = scrollableView->GetScrolledView(scrolledView);
-  mSelection->CommonPageMove(aForward, aExtend, scrollableView, mSelection);
+  mSelection->CommonPageMove(aForward, aExtend, scrollableView);
   // do ScrollSelectionIntoView()
   return ScrollSelectionIntoView(nsISelectionController::SELECTION_NORMAL, nsISelectionController::SELECTION_FOCUS_REGION, PR_TRUE);
 }
@@ -3374,10 +3380,7 @@ NS_IMETHODIMP
 PresShell::StyleChangeReflow()
 {
   WillCauseReflow();
-
-  if (mCaret) {
-    mCaret->InvalidateOutsideCaret();
-  }
+  WillDoReflow();
 
   nsIFrame* rootFrame = FrameManager()->GetRootFrame();
   if (rootFrame) {
@@ -3707,9 +3710,8 @@ PresShell::GetViewToScroll(nsLayoutUtils::Direction aDirection)
   nsCOMPtr<nsIContent> focusedContent;
   esm->GetFocusedContent(getter_AddRefs(focusedContent));
   if (!focusedContent && mSelection) {
-    nsCOMPtr<nsISelection> domSelection;
-    mSelection->GetSelection(nsISelectionController::SELECTION_NORMAL,
-                             getter_AddRefs(domSelection));
+    nsISelection* domSelection = mSelection->
+      GetSelection(nsISelectionController::SELECTION_NORMAL);
     if (domSelection) {
       nsCOMPtr<nsIDOMNode> focusedNode;
       domSelection->GetFocusNode(getter_AddRefs(focusedNode));
@@ -4079,11 +4081,9 @@ PresShell::GoToAnchor(const nsAString& aAnchorName, PRBool aScroll)
     }
     if (jumpToRange) {
       // Select the anchor
-      nsCOMPtr<nsISelection> sel;
-      if (NS_SUCCEEDED(
-          GetSelection(nsISelectionController::SELECTION_NORMAL,
-                        getter_AddRefs(sel))) &&
-          sel) {
+      nsISelection* sel = mSelection->
+        GetSelection(nsISelectionController::SELECTION_NORMAL);
+      if (sel) {
         sel->RemoveAllRanges();
         sel->AddRange(jumpToRange);
         if (!selectAnchor) {
@@ -4448,7 +4448,7 @@ NS_IMETHODIMP PresShell::GetLinkLocation(nsIDOMNode* aNode, nsAString& aLocation
 NS_IMETHODIMP
 PresShell::GetSelectionForCopy(nsISelection** outSelection)
 {
-  nsresult rv = NS_OK;
+  nsresult rv;
 
   *outSelection = nsnull;
 
@@ -4478,16 +4478,20 @@ PresShell::GetSelectionForCopy(nsISelection** outSelection)
       if (!htmlInputFrame) return NS_ERROR_FAILURE;
 
       nsCOMPtr<nsISelectionController> selCon;
-      rv = htmlInputFrame->GetSelectionController(mPresContext,getter_AddRefs(selCon));
+      rv = htmlInputFrame->
+        GetSelectionController(mPresContext,getter_AddRefs(selCon));
       if (NS_FAILED(rv)) return rv;
       if (!selCon) return NS_ERROR_FAILURE;
 
-      rv = selCon->GetSelection(nsISelectionController::SELECTION_NORMAL, getter_AddRefs(sel));
+      rv = selCon->GetSelection(nsISelectionController::SELECTION_NORMAL,
+                                getter_AddRefs(sel));
     }
   }
-  if (!sel) //get selection from this PresShell
-    rv = GetSelection(nsISelectionController::SELECTION_NORMAL, getter_AddRefs(sel));
-   
+  if (!sel) {
+    sel = mSelection->GetSelection(nsISelectionController::SELECTION_NORMAL);
+    rv = NS_OK;
+  }
+
   *outSelection = sel;
   NS_IF_ADDREF(*outSelection);
   return rv;
@@ -5152,9 +5156,6 @@ PresShell::CharacterDataChanged(nsIDocument *aDocument,
   NS_PRECONDITION(aDocument == mDocument, "Unexpected aDocument");
 
   WillCauseReflow();
-  if (mCaret) {
-    mCaret->InvalidateOutsideCaret();
-  }
   mFrameConstructor->CharacterDataChanged(aContent, aAppend);
   VERIFY_STYLE_TREE;
   DidCauseReflow();
@@ -5253,9 +5254,7 @@ PresShell::ContentRemoved(nsIDocument *aDocument,
 
   // Make sure that the caret doesn't leave a turd where the child used to be.
   if (mCaret) {
-    if (mCaret->GetCaretContent() == aChild) {
-      mCaret->InvalidateOutsideCaret();
-    }
+    mCaret->InvalidateOutsideCaret();
   }
 
   // Notify the ESM that the content has been removed, so that
@@ -5829,8 +5828,7 @@ PresShell::HandleEvent(nsIView         *aView,
       
     nsPoint eventPoint
         = nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, frame);
-    nsIFrame* targetFrame =
-        nsLayoutUtils::GetFrameForPoint(frame, eventPoint);
+    nsIFrame* targetFrame = nsLayoutUtils::GetFrameForPoint(frame, eventPoint);
     if (targetFrame) {
       PresShell* shell =
           NS_STATIC_CAST(PresShell*, targetFrame->GetPresContext()->PresShell());
@@ -6463,6 +6461,16 @@ PresShell::DidCauseReflow()
 }
 
 void
+PresShell::WillDoReflow()
+{
+  // We just reflowed, tell the caret that its frame might have moved.
+  if (mCaret) {
+    mCaret->UpdateCaretPosition();
+    mCaret->InvalidateOutsideCaret();
+  }
+}
+
+void
 PresShell::DidDoReflow()
 {
   HandlePostedDOMEvents();
@@ -6472,6 +6480,8 @@ PresShell::DidDoReflow()
   // bugs 244435 and 238546.
   if (!mPaintingSuppressed && mViewManager)
     mViewManager->SynthesizeMouseMove(PR_FALSE);
+  if (mCaret)
+    mCaret->InvalidateOutsideCaret();
 }
 
 nsresult
@@ -6505,6 +6515,8 @@ PresShell::ProcessReflowCommands(PRBool aInterruptible)
       }
     }
 #endif
+
+    WillDoReflow();
 
     // If reflow is interruptible, then make a note of our deadline.
     const PRIntervalTime deadline = aInterruptible

@@ -88,14 +88,15 @@ class nsWindowCollector : public nsIMetricsCollector,
   NS_DECL_NSIOBSERVER
 
   nsWindowCollector();
-  nsresult Init();
+
+  // VC6 needs this to be public
+  void LogWindowOpen(nsITimer *timer, nsISupports *subject);
 
  private:
   ~nsWindowCollector();
 
   // timer callback
   static void WindowOpenCallback(nsITimer *timer, void *closure);
-  void LogWindowOpen(nsITimer *timer, nsISupports *subject);
 
   // timers that we're using for deferred window open events
   nsTArray< nsCOMPtr<nsITimer> > mWindowOpenTimers;

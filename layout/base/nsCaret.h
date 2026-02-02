@@ -103,6 +103,7 @@ class nsCaret : public nsICaret,
     }
 
     void      InvalidateOutsideCaret();
+    void      UpdateCaretPosition();
 
     void      PaintCaret(nsDisplayListBuilder *aBuilder,
                          nsIRenderingContext *aCtx,
@@ -116,7 +117,7 @@ class nsCaret : public nsICaret,
   
     NS_IMETHOD    GetCaretFrameForNodeOffset(nsIContent* aContentNode,
                                              PRInt32 aOffset,
-                                             nsIFrameSelection::HINT aFrameHint,
+                                             nsFrameSelection::HINT aFrameHint,
                                              PRUint8 aBidiLevel,
                                              nsIFrame** aReturnFrame,
                                              PRInt32* aReturnOffset);
@@ -135,10 +136,11 @@ class nsCaret : public nsICaret,
                                       nsIView **outRelativeView);
     PRBool        DrawAtPositionWithHint(nsIDOMNode* aNode,
                                          PRInt32 aOffset,
-                                         nsIFrameSelection::HINT aFrameHint,
-                                         PRUint8 aBidiLevel);
+                                         nsFrameSelection::HINT aFrameHint,
+                                         PRUint8 aBidiLevel,
+                                         PRBool aInvalidate);
     PRBool        MustDrawCaret();
-    void          DrawCaret();
+    void          DrawCaret(PRBool aInvalidate);
     void          DrawCaretAfterBriefDelay();
     nsresult      UpdateCaretRects(nsIFrame* aFrame, PRInt32 aFrameOffset);
     nsresult      UpdateHookRect(nsPresContext* aPresContext);
@@ -180,7 +182,7 @@ protected:
                                               // actually drawn (anon <BR> in text control)
     PRInt32               mLastContentOffset; // the offset for the last request
 
-    nsIFrameSelection::HINT mLastHint;        // the hint associated with the last request, see also
+    nsFrameSelection::HINT mLastHint;        // the hint associated with the last request, see also
                                               // mLastBidiLevel below
 
 #ifdef IBMBIDI

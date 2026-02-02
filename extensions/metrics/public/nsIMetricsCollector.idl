@@ -47,9 +47,16 @@
  * is instantiated (using getSerivce).  The collector is responsible for
  * calling nsIMetricsService::logEvent() when it has something to log.
  */
-[scriptable, uuid(b6cba4ad-363a-4780-90fa-9d7cc8115854)]
+[scriptable, uuid(9c6bd2a8-784a-4003-9534-faf45b4de64c)]
 interface nsIMetricsCollector : nsISupports
 {
+  /**
+   * Notification that this collector should be enabled.  The collector
+   * should register itself for observer and event notifications as
+   * necessary.
+   */
+  void onAttach();
+
   /**
    * Notification that this collector is no longer enabled.  The collector
    * should unregister itself from observer and event notifications so that

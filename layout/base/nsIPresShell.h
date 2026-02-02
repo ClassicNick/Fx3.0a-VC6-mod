@@ -84,7 +84,7 @@ class nsAString;
 class nsStringArray;
 class nsICaret;
 class nsStyleContext;
-class nsIFrameSelection;
+class nsFrameSelection;
 class nsFrameManager;
 class nsILayoutHistoryState;
 class nsIReflowCallback;
@@ -95,6 +95,8 @@ class nsIStyleSheet;
 class nsCSSFrameConstructor;
 class nsISelection;
 template<class E> class nsCOMArray;
+
+typedef short SelectionType;
 
 #define NS_IPRESSHELL_IID     \
 { 0xa736d2fd, 0x0191, 0x42ea, \
@@ -253,7 +255,7 @@ public:
    * You cannot go back and forth anymore with QI between nsIDOM sel and
    * nsIFrame sel.
    */
-  nsIFrameSelection* FrameSelection() { return mSelection; }
+  nsFrameSelection* FrameSelection() { return mSelection; }
 
   // Make shell be a document observer
   NS_IMETHOD BeginObservingDocument() = 0;
@@ -509,6 +511,8 @@ public:
     *           else NS_OK
     */
   NS_IMETHOD GetSelectionFlags(PRInt16 *aOutEnabled) = 0;
+  
+  virtual nsISelection* GetCurrentSelection(SelectionType aType) = 0;
 
   /**
     * Interface to dispatch events via the presshell
@@ -758,7 +762,7 @@ protected:
   nsStyleSet*               mStyleSet;      // [OWNS]
   nsCSSFrameConstructor*    mFrameConstructor; // [OWNS]
   nsIViewManager*           mViewManager;   // [WEAK] docViewer owns it so I don't have to
-  nsIFrameSelection*        mSelection;
+  nsFrameSelection*         mSelection;
   nsFrameManagerBase        mFrameManager;  // [OWNS]
   nsWeakPtr                 mForwardingContainer;
 

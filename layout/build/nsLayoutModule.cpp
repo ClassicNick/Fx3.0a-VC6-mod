@@ -78,7 +78,7 @@
 #include "nsIDocumentViewer.h"
 #include "nsIEventListenerManager.h"
 #include "nsIFactory.h"
-#include "nsIFrameSelection.h"
+#include "nsFrameSelection.h"
 #include "nsIFrameUtil.h"
 #include "nsIGenericFactory.h"
 #include "nsIHTMLCSSStyleSheet.h"
@@ -138,6 +138,10 @@
 #include "nsXPath1Scheme.h"
 #include "nsXFormsXPathEvaluator.h"
 #include "txXSLTProcessor.h"
+
+#include "nsDOMParser.h"
+#include "nsDOMSerializer.h"
+#include "nsXMLHttpRequest.h"
 
 // view stuff
 #include "nsViewsCID.h"
@@ -235,6 +239,9 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsXPath1SchemeProcessor)
 NS_GENERIC_FACTORY_CONSTRUCTOR(txMozillaXSLTProcessor)
 NS_GENERIC_AGGREGATED_CONSTRUCTOR_INIT(nsXPathEvaluator, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsXFormsXPathEvaluator)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsDOMSerializer)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsXMLHttpRequest)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsDOMParser)
 
 //-----------------------------------------------------------------------------
 
@@ -476,7 +483,7 @@ nsresult NS_CreateFrameTraversal(nsIFrameTraversal** aResult);
 nsresult NS_NewSelectionImageService(nsISelectionImageService** aResult);
 #endif
 
-nsresult NS_NewSelection(nsIFrameSelection** aResult);
+nsresult NS_NewSelection(nsFrameSelection** aResult);
 nsresult NS_NewDomSelection(nsISelection** aResult);
 nsresult NS_NewDocumentViewer(nsIDocumentViewer** aResult);
 nsresult NS_NewRange(nsIDOMRange** aResult);
@@ -558,7 +565,7 @@ MAKE_CTOR(CreateImageDocument,            nsIDocument,                 NS_NewIma
 MAKE_CTOR(CreateCSSParser,                nsICSSParser,                NS_NewCSSParser)
 MAKE_CTOR(CreateCSSLoader,                nsICSSLoader,                NS_NewCSSLoader)
 MAKE_CTOR(CreateDOMSelection,             nsISelection,                NS_NewDomSelection)
-MAKE_CTOR(CreateSelection,                nsIFrameSelection,           NS_NewSelection)
+MAKE_CTOR(CreateSelection,                nsFrameSelection,                 NS_NewSelection)
 MAKE_CTOR(CreateRange,                    nsIDOMRange,                 NS_NewRange)
 MAKE_CTOR(CreateRangeUtils,               nsIRangeUtils,               NS_NewRangeUtils)
 MAKE_CTOR(CreateContentIterator,          nsIContentIterator,          NS_NewContentIterator)
@@ -1349,7 +1356,22 @@ static const nsModuleComponentInfo gComponents[] = {
   { "XPath1 XPointer Scheme Processor",
     TRANSFORMIIX_XPATH1_SCHEME_CID,
     NS_XPOINTER_SCHEME_PROCESSOR_BASE "xpath1",
-    nsXPath1SchemeProcessorConstructor }
+    nsXPath1SchemeProcessorConstructor },
+
+  { "XML Serializer",
+    NS_XMLSERIALIZER_CID,
+    NS_XMLSERIALIZER_CONTRACTID,
+    nsDOMSerializerConstructor },
+
+  { "XMLHttpRequest",
+    NS_XMLHTTPREQUEST_CID,
+    NS_XMLHTTPREQUEST_CONTRACTID,
+    nsXMLHttpRequestConstructor },
+
+  { "DOM Parser",
+    NS_DOMPARSER_CID,
+    NS_DOMPARSER_CONTRACTID,
+    nsDOMParserConstructor }
 };
 
 NS_IMPL_NSGETMODULE_WITH_CTOR(nsLayoutModule, gComponents, Initialize)

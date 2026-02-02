@@ -415,7 +415,7 @@ nsActivePlugin::~nsActivePlugin()
       mInstance->Destroy();
 
     NS_RELEASE(mInstance);
-    NS_RELEASE(mPeer);
+    NS_IF_RELEASE(mPeer);
   }
   PL_strfree(mURL);
 }
@@ -3385,7 +3385,7 @@ NS_IMETHODIMP nsPluginHostImpl::InstantiateEmbeddedPlugin(const char *aMimeType,
     if (!doc)
       return NS_ERROR_NULL_POINTER;
 
-    rv = secMan->CheckLoadURIWithPrincipal(doc->GetNodePrincipal(), aURL, 0);
+    rv = secMan->CheckLoadURIWithPrincipal(doc->NodePrincipal(), aURL, 0);
     if (NS_FAILED(rv))
       return rv;
 
@@ -3876,7 +3876,7 @@ NS_IMETHODIMP nsPluginHostImpl::TrySetUpPluginInstance(const char *aMimeType,
   // InstantiateEmbeddedPlugin() next), Java plugin will create the proxy JNI
   // if it is not created yet. If that happens, LiveConnect will be broken.
   // Before lazy start JVM was implemented, since at this point the browser
-  // already created the proxy JNI buring startup, the problem did not happen.
+  // already created the proxy JNI during startup, the problem did not happen.
   // But after the lazy start was implemented, at this point the proxy JNI was
   // not created yet, so the Java plugin created the proxy JNI, and broke
   // liveConnect.
@@ -5758,7 +5758,7 @@ NS_IMETHODIMP nsPluginHostImpl::NewPluginURLStream(const nsString& aURL,
       if (doc)
       {
         // Set the owner of channel to the document principal...
-        channel->SetOwner(doc->GetNodePrincipal());
+        channel->SetOwner(doc->NodePrincipal());
       }
 
       // deal with headers and post data
@@ -5840,7 +5840,7 @@ nsPluginHostImpl::DoURLLoadSecurityCheck(nsIPluginInstance *aInstance,
   if (NS_FAILED(rv))
     return rv;
 
-  return secMan->CheckLoadURIWithPrincipal(doc->GetNodePrincipal(), targetURL,
+  return secMan->CheckLoadURIWithPrincipal(doc->NodePrincipal(), targetURL,
                                            nsIScriptSecurityManager::STANDARD);
 
 }
