@@ -171,6 +171,12 @@
 #define SYSTEMPREF_MODULES
 #endif
 
+#ifdef MOZ_FILEVIEW
+#define FILEVIEW_MODULE MODULE(nsFileViewModule)
+#else
+#define FILEVIEW_MODULE
+#endif
+
 #ifdef MOZ_PLACES
 #define PLACES_MODULES \
     MODULE(mozStorageModule)
@@ -226,8 +232,10 @@
     MODULE(nsFindComponent)                  \
     MODULE(application)                      \
     MODULE(nsWindowDataSourceModule)         \
+    MODULE(nsXPIntlModule)                   \
     MODULE(Apprunner)                        \
     MODULE(CommandLineModule)                \
+    FILEVIEW_MODULE                          \
     PLACES_MODULES                           \
     XULENABLED_MODULES                       \
     MODULE(nsToolkitCompsModule)             \

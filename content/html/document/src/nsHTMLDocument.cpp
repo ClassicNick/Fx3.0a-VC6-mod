@@ -1904,13 +1904,14 @@ nsHTMLDocument::SetCookie(const nsAString& aCookie)
 nsresult
 nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
 {
+  if (IsXHTML()) {
+    // No calling document.open() on XHTML
+
+    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
+  }
+
   // If we already have a parser we ignore the document.open call.
   if (mParser) {
-    if (IsXHTML()) {
-      // No calling document.open() while we're parsing XHTML
-
-      return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
-    }
 
     return NS_OK;
   }
@@ -2179,6 +2180,12 @@ nsHTMLDocument::Clear()
 NS_IMETHODIMP
 nsHTMLDocument::Close()
 {
+  if (IsXHTML()) {
+    // No calling document.close() on XHTML!
+
+    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
+  }
+
   nsresult rv = NS_OK;
 
   if (mParser && mWriteState == eDocumentOpened) {
@@ -2242,6 +2249,12 @@ nsresult
 nsHTMLDocument::WriteCommon(const nsAString& aText,
                             PRBool aNewlineTerminate)
 {
+  if (IsXHTML()) {
+    // No calling document.write*() on XHTML!
+
+    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
+  }
+
   nsresult rv = NS_OK;
 
   void *key = GenerateParserKey();
@@ -2262,10 +2275,6 @@ nsHTMLDocument::WriteCommon(const nsAString& aText,
     if (NS_FAILED(rv) || !mParser) {
       return rv;
     }
-  } else if (IsXHTML()) {
-    // No calling document.write*() while parsing XHTML!
-
-    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
   }
 
   static NS_NAMED_LITERAL_STRING(new_line, "\n");
@@ -3208,7 +3217,7 @@ nsHTMLDocument::RemoveFromIdTable(nsIContent *aContent)
 nsresult
 nsHTMLDocument::UnregisterNamedItems(nsIContent *aContent)
 {
-  if (aContent->IsContentOfType(nsIContent::eTEXT)) {
+  if (aContent->IsNodeOfType(nsINode::eTEXT)) {
     // Text nodes are not named items nor can they have children.
     return NS_OK;
   }
@@ -3244,7 +3253,7 @@ nsHTMLDocument::UnregisterNamedItems(nsIContent *aContent)
 nsresult
 nsHTMLDocument::RegisterNamedItems(nsIContent *aContent)
 {
-  if (aContent->IsContentOfType(nsIContent::eTEXT)) {
+  if (aContent->IsNodeOfType(nsINode::eTEXT)) {
     // Text nodes are not named items nor can they have children.
     return NS_OK;
   }
@@ -3283,7 +3292,7 @@ FindNamedItems(nsIAtom* aName, nsIContent *aContent,
   NS_ASSERTION(aEntry.mNameContentList != NAME_NOT_VALID,
                "Entry that should never have a list passed to FindNamedItems()!");
 
-  if (aContent->IsContentOfType(nsIContent::eTEXT)) {
+  if (aContent->IsNodeOfType(nsINode::eTEXT)) {
     // Text nodes are not named items nor can they have children.
     return;
   }
@@ -3453,7 +3462,7 @@ nsHTMLDocument::ResolveName(const nsAString& aName,
 
   nsIContent *e = entry->GetIdContent();
 
-  if (e && e != ID_NOT_IN_DOCUMENT && e->IsContentOfType(nsIContent::eHTML)) {
+  if (e && e != ID_NOT_IN_DOCUMENT && e->IsNodeOfType(nsINode::eHTML)) {
     nsIAtom *tag = e->Tag();
 
     if ((tag == nsHTMLAtoms::embed  ||
@@ -3484,7 +3493,7 @@ nsHTMLDocument::GetBodyContent()
     NS_ENSURE_TRUE(child, NS_ERROR_UNEXPECTED);
 
     if (child->NodeInfo()->Equals(nsHTMLAtoms::body, mDefaultNamespaceID) &&
-        child->IsContentOfType(nsIContent::eHTML)) {
+        child->IsNodeOfType(nsINode::eHTML)) {
       mBodyContent = do_QueryInterface(child);
 
       return PR_TRUE;

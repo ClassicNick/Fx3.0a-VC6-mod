@@ -16,7 +16,7 @@ const LIB_FILES = [
 ];
 
 for (var i = 0, libFile; libFile = LIB_FILES[i]; ++i) {
-  dump('*** loading subscript ' + libFile + '\n');
+  //dump('*** loading subscript ' + libFile + '\n');
   Cc["@mozilla.org/moz/jssubscript-loader;1"]
     .getService(Ci.mozIJSSubScriptLoader)
     .loadSubScript(libFile);
@@ -34,7 +34,7 @@ UrlClassifierTableDomain.inherits(G_Map);
  *
  * @returns Boolean true if the url domain is in the table
  */
-UrlClassifierTableDomain.prototype.find = function(url) {
+UrlClassifierTableDomain.prototype.exists = function(url) {
   var urlObj = Cc["@mozilla.org/network/standard-url;1"]
                .createInstance(Ci.nsIURL);
   urlObj.spec = url;

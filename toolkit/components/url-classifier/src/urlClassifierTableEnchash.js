@@ -20,7 +20,7 @@ const LIB_FILES = [
 ];
 
 for (var i = 0, libFile; libFile = LIB_FILES[i]; ++i) {
-  dump('*** loading subscript ' + libFile + '\n');
+  //dump('*** loading subscript ' + libFile + '\n');
   Cc["@mozilla.org/moz/jssubscript-loader;1"]
     .getService(Ci.mozIJSSubScriptLoader)
     .loadSubScript(libFile);
@@ -40,7 +40,7 @@ UrlClassifierTableEnchash.inherits(G_Map);
  * @returns Boolean indicating whether the URL matches the regular
  *                  expression contained in the table value
  */
-UrlClassifierTableEnchash.prototype.find = function(url) {
+UrlClassifierTableEnchash.prototype.exists = function(url) {
   var host = this.enchashDecrypter_.getCanonicalHost(url);
 
   for (var i = 0; i < PROT_EnchashDecrypter.MAX_DOTS + 1; i++) {

@@ -451,7 +451,7 @@ void nsListControlFrame::PaintFocus(nsIRenderingContext& aRC, nsPoint aPt)
       // it's an element.  Text frames need not apply.
       childframe = containerFrame->GetFirstChild(nsnull);
       if (childframe &&
-          !childframe->GetContent()->IsContentOfType(nsIContent::eELEMENT)) {
+          !childframe->GetContent()->IsNodeOfType(nsINode::eELEMENT)) {
         childframe = nsnull;
       }
       result = NS_OK;
@@ -579,14 +579,14 @@ static inline PRBool
 IsOptGroup(nsIContent *aContent)
 {
   return (aContent->NodeInfo()->Equals(nsHTMLAtoms::optgroup) &&
-          aContent->IsContentOfType(nsIContent::eHTML));
+          aContent->IsNodeOfType(nsINode::eHTML));
 }
 
 static inline PRBool
 IsOption(nsIContent *aContent)
 {
   return (aContent->NodeInfo()->Equals(nsHTMLAtoms::option) &&
-          aContent->IsContentOfType(nsIContent::eHTML));
+          aContent->IsNodeOfType(nsINode::eHTML));
 }
 
 static PRUint32
@@ -2409,20 +2409,7 @@ nsListControlFrame::FireMenuItemActiveEvent()
     return;
   }
 
-  nsCOMPtr<nsIDOMEvent> event;
-  nsPresContext* presContext = GetPresContext();
-  nsEventDispatcher::CreateEvent(presContext, nsnull,
-                                 NS_LITERAL_STRING("Events"),
-                                 getter_AddRefs(event));
-  if (event) {
-    event->InitEvent(NS_LITERAL_STRING("DOMMenuItemActive"), PR_TRUE, PR_TRUE);
-
-    nsCOMPtr<nsIPrivateDOMEvent> privateEvent(do_QueryInterface(event));
-    privateEvent->SetTrusted(PR_TRUE);
-
-    nsEventDispatcher::DispatchDOMEvent(optionContent, nsnull, event, nsnull,
-                                        nsnull);
-  }
+  FireDOMEvent(NS_LITERAL_STRING("DOMMenuItemActive"), optionContent);
 }
 #endif
 

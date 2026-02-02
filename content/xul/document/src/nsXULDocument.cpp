@@ -456,23 +456,20 @@ nsXULDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
 
     mChannel = aChannel;
 
-    nsresult rv = aChannel->GetOriginalURI(getter_AddRefs(mDocumentURI));
-    NS_ENSURE_SUCCESS(rv, rv);
-    
+    // Get the URI.  Note that this should match nsDocShell::OnLoadingSite
     // XXXbz this code is repeated from nsDocument::Reset; we
     // really need to refactor this part better.
-    PRBool isAbout = PR_FALSE;
-    PRBool isChrome = PR_FALSE;
-    PRBool isRes = PR_FALSE;
-    rv = mDocumentURI->SchemeIs("chrome", &isChrome);
-    rv |= mDocumentURI->SchemeIs("resource", &isRes);
-    rv |= mDocumentURI->SchemeIs("about", &isAbout);
-
-    if (NS_SUCCEEDED(rv) && !isChrome && !isRes && !isAbout) {
-        rv = aChannel->GetURI(getter_AddRefs(mDocumentURI));
-        NS_ENSURE_SUCCESS(rv, rv);
+    nsLoadFlags loadFlags = 0;
+    nsresult rv = aChannel->GetLoadFlags(&loadFlags);
+    if (NS_SUCCEEDED(rv)) {
+        if (loadFlags & nsIChannel::LOAD_REPLACE) {
+            rv = aChannel->GetURI(getter_AddRefs(mDocumentURI));
+        } else {
+            rv = aChannel->GetOriginalURI(getter_AddRefs(mDocumentURI));
+        }
     }
-
+    NS_ENSURE_SUCCESS(rv, rv);
+    
     rv = ResetStylesheetsToURI(mDocumentURI);
     if (NS_FAILED(rv)) return rv;
 
@@ -1715,7 +1712,7 @@ NS_IMETHODIMP
 nsXULDocument::AddSubtreeToDocument(nsIContent* aElement)
 {
     // From here on we only care about elements.
-    if (!aElement->IsContentOfType(nsIContent::eELEMENT)) {
+    if (!aElement->IsNodeOfType(nsINode::eELEMENT)) {
         return NS_OK;
     }
 
@@ -1743,7 +1740,7 @@ NS_IMETHODIMP
 nsXULDocument::RemoveSubtreeFromDocument(nsIContent* aElement)
 {
     // From here on we only care about elements.
-    if (!aElement->IsContentOfType(nsIContent::eELEMENT)) {
+    if (!aElement->IsNodeOfType(nsINode::eELEMENT)) {
         return NS_OK;
     }
 
@@ -3871,7 +3868,7 @@ nsXULDocument::FindBroadcaster(nsIContent* aElement,
                                nsString& aAttribute,
                                nsIDOMElement** aBroadcaster)
 {
-    NS_ASSERTION(aElement->IsContentOfType(nsIContent::eELEMENT),
+    NS_ASSERTION(aElement->IsNodeOfType(nsINode::eELEMENT),
                  "Only pass elements into FindBroadcaster!");
 
     nsresult rv;

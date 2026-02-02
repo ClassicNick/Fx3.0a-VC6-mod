@@ -2127,7 +2127,7 @@ nsBoxFrame::CreateViewForFrame(nsPresContext*  aPresContext,
             // at whether the frame has any child frames
             nsIContent* content = aFrame->GetContent();
 
-            if (content && content->IsContentOfType(nsIContent::eELEMENT)) {
+            if (content && content->IsNodeOfType(nsINode::eELEMENT)) {
               // The view needs to be visible, but marked as having transparent
               // content
               viewHasTransparentContent = PR_TRUE;
@@ -2206,27 +2206,6 @@ nsBoxFrame::RegUnregAccessKey(PRBool aDoReg)
   return rv;
 }
 
-
-void
-nsBoxFrame::FireDOMEvent(const nsAString& aDOMEventName, nsIContent *aContent)
-{
-  nsIContent *content = aContent ? aContent : mContent;
-  nsPresContext *presContext = GetPresContext();
-  if (content && presContext) {
-    // Fire a DOM event
-    nsCOMPtr<nsIDOMEvent> event;
-    if (nsEventDispatcher::CreateEvent(presContext, nsnull,
-                                      NS_LITERAL_STRING("Events"),
-                                      getter_AddRefs(event))) {
-      event->InitEvent(aDOMEventName, PR_TRUE, PR_TRUE);
-
-      nsCOMPtr<nsIPrivateDOMEvent> privateEvent(do_QueryInterface(event));
-      privateEvent->SetTrusted(PR_TRUE);
-      nsEventDispatcher::DispatchDOMEvent(content, nsnull, event, nsnull,
-                                          nsnull);
-    }
-  }
-}
 
 void 
 nsBoxFrame::CheckBoxOrder(nsBoxLayoutState& aState)

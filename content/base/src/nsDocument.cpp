@@ -928,17 +928,14 @@ nsDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
 {
   nsCOMPtr<nsIURI> uri;
   if (aChannel) {
-    aChannel->GetOriginalURI(getter_AddRefs(uri));
-    nsresult rv;
-    PRBool isAbout = PR_FALSE;
-    PRBool isChrome = PR_FALSE;
-    PRBool isRes = PR_FALSE;
-    rv = uri->SchemeIs("chrome", &isChrome);
-    rv |= uri->SchemeIs("resource", &isRes);
-    rv |= uri->SchemeIs("about", &isAbout);
-
-    if (NS_SUCCEEDED(rv) && !isChrome && !isRes && !isAbout) {
+    // Note: this code is duplicated in nsXULDocument::StartDocumentLoad.
+    // Note: this should match nsDocShell::OnLoadingSite
+    nsLoadFlags loadFlags = 0;
+    nsresult rv = aChannel->GetLoadFlags(&loadFlags);
+    if (NS_SUCCEEDED(rv) && (loadFlags & nsIChannel::LOAD_REPLACE)) {
       aChannel->GetURI(getter_AddRefs(uri));
+    } else {
+      aChannel->GetOriginalURI(getter_AddRefs(uri));
     }
   }
 
@@ -1694,6 +1691,12 @@ nsDocument::FindContentForSubDocument(nsIDocument *aDocument) const
   return data.mResult;
 }
 
+PRBool
+nsDocument::IsNodeOfType(PRUint32 aFlags) const
+{
+    return !(aFlags & ~eDOCUMENT);
+}
+
 nsIContent *
 nsDocument::GetChildAt(PRUint32 aIndex) const
 {
@@ -1716,7 +1719,7 @@ nsresult
 nsDocument::InsertChildAt(nsIContent* aKid, PRUint32 aIndex,
                           PRBool aNotify)
 {
-  if (aKid->IsContentOfType(nsIContent::eELEMENT)) {
+  if (aKid->IsNodeOfType(nsINode::eELEMENT)) {
     if (mRootContent) {
       NS_ERROR("Inserting element child when we already have one");
       return NS_ERROR_DOM_HIERARCHY_REQUEST_ERR;
@@ -1767,7 +1770,7 @@ nsDocument::RemoveChildAt(PRUint32 aIndex, PRBool aNotify)
   nsresult rv = NS_OK;
   if (oldKid) {
     if (oldKid == mRootContent) {
-      NS_ASSERTION(oldKid->IsContentOfType(nsIContent::eELEMENT),
+      NS_ASSERTION(oldKid->IsNodeOfType(nsINode::eELEMENT),
                    "Non-element root content?");
       // Destroy the link map up front and null out mRootContent before we mess
       // with the child list.  Hopefully no one in doRemoveChildAt will compare
@@ -1806,7 +1809,7 @@ nsDocument::VerifyRootContentState()
     nsIContent* kid = GetChildAt(i);
     NS_ASSERTION(kid, "Must have kid here");
 
-    if (kid->IsContentOfType(nsIContent::eELEMENT)) {
+    if (kid->IsNodeOfType(nsINode::eELEMENT)) {
       NS_ASSERTION(!elementChild, "Multiple element kids?");
       elementChild = kid;
     }

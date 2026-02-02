@@ -78,7 +78,7 @@ REQUIRES	= \
 		thebes \
 		$(NULL)
 
-ifeq ($(MOZ_ENABLE_CAIRO_GFX),1)
+ifdef MOZ_ENABLE_CAIRO_GFX
 REQUIRES += thebes
 endif
 

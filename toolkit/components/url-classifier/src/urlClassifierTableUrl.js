@@ -17,7 +17,7 @@ const LIB_FILES = [
 ];
 
 for (var i = 0, libFile; libFile = LIB_FILES[i]; ++i) {
-  dump('*** loading subscript ' + libFile + '\n');
+  //dump('*** loading subscript ' + libFile + '\n');
   Cc["@mozilla.org/moz/jssubscript-loader;1"]
     .getService(Ci.mozIJSSubScriptLoader)
     .loadSubScript(libFile);
@@ -35,7 +35,7 @@ UrlClassifierTableUrl.inherits(G_Map);
  *
  * @returns Boolean true if the canonicalized url is in the table
  */
-UrlClassifierTableUrl.prototype.find = function(url) {
+UrlClassifierTableUrl.prototype.exists = function(url) {
   var canonicalized = PROT_URLCanonicalizer.canonicalizeURL_(url);
   // Uncomment for debugging
   G_Debug(this, "Looking up: " + url + " (" + canonicalized + ")");

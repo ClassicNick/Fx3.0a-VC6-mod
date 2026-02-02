@@ -59,6 +59,7 @@
 #include "nsCRT.h"
 #include "nsGUIEvent.h"
 #include "nsIDOMEvent.h"
+#include "nsPLDOMEvent.h"
 #include "nsStyleConsts.h"
 #include "nsIPresShell.h"
 #include "prlog.h"
@@ -1478,6 +1479,19 @@ nsFrame::GetContentForEvent(nsPresContext* aPresContext,
   *aContent = GetContent();
   NS_IF_ADDREF(*aContent);
   return NS_OK;
+}
+
+void
+nsFrame::FireDOMEvent(const nsAString& aDOMEventName, nsIContent *aContent)
+{
+  nsCOMPtr<nsIDOMNode> domNode = do_QueryInterface(aContent ? aContent : mContent);
+  
+  if (domNode) {
+    nsPLDOMEvent *event = new nsPLDOMEvent(domNode, aDOMEventName);
+    if (event && NS_FAILED(event->PostDOMEvent())) {
+      PL_DestroyEvent(event);
+    }
+  }
 }
 
 /**
@@ -3349,7 +3363,7 @@ nsresult
 nsFrame::MakeFrameName(const nsAString& aType, nsAString& aResult) const
 {
   aResult = aType;
-  if (mContent && !mContent->IsContentOfType(nsIContent::eTEXT)) {
+  if (mContent && !mContent->IsNodeOfType(nsINode::eTEXT)) {
     nsAutoString buf;
     mContent->Tag()->ToString(buf);
     aResult.Append(NS_LITERAL_STRING("(") + buf + NS_LITERAL_STRING(")"));
@@ -4928,12 +4942,12 @@ nsIFrame::IsFocusable(PRInt32 *aTabIndex, PRBool aWithMouse)
   }
   PRBool isFocusable = PR_FALSE;
 
-  if (mContent && mContent->IsContentOfType(nsIContent::eELEMENT) &&
+  if (mContent && mContent->IsNodeOfType(nsINode::eELEMENT) &&
       AreAncestorViewsVisible()) {
     const nsStyleVisibility* vis = GetStyleVisibility();
     if (vis->mVisible != NS_STYLE_VISIBILITY_COLLAPSE &&
         vis->mVisible != NS_STYLE_VISIBILITY_HIDDEN) {
-      if (mContent->IsContentOfType(nsIContent::eHTML)) {
+      if (mContent->IsNodeOfType(nsINode::eHTML)) {
         nsCOMPtr<nsISupports> container(GetPresContext()->GetContainer());
         nsCOMPtr<nsIEditorDocShell> editorDocShell(do_QueryInterface(container));
         if (editorDocShell) {
@@ -4953,7 +4967,7 @@ nsIFrame::IsFocusable(PRInt32 *aTabIndex, PRBool aWithMouse)
       isFocusable = mContent->IsFocusable(&tabIndex);
       if (!isFocusable && !aWithMouse &&
           GetType() == nsLayoutAtoms::scrollFrame &&
-          mContent->IsContentOfType(nsIContent::eHTML) &&
+          mContent->IsNodeOfType(nsINode::eHTML) &&
           !mContent->IsNativeAnonymous() && mContent->GetParent() &&
           !mContent->HasAttr(kNameSpaceID_None, nsHTMLAtoms::tabindex)) {
         // Elements with scrollable view are focusable with script & tabbable

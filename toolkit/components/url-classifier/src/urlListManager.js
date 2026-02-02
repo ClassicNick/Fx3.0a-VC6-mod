@@ -21,7 +21,6 @@ const LIB_FILES = [
   "chrome://global/content/url-classifier/moz/protocol4.js",
 
   "chrome://global/content/url-classifier/application.js",
-  "chrome://global/content/url-classifier/globalstore.js",
   "chrome://global/content/url-classifier/listmanager.js",
   "chrome://global/content/url-classifier/url-crypto.js",
   "chrome://global/content/url-classifier/url-crypto-key-manager.js", // dep url-crypto.js
@@ -30,7 +29,7 @@ const LIB_FILES = [
 ];
 
 for (var i = 0, libFile; libFile = LIB_FILES[i]; ++i) {
-  dump('*** loading subscript ' + libFile + '\n');
+  //dump('*** loading subscript ' + libFile + '\n');
   Cc["@mozilla.org/moz/jssubscript-loader;1"]
     .getService(Ci.mozIJSSubScriptLoader)
     .loadSubScript(libFile);
