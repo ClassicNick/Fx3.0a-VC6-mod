@@ -161,11 +161,6 @@ else
 _BN_OFFICIAL=
 endif
 
-ifdef MOZ_ENABLE_GTK2
-  GLIB_CFLAGS = $(MOZ_GTK2_CFLAGS)
-  GLIB_LIBS = $(MOZ_GTK2_LIBS)
-endif
-
 build_number: FORCE
 	$(PERL) -I$(srcdir) $(srcdir)/bdate.pl $@ $(_BN_OFFICIAL)
 
@@ -179,9 +174,6 @@ ifndef CROSS_COMPILE
 ifdef USE_ELF_DYNSTR_GC
 elf-dynstr-gc: elf-dynstr-gc.c Makefile Makefile.in
 	$(CC) $(COMPILE_CFLAGS) $(GLIB_CFLAGS) -o $@ $< $(LDFLAGS) $(GLIB_LIBS) 
-
-export:: elf-dynstr-gc
-	$(INSTALL) -m 555 elf-dynstr-gc $(DIST)/bin
 endif
 endif
 

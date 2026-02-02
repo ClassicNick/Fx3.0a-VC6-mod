@@ -58,7 +58,6 @@
 #include "nsString.h"
 #include "nsPrintfCString.h"
 #include "nsSupportsArray.h"
-#include "nsArray.h"
 #include "nsArrayEnumerator.h"
 #include "nsProxyRelease.h"
 #include "xpt_xdr.h"
@@ -183,9 +182,7 @@ void XXXNeverCalled()
     ToNewCString(str2);
     PL_DHashTableFinish(nsnull);
     NS_NewInputStreamTee(nsnull, nsnull, nsnull);
-    NS_NewArray(nsnull);
     nsCOMArray<nsISupports> dummyArray;
-    NS_NewArray(nsnull, dummyArray);
     NS_NewArrayEnumerator(nsnull, dummyArray);
     new nsVariant();
     nsUnescape(nsnull);

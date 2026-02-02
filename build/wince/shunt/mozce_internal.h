@@ -44,6 +44,7 @@
 #define __mozce_internal_h
 
 #include <windows.h>
+#include <winsock2.h>
 
 #include "mozce_defs.h"
 
@@ -176,6 +177,10 @@ void nclograw(const char* data, long length);
 //    nclograw(buffer, strlen(buffer));                                      \
 //}                                                                          \
 
-#define MOZCE_PRECHECK
+#define MOZCE_PRECHECK                 \
+{                                      \
+    SetLastError(0);                   \
+}
+
 
 #endif /* __mozce_internal_h */

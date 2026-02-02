@@ -40,7 +40,7 @@
 #include "nsAccessibilityAtoms.h"
 #include "nsAccessibleEventData.h"
 #include "nsIAccessibilityService.h"
-#include "nsArray.h"
+#include "nsIMutableArray.h"
 #include "nsICommandManager.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
@@ -100,8 +100,6 @@ nsDocAccessible::nsDocAccessible(nsIDOMNode *aDOMNode, nsIWeakReference* aShell)
       }
     }
   }
-
-  PutCacheEntry(gGlobalDocAccessibleCache, mWeakShell, this);
 
   // XXX aaronl should we use an algorithm for the initial cache size?
   mAccessNodeCache.Init(kDefaultCacheSize);
@@ -433,6 +431,8 @@ NS_IMETHODIMP nsDocAccessible::GetParent(nsIAccessible **aParent)
 
 NS_IMETHODIMP nsDocAccessible::Init()
 {
+  PutCacheEntry(gGlobalDocAccessibleCache, mWeakShell, this);
+
   AddEventListeners();
 
   nsresult rv = nsBlockAccessible::Init();
@@ -723,7 +723,6 @@ NS_IMETHODIMP nsDocAccessible::Observe(nsISupports *aSubject, const char *aTopic
 
 NS_IMPL_NSIDOCUMENTOBSERVER_CORE_STUB(nsDocAccessible)
 NS_IMPL_NSIDOCUMENTOBSERVER_LOAD_STUB(nsDocAccessible)
-NS_IMPL_NSIDOCUMENTOBSERVER_REFLOW_STUB(nsDocAccessible)
 NS_IMPL_NSIDOCUMENTOBSERVER_STYLE_STUB(nsDocAccessible)
 
 void

@@ -20,6 +20,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
+ *   Josh Aas <josh@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or 
@@ -2563,8 +2564,13 @@ nsChildView::GetThebesSurface()
     NSWindow *rollupNativeWindow = (NSWindow*)gRollupWidget->GetNativeData(NS_NATIVE_WINDOW);
     if (ourNativeWindow != rollupNativeWindow) {
       // roll up any popups
-      if (gRollupListener != nsnull)
+      if (gRollupListener != nsnull) {
         gRollupListener->Rollup();
+        // If we rolled up a popup, we don't want to pass the click down to gecko.
+        // This happens e.g. when you click a popupmenubutton (the menu opens), then click 
+        // on the popupmenubutton a second time, which should hide the menu.
+        return;
+      }
     }
   }
   
@@ -2574,7 +2580,7 @@ nsChildView::GetThebesSurface()
     // needed to change the focus, among other things, since we don't
     // get to do that below.
     [super mouseDown:theEvent];
-    return;                     // do not pass this mousedown event to gecko
+    return; // do not pass this mousedown event to gecko
   }
 
 #if USE_CLICK_HOLD_CONTEXTMENU
@@ -2599,7 +2605,8 @@ nsChildView::GetThebesSurface()
 
   // send event into Gecko by going directly to the
   // the widget.
-  mGeckoChild->DispatchMouseEvent(geckoEvent);
+  if (mGeckoChild)
+    mGeckoChild->DispatchMouseEvent(geckoEvent);
   
   // XXX maybe call markedTextSelectionChanged:client: here?
 }
@@ -2627,8 +2634,8 @@ nsChildView::GetThebesSurface()
 
   // send event into Gecko by going directly to the
   // the widget.
-  mGeckoChild->DispatchMouseEvent(geckoEvent);
-  
+  if (mGeckoChild)
+    mGeckoChild->DispatchMouseEvent(geckoEvent);
 }
 
 - (void)mouseMoved:(NSEvent*)theEvent
@@ -2695,6 +2702,9 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
                                     NSPoint* localEventLocation,
                                     nsChildView* receiver)
 {
+  if (!receiver || !localEventLocation)
+    return nsEventStatus_eIgnore;
+  
   nsEventStatus status;
   nsMouseEvent event(isTrusted, msg, w, aReason);
   event.refPoint.x = nscoord((PRInt32)localEventLocation->x);
@@ -2862,7 +2872,7 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
     // No sense in firing off a Gecko event.  Note that as of 10.4 Tiger,
     // a single NSScrollWheel event might result in deltaX = deltaY = 0.
     return;
-
+  
   nsMouseScrollEvent geckoEvent(PR_TRUE, 0, nsnull);
   [self convertEvent:theEvent message:NS_MOUSE_SCROLL toGeckoEvent:&geckoEvent];
   geckoEvent.scrollFlags |= inAxis;
@@ -2923,6 +2933,15 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
 
 -(void)scrollWheel:(NSEvent*)theEvent
 {
+  // close popups if we're supposed to...
+  if (gRollupListener && gRollupWidget &&
+      [self window] != gRollupWidget->GetNativeData(NS_NATIVE_WINDOW)) {
+    PRBool rollup = PR_FALSE;
+    gRollupListener->ShouldRollupOnMouseWheelEvent(&rollup);
+    if (rollup)
+      gRollupListener->Rollup();
+  }
+  
   // It's possible for a single NSScrollWheel event to carry both useful
   // deltaX and deltaY, for example, when the "wheel" is a trackpad.
   // NSMouseScrollEvent can only carry one axis at a time, so the system

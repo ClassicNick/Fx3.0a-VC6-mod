@@ -123,7 +123,8 @@
 #include "nsIWyciwygChannel.h"
 #include "nsIScriptElement.h"
 #include "nsIScriptError.h"
-#include "nsArray.h"
+#include "nsIMutableArray.h"
+#include "nsArrayUtils.h"
 
 #include "nsIPrompt.h"
 //AHMED 12-2
@@ -1029,8 +1030,10 @@ nsHTMLDocument::EndLoad()
           //   location.href = "http://www.mozilla.org";
           //   document.write("bar");
 
-          nsCOMPtr<nsIMutableArray> arr;
-          nsresult rv = NS_NewArray(getter_AddRefs(arr));
+          nsresult rv;
+
+          nsCOMPtr<nsIMutableArray> arr =
+            do_CreateInstance(NS_ARRAY_CONTRACTID, &rv);
           if (NS_SUCCEEDED(rv)) {
             rv = arr->AppendElement(NS_STATIC_CAST(nsIDocument*, this),
                                     PR_FALSE);
@@ -2944,7 +2947,7 @@ ReportUseOfDeprecatedMethod(nsHTMLDocument* aDoc, const char* aWarning)
                                     GetDocumentURI(),
                                   EmptyString(), 0, 0,
                                   nsIScriptError::warningFlag,
-                                  "HTML Document");
+                                  "DOM Events");
 }
 
 NS_IMETHODIMP

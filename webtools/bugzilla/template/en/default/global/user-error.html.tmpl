@@ -194,6 +194,10 @@
       versions
     [% END %].
 
+  [% ELSIF error == "attachment_deletion_disabled" %]
+    [% title = "Attachment Deletion Disabled" %]
+    Attachment deletion is disabled on this installation.
+
   [% ELSIF error == "attachment_removed" %]
     [% title = "Attachment Removed" %]
     The attachment you are attempting to access has been removed.
@@ -1228,7 +1232,7 @@
     Your [% terms.Bugzilla %] password is required to begin a sudo 
     session. Please <a href="relogin.cgi?action=prepare-sudo&target_login=
     [%- target_login FILTER html %]&reason=
-    [%- reason FILTER html %]">go back</a> and enter your password</a>.
+    [%- reason FILTER html %]">go back</a> and enter your password.
     
   [% ELSIF error == "sudo_preparation_required" %]
     [% title = "Preparation Required" %]

@@ -44,7 +44,6 @@
 #include "nsVoidArray.h"
 
 #include <windows.h>
-#include <mlang.h>
 
 class NS_EXPORT gfxWindowsPlatform : public gfxPlatform {
 public:
@@ -62,7 +61,9 @@ public:
                          const nsACString& aGenericFamily,
                          nsStringArray& aListOfFonts);
 
+#if !defined (_MSC_VER) || _MSC_VER >= 1200
     IMultiLanguage *GetMLangService();
+#endif
 
 private:
     void Init();
@@ -72,7 +73,9 @@ private:
                                      DWORD fontType, LPARAM data);
 
     static nsStringArray *mFontList;
+#if !defined (_MSC_VER) || _MSC_VER >= 1200
     nsRefPtr<IMultiLanguage> mMLang;
+#endif
 };
 
 #endif /* GFX_WINDOWS_PLATFORM_H */

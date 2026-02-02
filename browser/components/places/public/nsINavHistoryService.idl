@@ -147,6 +147,14 @@ interface nsINavHistoryResultNode : nsISupports
    * in any way.
    */
   readonly attribute nsIWritablePropertyBag propertyBag;
+
+  /**
+   * When this item is in a bookmark folder (parent is of type folder), this is
+   * the index into that folder of this node. These indices start at 0 and
+   * increase in the order that they appear in the bookmark folder. For items
+   * that are not in a bookmark folder, this value is -1.
+   */
+  readonly attribute PRInt32 bookmarkIndex;
 };
 
 
@@ -198,7 +206,7 @@ interface nsINavHistoryFullVisitResultNode : nsINavHistoryVisitResultNode
  * Bookmark folders and places queries will be QueryResultNodes which extends
  * these items.
  */
-[scriptable, uuid(155757ea-482a-462e-9b14-70707d65afe3)]
+[scriptable, uuid(957065fd-76e7-4c24-9284-c31b5decbaaa)]
 interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
 {
 
@@ -263,10 +271,12 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    * ONLY, and only for non-bookmark-folder containers.
    *
    * @see nsINavHistoryURIResultNode for parameters.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  nsINavHistoryResultNode appendURINode(
+  /*nsINavHistoryResultNode appendURINode(
       in AUTF8String aURI, in AUTF8String aTitle, in PRUint32 aAccessCount,
-      in PRTime aTime, in AUTF8String aIconURI);
+      in PRTime aTime, in AUTF8String aIconURI);*/
 
   /**
    * Appends a full visit node to this container and returns it. For the remote
@@ -274,10 +284,12 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    * ONLY, and only for non-bookmark-folder containers.
    *
    * @see nsINavHistoryVisitResultNode for parameters.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  nsINavHistoryVisitResultNode appendVisitNode(
+  /*nsINavHistoryVisitResultNode appendVisitNode(
       in AUTF8String aURI, in AUTF8String aTitle, in PRUint32 aAccessCount,
-      in PRTime aTime, in AUTF8String aIconURI, in PRInt64 aSession);
+      in PRTime aTime, in AUTF8String aIconURI, in PRInt64 aSession);*/
 
   /**
    * Appends a full visit node to this container and returns it. For the remote
@@ -285,12 +297,14 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    * ONLY, and only for non-bookmark-folder containers.
    *
    * @see nsINavHistoryFullVisitResultNode for parameters.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  nsINavHistoryFullVisitResultNode appendFullVisitNode(
+  /*nsINavHistoryFullVisitResultNode appendFullVisitNode(
       in AUTF8String aURI, in AUTF8String aTitle, in PRUint32 aAccessCount,
       in PRTime aTime, in AUTF8String aIconURI, in PRInt64 aSession,
       in PRInt64 aVisitId, in PRInt64 aReferringVisitId,
-      in PRInt32 aTransitionType);
+      in PRInt32 aTransitionType);*/
 
   /**
    * Appends a container node to this container and returns it. For the remote
@@ -302,10 +316,12 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    * specify a remote container type, otherwise, the remote container type must
    * be null. Use appendQueryNode and appendFolderNode for the other container
    * types.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  nsINavHistoryContainerResultNode appendContainerNode(
+  /*nsINavHistoryContainerResultNode appendContainerNode(
       in AUTF8String aTitle, in AUTF8String aIconURI, in PRUint32 aContainerType,
-      in AUTF8String aRemoteContainerType);
+      in AUTF8String aRemoteContainerType);*/
 
   /**
    * Appends a query node to this container and returns it. For the remote
@@ -314,9 +330,11 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    *
    * Normally you should supply an empty string for IconURI and it will take
    * the default query icon for the current theme.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  nsINavHistoryQueryResultNode appendQueryNode(
-      in AUTF8String aQueryURI, in AUTF8String aTitle, in AUTF8String aIconURI);
+  /*nsINavHistoryQueryResultNode appendQueryNode(
+      in AUTF8String aQueryURI, in AUTF8String aTitle, in AUTF8String aIconURI);*/
 
   /**
    * Appends a bookmark folder node to this container and returns it. For the
@@ -325,16 +343,20 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    *
    * All container attributes will come from the boomkarks service for this
    * folder.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  nsINavHistoryFolderResultNode appendFolderNode(in PRInt64 aFolderId);
+  /*nsINavHistoryFolderResultNode appendFolderNode(in PRInt64 aFolderId);*/
 
   /**
    * Clears all children of this container. For the remote container API.
    * TO BE CALLED FROM nsIRemoteContainer::OnContainerOpening and
    * nsIRemoteContainer::OnContainerClosed ONLY, and valid only for
    * non-bookmark-folder containers.
+   *
+   * UNTESTED: Container API functions are commented out until we can test
    */
-  void clearContents();
+  /*void clearContents();*/
 };
 
 
@@ -651,7 +673,7 @@ interface nsINavHistoryResult : nsISupports
    * options for this result, so that re-using the current options/queries will
    * always give you the current view.
    */
-  void sortAll(in PRUint32 aSortingMode);
+  attribute PRUint32 sortingMode;
 
   /**
    * The viewer for this result (see comment for the class for how these
@@ -944,6 +966,8 @@ interface nsINavHistoryQueryOptions : nsISupports
    *
    * Note: re-sorting is slower, as is sorting by title or when you have a
    * host name.
+   *
+   * For bookmark items, SORT_BY_NONE means sort by the natural bookmark order.
    */
   const PRUint32 SORT_BY_NONE = 0;
   const PRUint32 SORT_BY_TITLE_ASCENDING = 1;

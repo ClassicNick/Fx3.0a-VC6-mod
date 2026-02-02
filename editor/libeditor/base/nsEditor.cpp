@@ -68,7 +68,6 @@
 #include "nsITransactionManager.h"
 #include "nsIAbsorbingTransaction.h"
 #include "nsIPresShell.h"
-#include "nsPresContext.h"
 #include "nsIViewManager.h"
 #include "nsISelection.h"
 #include "nsISelectionPrivate.h"
@@ -336,9 +335,6 @@ nsEditor::PostCreate()
   NotifyDocumentListeners(eDocumentCreated);
   NotifyDocumentListeners(eDocumentStateChanged);
   
-  // Call ResetInputState() for initialization
-  ForceCompositionEnd();
-
   return NS_OK;
 }
 
@@ -2145,23 +2141,6 @@ GetEditorContentWindow(nsIPresShell *aPresShell, nsIDOMElement *aRoot, nsIWidget
   if (!frame)
     return NS_ERROR_FAILURE;
 
-  // Check first to see if this frame contains a view with a native widget.
-  nsIView *view = frame->GetViewExternal();
-
-  if (view)
-  {
-    *aResult = view->GetWidget();
-
-    if (*aResult) {
-      NS_ADDREF(*aResult);
-      return NS_OK;
-    }
-  }
-
-  // frame doesn't have a view with a widget, so call GetWindow()
-  // which will traverse it's parent hierarchy till it finds a
-  // view with a widget.
-
   *aResult = frame->GetWindow();
   if (!*aResult)
     return NS_ERROR_FAILURE;
@@ -2235,18 +2214,6 @@ nsEditor::ForceCompositionEnd()
 NS_IMETHODIMP
 nsEditor::NotifyIMEOnFocus()
 {
-  nsCOMPtr<nsIKBStateControl> kb;
-  nsresult res = GetKBStateControl(getter_AddRefs(kb));
-  if (NS_FAILED(res))
-    return res;
-
-  if (!kb)
-    return NS_OK;
-
-  res = kb->CancelIMEComposition();
-  if (NS_FAILED(res))
-    kb->ResetInputState();
-
   return NS_OK;
 }
 

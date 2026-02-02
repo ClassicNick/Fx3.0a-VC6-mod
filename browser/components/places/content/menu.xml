@@ -1,5 +1,42 @@
 <?xml version="1.0"?>
 
+# ***** BEGIN LICENSE BLOCK *****
+# Version: MPL 1.1/GPL 2.0/LGPL 2.1
+#
+# The contents of this file are subject to the Mozilla Public License Version
+# 1.1 (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+# http://www.mozilla.org/MPL/
+#
+# Software distributed under the License is distributed on an "AS IS" basis,
+# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+# for the specific language governing rights and limitations under the
+# License.
+#
+# The Original Code is the Places Menupopup View.
+#
+# The Initial Developer of the Original Code is Google Inc.
+# Portions created by the Initial Developer are Copyright (C) 2005-2006
+# the Initial Developer. All Rights Reserved.
+#
+# Contributor(s):
+#   Annie Sullivan <annie.sullivan@gmail.com>
+#   Ben Goodger <beng@google.com>
+#
+# Alternatively, the contents of this file may be used under the terms of
+# either the GNU General Public License Version 2 or later (the "GPL"), or
+# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+# in which case the provisions of the GPL or the LGPL are applicable instead
+# of those above. If you wish to allow use of your version of this file only
+# under the terms of either the GPL or the LGPL, and not to allow others to
+# use your version of this file under the terms of the MPL, indicate your
+# decision by deleting the provisions above and replace them with the notice
+# and other provisions required by the GPL or the LGPL. If you do not delete
+# the provisions above, a recipient may use your version of this file under
+# the terms of any one of the MPL, the GPL or the LGPL.
+#
+# ***** END LICENSE BLOCK ***** 
+
 <bindings id="placesMenuBindings"
           xmlns="http://www.mozilla.org/xbl"
           xmlns:xbl="http://www.mozilla.org/xbl"
@@ -10,6 +47,8 @@
            extends="chrome://global/content/bindings/popup.xml#popup">
     <implementation>
       <constructor><![CDATA[
+        this.history = PlacesController.history;
+        
         // Support an asyncinit attribute that causes the view to populate 
         // itself only after the window has been shown. This is to ensure we
         // do not regress browser window show time (Ts/Txul)
@@ -19,8 +58,6 @@
         }
         else
           this._init();
-        
-        this.history = PlacesController.history;
       ]]></constructor>
       
       <destructor><![CDATA[
@@ -148,7 +185,10 @@
             this._resultNode.QueryInterface(Ci.nsINavHistoryContainerResultNode);
           else
             return; // Nothing to do if this menu isn't a container.
-            
+          
+          // Keep track of whether to make submenus for children
+          var noSubmenus = (this.getAttribute("nosubmenus") == "true");
+          
           // Container should always be open while rebuilding.
           var wasOpen = this._resultNode.containerOpen;
           this._resultNode.containerOpen = true;
@@ -171,7 +211,7 @@
             for (var i = 0; i < cc; ++i) {
               var child = this._resultNode.getChild(i);
               var element = null;
-              if (PlacesController.nodeIsURI(child)) {
+              if (PlacesController.nodeIsURI(child) || noSubmenus) {
                 element = document.createElementNS(XULNS, "menuitem");
                 element.setAttribute("label", child.title);
                 element.setAttribute("url", child.uri);
@@ -193,12 +233,13 @@
                   var bms =
                     Cc["@mozilla.org/browser/nav-bookmarks-service;1"].
                     getService(Ci.nsINavBookmarksService);
-                  var folderURI = bms.getFolderURI(folder);
-                  var anno =
-                    Cc["@mozilla.org/browser/annotation-service;1"].
-                    getService(Ci.nsIAnnotationService);
-                  var siteURI = anno.getAnnotationString(folderURI, "livemark/siteURI");
-                  element.setAttribute("siteURI", siteURI);
+                  var lms =
+                    Cc["@mozilla.org/browser/livemark-service;1"].
+                    getService(Ci.nsILivemarkService);
+                  var siteURI = lms.getSiteURI(folder);
+                  if (siteURI) {            
+                    element.setAttribute("siteURI", siteURI.spec);
+                  }
                 }
 
                 var popup = document.createElementNS(XULNS, "menupopup");

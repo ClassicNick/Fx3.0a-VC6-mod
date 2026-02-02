@@ -429,8 +429,7 @@ sub flag_types {
         $flag_type->{'flags'} = Bugzilla::Flag::match(
             { 'bug_id'      => $self->bug_id,
               'type_id'     => $flag_type->{'id'},
-              'target_type' => 'bug',
-              'is_active'   => 1 });
+              'target_type' => 'bug' });
     }
 
     $self->{'flag_types'} = $flag_types;
@@ -515,8 +514,7 @@ sub show_attachment_flags {
           'component_id' => $self->{'component_id'} });
     my $num_attachment_flags = Bugzilla::Flag::count(
         { 'target_type'  => 'attachment',
-          'bug_id'       => $self->bug_id,
-          'is_active'    => 1 });
+          'bug_id'       => $self->bug_id });
 
     $self->{'show_attachment_flags'} =
         ($num_attachment_flag_types || $num_attachment_flags);
@@ -1198,7 +1196,7 @@ sub ValidateBugAlias {
 
     # Make sure the alias is unique.
     my $query = "SELECT bug_id FROM bugs WHERE alias = ?";
-    if (detaint_natural($curr_id)) {
+    if ($curr_id && detaint_natural($curr_id)) {
         $query .= " AND bug_id != $curr_id";
     }
     my $id = $dbh->selectrow_array($query, undef, $alias); 

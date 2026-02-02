@@ -970,30 +970,36 @@ NS_IMETHODIMP
 nsNavBookmarks::CreateFolder(PRInt64 aParent, const nsAString &aName,
                              PRInt32 aIndex, PRInt64 *aNewFolder)
 {
-  return CreateFolderWithID(-1, aParent, aName, aIndex, aNewFolder);
+  // CreateFolderWithID returns the index of the new folder, but that's not
+  // used here.  To avoid any risk of corrupting data should this function
+  // be changed, we'll use a local variable to hold it.  The PR_TRUE argument
+  // will cause notifications to be sent to bookmark observers.
+  PRInt32 localIndex = aIndex;
+  return CreateFolderWithID(-1, aParent, aName, PR_TRUE, &localIndex, aNewFolder);
 }
 
 NS_IMETHODIMP
 nsNavBookmarks::CreateContainer(PRInt64 aParent, const nsAString &aName,
-                                PRInt32 aIndex, const nsAString &aType,
+                                const nsAString &aType, PRInt32 aIndex,
                                 PRInt64 *aNewFolder)
 {
-  return CreateContainerWithID(-1, aParent, aName, aIndex, aType, aNewFolder);
+  return CreateContainerWithID(-1, aParent, aName, aType, aIndex, aNewFolder);
 }
 
 nsresult
 nsNavBookmarks::CreateFolderWithID(PRInt64 aFolder, PRInt64 aParent,
-                                   const nsAString& aName, PRInt32 aIndex,
-                                   PRInt64* aNewFolder)
+                                   const nsAString& aName,
+                                   PRBool aSendNotifications,
+                                   PRInt32* aIndex, PRInt64* aNewFolder)
 {
   // You can pass -1 to indicate append, but no other negative number is allowed
-  if (aIndex < -1)
+  if (*aIndex < -1)
     return NS_ERROR_INVALID_ARG;
 
   mozIStorageConnection *dbConn = DBConn();
   mozStorageTransaction transaction(dbConn, PR_FALSE);
 
-  PRInt32 index = (aIndex == -1) ? FolderCount(aParent) : aIndex;
+  PRInt32 index = (*aIndex == -1) ? FolderCount(aParent) : *aIndex;
 
   nsresult rv = AdjustIndices(aParent, index, PR_INT32_MAX, 1);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1040,20 +1046,31 @@ nsNavBookmarks::CreateFolderWithID(PRInt64 aFolder, PRInt64 aParent,
   rv = transaction.Commit();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  ENUMERATE_WEAKARRAY(mObservers, nsINavBookmarkObserver,
-                      OnFolderAdded(child, aParent, index))
+  // When creating a livemark container, we need to delay sending notifications
+  // until the container type has been set.  In that case, they'll be sent by
+  // CreateContainerWithID rather than here.
+  if (aSendNotifications) {
+    ENUMERATE_WEAKARRAY(mObservers, nsINavBookmarkObserver,
+                        OnFolderAdded(child, aParent, index))
+  }
 
+  *aIndex = index;
   *aNewFolder = child;
   return NS_OK;
 }
 
 nsresult 
 nsNavBookmarks::CreateContainerWithID(PRInt64 aFolder, PRInt64 aParent, 
-                                      const nsAString &aName, PRInt32 aIndex,
-                                      const nsAString &aType, PRInt64 *aNewFolder)
+                                      const nsAString &aName, const nsAString &aType, 
+                                      PRInt32 aIndex, PRInt64 *aNewFolder)
 {
   // Containers are wrappers around read-only folders, with a specific type.
-  nsresult rv = CreateFolderWithID(aFolder, aParent, aName, aIndex, aNewFolder);
+  // CreateFolderWithID will return the index of the newly created folder,
+  // which we will need later on in order to send notifications.  The PR_FALSE
+  // argument disables sending notifiactions, since we need to defer that until
+  // the folder type has been set.
+  PRInt32 localIndex = aIndex;
+  nsresult rv = CreateFolderWithID(aFolder, aParent, aName, PR_FALSE, &localIndex, aNewFolder);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Set the type.
@@ -1069,6 +1086,10 @@ nsNavBookmarks::CreateContainerWithID(PRInt64 aFolder, PRInt64 aParent,
 
   rv = statement->Execute();
   NS_ENSURE_SUCCESS(rv, rv);
+
+  // Send notifications after folder type has been set.
+  ENUMERATE_WEAKARRAY(mObservers, nsINavBookmarkObserver,
+                      OnFolderAdded(*aNewFolder, aParent, localIndex))
 
   return NS_OK;
 }
@@ -1337,7 +1358,6 @@ nsNavBookmarks::RemoveFolderChildren(PRInt64 aFolder)
     PRBool hasMore;
     while (NS_SUCCEEDED(mDBGetChildren->ExecuteStep(&hasMore)) && hasMore) {
       PRBool isFolder = ! mDBGetChildren->IsNull(kGetChildrenIndex_FolderChild);
-      nsCOMPtr<nsNavHistoryResultNode> node;
       if (isFolder) {
         // folder
         folderChildren.AppendElement(
@@ -1745,7 +1765,15 @@ nsNavBookmarks::QueryFolderChildren(PRInt64 aFolderId,
   PRBool results;
 
   nsCOMPtr<nsNavHistoryQueryOptions> options = do_QueryInterface(aOptions, &rv);
+  PRInt32 index = -1;
   while (NS_SUCCEEDED(mDBGetChildren->ExecuteStep(&results)) && results) {
+
+    // The results will be in order of index. Even if we don't add a node
+    // because it was excluded, we need to count it's index, so do that
+    // before doing anything else. Index was initialized to -1 above, so
+    // it will start counting at 0 the first time through the loop.
+    index ++;
+
     PRBool isFolder = !mDBGetChildren->IsNull(kGetChildrenIndex_FolderChild);
     nsCOMPtr<nsNavHistoryResultNode> node;
     if (isFolder) {
@@ -1784,6 +1812,10 @@ nsNavBookmarks::QueryFolderChildren(PRInt64 aFolderId,
         continue;
       }
     }
+
+    // this method fills all bookmark queries, so we store the index of the
+    // item in its parent
+    node->mBookmarkIndex = index;
 
     NS_ENSURE_TRUE(aChildren->AppendObject(node), NS_ERROR_OUT_OF_MEMORY);
   }
@@ -2075,12 +2107,15 @@ nsNavBookmarks::SetKeywordForURI(nsIURI* aURI, const nsAString& aKeyword)
   nsAutoString kwd(aKeyword);
   ToLowerCase(kwd);
 
-  if (kwd.IsEmpty()) {
-    // delete any existing keyword for the given URI
-    rv = history->GetUrlIdFor(aURI, &pageId, PR_FALSE);
-    if (! pageId)
-      return NS_OK; // URL not found: no keyword
+  // When we are clearing a keyword, don't force URI creation. If they give
+  // us a brand new URI and an empty keyword, there is obviously nothing to do
+  PRBool forceURICreation = ! kwd.IsEmpty();
+  rv = history->GetUrlIdFor(aURI, &pageId, forceURICreation);
+  if (! pageId)
+    return NS_OK; // no keyword & URL not found: nothing to do
 
+  if (aURI) {
+    // delete any existing keyword for the given URI, only create the ID if
     rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
         "DELETE FROM moz_keywords WHERE page_id = ?1"),
       getter_AddRefs(statement));
@@ -2090,14 +2125,8 @@ nsNavBookmarks::SetKeywordForURI(nsIURI* aURI, const nsAString& aKeyword)
 
     rv = statement->Execute();
     NS_ENSURE_SUCCESS(rv, rv);
-
-    return transaction.Commit();
-  } else if (! aURI) {
-    // delete any existing URIs associated with the given keyword
-    rv = history->GetUrlIdFor(aURI, &pageId, PR_FALSE);
-    if (! pageId)
-      return NS_OK; // URL not found: no keyword
-
+  }
+  if (! kwd.IsEmpty()) {
     rv = DBConn()->CreateStatement(NS_LITERAL_CSTRING(
         "DELETE FROM moz_keywords WHERE keyword = ?1"),
       getter_AddRefs(statement));
@@ -2107,14 +2136,13 @@ nsNavBookmarks::SetKeywordForURI(nsIURI* aURI, const nsAString& aKeyword)
 
     rv = statement->Execute();
     NS_ENSURE_SUCCESS(rv, rv);
-
-    return transaction.Commit();
   }
 
-  // otherwise, we have a URI/keyword pair and want to create it...
+  // when either is empty, that was asking us to clear the value, and we're done
+  if (! aURI || kwd.IsEmpty())
+    return transaction.Commit();
 
-  rv = history->GetUrlIdFor(aURI, &pageId, PR_TRUE);
-  NS_ENSURE_SUCCESS(rv, rv);
+  // otherwise, we have a URI/keyword pair and want to create it...
 
   // this statement will overwrite any old keyword with that value since the
   // keyword column is unique and we use "OR REPLACE" conflict resolution

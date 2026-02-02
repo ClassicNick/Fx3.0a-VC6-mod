@@ -1415,13 +1415,93 @@ nsWindow::LoseFocus(void)
     LOGFOCUS(("  widget lost focus [%p]\n", (void *)this));
 }
 
+#ifdef DEBUG
+// Paint flashing code
+
+#define CAPS_LOCK_IS_ON \
+(gdk_keyboard_get_modifiers() & GDK_LOCK_MASK)
+
+#define WANT_PAINT_FLASHING \
+(debug_WantPaintFlashing() && CAPS_LOCK_IS_ON)
+
+static GdkModifierType
+gdk_keyboard_get_modifiers()
+{
+  GdkModifierType m = (GdkModifierType) 0;
+
+  gdk_window_get_pointer(NULL, NULL, NULL, &m);
+
+  return m;
+}
+
+static void
+gdk_window_flash(GdkWindow *    aGdkWindow,
+                 unsigned int   aTimes,
+                 unsigned int   aInterval,  // Milliseconds
+                 GdkRegion *    aRegion)
+{
+  gint         x;
+  gint         y;
+  gint         width;
+  gint         height;
+  guint        i;
+  GdkGC *      gc = 0;
+  GdkColor     white;
+
+  gdk_window_get_geometry(aGdkWindow,
+                          NULL,
+                          NULL,
+                          &width,
+                          &height,
+                          NULL);
+
+  gdk_window_get_origin (aGdkWindow,
+                         &x,
+                         &y);
+
+  gc = gdk_gc_new(GDK_ROOT_PARENT());
+
+  white.pixel = WhitePixel(gdk_display,DefaultScreen(gdk_display));
+
+  gdk_gc_set_foreground(gc,&white);
+  gdk_gc_set_function(gc,GDK_XOR);
+  gdk_gc_set_subwindow(gc,GDK_INCLUDE_INFERIORS);
+  
+  gdk_region_offset(aRegion, x, y);
+  gdk_gc_set_clip_region(gc, aRegion);
+
+  /*
+   * Need to do this twice so that the XOR effect can replace 
+   * the original window contents.
+   */
+  for (i = 0; i < aTimes * 2; i++)
+  {
+    gdk_draw_rectangle(GDK_ROOT_PARENT(),
+                       gc,
+                       TRUE,
+                       x,
+                       y,
+                       width,
+                       height);
+
+    gdk_flush();
+    
+    PR_Sleep(PR_MillisecondsToInterval(aInterval));
+  }
+
+  gdk_gc_destroy(gc);
+
+  gdk_region_offset(aRegion, -x, -y);
+}
+#endif // DEBUG
+
 gboolean
 nsWindow::OnExposeEvent(GtkWidget *aWidget, GdkEventExpose *aEvent)
 {
     if (mIsDestroyed) {
         LOG(("Expose event on destroyed window [%p] window %p\n",
              (void *)this, (void *)aEvent->window));
-        return NS_OK;
+        return FALSE;
     }
 
     if (!mDrawingarea)
@@ -1458,36 +1538,83 @@ nsWindow::OnExposeEvent(GtkWidget *aWidget, GdkEventExpose *aEvent)
 #ifdef MOZ_CAIRO_GFX
     PRBool translucent;
     GetWindowTranslucency(translucent);
-    GdkRectangle collapsedRect;
-    
+    nsIntRect boundsRect;
+    GdkPixmap* bufferPixmap = nsnull;
+    nsRefPtr<gfxXlibSurface> bufferPixmapSurface;
+
+    updateRegion->GetBoundingBox(&boundsRect.x, &boundsRect.y,
+                                 &boundsRect.width, &boundsRect.height);
+
     // do double-buffering and clipping here
-    nsRefPtr<gfxContext> ctx =
-      (gfxContext*)rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
-      
+    nsRefPtr<gfxContext> ctx
+        = (gfxContext*)rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
     ctx->Save();
-      
-    // clip to Gdk region
     ctx->NewPath();
     if (translucent) {
-      // Collapse update area to the bounding box. This is so we only have to
-      // call UpdateTranslucentWindowAlpha once. After we have dropped
-      // support for non-Thebes graphics, UpdateTranslucentWindowAlpha will be
-      // our private interface so we can rework things to avoid this.
-      updateRegion->GetBoundingBox(&collapsedRect.x, &collapsedRect.y,
-                                   &collapsedRect.width, &collapsedRect.height);
-      ctx->Rectangle(gfxRect(collapsedRect.x, collapsedRect.y,
-                             collapsedRect.width, collapsedRect.height));
+        // Collapse update area to the bounding box. This is so we only have to
+        // call UpdateTranslucentWindowAlpha once. After we have dropped
+        // support for non-Thebes graphics, UpdateTranslucentWindowAlpha will be
+        // our private interface so we can rework things to avoid this.
+        ctx->Rectangle(gfxRect(boundsRect.x, boundsRect.y,
+                               boundsRect.width, boundsRect.height));
     } else {
-      for (r = rects; r < r_end; ++r) {
-        ctx->Rectangle(gfxRect(r->x, r->y, r->width, r->height));
-      }
+        for (r = rects; r < r_end; ++r) {
+            ctx->Rectangle(gfxRect(r->x, r->y, r->width, r->height));
+        }
     }
     ctx->Clip();
-    
-    // double buffer
-    ctx->PushGroup(translucent ? gfxContext::CONTENT_COLOR_ALPHA : gfxContext::CONTENT_COLOR);
-#endif
 
+    // double buffer
+    if (translucent) {
+        ctx->PushGroup(gfxContext::CONTENT_COLOR_ALPHA);
+    } else {
+#ifdef MOZ_ENABLE_GLITZ
+        ctx->PushGroup(gfxContext::CONTENT_COLOR);
+#else // MOZ_ENABLE_GLITZ
+        // Instead of just doing PushGroup we're going to do a little dance
+        // to ensure that GDK creates the pixmap, so it doesn't go all
+        // XGetGeometry on us in gdk_pixmap_foreign_new_for_display when we
+        // paint native themes
+        GdkDrawable* d = GDK_DRAWABLE(mDrawingarea->inner_window);
+        gint depth = gdk_drawable_get_depth(d);
+        bufferPixmap = gdk_pixmap_new(d, boundsRect.width, boundsRect.height, depth);
+        if (bufferPixmap) {
+            GdkVisual* visual = gdk_drawable_get_visual(GDK_DRAWABLE(bufferPixmap));
+            Visual* XVisual = gdk_x11_visual_get_xvisual(visual);
+            Display* display = gdk_x11_drawable_get_xdisplay(GDK_DRAWABLE(bufferPixmap));
+            Drawable drawable = gdk_x11_drawable_get_xid(GDK_DRAWABLE(bufferPixmap));
+            bufferPixmapSurface =
+                new gfxXlibSurface(display, drawable, XVisual,
+                                   boundsRect.width, boundsRect.height);
+            if (bufferPixmapSurface) {
+                bufferPixmapSurface->SetDeviceOffset(-boundsRect.x, -boundsRect.y);
+                nsCOMPtr<nsIRenderingContext> newRC;
+                nsresult rv = GetDeviceContext()->
+                    CreateRenderingContextInstance(*getter_AddRefs(newRC));
+                if (NS_FAILED(rv)) {
+                    bufferPixmapSurface = nsnull;
+                } else {
+                    rv = newRC->Init(GetDeviceContext(), bufferPixmapSurface);
+                    if (NS_FAILED(rv)) {
+                        bufferPixmapSurface = nsnull;
+                    } else {
+                        rc = newRC;
+                    }
+                }
+            }
+        }
+#endif // MOZ_ENABLE_GLITZ
+    }
+#endif // MOZ_CAIRO_GFX
+
+    // NOTE: Paint flashing region would be wrong for cairo, since
+    // cairo inflates the update region, etc.  So don't paint flash
+    // for cairo.
+#if !defined(MOZ_CAIRO_GFX) && defined(DEBUG)
+    if (WANT_PAINT_FLASHING && aEvent->window)
+        gdk_window_flash(aEvent->window, 1, 100, aEvent->region);
+#endif // !defined(MOZ_CAIRO_GFX) && defined(DEBUG)
+    
     nsPaintEvent event(PR_TRUE, NS_PAINT, this);
     event.refPoint.x = aEvent->area.x;
     event.refPoint.y = aEvent->area.y;
@@ -1500,36 +1627,53 @@ nsWindow::OnExposeEvent(GtkWidget *aWidget, GdkEventExpose *aEvent)
 
 #ifdef MOZ_CAIRO_GFX
     if (status != nsEventStatus_eIgnore) {
-        ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
-        if (!translucent) {
-            ctx->PopGroupToSource();
-            ctx->Paint();
-        } else {
+        if (translucent) {
             nsRefPtr<gfxPattern> pattern = ctx->PopGroup();
+            ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
             ctx->SetPattern(pattern);
             ctx->Paint();
 
             nsRefPtr<gfxImageSurface> img =
                 new gfxImageSurface(gfxImageSurface::ImageFormatA8, 
-                                    collapsedRect.width, collapsedRect.height);
-            img->SetDeviceOffset(-collapsedRect.x, -collapsedRect.y);
+                                    boundsRect.width, boundsRect.height);
+            img->SetDeviceOffset(-boundsRect.x, -boundsRect.y);
             
             nsRefPtr<gfxContext> imgCtx = new gfxContext(img);
             imgCtx->SetPattern(pattern);
             imgCtx->SetOperator(gfxContext::OPERATOR_SOURCE);
             imgCtx->Paint();
         
-            UpdateTranslucentWindowAlphaInternal(nsRect(collapsedRect.x, collapsedRect.y,
-                                                        collapsedRect.width, collapsedRect.height),
+            UpdateTranslucentWindowAlphaInternal(nsRect(boundsRect.x, boundsRect.y,
+                                                        boundsRect.width, boundsRect.height),
                                                  img->Data(), img->Stride());
+        } else {
+#ifdef MOZ_ENABLE_GLITZ
+            ctx->PopGroupToSource();
+            ctx->Paint();
+#else // MOZ_ENABLE_GLITZ
+            if (bufferPixmapSurface) {
+                ctx->SetSource(bufferPixmapSurface);
+                ctx->Paint();
+            }
+#endif // MOZ_ENABLE_GLITZ
         }
     } else {
         // ignore
-        ctx->PopGroup();
+        if (translucent) {
+            ctx->PopGroup();
+        } else {
+#ifdef MOZ_ENABLE_GLITZ
+            ctx->PopGroup();
+#endif // MOZ_ENABLE_GLITZ
+        }
+    }
+
+    if (bufferPixmap) {
+        g_object_unref(G_OBJECT(bufferPixmap));
     }
 
     ctx->Restore();
-#endif
+#endif // MOZ_CAIRO_GFX
 
     g_free(rects);
 
@@ -1700,11 +1844,6 @@ nsWindow::OnButtonPressEvent(GtkWidget *aWidget, GdkEventButton *aEvent)
 {
     PRUint32      eventType;
     nsEventStatus status;
-
-#ifdef USE_XIM
-    if (gIMEFocusWindow)
-        gIMEFocusWindow->ResetInputStateInternal();
-#endif
 
     // If you double click in GDK, it will actually generate a single
     // click event before sending the double click event, and this is
@@ -4641,7 +4780,7 @@ nsWindow::IMEDestroyContext(void)
     if (!mIMEData) {
         // Clear reference to this.
         if (IMEComposingWindow() == this)
-            CancelIMECompositionInternal();
+            CancelIMEComposition();
         if (gIMEFocusWindow == this)
             gIMEFocusWindow = nsnull;
         return;
@@ -4902,13 +5041,6 @@ nsWindow::IMEFilterEvent(GdkEventKey *aEvent)
 NS_IMETHODIMP
 nsWindow::ResetInputState()
 {
-    // We should not implement this until bug 327003 is fixed.
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-nsresult
-nsWindow::ResetInputStateInternal()
-{
     nsWindow *win = IMEComposingWindow();
     if (win) {
         GtkIMContext *im = IMEGetContext();
@@ -4928,7 +5060,7 @@ nsWindow::ResetInputStateInternal()
             pango_attr_list_unref(feedback_list);
     }
 
-    CancelIMECompositionInternal();
+    CancelIMEComposition();
 
     return NS_OK;
 }
@@ -4963,8 +5095,10 @@ nsWindow::SetIMEEnabled(PRBool aState)
 
     if (focusedIm && focusedIm == window->mIMEData->mContext) {
         // Release current IME focus if IME is enabled.
-        if (window->mIMEData->mEnabled)
+        if (window->mIMEData->mEnabled) {
+            focusedWin->ResetInputState();
             focusedWin->IMELoseFocus();
+        }
 
         window->mIMEData->mEnabled = aState;
 
@@ -4973,7 +5107,7 @@ nsWindow::SetIMEEnabled(PRBool aState)
         focusedWin->IMESetFocus();
     } else {
         if (window->mIMEData->mEnabled)
-            ResetInputStateInternal();
+            ResetInputState();
         window->mIMEData->mEnabled = aState;
     }
 
@@ -4991,19 +5125,12 @@ nsWindow::GetIMEEnabled(PRBool* aState)
 NS_IMETHODIMP
 nsWindow::CancelIMEComposition()
 {
-    // We should not implement this until bug 327003 is fixed.
-    return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-nsresult
-nsWindow::CancelIMECompositionInternal()
-{
     GtkIMContext *im = IMEGetContext();
     if (!im)
         return NS_OK;
 
     NS_ASSERTION(!gIMESuppressCommit,
-                 "CancelIMECompositionInternal is already called!");
+                 "CancelIMEComposition is already called!");
     gIMESuppressCommit = PR_TRUE;
     gtk_im_context_reset(im);
     gIMESuppressCommit = PR_FALSE;

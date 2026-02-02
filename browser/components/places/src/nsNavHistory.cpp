@@ -42,7 +42,7 @@
 #include "nsMorkHistoryImporter.h"
 #include "nsAnnotationService.h"
 
-#include "nsArray.h"
+#include "nsIArray.h"
 #include "nsArrayEnumerator.h"
 #include "nsCollationCID.h"
 #include "nsCOMPtr.h"
@@ -66,6 +66,7 @@
 #include "nsPromiseFlatString.h"
 #include "nsString.h"
 #include "nsUnicharUtils.h"
+#include "prsystem.h"
 #include "prtime.h"
 #include "prprf.h"
 
@@ -99,6 +100,20 @@
 #define PREF_BROWSER_HISTORY_EXPIRE_DAYS        "history_expire_days"
 #define PREF_AUTOCOMPLETE_ONLY_TYPED            "urlbar.matchOnlyTyped"
 #define PREF_AUTOCOMPLETE_ENABLED               "urlbar.autocomplete.enabled"
+#define PREF_DB_CACHE_PERCENTAGE                "history_cache_percentage"
+
+// Default (integer) value of PREF_DB_CACHE_PERCENTAGE from 0-100
+// This is 6% of machine memory, giving 15MB for a user with 256MB of memory.
+// The most that will be used is the size of the DB file. Normal history sizes
+// look like 10MB would be a high average for a typical user, so the maximum
+// should not normally be required.
+#define DEFAULT_DB_CACHE_PERCENTAGE 6
+
+// The default page size the database should use. This must be a power of 2.
+// Larger pages may mean less paging, but when something is changed, the
+// entire page is written to the journal and then the main file, meaning a
+// lot more data has to be handled.
+#define DEFAULT_DB_PAGE_SIZE 1024
 
 // the value of mLastNow expires every 3 seconds
 #define HISTORY_EXPIRE_NOW_TIMEOUT (3 * PR_MSEC_PER_SEC)
@@ -261,8 +276,17 @@ nsNavHistory::Init()
 
   gExpandedItems.Init(128);
 
+  // prefs (must be before DB init, which uses the pref service)
+  nsCOMPtr<nsIPrefService> prefService =
+    do_GetService(NS_PREFSERVICE_CONTRACTID, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = prefService->GetBranch(PREF_BRANCH_BASE, getter_AddRefs(mPrefBranch));
+  NS_ENSURE_SUCCESS(rv, rv);
+
   PRBool doImport;
   rv = InitDB(&doImport);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = InitStatements();
   NS_ENSURE_SUCCESS(rv, rv);
 #ifdef IN_MEMORY_LINKS
   rv = InitMemDB();
@@ -292,13 +316,6 @@ nsNavHistory::Init()
     else
       mLastSessionID = 1;
   }
-
-  // prefs
-  nsCOMPtr<nsIPrefService> prefService =
-    do_GetService(NS_PREFSERVICE_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = prefService->GetBranch(PREF_BRANCH_BASE, getter_AddRefs(mPrefBranch));
-  NS_ENSURE_SUCCESS(rv, rv);
 
   // string bundle for localization
   nsCOMPtr<nsIStringBundleService> bundleService =
@@ -403,9 +420,19 @@ nsNavHistory::InitDB(PRBool *aDoImport)
   rv = mDBService->OpenDatabase(dbFile, getter_AddRefs(mDBConn));
   NS_ENSURE_SUCCESS(rv, rv);
 
+  // Set the database page size. This will only have any effect on empty files,
+  // so must be done before anything else. If the file already exists, we'll
+  // get that file's page size and this will have no effect.
+  nsCAutoString pageSizePragma("PRAGMA page_size=");
+  pageSizePragma.AppendInt(DEFAULT_DB_PAGE_SIZE);
+  rv = mDBConn->ExecuteSimpleSQL(pageSizePragma);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   // dummy database connection
   rv = mDBService->OpenDatabase(dbFile, getter_AddRefs(mDummyDBConn));
   NS_ENSURE_SUCCESS(rv, rv);
+
+  mozStorageTransaction transaction(mDBConn, PR_FALSE);
 
   // Initialize the other places services' database tables. We do this before:
   //
@@ -422,10 +449,39 @@ nsNavHistory::InitDB(PRBool *aDoImport)
   rv = nsAnnotationService::InitTables(mDBConn);
   NS_ENSURE_SUCCESS(rv, rv);
 
-// REMOVE ME FIXME TODO XXX
+  // Get the page size. This may be different than was set above if the database
+  // file already existed and has a different page size.
+  PRInt32 pageSize;
   {
-    mDBConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING("PRAGMA cache_size=10000;"));
+    nsCOMPtr<mozIStorageStatement> statement;
+    rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING("PRAGMA page_size"),
+                                  getter_AddRefs(statement));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    PRBool hasResult;
+    rv = statement->ExecuteStep(&hasResult);
+    NS_ENSURE_SUCCESS(rv, rv);
+    NS_ENSURE_TRUE(hasResult, NS_ERROR_FAILURE);
+    pageSize = statement->AsInt32(0);
   }
+
+  // compute the size of the database cache
+  PRInt32 cachePercentage;
+  if (NS_FAILED(mPrefBranch->GetIntPref(PREF_DB_CACHE_PERCENTAGE,
+                                        &cachePercentage)))
+    cachePercentage = DEFAULT_DB_CACHE_PERCENTAGE;
+  if (cachePercentage > 50)
+    cachePercentage = 50; // sanity check, don't take too much
+  if (cachePercentage < 0)
+    cachePercentage = 0;
+  PRInt64 cacheSize = PR_GetPhysicalMemorySize() * cachePercentage / 100;
+  PRInt64 cachePages = cacheSize / pageSize;
+
+  // set the cache size
+  nsCAutoString cacheSizePragma("PRAGMA cache_size=");
+  cacheSizePragma.AppendInt(cachePages);
+  rv = mDBConn->ExecuteSimpleSQL(cacheSizePragma);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   // moz_history
   rv = mDBConn->TableExists(NS_LITERAL_CSTRING("moz_history"), &tableExists);
@@ -476,23 +532,38 @@ nsNavHistory::InitDB(PRBool *aDoImport)
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
+  rv = transaction.Commit();
+  NS_ENSURE_SUCCESS(rv, rv);
+
   // --- PUT SCHEMA-MODIFYING THINGS (like create table) ABOVE THIS LINE ---
 
   // now that the schema has been finalized, we can initialize the dummy stmt.
   rv = StartDummyStatement();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // functions (must happen after table creation)
+  // This causes the database data to be preloaded up to the maximum cache size
+  // set above. This dramatically speeds up some later operations. Failures
+  // here are not fatal since we can run fine without this. It must happen
+  // after the dummy statement is running for the cache to be initialized.
+  if (cachePages > 0) {
+    rv = mDBConn->Preload();
+    if (NS_FAILED(rv))
+      NS_WARNING("Preload of database failed");
+  }
 
-  // mDBGetVisitPageInfo
-  /*
-  rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
-      "SELECT h.id, h.url, h.title, h.user_title, h.rev_host, h.visit_count, v.visit_date "
-      "FROM moz_historyvisit v, moz_history h "
-      "WHERE v.visit_id = ?1 AND h.id = v.page_id"),
-    getter_AddRefs(mDBGetVisitPageInfo));
-  NS_ENSURE_SUCCESS(rv, rv);
-  */
+  // DO NOT PUT ANY SCHEMA-MODIFYING THINGS HERE
+  return NS_OK;
+}
+
+
+// nsNavHistory::InitStatements
+//
+//    Called after InitDB, this creates our stored statements
+
+nsresult
+nsNavHistory::InitStatements()
+{
+  nsresult rv;
 
   // mDBGetURLPageInfo
   rv = mDBConn->CreateStatement(NS_LITERAL_CSTRING(
@@ -1378,8 +1449,8 @@ nsNavHistory::SetPageUserTitle(nsIURI* aURI, const nsAString& aUserTitle)
 NS_IMETHODIMP
 nsNavHistory::MarkPageAsFollowedBookmark(nsIURI* aURI)
 {
-  // if history expiration is set to 0 days it is disabled, so don't add
-  if (mExpireDays == 0)
+  // don't add when history is disabled
+  if (IsHistoryDisabled())
     return NS_OK;
 
   nsCAutoString uriString;
@@ -2410,8 +2481,8 @@ nsNavHistory::HidePage(nsIURI *aURI)
 NS_IMETHODIMP
 nsNavHistory::MarkPageAsTyped(nsIURI *aURI)
 {
-  // if history expiration is set to 0 days it is disabled, so don't add
-  if (mExpireDays == 0)
+  // don't add when history is disabled
+  if (IsHistoryDisabled())
     return NS_OK;
 
   nsCAutoString uriString;
@@ -2440,8 +2511,8 @@ NS_IMETHODIMP
 nsNavHistory::AddURI(nsIURI *aURI, PRBool aRedirect,
                      PRBool aToplevel, nsIURI *aReferrer)
 {
-  // if history expiration is set to 0 days it is disabled, so don't add
-  if (mExpireDays == 0)
+  // don't add when history is disabled
+  if (IsHistoryDisabled())
     return NS_OK;
 
   PRTime now = PR_Now();
@@ -2627,8 +2698,8 @@ nsNavHistory::AddVisitChain(nsIURI* aURI, PRTime aTime,
 NS_IMETHODIMP
 nsNavHistory::IsVisited(nsIURI *aURI, PRBool *_retval)
 {
-  // if history expiration is set to 0 days it is disabled, we can optimize
-  if (mExpireDays == 0) {
+  // if history is disabled, we can optimize
+  if (IsHistoryDisabled()) {
     *_retval = PR_FALSE;
     return NS_OK;
   }

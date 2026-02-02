@@ -64,7 +64,11 @@ gfxWindowsPlatform::Init()
 
     // Use the screen DC here.. should we use something else for printing?
     HDC dc = ::GetDC(nsnull);
+#if !defined (_MSC_VER) || _MSC_VER >= 1200
     EnumFontFamilies(dc, nsnull, gfxWindowsPlatform::FontEnumProc, 0);
+#else
+	EnumFontFamilies(dc, nsnull, ((int (_stdcall*)(void)) gfxWindowsPlatform::FontEnumProc), 0);
+#endif
     ::ReleaseDC(nsnull, dc);
 
     mFontList->Sort();
@@ -124,6 +128,7 @@ gfxWindowsPlatform::GetFontList(const nsACString& aLangGroup,
     return NS_OK;
 }
 
+#if !defined (_MSC_VER) || _MSC_VER >= 1200
 IMultiLanguage *
 gfxWindowsPlatform::GetMLangService()
 {
@@ -138,3 +143,4 @@ gfxWindowsPlatform::GetMLangService()
 
     return mMLang;
 }
+#endif

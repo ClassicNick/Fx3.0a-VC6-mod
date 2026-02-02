@@ -173,6 +173,7 @@ XCp.scope = {object: global, parent: null};
 XCp.thisObject = global;
 XCp.result = undefined;
 XCp.target = null;
+XCp.ecmaStrictMode = false;
 
 function Reference(base, propertyName, node) {
     this.base = base;
@@ -215,11 +216,11 @@ function isObject(v) {
 function toObject(v, r, rn) {
     switch (typeof v) {
       case "boolean":
-        return new Boolean(v);
+        return new global.Boolean(v);
       case "number":
-        return new Number(v);
+        return new global.Number(v);
       case "string":
-        return new String(v);
+        return new global.String(v);
       case "function":
         return v;
       case "object":
@@ -351,7 +352,10 @@ function execute(n, x) {
             execute(u, x);
         r = n.iterator;
         s = execute(n.object, x);
-        t = toObject(getValue(s), s, n.object);
+        v = getValue(s);
+
+        // ECMA deviation to track extant browser JS implementation behavior.
+        t = (v == null && !x.ecmaStrictMode) ? v : toObject(v, s, n.object);
         a = [];
         for (i in t)
             a.push(i);

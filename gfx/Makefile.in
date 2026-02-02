@@ -52,10 +52,6 @@ ifdef MOZ_ENABLE_CAIRO_GFX
 DIRS            += thebes
 endif
 
-ifndef MOZ_ENABLE_CAIRO_GFX
-DIRS			+= oldthebes
-endif
-
 DIRS		+= public idl src
 
 ifdef ENABLE_TESTS

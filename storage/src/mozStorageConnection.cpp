@@ -21,6 +21,7 @@
  *
  * Contributor(s):
  *   Vladimir Vukicevic <vladimir.vukicevic@oracle.com>
+ *   Brett Wilson <brettw@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -39,7 +40,7 @@
 #include <stdio.h>
 
 #include "nsError.h"
-#include "nsArray.h"
+#include "nsIMutableArray.h"
 #include "nsIFile.h"
 
 #include "mozIStorageFunction.h"
@@ -118,7 +119,7 @@ mozStorageConnection::Initialize(nsIFile *aDatabaseFile)
     sqlite3_trace (mDBConn, tracefunc, nsnull);
 #endif
 
-    rv = NS_NewArray(getter_AddRefs(mFunctions));
+    mFunctions = do_CreateInstance(NS_ARRAY_CONTRACTID, &rv);
     if (NS_FAILED(rv)) return rv;
 
     return NS_OK;
@@ -439,6 +440,19 @@ mozStorageConnection::CreateFunction(const char *aFunctionName,
     if (NS_FAILED(rv)) return rv;
 
     return NS_OK;
+}
+
+/**
+ * Mozilla-specific sqlite function to preload the DB into the cache. See the
+ * IDL and sqlite3.h
+ */
+nsresult
+mozStorageConnection::Preload()
+{
+  int srv = sqlite3Preload(mDBConn);
+  if (srv != SQLITE_OK)
+    return NS_ERROR_FAILURE;
+  return NS_OK;
 }
 
 /**

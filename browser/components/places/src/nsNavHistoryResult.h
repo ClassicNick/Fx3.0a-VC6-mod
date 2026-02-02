@@ -222,7 +222,9 @@ public:
   NS_IMETHOD GetViewIndex(PRInt32* aViewIndex) \
     { *aViewIndex = mViewIndex; return NS_OK; } \
   NS_IMETHOD SetViewIndex(PRInt32 aViewIndex) \
-    { mViewIndex = aViewIndex; return NS_OK; }
+    { mViewIndex = aViewIndex; return NS_OK; } \
+  NS_IMETHOD GetBookmarkIndex(PRInt32* aIndex) \
+    { *aIndex = mBookmarkIndex; return NS_OK; }
 
 // This is used by the base classes instead of
 // NS_FORWARD_NSINAVHISTORYRESULTNODE(nsNavHistoryResultNode) because they
@@ -362,6 +364,7 @@ public:
   PRUint32 mAccessCount;
   PRInt64 mTime;
   nsCString mFaviconURI;
+  PRInt32 mBookmarkIndex;
 
   // The indent level of this node. The root node will have a value of -1.  The
   // root's children will have a value of 0, and so on.
@@ -459,7 +462,8 @@ public:
   NS_IMETHOD GetChild(PRUint32 index, nsINavHistoryResultNode **_retval) \
     { return nsNavHistoryContainerResultNode::GetChild(index, _retval); } \
   NS_IMETHOD GetRemoteContainerType(nsACString& aRemoteContainerType) \
-    { return nsNavHistoryContainerResultNode::GetRemoteContainerType(aRemoteContainerType); } \
+    { return nsNavHistoryContainerResultNode::GetRemoteContainerType(aRemoteContainerType); }
+/* Untested container API functions
   NS_IMETHOD AppendURINode(const nsACString& aURI, const nsACString& aTitle, PRUint32 aAccessCount, PRTime aTime, const nsACString& aIconURI, nsINavHistoryResultNode **_retval) \
     { return nsNavHistoryContainerResultNode::AppendURINode(aURI, aTitle, aAccessCount, aTime, aIconURI, _retval); } \
   NS_IMETHOD AppendVisitNode(const nsACString& aURI, const nsACString & aTitle, PRUint32 aAccessCount, PRTime aTime, const nsACString & aIconURI, PRInt64 aSession, nsINavHistoryVisitResultNode **_retval) \
@@ -474,6 +478,7 @@ public:
     { return nsNavHistoryContainerResultNode::AppendFolderNode(aFolderId, _retval); } \
   NS_IMETHOD ClearContents() \
     { return nsNavHistoryContainerResultNode::ClearContents(); }
+*/
 
 #define NS_NAVHISTORYCONTAINERRESULTNODE_IID \
   { 0x6e3bf8d3, 0x22aa, 0x4065, { 0x86, 0xbc, 0x37, 0x46, 0xb5, 0xb3, 0x2c, 0xe8 } }
@@ -547,6 +552,8 @@ public:
   PRUint32 FindInsertionPoint(nsNavHistoryResultNode* aNode, SortComparator aComparator);
   PRBool DoesChildNeedResorting(PRUint32 aIndex, SortComparator aComparator);
 
+  PR_STATIC_CALLBACK(int) SortComparison_Bookmark(
+      nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure);
   PR_STATIC_CALLBACK(int) SortComparison_TitleLess(
       nsNavHistoryResultNode* a, nsNavHistoryResultNode* b, void* closure);
   PR_STATIC_CALLBACK(int) SortComparison_TitleGreater(
@@ -704,10 +711,6 @@ public:
 
   virtual void OnRemoving();
 
-  // Override the sorting implementation to remove separators if we are sorted.
-  virtual void RecursiveSort(nsICollation* aCollation,
-                             SortComparator aComparator);
-
 public:
 
   // this indicates whether the folder contents are valid, they don't go away
@@ -722,6 +725,7 @@ public:
   nsresult Refresh();
 
   PRBool StartIncrementalUpdate();
+  void ReindexRange(PRInt32 aStartIndex, PRInt32 aEndIndex, PRInt32 aDelta);
 };
 
 // nsNavHistorySeparatorResultNode
