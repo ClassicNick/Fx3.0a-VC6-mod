@@ -383,7 +383,7 @@ nsDragService::GetNumDropItems(PRUint32 * aNumItems)
       STGMEDIUM stm;
       if (mDataObject->GetData(&fe2, &stm) == S_OK) {
         HDROP hdrop = (HDROP)GlobalLock(stm.hGlobal);
-        *aNumItems = ::DragQueryFileW(hdrop, 0xFFFFFFFF, NULL, 0);
+        *aNumItems = ::DragQueryFile(hdrop, 0xFFFFFFFF, NULL, 0);
         ::GlobalUnlock(stm.hGlobal);
         ::ReleaseStgMedium(&stm);
       }

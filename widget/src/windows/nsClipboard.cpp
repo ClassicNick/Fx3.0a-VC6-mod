@@ -57,7 +57,6 @@
 #include "nsISupportsPrimitives.h"
 #include "nsXPIDLString.h"
 #include "nsReadableUtils.h"
-#include "nsUnicharUtils.h"
 #include "nsPrimitiveHelpers.h"
 #include "nsImageClipboard.h"
 #include "nsIWidget.h"
@@ -503,16 +502,16 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject * aDataObject, UINT 
                 // if there really are multiple drag items.
                 HDROP dropFiles = (HDROP) GlobalLock(stm.hGlobal);
 
-                UINT numFiles = ::DragQueryFileW(dropFiles, 0xFFFFFFFF, NULL, 0);
+                UINT numFiles = ::DragQueryFile(dropFiles, 0xFFFFFFFF, NULL, 0);
                 NS_ASSERTION ( numFiles > 0, "File drop flavor, but no files...hmmmm" );
                 NS_ASSERTION ( aIndex < numFiles, "Asked for a file index out of range of list" );
                 if (numFiles > 0) {
-                  UINT fileNameLen = ::DragQueryFileW(dropFiles, aIndex, nsnull, 0);
-                  PRUnichar* buffer = NS_REINTERPRET_CAST(PRUnichar*, nsMemory::Alloc((fileNameLen + 1) * sizeof(PRUnichar)));
+                  UINT fileNameLen = ::DragQueryFile(dropFiles, aIndex, nsnull, 0);
+                  char* buffer = NS_REINTERPRET_CAST(char*, nsMemory::Alloc(fileNameLen + 1));
                   if ( buffer ) {
-                    ::DragQueryFileW(dropFiles, aIndex, buffer, fileNameLen + 1);
+                    ::DragQueryFile(dropFiles, aIndex, buffer, fileNameLen + 1);
                     *aData = buffer;
-                    *aLen = fileNameLen * sizeof(PRUnichar);
+                    *aLen = fileNameLen;
                     result = NS_OK;
                   }
                   else
@@ -636,13 +635,13 @@ nsresult nsClipboard::GetDataFromDataObject(IDataObject     * aDataObject,
       // Hopefully by this point we've found it and can go about our business
       if ( dataFound ) {
         nsCOMPtr<nsISupports> genericDataWrapper;
-          if ( strcmp(flavorStr, kFileMime) == 0 ) {
-            // we have a file path in |data|. Create an nsLocalFile object.
-            nsDependentString filepath(NS_REINTERPRET_CAST(PRUnichar*, data));
-            nsCOMPtr<nsILocalFile> file;
-            if ( NS_SUCCEEDED(NS_NewLocalFile(filepath, PR_FALSE, getter_AddRefs(file))) )
-              genericDataWrapper = do_QueryInterface(file);
-          }
+	      if ( strcmp(flavorStr, kFileMime) == 0 ) {
+	        // we have a file path in |data|. Create an nsLocalFile object.
+	        nsDependentCString filepath(NS_REINTERPRET_CAST(char*, data));
+	        nsCOMPtr<nsILocalFile> file;
+	        if ( NS_SUCCEEDED(NS_NewNativeLocalFile(filepath, PR_FALSE, getter_AddRefs(file))) )
+	          genericDataWrapper = do_QueryInterface(file);
+	      }
         else if ( strcmp(flavorStr, kNativeHTMLMime) == 0) {
           // the editor folks want CF_HTML exactly as it's on the clipboard, no conversions,
           // no fancy stuff. Pull it off the clipboard, stuff it into a wrapper and hand
@@ -665,9 +664,9 @@ nsresult nsClipboard::GetDataFromDataObject(IDataObject     * aDataObject,
         NS_ASSERTION ( genericDataWrapper, "About to put null data into the transferable" );
         aTransferable->SetTransferData(flavorStr, genericDataWrapper, dataLen);
 
-        nsMemory::Free(data);
+        nsMemory::Free ( NS_REINTERPRET_CAST(char*, data) );        
         res = NS_OK;
-
+        
         // we found one, get out of the loop
         break;
       }
@@ -759,9 +758,9 @@ nsClipboard :: FindURLFromLocalFile ( IDataObject* inDataObject, UINT inIndex, v
   nsresult loadResult = GetNativeDataOffClipboard(inDataObject, inIndex, GetFormat(kFileMime), outData, outDataLen);
   if ( NS_SUCCEEDED(loadResult) && *outData ) {
     // we have a file path in |data|. Is it an internet shortcut or a normal file?
-    const nsDependentString filepath(NS_STATIC_CAST(PRUnichar*, *outData));
+    const char* filepath = NS_REINTERPRET_CAST(char*, *outData);
     nsCOMPtr<nsILocalFile> file;
-    nsresult rv = NS_NewLocalFile(filepath, PR_TRUE, getter_AddRefs(file));
+    nsresult rv = NS_NewNativeLocalFile(nsDependentCString(filepath), PR_TRUE, getter_AddRefs(file));
     if (NS_FAILED(rv))
       return dataFound;
 
@@ -820,9 +819,12 @@ nsClipboard :: ResolveShortcut ( nsILocalFile* aFile, nsACString& outURL )
 // A file is an Internet Shortcut if it ends with .URL
 //
 PRBool
-nsClipboard :: IsInternetShortcut ( const nsAString& inFileName ) 
+nsClipboard :: IsInternetShortcut ( const char* inFileName ) 
 {
-  return StringEndsWith(inFileName, NS_LITERAL_STRING(".url"), nsCaseInsensitiveStringComparator());
+  if ( strstr(inFileName, ".URL") || strstr(inFileName, ".url") )
+    return PR_TRUE;
+  
+  return PR_FALSE;
 } // IsInternetShortcut
 
 
