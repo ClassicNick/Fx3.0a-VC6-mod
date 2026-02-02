@@ -61,7 +61,7 @@ _OS_LIBS	= ole32
 endif
 
 ifdef GNU_CXX
-_OS_LIBS	+= gdi32 uuid
+_OS_LIBS	+= uuid
 endif
 OS_LIBS		+= $(call EXPAND_LIBNAME,$(_OS_LIBS))
 
@@ -73,7 +73,7 @@ CPPSRCS +=      gfxXlibSurface.cpp gfxPlatformGtk.cpp gfxXlibNativeRenderer.cpp
 CPPSRCS +=	gfxPangoFonts.cpp 
 CPPSRCS +=	gfxPDFSurface.cpp gfxPSSurface.cpp
 CSRCS = cairo-xlib-utils.c
-EXTRA_DSO_LDOPTS += $(MOZ_PANGO_LIBS) $(ZLIB_LIBS)
+EXTRA_DSO_LDOPTS += $(MOZ_PANGO_LIBS) $(ZLIB_LIBS) $(MOZ_XFT_LIBS) $(XLDFLAGS) $(XLIBS)
 endif
 
 ifeq ($(MOZ_GFX_TOOLKIT),beos)

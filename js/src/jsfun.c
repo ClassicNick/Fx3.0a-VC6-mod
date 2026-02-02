@@ -894,7 +894,8 @@ call_convert(JSContext *cx, JSObject *obj, JSType type, jsval *vp)
 
 JSClass js_CallClass = {
     js_Call_str,
-    JSCLASS_HAS_PRIVATE | JSCLASS_NEW_RESOLVE,
+    JSCLASS_HAS_PRIVATE | JSCLASS_NEW_RESOLVE |
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Call),
     JS_PropertyStub,  JS_PropertyStub,
     call_getProperty, call_setProperty,
     call_enumerate,   (JSResolveOp)call_resolve,
@@ -1103,7 +1104,7 @@ fun_resolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
          * Beware of the wacky case of a user function named Object -- trying
          * to find a prototype for that will recur back here _ad perniciem_.
          */
-        if (!parentProto && fun->atom == cx->runtime->atomState.ObjectAtom)
+        if (!parentProto && fun->atom == CLASS_ATOM(cx, Object))
             return JS_TRUE;
 
         /*
@@ -1441,7 +1442,8 @@ fun_reserveSlots(JSContext *cx, JSObject *obj)
  */
 JS_FRIEND_DATA(JSClass) js_FunctionClass = {
     js_Function_str,
-    JSCLASS_HAS_PRIVATE | JSCLASS_NEW_RESOLVE | JSCLASS_HAS_RESERVED_SLOTS(2),
+    JSCLASS_HAS_PRIVATE | JSCLASS_NEW_RESOLVE | JSCLASS_HAS_RESERVED_SLOTS(2) |
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Function),
     JS_PropertyStub,  JS_PropertyStub,
     fun_getProperty,  JS_PropertyStub,
     fun_enumerate,    (JSResolveOp)fun_resolve,
@@ -1844,7 +1846,7 @@ Function(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
 
     /* Belt-and-braces: check that the caller has access to parent. */
     if (!js_CheckPrincipalsAccess(cx, parent, principals,
-                                  cx->runtime->atomState.FunctionAtom)) {
+                                  CLASS_ATOM(cx, Function))) {
         return JS_FALSE;
     }
 

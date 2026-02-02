@@ -4569,30 +4569,10 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
   PRBool propagatedScrollToViewport =
     PropagateScrollToViewport() == aDocElement;
 
-  // The document root should not be scrollable in any paginated context,
-  // even in print preview.
-  PRBool isScrollable = display->IsScrollableOverflow()
-    && !aState.mPresContext->IsPaginated()
-    && !propagatedScrollToViewport;
-
-  nsIFrame* scrollFrame = nsnull;
-
-  // build a scrollframe
-  if (isScrollable) {
-    nsRefPtr<nsStyleContext> newContext;
-
-    newContext = BeginBuildingScrollFrame( aState,
-                                           aDocElement,
-                                           styleContext,
-                                           aParentFrame,
-                                           nsnull,
-                                           nsCSSAnonBoxes::scrolledContent,
-                                           PR_FALSE,
-                                           scrollFrame);
-
-    styleContext = newContext;
-    aParentFrame = scrollFrame;
-  }
+  NS_ASSERTION(!display->IsScrollableOverflow() || 
+               aState.mPresContext->IsPaginated() ||
+               propagatedScrollToViewport,
+               "Scrollbars should have been propagated to the viewport");
 
   nsIFrame* contentFrame = nsnull;
   PRBool isBlockFrame = PR_FALSE;
@@ -4643,16 +4623,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
   // set the primary frame
   aState.mFrameManager->SetPrimaryFrameFor(aDocElement, contentFrame);
 
-  // Finish building the scrollframe
-  if (isScrollable) {
-    FinishBuildingScrollFrame(aParentFrame, contentFrame);
-    // primary is set above (to the contentFrame)
-    
-    *aNewFrame = scrollFrame;
-  } else {
-    // if not scrollable the new frame is the content frame.
-    *aNewFrame = contentFrame;
-  }
+  *aNewFrame = contentFrame;
 
   mInitialContainingBlock = contentFrame;
 
@@ -6330,6 +6301,7 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
     }
 
     // Display types for XUL start here
+    // Make sure this is kept in sync with nsCSSProps::kDisplayKTable
     // First is BOX
     if (!newFrame && isXULDisplay) {
       triedFrame = PR_TRUE;
@@ -6461,7 +6433,7 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
       else {
         triedFrame = PR_FALSE;
       }
-#endif
+#endif // MOZ_XUL
     }
 
     if (mayBeScrollable && display->IsScrollableOverflow()) {

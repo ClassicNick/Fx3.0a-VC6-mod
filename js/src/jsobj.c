@@ -99,7 +99,7 @@ JS_FRIEND_DATA(JSObjectOps) js_ObjectOps = {
 
 JSClass js_ObjectClass = {
     js_Object_str,
-    0,
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Object),
     JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,
     JS_EnumerateStub, JS_ResolveStub,   JS_ConvertStub,   JS_FinalizeStub,
     JSCLASS_NO_OPTIONAL_MEMBERS
@@ -1197,7 +1197,8 @@ obj_eval(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
             if (obj != callerScopeChain) {
                 if (!js_CheckPrincipalsAccess(cx, obj,
                                               caller->script->principals,
-                                              cx->runtime->atomState.evalAtom)) {
+                                              cx->runtime->atomState.evalAtom))
+                {
                     return JS_FALSE;
                 }
 
@@ -1853,13 +1854,6 @@ js_InitObjectClass(JSContext *cx, JSObject *obj)
     if (!proto)
         return NULL;
 
-#if JS_HAS_OBJ_PROTO_PROP
-    if (!JS_InitClass(cx, obj, NULL, &js_WithClass, With, 0,
-                      NULL, NULL, NULL, NULL)) {
-        return NULL;
-    }
-#endif
-
     /* ECMA (15.1.2.1) says 'eval' is also a property of the global object. */
     if (!OBJ_GET_PROPERTY(cx, proto,
                           ATOM_TO_JSID(cx->runtime->atomState.evalAtom),
@@ -1984,10 +1978,28 @@ FreeSlots(JSContext *cx, jsval *slots)
         JS_free(cx, slots - 1);
 }
 
+extern JSBool
+js_GetClassId(JSContext *cx, JSClass *clasp, jsid *idp)
+{
+    JSProtoKey key;
+    JSAtom *atom;
+
+    key = JSCLASS_CACHED_PROTO_KEY(clasp);
+    if (key != JSProto_Null) {
+        *idp = INT_TO_JSID(key);
+    } else {
+        atom = js_Atomize(cx, clasp->name, strlen(clasp->name), 0);
+        if (!atom)
+            return JS_FALSE;
+        *idp = ATOM_TO_JSID(atom);
+    }
+    return JS_TRUE;
+}
+
 JSObject *
 js_NewObject(JSContext *cx, JSClass *clasp, JSObject *proto, JSObject *parent)
 {
-    JSAtom *classAtom;
+    jsid id;
     JSObject *obj;
     JSObjectOps *ops;
     JSObjectMap *map;
@@ -1998,14 +2010,12 @@ js_NewObject(JSContext *cx, JSClass *clasp, JSObject *proto, JSObject *parent)
 
     /* Bootstrap the ur-object, and make it the default prototype object. */
     if (!proto) {
-        classAtom = js_Atomize(cx, clasp->name, strlen(clasp->name), 0);
-        if (!classAtom)
+        if (!js_GetClassId(cx, clasp, &id))
             return NULL;
-        if (!js_GetClassPrototype(cx, parent, classAtom, &proto))
+        if (!js_GetClassPrototype(cx, parent, id, &proto))
             return NULL;
         if (!proto &&
-            !js_GetClassPrototype(cx, parent,
-                                  cx->runtime->atomState.ObjectAtom,
+            !js_GetClassPrototype(cx, parent, INT_TO_JSID(JSProto_Object),
                                   &proto)) {
             return NULL;
         }
@@ -2018,7 +2028,7 @@ js_NewObject(JSContext *cx, JSClass *clasp, JSObject *proto, JSObject *parent)
 
     /*
      * Allocate a zeroed object from the GC heap.  Do this *after* any other
-     * GC-thing allocations under GetClassPrototype or clasp->getObjectOps,
+     * GC-thing allocations under js_GetClassPrototype or clasp->getObjectOps,
      * to avoid displacing the newborn root for obj.
      */
     obj = (JSObject *) js_NewGCThing(cx, GCX_OBJECT, sizeof(JSObject));
@@ -2026,10 +2036,10 @@ js_NewObject(JSContext *cx, JSClass *clasp, JSObject *proto, JSObject *parent)
         return NULL;
 
     /*
-     * Root obj to prevent it from being killed.
-     * AllocSlots can trigger a finalizer from a last-ditch GC calling
-     * JS_ClearNewbornRoots. There's also the possibilty of things
-     * happening under the objectHook call-out below.    
+     * Root obj to prevent it from being collected out from under this call.
+     * to js_NewObject.  AllocSlots can trigger a finalizer from a last-ditch
+     * GC calling JS_ClearNewbornRoots. There's also the possibilty of things
+     * happening under the objectHook call-out further below.
      */
     JS_PUSH_SINGLE_TEMP_ROOT(cx, OBJECT_TO_JSVAL(obj), &tvr);
 
@@ -2109,9 +2119,10 @@ bad:
 }
 
 JSBool
-js_FindConstructor(JSContext *cx, JSObject *start, JSAtom *ctorName, jsval *vp)
+js_FindClassObject(JSContext *cx, JSObject *start, jsid id, jsval *vp)
 {
-    JSObject *obj, *pobj;
+    JSObject *obj, *cobj, *pobj;
+    JSProtoKey key;
     JSProperty *prop;
     JSScopeProperty *sprop;
 
@@ -2129,9 +2140,21 @@ js_FindConstructor(JSContext *cx, JSObject *start, JSAtom *ctorName, jsval *vp)
         }
     }
 
+    if (JSID_IS_INT(id)) {
+        key = JSID_TO_INT(id);
+        JS_ASSERT(key != JSProto_Null);
+        if (!js_GetClassObject(cx, obj, key, &cobj))
+            return JS_FALSE;
+        if (cobj) {
+            *vp = OBJECT_TO_JSVAL(cobj);
+            return JS_TRUE;
+        }
+        id = ATOM_TO_JSID(cx->runtime->atomState.classAtoms[key]);
+    }
+
     JS_ASSERT(OBJ_IS_NATIVE(obj));
-    if (!js_LookupPropertyWithFlags(cx, obj, ATOM_TO_JSID(ctorName),
-                                    JSRESOLVE_CLASSNAME, &pobj, &prop)) {
+    if (!js_LookupPropertyWithFlags(cx, obj, id, JSRESOLVE_CLASSNAME,
+                                    &pobj, &prop)) {
         return JS_FALSE;
     }
     if (!prop)  {
@@ -2151,20 +2174,19 @@ JSObject *
 js_ConstructObject(JSContext *cx, JSClass *clasp, JSObject *proto,
                    JSObject *parent, uintN argc, jsval *argv)
 {
-    JSAtom *ctorName;
+    jsid id;
     jsval cval, rval;
     JSTempValueRooter argtvr, tvr;
     JSObject *obj, *ctor;
 
     JS_PUSH_TEMP_ROOT(cx, argc, argv, &argtvr);
 
-    ctorName = js_Atomize(cx, clasp->name, strlen(clasp->name), 0);
-    if (!ctorName)
-        return NULL;
-    if (!js_FindConstructor(cx, parent, ctorName, &cval)) {
+    if (!js_GetClassId(cx, clasp, &id) ||
+        !js_FindClassObject(cx, parent, id, &cval)) {
         JS_POP_TEMP_ROOT(cx, &argtvr);
         return NULL;
     }
+
     if (JSVAL_IS_PRIMITIVE(cval)) {
         js_ReportIsNotFunction(cx, &cval, JSV2F_CONSTRUCT | JSV2F_SEARCH_STACK);
         JS_POP_TEMP_ROOT(cx, &argtvr);
@@ -2742,7 +2764,7 @@ js_LookupPropertyWithFlags(JSContext *cx, JSObject *obj, jsid id, uintN flags,
                     return JS_FALSE;
                 }
                 if (!entry) {
-                    /* Already resolving id in obj -- dampen recursion. */
+                    /* Already resolving id in obj -- suppress recursion. */
                     JS_UNLOCK_OBJ(cx, obj);
                     goto out;
                 }
@@ -3919,13 +3941,13 @@ js_IsDelegate(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
 }
 
 JSBool
-js_GetClassPrototype(JSContext *cx, JSObject *scope, JSAtom *classAtom,
+js_GetClassPrototype(JSContext *cx, JSObject *scope, jsid id,
                      JSObject **protop)
 {
     jsval v;
     JSObject *ctor;
 
-    if (!js_FindConstructor(cx, scope, classAtom, &v))
+    if (!js_FindClassObject(cx, scope, id, &v))
         return JS_FALSE;
     if (JSVAL_IS_FUNCTION(cx, v)) {
         ctor = JSVAL_TO_OBJECT(v);
@@ -4137,34 +4159,47 @@ JSBool
 js_XDRObject(JSXDRState *xdr, JSObject **objp)
 {
     JSContext *cx;
+    JSAtom *atom;
     JSClass *clasp;
-    JSAtom *classAtom;
     uint32 classId, classDef;
+    JSProtoKey protoKey;
+    jsid classKey;
     JSObject *proto;
 
     cx = xdr->cx;
+    atom = NULL;
     if (xdr->mode == JSXDR_ENCODE) {
-        /*
-         * XXX: faster way to get already existing classAtom from objp?
-         */
         clasp = OBJ_GET_CLASS(cx, *objp);
-        classAtom = js_Atomize(cx, clasp->name, strlen(clasp->name), 0);
-        if (!classAtom)
-            return JS_FALSE;
         classId = JS_XDRFindClassIdByName(xdr, clasp->name);
         classDef = !classId;
-        if (classDef && !JS_XDRRegisterClass(xdr, clasp, &classId))
-            return JS_FALSE;
+        if (classDef) {
+            if (!JS_XDRRegisterClass(xdr, clasp, &classId))
+                return JS_FALSE;
+            protoKey = JSCLASS_CACHED_PROTO_KEY(clasp);
+            if (protoKey != JSProto_Null) {
+                classDef |= (protoKey << 1);
+            } else {
+                atom = js_Atomize(cx, clasp->name, strlen(clasp->name), 0);
+                if (!atom)
+                    return JS_FALSE;
+            }
+        }
     } else {
-        classDef = 0;
-        classAtom = NULL;
         clasp = NULL;           /* quell GCC overwarning */
+        classDef = 0;
     }
 
-    /* XDR a flag word followed (if true) by the class name. */
+    /*
+     * XDR a flag word, which could be 0 for a class use, in which case no
+     * name follows, only the id in xdr's class registry; 1 for a class def,
+     * in which case the flag word is followed by the class name transferred
+     * from or to atom; or a value greater than 1, an odd number that when
+     * divided by two yields the JSProtoKey for class.  In the last case, as
+     * in the 0 classDef case, no name is transferred via atom.
+     */
     if (!JS_XDRUint32(xdr, &classDef))
         return JS_FALSE;
-    if (classDef && !js_XDRCStringAtom(xdr, &classAtom))
+    if (classDef == 1 && !js_XDRCStringAtom(xdr, &atom))
         return JS_FALSE;
 
     if (!JS_XDRUint32(xdr, &classId))
@@ -4172,7 +4207,12 @@ js_XDRObject(JSXDRState *xdr, JSObject **objp)
 
     if (xdr->mode == JSXDR_DECODE) {
         if (classDef) {
-            if (!js_GetClassPrototype(cx, NULL, classAtom, &proto))
+            /* NB: we know that JSProto_Null is 0 here, for backward compat. */
+            protoKey = classDef >> 1;
+            classKey = (protoKey != JSProto_Null)
+                       ? INT_TO_JSID(protoKey)
+                       : ATOM_TO_JSID(atom);
+            if (!js_GetClassPrototype(cx, NULL, classKey, &proto))
                 return JS_FALSE;
             clasp = OBJ_GET_CLASS(cx, proto);
             if (!JS_XDRRegisterClass(xdr, clasp, &classId))

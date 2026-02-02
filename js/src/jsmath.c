@@ -94,7 +94,7 @@ static JSConstDoubleSpec math_constants[] = {
 
 static JSClass math_class = {
     js_Math_str,
-    0,
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Math),
     JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,
     JS_EnumerateStub, JS_ResolveStub,   JS_ConvertStub,   JS_FinalizeStub,
     JSCLASS_NO_OPTIONAL_MEMBERS
@@ -468,7 +468,7 @@ static JSBool
 math_toSource(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
               jsval *rval)
 {
-    *rval = ATOM_KEY(cx->runtime->atomState.MathAtom);
+    *rval = ATOM_KEY(CLASS_ATOM(cx, Math));
     return JS_TRUE;
 }
 #endif

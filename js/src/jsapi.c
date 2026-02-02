@@ -1087,10 +1087,11 @@ JS_SetGlobalObject(JSContext *cx, JSObject *obj)
 #if JS_HAS_XML_SUPPORT
     cx->xmlSettingFlags = 0;
 #endif
+    memset(cx->classObjects, 0, sizeof cx->classObjects);
 }
 
-static JSObject *
-InitFunctionAndObjectClasses(JSContext *cx, JSObject *obj)
+JSObject *
+js_InitFunctionAndObjectClasses(JSContext *cx, JSObject *obj)
 {
     JSDHashTable *table;
     JSBool resolving;
@@ -1109,13 +1110,13 @@ InitFunctionAndObjectClasses(JSContext *cx, JSObject *obj)
     if (resolving) {
         rt = cx->runtime;
         key.obj = obj;
-        key.id = ATOM_TO_JSID(rt->atomState.FunctionAtom);
+        key.id = ATOM_TO_JSID(rt->atomState.classAtoms[JSProto_Function]);
         entry = (JSResolvingEntry *)
                 JS_DHashTableOperate(table, &key, JS_DHASH_ADD);
         if (entry && entry->key.obj && (entry->flags & JSRESFLAG_LOOKUP)) {
             /* Already resolving Function, record Object too. */
             JS_ASSERT(entry->key.obj == obj);
-            key.id = ATOM_TO_JSID(rt->atomState.ObjectAtom);
+            key.id = ATOM_TO_JSID(rt->atomState.classAtoms[JSProto_Object]);
             entry = (JSResolvingEntry *)
                     JS_DHashTableOperate(table, &key, JS_DHASH_ADD);
         }
@@ -1169,7 +1170,7 @@ JS_InitStandardClasses(JSContext *cx, JSObject *obj)
 #endif
 
     /* Function and Object require cooperative bootstrapping magic. */
-    if (!InitFunctionAndObjectClasses(cx, obj))
+    if (!js_InitFunctionAndObjectClasses(cx, obj))
         return JS_FALSE;
 
     /* Initialize the rest of the standard objects and functions. */
@@ -1199,7 +1200,8 @@ JS_InitStandardClasses(JSContext *cx, JSObject *obj)
            js_InitDateClass(cx, obj);
 }
 
-#define ATOM_OFFSET(name)       offsetof(JSAtomState, name##Atom)
+#define ATOM_OFFSET(name)       offsetof(JSAtomState,name##Atom)
+#define CLASS_ATOM_OFFSET(name) offsetof(JSAtomState,classAtoms[JSProto_##name])
 #define OFFSET_TO_ATOM(rt,off)  (*(JSAtom **)((char*)&(rt)->atomState + (off)))
 
 /*
@@ -1210,35 +1212,35 @@ static struct {
     JSObjectOp  init;
     size_t      atomOffset;
 } standard_class_atoms[] = {
-    {InitFunctionAndObjectClasses,  ATOM_OFFSET(Function)},
-    {InitFunctionAndObjectClasses,  ATOM_OFFSET(Object)},
-    {js_InitArrayClass,             ATOM_OFFSET(Array)},
-    {js_InitBooleanClass,           ATOM_OFFSET(Boolean)},
-    {js_InitDateClass,              ATOM_OFFSET(Date)},
-    {js_InitMathClass,              ATOM_OFFSET(Math)},
-    {js_InitNumberClass,            ATOM_OFFSET(Number)},
-    {js_InitStringClass,            ATOM_OFFSET(String)},
+    {js_InitFunctionAndObjectClasses,   CLASS_ATOM_OFFSET(Function)},
+    {js_InitFunctionAndObjectClasses,   CLASS_ATOM_OFFSET(Object)},
+    {js_InitArrayClass,                 CLASS_ATOM_OFFSET(Array)},
+    {js_InitBooleanClass,               CLASS_ATOM_OFFSET(Boolean)},
+    {js_InitDateClass,                  CLASS_ATOM_OFFSET(Date)},
+    {js_InitMathClass,                  CLASS_ATOM_OFFSET(Math)},
+    {js_InitNumberClass,                CLASS_ATOM_OFFSET(Number)},
+    {js_InitStringClass,                CLASS_ATOM_OFFSET(String)},
 #if JS_HAS_CALL_OBJECT
-    {js_InitCallClass,              ATOM_OFFSET(Call)},
+    {js_InitCallClass,                  CLASS_ATOM_OFFSET(Call)},
 #endif
 #if JS_HAS_ERROR_EXCEPTIONS
-    {js_InitExceptionClasses,       ATOM_OFFSET(Error)},
+    {js_InitExceptionClasses,           CLASS_ATOM_OFFSET(Error)},
 #endif
 #if JS_HAS_REGEXPS
-    {js_InitRegExpClass,            ATOM_OFFSET(RegExp)},
+    {js_InitRegExpClass,                CLASS_ATOM_OFFSET(RegExp)},
 #endif
 #if JS_HAS_SCRIPT_OBJECT
-    {js_InitScriptClass,            ATOM_OFFSET(Script)},
+    {js_InitScriptClass,                CLASS_ATOM_OFFSET(Script)},
 #endif
 #if JS_HAS_XML_SUPPORT
-    {js_InitXMLClass,               ATOM_OFFSET(XML)},
-    {js_InitNamespaceClass,         ATOM_OFFSET(Namespace)},
-    {js_InitQNameClass,             ATOM_OFFSET(QName)},
+    {js_InitXMLClass,                   CLASS_ATOM_OFFSET(XML)},
+    {js_InitNamespaceClass,             CLASS_ATOM_OFFSET(Namespace)},
+    {js_InitQNameClass,                 CLASS_ATOM_OFFSET(QName)},
 #endif
 #if JS_HAS_FILE_OBJECT
-    {js_InitFileClass,              ATOM_OFFSET(File)},
+    {js_InitFileClass,                  CLASS_ATOM_OFFSET(File)},
 #endif
-    {NULL,                          0}
+    {NULL,                              0}
 };
 
 /*
@@ -1271,8 +1273,9 @@ StdNameToAtom(JSContext *cx, JSStdName *stdn)
     return atom;
 }
 
-#define EAGERLY_PINNED_ATOM(name)   ATOM_OFFSET(name), NULL
-#define LAZILY_PINNED_ATOM(name)    ATOM_OFFSET(lazy.name), js_##name##_str
+#define EAGERLY_PINNED_ATOM(name)       ATOM_OFFSET(name), NULL
+#define EAGERLY_PINNED_CLASS_ATOM(name) CLASS_ATOM_OFFSET(name), NULL
+#define LAZILY_PINNED_ATOM(name)        ATOM_OFFSET(lazy.name), js_##name##_str
 
 static JSStdName standard_class_names[] = {
     /* ECMA requires that eval be a direct property of the global object. */
@@ -1299,19 +1302,19 @@ static JSStdName standard_class_names[] = {
 
     /* Exception constructors. */
 #if JS_HAS_ERROR_EXCEPTIONS
-    {js_InitExceptionClasses,   EAGERLY_PINNED_ATOM(Error)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(InternalError)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(EvalError)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(RangeError)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(ReferenceError)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(SyntaxError)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(TypeError)},
-    {js_InitExceptionClasses,   LAZILY_PINNED_ATOM(URIError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(Error)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(InternalError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(EvalError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(RangeError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(ReferenceError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(SyntaxError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(TypeError)},
+    {js_InitExceptionClasses,   EAGERLY_PINNED_CLASS_ATOM(URIError)},
 #endif
 
 #if JS_HAS_XML_SUPPORT
-    {js_InitAnyNameClass,       LAZILY_PINNED_ATOM(AnyName)},
-    {js_InitAttributeNameClass, LAZILY_PINNED_ATOM(AttributeName)},
+    {js_InitAnyNameClass,       EAGERLY_PINNED_CLASS_ATOM(AnyName)},
+    {js_InitAttributeNameClass, EAGERLY_PINNED_CLASS_ATOM(AttributeName)},
     {js_InitXMLClass,           LAZILY_PINNED_ATOM(XMLList)},
     {js_InitXMLClass,           LAZILY_PINNED_ATOM(isXMLName)},
 #endif
@@ -1556,6 +1559,14 @@ JS_EnumerateResolvedStandardClasses(JSContext *cx, JSObject *obj,
 
     /* Trim to exact length via js_SetIdArrayLength. */
     return js_SetIdArrayLength(cx, ida, i);
+}
+
+JS_PUBLIC_API(JSBool)
+JS_GetClassObject(JSContext *cx, JSObject *obj, JSProtoKey key,
+                  JSObject **objp)
+{
+    CHECK_REQUEST(cx);
+    return js_GetClassObject(cx, obj, key, objp);
 }
 
 #undef ATOM_OFFSET
@@ -1967,8 +1978,14 @@ JS_ValueToId(JSContext *cx, jsval v, jsid *idp)
 
     CHECK_REQUEST(cx);
     if (JSVAL_IS_INT(v)) {
-        *idp = v;
+        *idp = INT_JSVAL_TO_JSID(v);
     } else {
+#if JS_HAS_XML_SUPPORT
+        if (JSVAL_IS_OBJECT(v)) {
+            *idp = OBJECT_JSVAL_TO_JSID(v);
+            return JS_TRUE;
+        }
+#endif
         atom = js_ValueToStringAtom(cx, v);
         if (!atom)
             return JS_FALSE;
@@ -2026,6 +2043,7 @@ JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
              JSPropertySpec *static_ps, JSFunctionSpec *static_fs)
 {
     JSAtom *atom;
+    JSProtoKey key;
     JSObject *proto, *ctor;
     JSTempValueRooter tvr;
     jsval cval, rval;
@@ -2037,6 +2055,28 @@ JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
     if (!atom)
         return NULL;
 
+    /*
+     * When initializing a standard class, if no parent_proto (grand-proto of
+     * instances of the class, parent-proto of the class's prototype object)
+     * is given, we must use Object.prototype if it is available.  Otherwise,
+     * we could look up the wrong binding for a class name in obj.  Example:
+     *
+     *   String = Array;
+     *   print("hi there".join);
+     *
+     * should print undefined, not Array.prototype.join.  This is required by
+     * ECMA-262, alas.  It might have been better to make String readonly and
+     * permanent in the global object, instead -- but that's too big a change
+     * to swallow at this point.
+     */
+    key = JSCLASS_CACHED_PROTO_KEY(clasp);
+    if (key != JSProto_Null &&
+        !parent_proto &&
+        !js_GetClassPrototype(cx, obj, INT_TO_JSID(JSProto_Object),
+                              &parent_proto)) {
+        return NULL;
+    }
+
     /* Create a prototype object for this class. */
     proto = js_NewObject(cx, clasp, parent_proto, obj);
     if (!proto)
@@ -2046,12 +2086,19 @@ JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
     JS_PUSH_SINGLE_TEMP_ROOT(cx, OBJECT_TO_JSVAL(proto), &tvr);
 
     if (!constructor) {
-        /* Lacking a constructor, name the prototype (e.g., Math). */
-        named = OBJ_DEFINE_PROPERTY(cx, obj, ATOM_TO_JSID(atom),
-                                    OBJECT_TO_JSVAL(proto),
-                                    NULL, NULL, 0, NULL);
-        if (!named)
-            goto bad;
+        /*
+         * Lacking a constructor, name the prototype (e.g., Math) unless this
+         * class is anonymous, i.e. for internal use only.
+         */
+        if (clasp->flags & JSCLASS_IS_ANONYMOUS) {
+            named = JS_FALSE;
+        } else {
+            named = OBJ_DEFINE_PROPERTY(cx, obj, ATOM_TO_JSID(atom),
+                                        OBJECT_TO_JSVAL(proto),
+                                        NULL, NULL, 0, NULL);
+            if (!named)
+                goto bad;
+        }
         ctor = proto;
     } else {
         /* Define the constructor function in obj's scope. */
@@ -2090,10 +2137,7 @@ JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
 
         /* Bootstrap Function.prototype (see also JS_InitStandardClasses). */
         if (OBJ_GET_CLASS(cx, ctor) == clasp) {
-            /* XXXMLM - this fails in framesets that are writing over
-             *           themselves!
-             * JS_ASSERT(!OBJ_GET_PROTO(cx, ctor));
-             */
+            JS_ASSERT(!OBJ_GET_PROTO(cx, ctor));
             OBJ_SET_PROTO(cx, ctor, proto);
         }
     }
@@ -2105,6 +2149,10 @@ JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
         (static_fs && !JS_DefineFunctions(cx, ctor, static_fs))) {
         goto bad;
     }
+
+    /* If this is a standard class, cache its prototype. */
+    if (key != JSProto_Null)
+        js_SetClassObject(cx, obj, key, ctor);
 
 out:
     JS_POP_TEMP_ROOT(cx, &tvr);
@@ -2724,17 +2772,10 @@ JS_GetProperty(JSContext *cx, JSObject *obj, const char *name, jsval *vp)
 }
 
 JS_PUBLIC_API(JSBool)
-JS_GetMethod(JSContext *cx, JSObject *obj, const char *name, JSObject **objp,
-             jsval *vp)
+JS_GetMethodById(JSContext *cx, JSObject *obj, jsid id, JSObject **objp,
+                 jsval *vp)
 {
-    JSAtom *atom;
-    jsid id;
-
     CHECK_REQUEST(cx);
-    atom = js_Atomize(cx, name, strlen(name), 0);
-    if (!atom)
-        return JS_FALSE;
-    id = ATOM_TO_JSID(atom);
 
 #if JS_HAS_XML_SUPPORT
     if (OBJECT_IS_XML(cx, obj)) {
@@ -2753,6 +2794,18 @@ JS_GetMethod(JSContext *cx, JSObject *obj, const char *name, JSObject **objp,
 
     *objp = obj;
     return JS_TRUE;
+}
+
+JS_PUBLIC_API(JSBool)
+JS_GetMethod(JSContext *cx, JSObject *obj, const char *name, JSObject **objp,
+             jsval *vp)
+{
+    JSAtom *atom;
+
+    atom = js_Atomize(cx, name, strlen(name), 0);
+    if (!atom)
+        return JS_FALSE;
+    return JS_GetMethodById(cx, obj, ATOM_TO_JSID(atom), objp, vp);
 }
 
 JS_PUBLIC_API(JSBool)
@@ -3069,6 +3122,8 @@ JS_ClearScope(JSContext *cx, JSObject *obj)
 
     if (obj->map->ops->clear)
         obj->map->ops->clear(cx, obj);
+    if (cx->globalObject == obj)
+        memset(cx->classObjects, 0, sizeof cx->classObjects);
 }
 
 JS_PUBLIC_API(JSIdArray *)

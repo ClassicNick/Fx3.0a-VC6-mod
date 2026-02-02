@@ -100,6 +100,10 @@
 
 #ifdef XP_WIN
 #include "cairo-win32.h"
+#ifndef M_PI
+#define M_PI		3.14159265358979323846
+#define M_PI_2		1.57079632679489661923
+#endif
 #endif
 
 #ifdef MOZ_WIDGET_GTK2
@@ -276,9 +280,12 @@ protected:
     enum {
         STYLE_STROKE = 0,
         STYLE_FILL,
-        STYLE_SHADOW,
-        STYLE_MAX
+        STYLE_SHADOW
+        //STYLE_MAX
     };
+
+    // VC6 sucks
+#define STYLE_MAX 3
 
     nsresult SetStyleFromVariant(nsIVariant* aStyle, PRInt32 aWhichStyle);
     void StyleColorToString(const nscolor& aColor, nsAString& aStr);
@@ -743,9 +750,13 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
 
 #ifdef XP_WIN
     void *ptr = nsnull;
+#ifdef MOZILLA_1_8_BRANCH
     rv = rc->RetrieveCurrentNativeGraphicData(&ptr);
     if (NS_FAILED(rv) || !ptr)
         return NS_ERROR_FAILURE;
+#else
+    ptr = rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_WINDOWS_DC);
+#endif
     HDC dc = (HDC) ptr;
 
     dest = cairo_win32_surface_create (dc);
@@ -754,9 +765,15 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
 
 #ifdef MOZ_WIDGET_GTK2
     GdkDrawable *gdkdraw = nsnull;
+#ifdef MOZILLA_1_8_BRANCH
     rv = rc->RetrieveCurrentNativeGraphicData((void**) &gdkdraw);
     if (NS_FAILED(rv) || !gdkdraw)
         return NS_ERROR_FAILURE;
+#else
+    gdkdraw = (GdkDrawable*) rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_GDK_DRAWABLE);
+    if (!gdkdraw)
+        return NS_ERROR_FAILURE;
+#endif
 
     gint w, h;
     gdk_drawable_get_size (gdkdraw, &w, &h);
@@ -808,9 +825,15 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
     // OSX path
 
     CGrafPtr port = nsnull;
+#ifdef MOZILLA_1_8_BRANCH
     rv = rc->RetrieveCurrentNativeGraphicData((void**) &port);
     if (NS_FAILED(rv) || !port)
         return NS_ERROR_FAILURE;
+#else
+    port = (CGrafPtr) rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_MAC_THING);
+    if (!port)
+        return NS_ERROR_FAILURE;
+#endif
 
     struct Rect portRect;
     GetPortBounds(port, &portRect);

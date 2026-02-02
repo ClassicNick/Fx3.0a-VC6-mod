@@ -316,7 +316,7 @@ script_exec(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
     /* Belt-and-braces: check that this script object has access to scopeobj. */
     principals = script->principals;
     if (!js_CheckPrincipalsAccess(cx, scopeobj, principals,
-                                  cx->runtime->atomState.ScriptAtom)) {
+                                  CLASS_ATOM(cx, Script))) {
         return JS_FALSE;
     }
 
@@ -849,7 +849,7 @@ script_mark(JSContext *cx, JSObject *obj, void *arg)
 
 JS_FRIEND_DATA(JSClass) js_ScriptClass = {
     js_Script_str,
-    JSCLASS_HAS_PRIVATE,
+    JSCLASS_HAS_PRIVATE | JSCLASS_HAS_CACHED_PROTO(JSProto_Script),
     JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,
     JS_EnumerateStub, JS_ResolveStub,   JS_ConvertStub,   script_finalize,
     NULL,             NULL,             script_call,      NULL,/*XXXbe xdr*/
