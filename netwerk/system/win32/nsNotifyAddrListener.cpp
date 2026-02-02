@@ -42,7 +42,6 @@
 #include <wingdi.h>
 #include <winuser.h>
 #include <winsock2.h>
-#include <iprtrmib.h>
 #include <time.h>
 #include "prmem.h"
 #include "prthread.h"
@@ -55,6 +54,11 @@
 
 // Unfortunately, this header file is not available in older SDKs.
 // #include <IPTypes.h>
+// #include <iprtrmib.h>
+
+#ifndef ULONGLONG
+#define ULONGLONG unsigned __int64
+#endif
 
 #define MAX_ADAPTER_DESCRIPTION_LENGTH  128 // arb.
 #define MAX_ADAPTER_NAME_LENGTH         256 // arb.
@@ -214,6 +218,58 @@ typedef struct _IP_ADAPTER_INFO {
     time_t LeaseObtained;
     time_t LeaseExpires;
 } IP_ADAPTER_INFO, *PIP_ADAPTER_INFO;
+
+#define ANY_SIZE 1
+#define MIB_IF_OPER_STATUS_CONNECTED            4
+
+#define MAXLEN_IFDESCR 256
+#define MAX_INTERFACE_NAME_LEN  256
+#define MAXLEN_PHYSADDR 8
+
+typedef struct _MIB_IFROW
+{
+    WCHAR   wszName[MAX_INTERFACE_NAME_LEN];
+    DWORD	dwIndex;
+    DWORD	dwType;
+    DWORD	dwMtu;
+    DWORD	dwSpeed;
+    DWORD	dwPhysAddrLen;
+    BYTE	bPhysAddr[MAXLEN_PHYSADDR];
+    DWORD	dwAdminStatus;
+    DWORD	dwOperStatus;
+    DWORD	dwLastChange;
+    DWORD	dwInOctets;
+    DWORD	dwInUcastPkts;
+    DWORD	dwInNUcastPkts;
+    DWORD	dwInDiscards;
+    DWORD	dwInErrors;
+    DWORD	dwInUnknownProtos;
+    DWORD	dwOutOctets;
+    DWORD	dwOutUcastPkts;
+    DWORD	dwOutNUcastPkts;
+    DWORD	dwOutDiscards;
+    DWORD	dwOutErrors;
+    DWORD	dwOutQLen;
+    DWORD	dwDescrLen;
+    BYTE	bDescr[MAXLEN_IFDESCR];
+} MIB_IFROW,*PMIB_IFROW;
+
+typedef struct _MIB_IPADDRROW
+{
+    DWORD		dwAddr;
+    DWORD		dwIndex;
+    DWORD		dwMask;
+    DWORD		dwBCastAddr;
+    DWORD		dwReasmSize;
+    unsigned short	unused1;
+    unsigned short	unused2;
+} MIB_IPADDRROW, *PMIB_IPADDRROW;
+
+typedef struct _MIB_IPADDRTABLE
+{
+    DWORD         dwNumEntries;
+    MIB_IPADDRROW table[ANY_SIZE];
+} MIB_IPADDRTABLE, *PMIB_IPADDRTABLE;
 
 typedef DWORD (WINAPI *GetAdaptersAddressesFunc)(ULONG, DWORD, PVOID,
                                                  PIP_ADAPTER_ADDRESSES,

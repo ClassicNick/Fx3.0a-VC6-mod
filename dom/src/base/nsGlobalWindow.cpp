@@ -5519,6 +5519,8 @@ nsGlobalWindow::FireDelayedDOMEvents()
     mFireOfflineStatusChangeEventOnThaw = PR_FALSE;
     FireOfflineStatusEvent();
   }
+
+  return NS_OK;
 }
 
 //*****************************************************************************
