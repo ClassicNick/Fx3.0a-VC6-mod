@@ -39,6 +39,7 @@
 #include "nsIServiceManager.h"
 #include "nsSocketTransport2.h"
 #include "nsServerSocket.h"
+#include "nsProxyRelease.h"
 #include "nsAutoLock.h"
 #include "nsAutoPtr.h"
 #include "nsNetError.h"
@@ -52,28 +53,10 @@ static NS_DEFINE_CID(kSocketTransportServiceCID, NS_SOCKETTRANSPORTSERVICE_CID);
 
 typedef void (nsServerSocket:: *nsServerSocketFunc)(void);
 
-class nsServerSocketEvent : public nsRunnable
-{
-public:
-  nsServerSocketEvent(nsServerSocket *s, nsServerSocketFunc f)
-    : mServerSocket(s)
-    , mFunc(f)
-  {}
-
-  NS_IMETHOD Run()
-  {
-    (mServerSocket->*mFunc)();
-    return nsnull;
-  }
-
-  nsRefPtr<nsServerSocket> mServerSocket;
-  nsServerSocketFunc       mFunc;
-};
-
 static nsresult
 PostEvent(nsServerSocket *s, nsServerSocketFunc func)
 {
-  nsRefPtr<nsServerSocketEvent> ev = new nsServerSocketEvent(s, func);
+  nsCOMPtr<nsIRunnable> ev = new nsRunnableMethod<nsServerSocket>(s, func);
   if (!ev)
     return NS_ERROR_OUT_OF_MEMORY;
 
@@ -168,7 +151,7 @@ nsServerSocket::TryAttach()
   if (!gSocketTransportService->CanAttachSocket())
   {
     nsCOMPtr<nsIRunnable> event =
-        new nsServerSocketEvent(this, &nsServerSocket::OnMsgAttach);
+        NS_NEW_RUNNABLE_METHOD(nsServerSocket, this, OnMsgAttach);
     if (!event)
       return NS_ERROR_OUT_OF_MEMORY;
 
@@ -255,8 +238,15 @@ nsServerSocket::OnSocketDetached(PRFileDesc *fd)
     mListener->OnStopListening(this, mCondition);
 
     // need to atomically clear mListener.  see our Close() method.
-    nsAutoLock lock(mLock);
-    mListener = nsnull;
+    nsIServerSocketListener *listener = nsnull;
+    {
+      nsAutoLock lock(mLock);
+      mListener.swap(listener);
+    }
+    // XXX we need to proxy the release to the listener's target thread to work
+    // around bug 337492.
+    if (listener)
+      NS_ProxyRelease(mListenerTarget, listener);
   }
 }
 
@@ -390,6 +380,7 @@ nsServerSocket::AsyncListen(nsIServerSocketListener *aListener)
                                        getter_AddRefs(mListener));
     if (NS_FAILED(rv))
       return rv;
+    mListenerTarget = NS_GetCurrentThread();
   }
   return PostEvent(this, &nsServerSocket::OnMsgAttach);
 }
