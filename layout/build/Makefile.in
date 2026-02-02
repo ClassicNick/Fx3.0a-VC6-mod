@@ -202,6 +202,10 @@ endif
 ifdef MOZ_ENABLE_GTK2
 EXTRA_DSO_LDOPTS += $(MOZ_GTK2_LIBS) \
 		    $(NULL)
+ifdef MOZ_ENABLE_CAIRO_GFX
+EXTRA_DSO_LDOPTS += -lXrender \
+		    $(NULL)
+endif
 endif
 
 ifndef MOZ_ENABLE_CAIRO_GFX
