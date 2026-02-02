@@ -204,22 +204,6 @@ sub AnyDefaultGroups {
     return $::CachedAnyDefaultGroups;
 }
 
-sub ValidatePassword {
-    # Determines whether or not a password is valid (i.e. meets Bugzilla's
-    # requirements for length and content).    
-    # If a second password is passed in, this function also verifies that
-    # the two passwords match.
-    my ($password, $matchpassword) = @_;
-    
-    if (length($password) < 3) {
-        ThrowUserError("password_too_short");
-    } elsif (length($password) > 16) {
-        ThrowUserError("password_too_long");
-    } elsif ((defined $matchpassword) && ($password ne $matchpassword)) {
-        ThrowUserError("passwords_dont_match");
-    }
-}
-
 sub DBID_to_name {
     my ($id) = (@_);
     return "__UNKNOWN__" if !defined $id;
@@ -240,16 +224,6 @@ sub DBID_to_name {
         $::cachedNameArray{$id} = $r;
     }
     return $::cachedNameArray{$id};
-}
-
-sub DBNameToIdAndCheck {
-    my ($name) = (@_);
-    my $result = login_to_id($name);
-    if ($result > 0) {
-        return $result;
-    }
-
-    ThrowUserError("invalid_username", { name => $name });
 }
 
 sub get_product_id {
@@ -304,15 +278,6 @@ sub get_legal_field_values {
            WHERE isactive = ?
         ORDER BY sortkey, value", undef, (1));
     return @$result_ref;
-}
-
-sub GroupIdToName {
-    my ($groupid) = (@_);
-    PushGlobalSQLState();
-    SendSQL("SELECT name FROM groups WHERE id = $groupid");
-    my $name = FetchOneColumn();
-    PopGlobalSQLState();
-    return $name;
 }
 
 ############# Live code below here (that is, not subroutine defs) #############

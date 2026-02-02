@@ -55,13 +55,13 @@
 #include "nsIDOMElement.h"
 #include "nsIDOMDOMImplementation.h"
 #include "nsIDOMEventReceiver.h"
-#include "nsIEventQueueService.h"
 #include "nsIJSContextStack.h"
 #include "nsIPrivateDOMImplementation.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsContentCID.h"
 #include "nsContentUtils.h"
+#include "nsThreadUtils.h"
 #include "nsNetUtil.h"
 #include "nsIHttpChannel.h"
 #include "nsIScriptLoader.h"
@@ -215,6 +215,12 @@ nsSyncLoader::LoadDocument(nsIChannel* aChannel,
     nsresult rv = NS_OK;
 
     mChannel = aChannel;
+    nsCOMPtr<nsIHttpChannel> http = do_QueryInterface(mChannel);
+    if (http) {
+        http->SetRequestHeader(NS_LITERAL_CSTRING("Accept"),     
+                               NS_LITERAL_CSTRING("text/xml,application/xml,application/xhtml+xml,*/*;q=0.1"),
+                               PR_FALSE);
+    }
 
     if (aLoaderURI) {
         nsCOMPtr<nsIURI> docURI;
@@ -278,6 +284,12 @@ nsSyncLoader::LoadDocument(nsIChannel* aChannel,
         rv = PushAsyncStream(listener);
     }
 
+    http = do_QueryInterface(mChannel);
+    if (mLoadSuccess && http) {
+        PRBool succeeded;
+        mLoadSuccess = NS_SUCCEEDED(http->GetRequestSucceeded(&succeeded)) &&
+                       succeeded;
+    }
     mChannel = nsnull;
 
     // This will release the proxy. Don't use the errorvalue from this since
@@ -299,42 +311,26 @@ nsSyncLoader::LoadDocument(nsIChannel* aChannel,
 nsresult
 nsSyncLoader::PushAsyncStream(nsIStreamListener* aListener)
 {
-    nsresult rv = NS_OK;
-
-    // Set up a new eventqueue
-    nsCOMPtr<nsIEventQueueService> service = 
-        do_GetService(NS_EVENTQUEUESERVICE_CONTRACTID, &rv);
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    nsCOMPtr<nsIEventQueue> currentThreadQ;
-    rv = service->PushThreadEventQueue(getter_AddRefs(currentThreadQ));
-    NS_ENSURE_SUCCESS(rv, rv);
-
     // Hook us up to listen to redirects and the like
     mChannel->SetNotificationCallbacks(this);
 
     // Start reading from the channel
-    rv = mChannel->AsyncOpen(aListener, nsnull);
+    nsresult rv = mChannel->AsyncOpen(aListener, nsnull);
 
     if (NS_SUCCEEDED(rv)) {
-        mLoading = PR_TRUE;
-
         // process events until we're finished.
-        PLEvent *event;
+        mLoading = PR_TRUE;
+        nsIThread *thread = NS_GetCurrentThread();
         while (mLoading && NS_SUCCEEDED(rv)) {
-            rv = currentThreadQ->WaitForEvent(&event);
-            NS_ASSERTION(NS_SUCCEEDED(rv), ": currentThreadQ->WaitForEvent failed...\n");
-            if (NS_SUCCEEDED(rv)) {
-                rv = currentThreadQ->HandleEvent(event);
-                NS_ASSERTION(NS_SUCCEEDED(rv), ": currentThreadQ->HandleEvent failed...\n");
-            }
+            PRBool processedEvent; 
+            rv = thread->ProcessNextEvent(PR_TRUE, &processedEvent);
+            if (NS_SUCCEEDED(rv) && !processedEvent)
+                rv = NS_ERROR_UNEXPECTED;
         }
     }
 
     // Note that if AsyncOpen failed that's ok -- the only caller of
     // this method nulls out mChannel immediately after we return.
-
-    service->PopThreadEventQueue(currentThreadQ);
     
     return rv;
 }

@@ -838,6 +838,26 @@ sub ChangeResolution {
     if (!$cgi->param('dontchange')
         || $str ne $cgi->param('dontchange'))
     {
+        # Make sure the user is allowed to change the resolution.
+        # If the user is changing several bugs at once using the UI,
+        # then he has enough privs to do so. In the case he is hacking
+        # the URL, we don't care if he reads --UNKNOWN-- as a resolution
+        # in the error message.
+        my $old_resolution = '-- UNKNOWN --';
+        my $bug_id = $cgi->param('id');
+        if ($bug_id) {
+            $old_resolution =
+                $dbh->selectrow_array('SELECT resolution FROM bugs WHERE bug_id = ?',
+                                       undef, $bug_id);
+        }
+        unless (CheckCanChangeField('resolution', $bug_id, $old_resolution, $str)) {
+            $vars->{'oldvalue'} = $old_resolution;
+            $vars->{'newvalue'} = $str;
+            $vars->{'field'} = 'resolution';
+            $vars->{'privs'} = $PrivilegesRequired;
+            ThrowUserError("illegal_change", $vars);
+        }
+
         DoComma();
         $::query .= "resolution = ?";
         trick_taint($str);
@@ -1050,7 +1070,7 @@ if (defined $cgi->param('newcc')
     if ($cc_add) {
         $cc_add =~ s/[\s,]+/ /g; # Change all delimiters to a single space
         foreach my $person ( split(" ", $cc_add) ) {
-            my $pid = DBNameToIdAndCheck($person);
+            my $pid = login_to_id($person, THROW_ERROR);
             $cc_add{$pid} = $person;
         }
     }
@@ -1060,7 +1080,7 @@ if (defined $cgi->param('newcc')
     if ($cc_remove) {
         $cc_remove =~ s/[\s,]+/ /g; # Change all delimiters to a single space
         foreach my $person ( split(" ", $cc_remove) ) {
-            my $pid = DBNameToIdAndCheck($person);
+            my $pid = login_to_id($person, THROW_ERROR);
             $cc_remove{$pid} = $person;
         }
     }
@@ -1087,7 +1107,7 @@ if (defined $cgi->param('qa_contact')
     my $name = trim($cgi->param('qa_contact'));
     # The QA contact cannot be deleted from show_bug.cgi for a single bug!
     if ($name ne $cgi->param('dontchange')) {
-        $qacontact = DBNameToIdAndCheck($name) if ($name ne "");
+        $qacontact = login_to_id($name, THROW_ERROR) if ($name ne "");
         if ($qacontact && Param("strict_isolation")) {
                 $usercache{$qacontact} ||= Bugzilla::User->new($qacontact);
                 my $qa_user = $usercache{$qacontact};
@@ -1172,7 +1192,7 @@ SWITCH: for ($cgi->param('knob')) {
         DoComma();
         if (defined $cgi->param('assigned_to')
             && trim($cgi->param('assigned_to')) ne "") { 
-            $assignee = DBNameToIdAndCheck(trim($cgi->param('assigned_to')));
+            $assignee = login_to_id(trim($cgi->param('assigned_to')), THROW_ERROR);
             if (Param("strict_isolation")) {
                 $usercache{$assignee} ||= Bugzilla::User->new($assignee);
                 my $assign_user = $usercache{$assignee};
@@ -1539,6 +1559,9 @@ foreach my $id (@idlist) {
         }
     }
     foreach my $col (@::log_columns) {
+        # The 'resolution' field is checked by ChangeResolution(),
+        # i.e. only if we effectively use it.
+        next if ($col eq 'resolution');
         if (exists $formhash{$col}
             && !CheckCanChangeField($col, $id, $oldhash{$col}, $formhash{$col}))
         {
@@ -1749,9 +1772,10 @@ foreach my $id (@idlist) {
                                    VALUES (?, ?)});
     foreach my $grouptoadd (@groupAdd, keys %groupsrequired) {
         next if $groupsforbidden{$grouptoadd};
-        push(@groupAddNamesAll, GroupIdToName($grouptoadd));
+        my $group_obj = new Bugzilla::Group($grouptoadd);
+        push(@groupAddNamesAll, $group_obj->name);
         if (!BugInGroupId($id, $grouptoadd)) {
-            push(@groupAddNames, GroupIdToName($grouptoadd));
+            push(@groupAddNames, $group_obj->name);
             $sth->execute($id, $grouptoadd);
         }
     }
@@ -1760,10 +1784,11 @@ foreach my $id (@idlist) {
     $sth = $dbh->prepare(q{DELETE FROM bug_group_map
                                  WHERE bug_id = ? AND group_id = ?});
     foreach my $grouptodel (@groupDel, keys %groupsforbidden) {
-        push(@groupDelNamesAll, GroupIdToName($grouptodel));
+        my $group_obj = new Bugzilla::Group($grouptodel);
+        push(@groupDelNamesAll, $group_obj->name);
         next if $groupsrequired{$grouptodel};
         if (BugInGroupId($id, $grouptodel)) {
-            push(@groupDelNames, GroupIdToName($grouptodel));
+            push(@groupDelNames, $group_obj->name);
         }
         $sth->execute($id, $grouptodel);
     }
@@ -1985,10 +2010,12 @@ foreach my $id (@idlist) {
             my $thisadd = grep( ($_ == $groupid), @groupstoadd);
             my $thisdel = grep( ($_ == $groupid), @groupstoremove);
             if ($thisadd) {
-                push(@DefGroupsAdded, GroupIdToName($groupid));
+                my $group_obj = new Bugzilla::Group($groupid);
+                push(@DefGroupsAdded, $group_obj->name);
                 $sth_insert->execute($id, $groupid);
             } elsif ($thisdel) {
-                push(@DefGroupsRemoved, GroupIdToName($groupid));
+                my $group_obj = new Bugzilla::Group($groupid);
+                push(@DefGroupsRemoved, $group_obj->name);
                 $sth_delete->execute($id, $groupid);
             }
         }

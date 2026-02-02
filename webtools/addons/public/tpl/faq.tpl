@@ -1,5 +1,3 @@
-<div id="mbody">
-
 <h1>Frequently Asked Questions</h1>
 
 <h2>What is Mozilla Update?</h2>
@@ -17,7 +15,7 @@ UMO service.  The best is yet to come!</p>
 developers to help with redesigning the site, and people to review extensions
 and themes that get submitted to UMO. We especially need Mac and Thunderbird
 users. If you are interested in being a part of this exciting project, please
-join us in <kbd>#umo</kbd> on <kbd>irc.mozilla.org</kbd> to start getting a feeling for what's up or for a more informal chat.
+join us in <kbd>#addons</kbd> on <kbd>irc.mozilla.org</kbd> to start getting a feeling for what's up or for a more informal chat.
 </p>
 
 <h2>What can I find here?</h2>
@@ -77,5 +75,3 @@ Software.  Browse plug-ins for:
 
 <h2>I see this error when trying to upload my extension or theme: "The Name for your extension or theme already exists in the Update database."</h2>
 <p>This is typically caused by mismatching GUIDs or a duplicate record.  If there is a duplicate record, chances are you should submit an update instead of trying to create a new extension or theme.  If you cannot see the existing record, then it is owned by another author, and you should consider renaming your extension/theme.</p>
-
-</div>

@@ -408,8 +408,8 @@
   [% ELSIF error == "fieldvalue_still_has_bugs" %]
     [% title = "You Cannot Delete This Field Value" %]
     You cannot delete the value '[% value FILTER html %]' from the 
-    '[% field FILTER html%]' field, because there are still 
-    [% count FILTER html %] [% terms.bugs %] using it.
+    '[% field FILTER html%]' field, because there are still
+    [%+ count FILTER html %] [%+ terms.bugs %] using it.
 
   [% ELSIF error == "fieldvalue_undefined" %]
     [% title = "Undefined Value Not Allowed" %]
@@ -1022,13 +1022,13 @@
 
   [% ELSIF error == "password_too_long" %]
     [% title = "Password Too Long" %]
-    The password is more than 16 characters long. It must be no more than
-    16 characters.
+    The password must be no more than
+    [%+ constants.USER_PASSWORD_MAX_LENGTH FILTER html %] characters long.
 
   [% ELSIF error == "password_too_short" %]
     [% title = "Password Too Short" %]
-    The password is less than three characters long. It must be at least
-    three characters.
+    The password must be at least
+    [%+ constants.USER_PASSWORD_MIN_LENGTH FILTER html %] characters long.
 
   [% ELSIF error == "patch_too_large" %]
     [% title = "File Too Large" %]

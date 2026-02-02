@@ -88,6 +88,7 @@
 #include "nsIPresShell.h"
 #include "nsPresContext.h"
 #include "nsContentUtils.h"
+#include "nsThreadUtils.h"
 #include "nsNodeInfoManager.h"
 #include "nsIXBLService.h"
 #include "nsIXPointer.h"
@@ -132,9 +133,6 @@ static NS_DEFINE_CID(kDOMEventGroupCID, NS_DOMEVENTGROUP_CID);
 #include "nsIDOMHTMLFormElement.h"
 #include "nsIRequest.h"
 #include "nsILink.h"
-#include "plevent.h"
-#include "nsIEventQueueService.h"
-#include "nsIEventQueue.h"
 
 #include "nsICharsetAlias.h"
 #include "nsIParser.h"
@@ -155,7 +153,6 @@ static NS_DEFINE_CID(kDOMEventGroupCID, NS_DOMEVENTGROUP_CID);
 static PRLogModuleInfo* gDocumentLeakPRLog;
 #endif
 
-static NS_DEFINE_CID(kCharsetAliasCID, NS_CHARSETALIAS_CID);
 static NS_DEFINE_CID(kDateTimeFormatCID, NS_DATETIMEFORMAT_CID);
 
 void
@@ -1315,7 +1312,7 @@ nsDocument::SetDocumentCharacterSet(const nsACString& aCharSetID)
     mCharacterSet = aCharSetID;
 
 #ifdef DEBUG
-    nsCOMPtr<nsICharsetAlias> calias(do_GetService(kCharsetAliasCID));
+    nsCOMPtr<nsICharsetAlias> calias(do_GetService(NS_CHARSETALIAS_CONTRACTID));
     if (calias) {
       nsCAutoString canonicalName;
       calias->GetPreferred(aCharSetID, canonicalName);
@@ -1468,7 +1465,7 @@ nsDocument::TryChannelCharset(nsIChannel *aChannel,
     nsCAutoString charsetVal;
     nsresult rv = aChannel->GetContentCharset(charsetVal);
     if (NS_SUCCEEDED(rv)) {
-      nsCOMPtr<nsICharsetAlias> calias(do_GetService(kCharsetAliasCID));
+      nsCOMPtr<nsICharsetAlias> calias(do_GetService(NS_CHARSETALIAS_CONTRACTID));
       if (calias) {
         nsCAutoString preferred;
         rv = calias->GetPreferred(charsetVal,
@@ -5080,53 +5077,28 @@ nsDocument::UnblockOnload(PRBool aFireSync)
   }
 }
 
+class nsUnblockOnloadEvent : public nsRunnable {
+public:
+  nsUnblockOnloadEvent(nsDocument *doc) : mDoc(doc) {}
+  NS_IMETHOD Run() {
+    mDoc->DoUnblockOnload();
+    return NS_OK;
+  }
+private:  
+  nsRefPtr<nsDocument> mDoc;
+};
+
 void
 nsDocument::PostUnblockOnloadEvent()
 {
-  nsCOMPtr<nsIEventQueue> eventQ;
-  nsContentUtils::EventQueueService()->
-    GetSpecialEventQueue(nsIEventQueueService::UI_THREAD_EVENT_QUEUE,
-                         getter_AddRefs(eventQ));
-  if (!eventQ) {
-    return;
-  }
-  
-  PLEvent* evt = new PLEvent();
-  if (!evt) {
-    return;
-  }
-
-  PL_InitEvent(evt, this, nsDocument::HandleOnloadBlockerEvent,
-               nsDocument::DestroyOnloadBlockerEvent);
-
-  // After this point, event destruction will release |this|
-  NS_ADDREF_THIS();
-
-  nsresult rv = eventQ->PostEvent(evt);
-  if (NS_FAILED(rv)) {
-    PL_DestroyEvent(evt);
-  } else {
+  nsCOMPtr<nsIRunnable> evt = new nsUnblockOnloadEvent(this);
+  nsresult rv = NS_DispatchToCurrentThread(evt);
+  if (NS_SUCCEEDED(rv)) {
     // Stabilize block count so we don't post more events while this one is up
     ++mOnloadBlockCount;
+  } else {
+    NS_WARNING("failed to dispatch nsUnblockOnloadEvent");
   }
-}
-
-// static
-void* PR_CALLBACK
-nsDocument::HandleOnloadBlockerEvent(PLEvent* aEvent)
-{
-  nsDocument* doc = NS_STATIC_CAST(nsDocument*, aEvent->owner);
-  doc->DoUnblockOnload();
-  return nsnull;
-}
-
-// static
-void PR_CALLBACK
-nsDocument::DestroyOnloadBlockerEvent(PLEvent* aEvent)
-{
-  nsDocument* doc = NS_STATIC_CAST(nsDocument*, aEvent->owner);
-  NS_RELEASE(doc);
-  delete aEvent;
 }
 
 void

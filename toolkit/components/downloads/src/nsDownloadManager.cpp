@@ -147,9 +147,13 @@ nsDownloadManager::~nsDownloadManager()
 
   gRDFService->UnregisterDataSource(mDataSource);
 
+#if 0
+  // Temporary fix for orange regression from bug 328159 until I
+  // understand new protocol following bug 326491.  See bug 315421.
   gObserverService->RemoveObserver(this, "quit-application");
   gObserverService->RemoveObserver(this, "quit-application-requested");
   gObserverService->RemoveObserver(this, "offline-requested");
+#endif
 
   NS_IF_RELEASE(gNC_DownloadsRoot);                                             
   NS_IF_RELEASE(gNC_File);                                                      
@@ -235,6 +239,11 @@ nsDownloadManager::Init()
   // completely initialized), but the observerservice would still keep a reference
   // to us and notify us about shutdown, which may cause crashes.
   // failure to add an observer is not critical
+  //
+  // These observers will be cleaned up automatically at app shutdown.  We do
+  // not bother explicitly breaking the observers because we are a singleton
+  // that lives for the duration of the app.
+  //
   gObserverService->AddObserver(this, "quit-application", PR_FALSE);
   gObserverService->AddObserver(this, "quit-application-requested", PR_FALSE);
   gObserverService->AddObserver(this, "offline-requested", PR_FALSE);

@@ -593,12 +593,12 @@ nsGenericDOMDataNode::ToCString(nsAString& aBuf, PRInt32 aOffset,
 
     while (cp < end) {
       PRUnichar ch = *cp++;
-      if (ch == '\r') {
-        aBuf.AppendLiteral("\\r");
-      } else if (ch == '\n') {
-        aBuf.AppendLiteral("\\n");
-      } else if (ch == '\t') {
-        aBuf.AppendLiteral("\\t");
+      if (ch == '&') {
+        aBuf.AppendLiteral("&amp;");
+      } else if (ch == '<') {
+        aBuf.AppendLiteral("&lt;");
+      } else if (ch == '>') {
+        aBuf.AppendLiteral("&gt;");
       } else if ((ch < ' ') || (ch >= 127)) {
         char buf[10];
         PR_snprintf(buf, sizeof(buf), "\\u%04x", ch);
@@ -613,12 +613,12 @@ nsGenericDOMDataNode::ToCString(nsAString& aBuf, PRInt32 aOffset,
 
     while (cp < end) {
       PRUnichar ch = *cp++;
-      if (ch == '\r') {
-        aBuf.AppendLiteral("\\r");
-      } else if (ch == '\n') {
-        aBuf.AppendLiteral("\\n");
-      } else if (ch == '\t') {
-        aBuf.AppendLiteral("\\t");
+      if (ch == '&') {
+        aBuf.AppendLiteral("&amp;");
+      } else if (ch == '<') {
+        aBuf.AppendLiteral("&lt;");
+      } else if (ch == '>') {
+        aBuf.AppendLiteral("&gt;");
       } else if ((ch < ' ') || (ch >= 127)) {
         char buf[10];
         PR_snprintf(buf, sizeof(buf), "\\u%04x", ch);
