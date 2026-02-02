@@ -55,6 +55,7 @@
 #define nsIPresShell_h___
 
 #include "nsISupports.h"
+#include "nsCOMPtr.h"
 #include "nsCoord.h"
 #include "nsRect.h"
 #include "nsColor.h"
