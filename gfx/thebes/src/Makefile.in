@@ -17,6 +17,7 @@ REQUIRES = \
 	string \
 	pref \
 	xpcom \
+	gfx \
 	$(NULL)
 
 CPPSRCS	= \
@@ -44,12 +45,21 @@ EXTRA_DSO_LDOPTS += \
 
 
 ifeq ($(MOZ_GFX_TOOLKIT),windows)
-CPPSRCS	+= 	gfxWindowsFonts.cpp \
-		gfxWindowsPlatform.cpp \
+CPPSRCS	+= 	gfxWindowsPlatform.cpp \
 		gfxWindowsSurface.cpp \
 		$(NULL)
 
+ifdef MOZ_ENABLE_CAIRO_GFX
+CPPSRCS	+= 	gfxWindowsFonts.cpp \
+		$(NULL
+endif
+		
+ifdef MOZ_ENABLE_CAIRO_GFX
 _OS_LIBS	= usp10 ole32
+else
+_OS_LIBS	= ole32
+endif
+
 ifdef GNU_CXX
 _OS_LIBS	+= gdi32 uuid
 endif
@@ -106,6 +116,7 @@ include $(topsrcdir)/config/rules.mk
 
 
 CXXFLAGS += $(MOZ_CAIRO_CFLAGS) $(TK_CFLAGS)
+CFLAGS += $(MOZ_CAIRO_CFLAGS) $(TK_CFLAGS)
 
 ifdef MOZ_ENABLE_PANGO
 CXXFLAGS += $(MOZ_PANGO_CFLAGS)
