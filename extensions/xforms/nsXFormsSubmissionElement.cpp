@@ -391,43 +391,56 @@ nsXFormsSubmissionElement::OnChannelRedirect(nsIChannel *aOldChannel,
 }
 
 NS_IMETHODIMP
-nsXFormsSubmissionElement::OnStartRequest(nsIRequest *request, nsISupports *ctx)
+nsXFormsSubmissionElement::OnStartRequest(nsIRequest  *aRequest,
+                                          nsISupports *aCtx)
 {
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsXFormsSubmissionElement::OnStopRequest(nsIRequest *request, nsISupports *ctx, nsresult status)
+nsXFormsSubmissionElement::OnStopRequest(nsIRequest  *aRequest,
+                                         nsISupports *aCtx,
+                                         nsresult     aStatus)
 {
-  LOG(("xforms submission complete [status=%x]\n", status));
+  LOG(("xforms submission complete [status=%x]\n", aStatus));
 
   if (!mElement) {
     return NS_OK;
   }
 
-  nsCOMPtr<nsIChannel> channel = do_QueryInterface(request);
+  nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
   NS_ASSERTION(channel, "request should be a channel");
 
-  PRBool succeeded = NS_SUCCEEDED(status);
-  if (succeeded)
-  {
-    PRUint32 avail = 0;
-    mPipeIn->Available(&avail);
-    if (avail > 0)
-    {
+  PRBool succeeded = NS_SUCCEEDED(aStatus);
+  if (succeeded) {
 
-      nsresult rv;
-      if (mIsReplaceInstance) {
-        rv = LoadReplaceInstance(channel);
-      } else {
-        nsAutoString replace;
-        mElement->GetAttribute(NS_LITERAL_STRING("replace"), replace);
-        if (replace.IsEmpty() || replace.EqualsLiteral("all"))
-          rv = LoadReplaceAll(channel);
-        else
-          rv = NS_OK;
+    // If it is a HTTP request, then check for error responses, which should
+    // result in NOP and an xforms-submit-error.
+    nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(channel);
+    if (httpChannel) {
+      PRUint32 response;
+      nsresult rv = httpChannel->GetResponseStatus(&response);
+      succeeded = NS_SUCCEEDED(rv) && (response < 400);
+    }
+
+    if (succeeded) {
+      PRUint32 avail = 0;
+      mPipeIn->Available(&avail);
+      if (avail > 0) {
+
+        nsresult rv;
+        if (mIsReplaceInstance) {
+          rv = LoadReplaceInstance(channel);
+        } else {
+          nsAutoString replace;
+          mElement->GetAttribute(NS_LITERAL_STRING("replace"), replace);
+          if (replace.IsEmpty() || replace.EqualsLiteral("all"))
+            rv = LoadReplaceAll(channel);
+          else
+            rv = NS_OK;
+        }
+        succeeded = NS_SUCCEEDED(rv);
       }
-      succeeded = NS_SUCCEEDED(rv);
     }
   }
 
@@ -481,6 +494,14 @@ nsXFormsSubmissionElement::LoadReplaceInstance(nsIChannel *channel)
   PRUint32 contentLength;
   mPipeIn->Available(&contentLength);
 
+  // set the base uri so that the document can get the correct security
+  // principal
+  nsCOMPtr<nsIURI> uri;
+  nsresult rv = channel->GetURI(getter_AddRefs(uri));
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = parser->SetBaseURI(uri);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   nsCOMPtr<nsIDOMDocument> newDoc;
   parser->ParseFromStream(mPipeIn, contentCharset.get(), contentLength,
                           "application/xml", getter_AddRefs(newDoc));
@@ -511,7 +532,6 @@ nsXFormsSubmissionElement::LoadReplaceInstance(nsIChannel *channel)
 
   // Get the appropriate instance node.  If the "instance" attribute is set,
   // then get that instance node.  Otherwise, get the one we are bound to.
-  nsresult rv;
   nsCOMPtr<nsIModelElementPrivate> model = GetModel();
   NS_ENSURE_STATE(model);
   nsCOMPtr<nsIInstanceElementPrivate> instanceElement;
@@ -575,10 +595,9 @@ nsXFormsSubmissionElement::LoadReplaceAll(nsIChannel *channel)
 
   // XXX do we need to transfer nsIChannel::securityInfo ???
 
-  nsCOMPtr<nsIDOMDocument> domDoc;
-  mElement->GetOwnerDocument(getter_AddRefs(domDoc));
-
-  nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
+  nsCOMPtr<nsIContent> content(do_QueryInterface(mElement));
+  NS_ASSERTION(content, "mElement not implementing nsIContent?!");
+  nsIDocument* doc = content->GetCurrentDoc();
   NS_ENSURE_STATE(doc);
 
   // the container is the docshell, and we use it as our provider of
@@ -892,7 +911,7 @@ nsXFormsSubmissionElement::CheckSameOrigin(nsIDocument *aBaseDocument,
     // same origin check.
     if (!allowSubmission) {
       // replace instance is both a send and a load
-      PRUint8 mode;
+      nsXFormsUtils::ConnectionType mode;
       if (mIsReplaceInstance)
         mode = nsXFormsUtils::kXFormsActionLoadSend;
       else

@@ -350,6 +350,23 @@ FunctionEnd
 Section "Application" Section1
   SectionIn 1 RO
   SetOutPath $INSTDIR
+  ; For a "Standard" upgrade without talkback installed add the InstallDisabled
+  ; file to the talkback source files so it will be disabled by the extension
+  ; manager. This is done at the start of the installation since we check for
+  ; the existence of a directory to determine if this is an upgrade.
+  ${If} $InstallType == 1
+  ${AndIf} ${FileExists} "$INSTDIR\greprefs"
+  ${AndIf} ${FileExists} "$EXEDIR\optional\extensions\talkback@mozilla.org"
+    ${Unless} ${FileExists} "$INSTDIR\extensions\talkback@mozilla.org"
+      ${Unless} ${FileExists} "$INSTDIR\extensions"
+        CreateDirectory "$INSTDIR\extensions"
+      ${EndUnless}
+      CreateDirectory "$INSTDIR\extensions\talkback@mozilla.org"
+      FileOpen $2 "$EXEDIR\optional\extensions\talkback@mozilla.org\InstallDisabled" w
+      FileWrite $2 "$\r$\n"
+      FileClose $2
+    ${EndUnless}
+  ${EndIf}
 
   ; Try to delete the app executable and if we can't delete it try to close the
   ; app. This allows running an instance that is located in another directory.
@@ -408,8 +425,6 @@ Section "Application" Section1
   ${EndIf}
 
   ; What to do about these?
-  ${DeleteFile} "$INSTDIR\uninstall\uninstall.exe"
-  ${DeleteFile} "$INSTDIR\uninstall\uninstall.ini"
   ${DeleteFile} "$INSTDIR\install_wizard.log"
   ${DeleteFile} "$INSTDIR\install_status.log"
 
@@ -437,6 +452,8 @@ Section "Application" Section1
   ; will be removed when the application is uninstalled. To remove an empty
   ; directory write a bogus filename to the deepest directory and all empty
   ; parent directories will be removed.
+  ${LogUninstall} "File: \components\compreg.dat"
+  ${LogUninstall} "File: \components\xpti.dat"
   ${LogUninstall} "File: \.autoreg"
   ${LogUninstall} "File: \active-update.xml"
   ${LogUninstall} "File: \install.log"
@@ -452,9 +469,7 @@ Section "Application" Section1
   !include /NONFATAL instfiles-extra.nsi
 
   ${If} $InstallType != 4
-    ${If} ${FileExists} "$INSTDIR\extensions\talkback@mozilla.org"
-      Call install_talkback
-    ${EndIf}
+    Call install_talkback
     ${If} ${FileExists} "$INSTDIR\extensions\inspector@mozilla.org"
       Call install_inspector
     ${EndIf}
@@ -537,14 +552,14 @@ Section "Application" Section1
   ; The Reinstall Command is defined at
   ; http://msdn.microsoft.com/library/default.asp?url=/library/en-us/shellcc/platform/shell/programmersguide/shell_adv/registeringapps.asp
   StrCpy $0 "Software\Clients\StartMenuInternet\$R9\InstallInfo"
-  StrCpy $9 "$\"$INSTDIR\uninstall\uninstall.exe$\" /ua $\"${AppVersion} (${AB_CD})$\" /hs browser"
+  StrCpy $9 "$\"$INSTDIR\uninstall\uninstaller.exe$\" /ua $\"${AppVersion} (${AB_CD})$\" /hs browser"
   ${WriteRegStr} HKLM "$0" "HideIconsCommand" $9
   ${WriteRegDWORD} HKLM "$0" "IconsVisible" 1
 
   StrCpy $0 "Software\Clients\StartMenuInternet\$R9\InstallInfo"
   StrCpy $9 "$\"$INSTDIR\${FileMainEXE}$\" -silent -setDefaultBrowser"
   ${WriteRegStr} HKLM "$0" "ReinstallCommand" $9
-  StrCpy $9 "$\"$INSTDIR\uninstall\uninstall.exe$\" /ua $\"${AppVersion} (${AB_CD})$\" /ss browser"
+  StrCpy $9 "$\"$INSTDIR\uninstall\uninstaller.exe$\" /ua $\"${AppVersion} (${AB_CD})$\" /ss browser"
   ${WriteRegStr} HKLM "$0" "ShowIconsCommand" $9
 
   StrCpy $0 "Software\Clients\StartMenuInternet\$R9\shell\open\command"
@@ -575,7 +590,7 @@ Section "Application" Section1
 
   ; Write the uninstall registry keys
   StrCpy $0 "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BrandFullName} (${AppVersion})"
-  StrCpy $9 "$\"$INSTDIR\uninstall\uninstall.exe$\" $\"/ua ${AppVersion} (${AB_CD})$\""
+  StrCpy $9 "$\"$INSTDIR\uninstall\uninstaller.exe$\" $\"/ua ${AppVersion} (${AB_CD})$\""
 
   ${WriteRegStr} HKLM "$0" "Comments" "${BrandFullName}"
   ${WriteRegStr} HKLM "$0" "DisplayIcon" "$INSTDIR\${FileMainEXE},0"
@@ -651,7 +666,7 @@ Section "Application" Section1
   ; Refresh destop icons
   System::Call "shell32::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)"
 
-  WriteUninstaller "$INSTDIR\uninstall\uninstall.exe"
+  WriteUninstaller "$INSTDIR\uninstall\uninstaller.exe"
 
 SectionEnd
 
@@ -676,12 +691,35 @@ Function install_inspector
 FunctionEnd
 
 Function install_talkback
-  ${If} ${FileExists} "$EXEDIR\optional\extensions\talkback@mozilla.org"
-    ${RemoveDir} "$INSTDIR\extensions\extensions\talkback@mozilla.org"
+  StrCpy $R0 "$EXEDIR\optional\extensions\talkback@mozilla.org"
+  ${If} ${FileExists} "$R0"
+    StrCpy $R1 "$INSTDIR\extensions\talkback@mozilla.org"
+    ${If} ${FileExists} "$R1"
+      ; If there is an existing InstallDisabled file copy it to the source dir.
+      ; This will add it during install to the uninstall.log and retains the
+      ; original disabled state from the installation.
+      ${If} ${FileExists} "$R1\InstallDisabled"
+        CopyFiles "$R1\InstallDisabled" "$R0"
+      ${EndIf}
+      ; Remove the existing install of talkback
+      RmDir /r "$R1"
+    ${ElseIf} $InstallType == 1
+      ; For standard installations only enable talkback for the x percent as
+      ; defined by the application. We use QueryPerformanceCounter for the seed
+      ; since it returns a 64bit integer which should improve the accuracy.
+      System::Call "kernel32::QueryPerformanceCounter(*l.r1)"
+      System::Int64Op $1 % 100
+      Pop $0
+      ; The percentage provided by the application refers to the percentage to
+      ; include so all numbers equal or greater than should be disabled.
+      ${If} $0 >= ${RandomPercent}
+        FileOpen $2 "$R0\InstallDisabled" w
+        FileWrite $2 "$\r$\n"
+        FileClose $2
+      ${EndIf}
+    ${EndIf}
     ClearErrors
     ${LogHeader} "Installing Quality Feedback Agent"
-    StrCpy $R0 "$EXEDIR\optional\extensions\talkback@mozilla.org"
-    StrCpy $R1 "$INSTDIR\extensions\talkback@mozilla.org"
     Call DoCopyFiles
   ${EndIf}
 FunctionEnd
@@ -703,6 +741,7 @@ Section "Uninstall"
     ; Remove directories we always control
     RmDir /r "$INSTDIR\uninstall"
     RmDir /r "$INSTDIR\updates"
+    RmDir /r "$INSTDIR\defaults\shortcuts"
 
     ; Remove empty directories
     ${un.LineFind} "$TmpVal" "/NUL" "1:-1" "un.RemoveDirsCallback"
@@ -903,7 +942,7 @@ Function CopyFile
     ; If the file is installed into the installation directory remove the
     ; installation directory's path from the file path when writing to the
     ; uninstall.log so it will be a relative path. This allows the same
-    ; uninstall.exe to be used with zip builds if we supply an uninstall.log.
+    ; uninstaller.exe to be used with zip builds if we supply an uninstall.log.
     ${WordReplace} "$R1$R3\$R7" "$INSTDIR" "" "+" $R3
     ${LogUninstall} "File: $R3"
   ${EndIf}

@@ -205,7 +205,6 @@ NS_IMPL_ISUPPORTS_INHERITED4(nsMacWindow, Inherited, nsIEventSink, nsPIWidgetMac
 nsMacWindow::nsMacWindow() : Inherited()
   , mWindowMadeHere(PR_FALSE)
   , mIsSheet(PR_FALSE)
-  , mIgnoreDeactivate(PR_FALSE)
   , mAcceptsActivation(PR_TRUE)
   , mIsActive(PR_FALSE)
   , mZoomOnShow(PR_FALSE)
@@ -592,6 +591,9 @@ nsresult nsMacWindow::StandardCreate(nsIWidget *aParent,
       { kEventClassWindow, kEventWindowConstrain },
       // to handle update events
       { kEventClassWindow, kEventWindowUpdate },
+      // to handle activation
+      { kEventClassWindow, kEventWindowActivated },
+      { kEventClassWindow, kEventWindowDeactivated },
     };
 
     static EventHandlerUPP sWindowEventHandlerUPP;
@@ -688,11 +690,10 @@ pascal OSStatus
 nsMacWindow::WindowEventHandler ( EventHandlerCallRef inHandlerChain, EventRef inEvent, void* userData )
 {
   OSStatus retVal = eventNotHandledErr;  // Presume we won't consume the event
-  WindowRef myWind = NULL;
-  ::GetEventParameter ( inEvent, kEventParamDirectObject, typeWindowRef, NULL, sizeof(myWind), NULL, &myWind );
-  if ( myWind ) {
-    UInt32 what = ::GetEventKind ( inEvent );
-    switch ( what ) {
+  nsMacWindow* self = NS_REINTERPRET_CAST(nsMacWindow*, userData);
+  if (self) {
+    UInt32 what = ::GetEventKind(inEvent);
+    switch (what) {
     
       case kEventWindowBoundsChanged:
       {
@@ -700,15 +701,16 @@ nsMacWindow::WindowEventHandler ( EventHandlerCallRef inHandlerChain, EventRef i
         UInt32 attributes = 0;
         ::GetEventParameter ( inEvent, kEventParamAttributes, typeUInt32, NULL, sizeof(attributes), NULL, &attributes );
         if ( attributes & kWindowBoundsChangeSizeChanged ) {
+          WindowRef myWind = NULL;
+          ::GetEventParameter(inEvent, kEventParamDirectObject, typeWindowRef, NULL, sizeof(myWind), NULL, &myWind);
           Rect bounds;
           ::InvalWindowRect(myWind, ::GetWindowPortBounds(myWind, &bounds));
           
           // resize the window and repaint
-          nsMacWindow* self = NS_REINTERPRET_CAST(nsMacWindow*, userData);
           NS_ENSURE_TRUE(self->mMacEventHandler.get(), eventNotHandledErr);
-          if ( self && !self->mResizeIsFromUs ) {
+          if (!self->mResizeIsFromUs ) {
             self->mMacEventHandler->ResizeEvent(myWind);
-            self->mMacEventHandler->UpdateEvent();
+            self->Update();
           }
           retVal = noErr;  // We did consume the resize event
         }
@@ -719,20 +721,17 @@ nsMacWindow::WindowEventHandler ( EventHandlerCallRef inHandlerChain, EventRef i
       {
         // Ignore this event if we're an invisible window, otherwise pass along the
         // chain to ensure it's onscreen.
-        nsMacWindow* self = NS_REINTERPRET_CAST(nsMacWindow*, userData);
-        if ( self ) {
-          if ( self->mWindowType != eWindowType_invisible )
-            retVal = ::CallNextEventHandler(inHandlerChain, inEvent);
-          else
-            retVal = noErr;  // consume the event for the hidden window
-        }
+        if ( self->mWindowType != eWindowType_invisible )
+          retVal = ::CallNextEventHandler(inHandlerChain, inEvent);
+        else
+          retVal = noErr;  // consume the event for the hidden window
         break;
       }      
 
       case kEventWindowUpdate:
       {
-        nsMacWindow *self = NS_REINTERPRET_CAST(nsMacWindow *, userData);
-        if (self) self->Update();
+        self->Update();
+        retVal = noErr; // consume
       }
       break;
 
@@ -741,11 +740,9 @@ nsMacWindow::WindowEventHandler ( EventHandlerCallRef inHandlerChain, EventRef i
       {
         if ( gRollupListener && gRollupWidget )
           gRollupListener->Rollup();        
-        nsMacWindow *self = NS_REINTERPRET_CAST(nsMacWindow *, userData);
-        if (self) {
-          gEventDispatchHandler.DispatchGuiEvent(self, NS_DEACTIVATE);
-        }
-        retVal = ::CallNextEventHandler(inHandlerChain, inEvent);
+        gEventDispatchHandler.DispatchGuiEvent(self, NS_DEACTIVATE);
+        ::CallNextEventHandler(inHandlerChain, inEvent);
+        retVal = noErr; // do default processing, but consume
       }
       break;
 
@@ -753,18 +750,28 @@ nsMacWindow::WindowEventHandler ( EventHandlerCallRef inHandlerChain, EventRef i
       // the restored window will be able to take focus.
       case kEventWindowExpanded:
       {
-        nsMacWindow *self = NS_REINTERPRET_CAST(nsMacWindow *, userData);
-        if (self) {
-          gEventDispatchHandler.DispatchGuiEvent(self, NS_ACTIVATE);
-        }
-        retVal = ::CallNextEventHandler(inHandlerChain, inEvent);
+        gEventDispatchHandler.DispatchGuiEvent(self, NS_ACTIVATE);
+        ::CallNextEventHandler(inHandlerChain, inEvent);
+        retVal = noErr; // do default processing, but consume
       }
       break;
 
-      default:
-        // do nothing...
-        break;
-    
+      case kEventWindowActivated:
+      {
+        self->mMacEventHandler->HandleActivateEvent(PR_TRUE);
+        ::CallNextEventHandler(inHandlerChain, inEvent);
+        retVal = noErr; // do default processing, but consume
+      }
+      break;
+
+      case kEventWindowDeactivated:
+      {
+        self->mMacEventHandler->HandleActivateEvent(PR_FALSE);
+        ::CallNextEventHandler(inHandlerChain, inEvent);
+        retVal = noErr; // do default processing, but consume
+      }
+      break;
+
     } // case of which event?
   }
   
@@ -841,16 +848,14 @@ NS_IMETHODIMP nsMacWindow::Show(PRBool aState)
       if (parentWindowRef) {
         WindowPtr top = parentWindowRef;
         if (piParentWidget) {
-          piParentWidget->SetIgnoreDeactivate(PR_TRUE);
-
           PRBool parentIsSheet = PR_FALSE;
           if (NS_SUCCEEDED(piParentWidget->GetIsSheet(&parentIsSheet)) &&
               parentIsSheet) {
             // If this sheet is the child of another sheet, hide the parent
             // so that this sheet can be displayed.
-            // Leave the paren't mShown and mSheetNeedsShow alone, those are
+            // Leave the parent's mShown and mSheetNeedsShow alone, those are
             // only used to handle sibling sheet contention.  The parent will
-            // return once there are no more child sheets.
+            // be displayed again when it has no more child sheets.
             ::GetSheetWindowParent(parentWindowRef, &top);
             ::HideSheetWindow(parentWindowRef);
           }
@@ -860,19 +865,30 @@ NS_IMETHODIMP nsMacWindow::Show(PRBool aState)
         if (NS_SUCCEEDED(piParentWidget->GetChildSheet(PR_TRUE,
                                                        &sheetShown)) &&
             (!sheetShown || sheetShown == this)) {
-          ::ShowSheetWindow(mWindowPtr, top);
+          if (!sheetShown) {
+            // There is no sheet on the top-level window, show this one.
+
+            // Important to set these member variables first, because
+            // ShowSheetWindow may result in native event dispatch causing
+            // reentrancy into this code for this window - if mSheetNeedsShow
+            // is true, it's possible to show the same sheet twice, and that
+            // will cause tremendous problems.
+            mShown = PR_TRUE;
+            mSheetNeedsShow = PR_FALSE;
+
+            ::ShowSheetWindow(mWindowPtr, top);
+          }
           UpdateWindowMenubar(parentWindowRef, PR_FALSE);
           gEventDispatchHandler.DispatchGuiEvent(this, NS_GOTFOCUS);
           gEventDispatchHandler.DispatchGuiEvent(this, NS_ACTIVATE);
           ComeToFront();
-          mShown = PR_TRUE;
-          mSheetNeedsShow = PR_FALSE;
         }
-        else
+        else {
           // A sibling of this sheet is active, don't show this sheet yet.
           // When the active sheet hides, its brothers and sisters that have
           // mSheetNeedsShow set will have their opportunities to display.
           mSheetNeedsShow = PR_TRUE;
+        }
       }
     }
     else {
@@ -945,8 +961,6 @@ NS_IMETHODIMP nsMacWindow::Show(PRBool aState)
         else {
           // Sheet, that was hard.  No more siblings or parents, going back
           // to a real window.
-          if (piParentWidget)
-            piParentWidget->SetIgnoreDeactivate(PR_FALSE);
 
           // if we had several sheets open, when the last one goes away
           // we need to ensure that the top app window is active
@@ -1433,26 +1447,6 @@ nsMacWindow::GetMenuBar(nsIMenuBar **_retval)
 {
   *_retval = mMenuBar;
   NS_IF_ADDREF(*_retval);
-  return(NS_OK);
-}
-
-//-------------------------------------------------------------------------
-//
-// getter/setter for window to ignore the next deactivate event received
-// if a Mac OS X sheet is being opened
-//
-//-------------------------------------------------------------------------
-NS_IMETHODIMP
-nsMacWindow::GetIgnoreDeactivate(PRBool *_retval)
-{
-  *_retval = mIgnoreDeactivate;
-  return(NS_OK);
-}
-
-NS_IMETHODIMP
-nsMacWindow::SetIgnoreDeactivate(PRBool ignoreDeactivate)
-{
-  mIgnoreDeactivate = ignoreDeactivate;
   return(NS_OK);
 }
 

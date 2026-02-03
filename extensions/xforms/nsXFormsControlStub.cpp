@@ -46,7 +46,6 @@
 #include "nsIDOMKeyEvent.h"
 #include "nsIDOMEventTarget.h"
 #include "nsIDOMXPathResult.h"
-#include "nsIXTFXMLVisualWrapper.h"
 #include "nsIDocument.h"
 #include "nsXFormsModelElement.h"
 #include "nsPIDOMWindow.h"
@@ -55,6 +54,7 @@
 #include "nsIEventStateManager.h"
 #include "nsIContent.h"
 #include "nsIDOM3Node.h"
+#include "nsIDOMAttr.h"
 
 /** This class is used to generate xforms-hint and xforms-help events.*/
 class nsXFormsHintHelpListener : public nsIDOMEventListener {
@@ -192,7 +192,21 @@ nsXFormsControlStubBase::ResetBoundNode(const nsString &aBindAttribute,
     nsCOMPtr<nsIXTFElementWrapper> wrapper(do_QueryInterface(mElement));
     NS_ENSURE_STATE(wrapper);
 
-    return wrapper->SetIntrinsicState(kDisabledIntrinsicState);
+    PRInt32 iState;
+    GetDisabledIntrinsicState(&iState);
+    return wrapper->SetIntrinsicState(iState);
+  }
+
+  // Check for presence of @xsi:type on bound node and add as a dependency
+  nsCOMPtr<nsIDOMElement> boundEl(do_QueryInterface(mBoundNode));
+  if (boundEl) {
+    nsCOMPtr<nsIDOMAttr> attrNode;
+    rv = boundEl->GetAttributeNodeNS(NS_LITERAL_STRING(NS_NAMESPACE_XML_SCHEMA_INSTANCE),
+                                     NS_LITERAL_STRING("type"),
+                                     getter_AddRefs(attrNode));
+    if (NS_SUCCEEDED(rv) && attrNode) {
+      mDependencies.AppendObject(attrNode);
+    }
   }
 
   return NS_OK;
@@ -248,6 +262,22 @@ NS_IMETHODIMP
 nsXFormsControlStubBase::SetOnDeferredBindList(PRBool aPutOnList)
 {
   mOnDeferredBindList = aPutOnList;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXFormsControlStubBase::GetDefaultIntrinsicState(PRInt32 *aState)
+{
+  NS_ENSURE_ARG_POINTER(aState);
+  *aState = kDefaultIntrinsicState;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXFormsControlStubBase::GetDisabledIntrinsicState(PRInt32 *aState)
+{
+  NS_ENSURE_ARG_POINTER(aState);
+  *aState = kDisabledIntrinsicState;
   return NS_OK;
 }
 
@@ -564,8 +594,6 @@ nsXFormsControlStubBase::Create(nsIXTFElementWrapper *aWrapper)
   mElement = node;
   NS_ASSERTION(mElement, "Wrapper is not an nsIDOMElement, we'll crash soon");
 
-  ResetHelpAndHint(PR_TRUE);
-
 #ifdef DEBUG_smaug
   sControlList->AppendElement(this);
 #endif
@@ -576,7 +604,6 @@ nsXFormsControlStubBase::Create(nsIXTFElementWrapper *aWrapper)
 nsresult
 nsXFormsControlStubBase::OnDestroyed()
 {
-  ResetHelpAndHint(PR_FALSE);
   RemoveIndexListeners();
   mDependencies.Clear();
 
@@ -612,17 +639,29 @@ nsXFormsControlStubBase::ForceModelDetach(PRBool aRebind)
   return rv == NS_OK_XFORMS_DEFERRED ? NS_OK : Refresh();
 }
 
+nsresult
+nsXFormsControlStubBase::WillChangeDocument(nsIDOMDocument *aNewDocument)
+{
+  ResetHelpAndHint(PR_FALSE);
+  return NS_OK;
+}
 
 nsresult
 nsXFormsControlStubBase::DocumentChanged(nsIDOMDocument *aNewDocument)
 {
-  // If we are inserted into a document and we have no model, we are probably
-  // being initialized, so we should set our intrinsic state to the default
-  // value
-  if (aNewDocument && !mModel && mElement) {
-    nsCOMPtr<nsIXTFElementWrapper> xtfWrap(do_QueryInterface(mElement));
-    NS_ENSURE_STATE(xtfWrap);
-    xtfWrap->SetIntrinsicState(kDefaultIntrinsicState);
+  if (aNewDocument) {
+    ResetHelpAndHint(PR_TRUE);
+
+    // If we are inserted into a document and we have no model, we are probably
+    // being initialized, so we should set our intrinsic state to the default
+    // value
+    if (!mModel && mElement) {
+      nsCOMPtr<nsIXTFElementWrapper> xtfWrap(do_QueryInterface(mElement));
+      NS_ENSURE_STATE(xtfWrap);
+      PRInt32 iState;
+      GetDefaultIntrinsicState(&iState);
+      xtfWrap->SetIntrinsicState(iState);
+    }
   }
 
   return ForceModelDetach(mHasParent && aNewDocument);
@@ -766,13 +805,6 @@ nsXFormsControlStubBase::BeforeSetAttribute(nsIAtom         *aName,
     AddRemoveSNBAttr(aName, aValue);
   }
 }
-
-NS_IMPL_ISUPPORTS_INHERITED3(nsXFormsControlStub,
-                             nsXFormsXMLVisualStub,
-                             nsIXFormsContextControl,
-                             nsIXFormsControl,
-                             nsIXFormsControlBase)
-
 
 NS_IMPL_ISUPPORTS_INHERITED3(nsXFormsBindableControlStub,
                              nsXFormsBindableStub,

@@ -76,8 +76,8 @@
 #include "nsUnicharUtils.h"
 
 // Static member declaration
-nsString nsDragService::mDropPath;
-nsString nsDragService::mFileName;
+PRUnichar *nsDragService::mDropPath;
+PRUnichar *nsDragService::mFileName;
 
 //-------------------------------------------------------------------------
 //
@@ -96,6 +96,11 @@ nsDragService::nsDragService()
 //-------------------------------------------------------------------------
 nsDragService::~nsDragService()
 {
+  if (mFileName)
+    NS_Free(mFileName);
+  if (mDropPath)
+    NS_Free(mDropPath);
+
   NS_IF_RELEASE(mNativeDragSrc);
   NS_IF_RELEASE(mNativeDragTarget);
   NS_IF_RELEASE(mDataObject);
@@ -582,8 +587,10 @@ nsDragService::EndDragSession()
 PRBool nsDragService::StartWatchingShell(const nsAString& aFileName)
 {
   // init member varable with the file name to watch
-  mFileName = aFileName;
-  nsDragService::mDropPath = NS_LITERAL_STRING("");
+  if (mFileName)
+    NS_Free(mFileName);
+
+  mFileName = ToNewUnicode(aFileName);
 
   // Create hidden window to process shell notifications
   WNDCLASS wc;
@@ -692,10 +699,10 @@ PRBool nsDragService::GetDropPath(nsAString& aDropPath) const
   ::DestroyWindow(mHiddenWnd);
 
   // if drop path is too short then there is no drop location
-  if (mDropPath.IsEmpty())
+  if (!mDropPath)
     return PR_FALSE;
 
-  aDropPath = mDropPath;
+  aDropPath.Assign(mDropPath);
 
   return PR_TRUE;
 }
@@ -735,18 +742,21 @@ LRESULT WINAPI nsDragService::HiddenWndProc(HWND aWnd, UINT aMsg, WPARAM awParam
 
       // append file name to Temp directory string
       nsAutoString tempPath;
-      tempDir->Append(mFileName);
+      tempDir->Append(nsDependentString(mFileName));
       tempDir->GetPath(tempPath);
 
       // Now check if there is our filename in the path
       // and also check for the source directory - it should be OS Temp dir
       // this way we can ensure that this is the file that we need
       PRInt32 pathToLength = pathTo.Length();
-      if (Substring(pathTo, (pathToLength - mFileName.Length()), pathToLength).Equals(mFileName) &&
+      if (Substring(pathTo, pathToLength - NS_strlen(mFileName), pathToLength).Equals(mFileName) &&
           tempPath.Equals(pathFrom, nsCaseInsensitiveStringComparator()))
       {
         // This is what we wanted to get
-        mDropPath = pathTo;
+        if (mDropPath)
+          NS_Free(mDropPath);
+
+        mDropPath = ToNewUnicode(pathTo);
       }
       return 0;
     }

@@ -100,7 +100,9 @@ nsresult
 NS_NewSVGCairoPathGeometry(nsISVGRendererPathGeometry **result)
 {
   *result = new nsSVGCairoPathGeometry;
-  if (!*result) return NS_ERROR_OUT_OF_MEMORY;
+  if (!*result) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
 
   NS_ADDREF(*result);
   return NS_OK;
@@ -155,7 +157,9 @@ nsSVGCairoPathGeometry::Render(nsSVGPathGeometryFrame *aSource,
 {
   nsCOMPtr<nsISVGCairoCanvas> cairoCanvas = do_QueryInterface(canvas);
   NS_ASSERTION(cairoCanvas, "wrong svg render context for geometry!");
-  if (!cairoCanvas) return NS_ERROR_FAILURE;
+  if (!cairoCanvas) {
+    return NS_ERROR_FAILURE;
+  }
 
   cairo_t *ctx = cairoCanvas->GetContext();
 
@@ -216,52 +220,25 @@ nsSVGCairoPathGeometry::Render(nsSVGPathGeometryFrame *aSource,
   return NS_OK;
 }
 
-/** Implements nsISVGRendererRegion update(in unsigned long updatemask); */
 NS_IMETHODIMP
 nsSVGCairoPathGeometry::Update(nsSVGPathGeometryFrame *aSource,
-                               PRUint32 updatemask,
                                nsISVGRendererRegion **_retval)
 {
   *_retval = nsnull;
 
-  const unsigned long pathmask =
-    nsISVGPathGeometrySource::UPDATEMASK_PATH |
-    nsSVGGeometryFrame::UPDATEMASK_CANVAS_TM;
-
-  const unsigned long fillmask = 
-    pathmask |
-    nsSVGGeometryFrame::UPDATEMASK_FILL_RULE;
-
-  const unsigned long strokemask =
-    pathmask |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_WIDTH       |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_LINECAP     |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_LINEJOIN    |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_MITERLIMIT  |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_DASH_ARRAY  |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_DASHOFFSET;
-
-  const unsigned long coveredregionmask =
-    fillmask                                          |
-    strokemask                                        |
-    nsSVGGeometryFrame::UPDATEMASK_FILL_PAINT_TYPE    |
-    nsSVGGeometryFrame::UPDATEMASK_STROKE_PAINT_TYPE;
-
   nsCOMPtr<nsISVGRendererRegion> before = mCoveredRegion;
 
-  if (updatemask & coveredregionmask) {
-    nsCOMPtr<nsISVGRendererRegion> after;
-    GetCoveredRegion(aSource, getter_AddRefs(after));
+  nsCOMPtr<nsISVGRendererRegion> after;
+  GetCoveredRegion(aSource, getter_AddRefs(after));
 
-    if (mCoveredRegion) {
-      if (after)
-        after->Combine(before, _retval);
-    } else {
-      *_retval = after;
-      NS_IF_ADDREF(*_retval);
-    }
-    mCoveredRegion = after;
+  if (mCoveredRegion) {
+    if (after)
+      after->Combine(before, _retval);
+  } else {
+    *_retval = after;
+    NS_IF_ADDREF(*_retval);
   }
+  mCoveredRegion = after;
 
   if (!*_retval) {
     *_retval = before;
@@ -278,18 +255,20 @@ nsSVGCairoPathGeometry::GetCoveredRegion(nsSVGPathGeometryFrame *aSource,
 {
   *_retval = nsnull;
 
+  PRBool hasFill = aSource->HasFill();
+  PRBool hasStroke = aSource->HasStroke();
+
+  if (!hasFill && !hasStroke) {
+    return NS_OK;
+  }
+
   cairo_t *ctx = cairo_create(gSVGCairoDummySurface);
 
   GeneratePath(aSource, ctx, nsnull);
 
-  PRBool hasCoveredFill = aSource->HasFill();
-  bool hasCoveredStroke = aSource->HasStroke();
-
-  if (!hasCoveredFill && !hasCoveredStroke) return NS_OK;
-
   double xmin, ymin, xmax, ymax;
 
-  if (hasCoveredStroke) {
+  if (hasStroke) {
     aSource->SetupCairoStrokeGeometry(ctx);
     cairo_stroke_extents(ctx, &xmin, &ymin, &xmax, &ymax);
   } else
@@ -313,8 +292,9 @@ nsSVGCairoPathGeometry::ContainsPoint(nsSVGPathGeometryFrame *aSource,
   // early reject test
   if (mCoveredRegion) {
     nsCOMPtr<nsISVGCairoRegion> region = do_QueryInterface(mCoveredRegion);
-    if (!region->Contains(x,y))
+    if (!region->Contains(x,y)) {
       return NS_OK;
+    }
   }
 
   cairo_t *ctx = cairo_create(gSVGCairoDummySurface);

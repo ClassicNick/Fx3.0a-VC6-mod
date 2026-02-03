@@ -66,9 +66,12 @@
                        autocompletesearch="form-history"
                        autocompletesearchparam="searchbar-history"
                        completeselectedindex="true"
+                       showcommentcolumn="true"
                        tabscrolling="true"
                        xbl:inherits="disableautocomplete,searchengine,src">
-            <xul:image align="center" class="searchbar-engine-image"
+            <xul:image align="center"
+                       class="searchbar-engine-image"
+                       anonid="searchbar-engine-image"
                        xbl:inherits="src"/>
             <xul:hbox class="search-go-button-container">
 # XXX We'd like to add a context="_child" property to this toolbarbutton, but doing
@@ -81,8 +84,7 @@
 # popup position within a toolbarbutton.  See bug 336868.
               <xul:toolbarbutton class="search-go-button"
                                  anonid="search-go-button"
-                                 type="menu-button"
-                                 xbl:inherits="src">
+                                 type="menu-button">
                 <xul:menupopup class="searchbar-popup"
                                anonid="searchbar-popup"
                                position="after_start">
@@ -140,13 +142,16 @@
       <field name="_ss">null</field>
       <field name="_engines">null</field>
 
-      <property name="currentEngine"
-                onset="this.searchService.currentEngine = val;">
+      <property name="currentEngine">
         <getter><![CDATA[
           var currentEngine = this.searchService.currentEngine;
           // Return a dummy engine if there is no currentEngine
           return currentEngine || {name:"", uri:null};
         ]]></getter>
+        <setter><![CDATA[
+          this.searchService.currentEngine = val;
+          this._updateAutocompleteSearch()
+        ]]></setter>
       </property>
       
       <!-- textbox is used by sanitize.js to clear the undo history when 
@@ -215,6 +220,10 @@
           else
             this.setAttribute("src", "");
 
+          // Update current engine display
+          if (this.hasAttribute("empty")) 
+            this._textbox._displayCurrentEngine();
+
           var name = this.currentEngine.name;
           var text = this._stringBundle.getFormattedString("searchtip", [name]);
           this.setAttribute("tooltiptext", text);
@@ -246,7 +255,7 @@
             // if no separators are present.
             var insertLocation = popup.firstChild;
             while (insertLocation.nextSibling &&
-                insertLocation.localName != "menuseparator") {
+                   insertLocation.localName != "menuseparator") {
               insertLocation = insertLocation.nextSibling;
             }
             if (insertLocation.localName != "menuseparator")
@@ -347,14 +356,9 @@
                       .classes["@mozilla.org/browser/search-service;1"]
                       .getService(Components.interfaces.nsIBrowserSearchService);
             if (searchService) {
-              // If the description file URI ends in "xml", assume an XML file;
-              // otherwise, assume text.  That's about the best we can do without
-              // loading the file itself.
-              const engineURI = aTarget.getAttribute("uri");
-              var type = Components.interfaces.nsISearchEngine.DATA_TEXT;
-              if (engineURI.search(/\.xml$/i))
-                type = Components.interfaces.nsISearchEngine.DATA_XML;
-              searchService.addEngine(engineURI, type,
+              // We only detect OpenSearch files
+              var type = Components.interfaces.nsISearchEngine.DATA_XML;
+              searchService.addEngine(aTarget.getAttribute("uri"), type,
                                       aTarget.getAttribute("src"));
             }
           }
@@ -376,8 +380,6 @@
 
           if (newIndex >= 0 && newIndex < this._engines.length)
             this.currentEngine = this._engines[newIndex];
-
-          this._updateAutocompleteSearch()
 
           aEvent.preventDefault();
           aEvent.stopPropagation();
@@ -447,6 +449,15 @@
     </implementation>
 
     <handlers>
+      <handler event="click"><![CDATA[
+        const target = event.originalTarget;
+        var anonid = target.getAttribute("anonid");
+        if (anonid == "searchbar-engine-image") {
+          this._textbox.focus();
+          this._textbox.select();
+        } 
+      ]]></handler>
+
       <handler event="command"><![CDATA[
         const target = event.originalTarget;
         var anonid = target.getAttribute("anonid");

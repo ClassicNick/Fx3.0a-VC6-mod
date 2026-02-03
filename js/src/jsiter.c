@@ -1,5 +1,5 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=80:
+ * vim: set ts=8 sw=4 et tw=78:
  *
  * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
@@ -105,7 +105,7 @@ iterator_finalize(JSContext *cx, JSObject *obj)
 
 JSClass js_IteratorClass = {
     "Iterator",
-    JSCLASS_HAS_CACHED_PROTO(JSProto_Iterator),
+    JSCLASS_HAS_RESERVED_SLOTS(2) | JSCLASS_HAS_CACHED_PROTO(JSProto_Iterator),
     JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,  JS_PropertyStub,
     JS_EnumerateStub, JS_ResolveStub,   JS_ConvertStub,   iterator_finalize,
     JSCLASS_NO_OPTIONAL_MEMBERS
@@ -119,9 +119,15 @@ Iterator(JSContext *cx, JSObject *obj, uintN argc, jsval *argv, jsval *rval)
     jsval fval;
     const jsid id = ATOM_TO_JSID(cx->runtime->atomState.iteratorAtom);
 
-    obj = js_ValueToNonNullObject(cx, argv[0]);
-    if (!obj)
-        return JS_FALSE;
+    /* XXX work around old valueOf call hidden beneath js_ValueToObject */
+    if (!JSVAL_IS_PRIMITIVE(argv[0])) {
+        obj = JSVAL_TO_OBJECT(argv[0]);
+    } else {
+        obj = js_ValueToNonNullObject(cx, argv[0]);
+        if (!obj)
+            return JS_FALSE;
+    }
+
     return JS_GetMethodById(cx, obj, id, &obj, &fval) &&
            js_InternalCall(cx, obj, fval, argc - 1, argv + 1, rval);
 }
@@ -275,7 +281,12 @@ js_NewNativeIterator(JSContext *cx, JSObject *obj, uintN flags, jsval *vp)
     JSObject *iterobj;
     jsval state;
 
-    iterobj = js_NewObject(cx, &js_IteratorClass, NULL, obj);
+    /*
+     * Create iterobj with a NULL parent to ensure that we use the correct
+     * scope chain to lookup the iterator's constructor. Since we use the
+     * parent slot to keep track of the iterable, we must fix it up later.
+     */
+    iterobj = js_NewObject(cx, &js_IteratorClass, NULL, NULL);
     if (!iterobj)
         return JS_FALSE;
 
@@ -283,6 +294,7 @@ js_NewNativeIterator(JSContext *cx, JSObject *obj, uintN flags, jsval *vp)
     *vp = OBJECT_TO_JSVAL(iterobj);
 
     /* Initialize iterobj in case of js_AddRoot or enumerate hook failure. */
+    iterobj->slots[JSSLOT_PARENT] = OBJECT_TO_JSVAL(obj);
     iterobj->slots[JSSLOT_ITER_STATE] = JSVAL_NULL;
     iterobj->slots[JSSLOT_ITER_FLAGS] = INT_TO_JSVAL(flags);
 
@@ -363,6 +375,10 @@ js_DefaultIterator(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
     return js_NewNativeIterator(cx, obj, keyonly ? 0 : JSITER_FOREACH, rval);
 }
 
+/*
+ * Inline expansion of Iterator, with extra logic to constrain the result of
+ * ToObject(v).__iterator__.
+ */
 JSObject *
 js_ValueToIterator(JSContext *cx, jsval v, uintN flags)
 {
@@ -373,13 +389,14 @@ js_ValueToIterator(JSContext *cx, jsval v, uintN flags)
     JSFunction *fun;
     const JSAtom *atom = cx->runtime->atomState.iteratorAtom;
 
-    /*
-     * Inline expansion of Iterator, with extra logic to constrain the result
-     * of ToObject(v).__iterator__.
-     */
-    obj = js_ValueToNonNullObject(cx, v);
-    if (!obj)
-        return NULL;
+    /* XXX work around old valueOf call hidden beneath js_ValueToObject */
+    if (!JSVAL_IS_PRIMITIVE(v)) {
+        obj = JSVAL_TO_OBJECT(v);
+    } else {
+        obj = js_ValueToNonNullObject(cx, v);
+        if (!obj)
+            return NULL;
+    }
 
     JS_PUSH_SINGLE_TEMP_ROOT(cx, obj, &tvr);
     if (!JS_GetMethodById(cx, obj, ATOM_TO_JSID(atom), &obj, &fval))
@@ -538,7 +555,7 @@ js_ThrowStopIteration(JSContext *cx, JSObject *obj)
     jsval v;
 
     JS_ASSERT(!JS_IsExceptionPending(cx));
-    if (js_FindClassObject(cx, obj, INT_TO_JSID(JSProto_StopIteration), &v))
+    if (js_FindClassObject(cx, NULL, INT_TO_JSID(JSProto_StopIteration), &v))
         JS_SetPendingException(cx, v);
     return JS_FALSE;
 }
