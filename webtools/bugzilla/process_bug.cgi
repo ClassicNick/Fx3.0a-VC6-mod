@@ -52,7 +52,7 @@ require "globals.pl";
 use Bugzilla;
 use Bugzilla::Constants;
 use Bugzilla::Bug;
-use Bugzilla::BugMail;
+use Bugzilla::Mailer;
 use Bugzilla::User;
 use Bugzilla::Util;
 use Bugzilla::Field;
@@ -743,7 +743,7 @@ if ($action eq Param('move-button-text')) {
       || ThrowTemplateError($template->error());
 
     $msg .= "\n";
-    Bugzilla::BugMail::MessageToMTA($msg);
+    MessageToMTA($msg);
 
     # End the response page.
     $template->process("bug/navigate.html.tmpl", $vars)
@@ -1890,8 +1890,7 @@ foreach my $id (@idlist) {
                     shift @oldlist;
                 } else {
                     if ($oldlist[0] != $newlist[0]) {
-                        $dbh->bz_unlock_tables(UNLOCK_ABORT);
-                        die "Error in list comparing code";
+                        ThrowCodeError('list_comparison_error');
                     }
                     shift @oldlist;
                     shift @newlist;
@@ -2137,7 +2136,7 @@ foreach my $id (@idlist) {
 
     # Now is a good time to send email to voters.
     foreach my $msg (@$msgs) {
-        Bugzilla::BugMail::MessageToMTA($msg);
+        MessageToMTA($msg);
     }
 
     if ($duplicate) {

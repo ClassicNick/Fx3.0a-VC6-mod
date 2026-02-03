@@ -68,8 +68,6 @@
 #include "nsIXPConnect.h"
 #include "nsContentErrors.h"
 
-static NS_DEFINE_CID(kCharsetConverterManagerCID, NS_ICHARSETCONVERTERMANAGER_CID);
-
 //////////////////////////////////////////////////////////////
 //
 //////////////////////////////////////////////////////////////
@@ -753,15 +751,17 @@ nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest,
   mCurrentScript = aRequest->mElement;
 
   PRBool isUndefined;
-  context->EvaluateString(aScript, globalObject->GetGlobalJSObject(),
-                          mDocument->NodePrincipal(), url.get(),
-                          aRequest->mLineNo, aRequest->mJSVersion, nsnull,
-                          &isUndefined);
+  rv = context->EvaluateString(aScript, globalObject->GetGlobalJSObject(),
+                               mDocument->NodePrincipal(), url.get(),
+                               aRequest->mLineNo, aRequest->mJSVersion, nsnull,
+                               &isUndefined);
 
   // Put the old script back in case it wants to do anything else.
   mCurrentScript = oldCurrent;
 
-  ::JS_ReportPendingException(cx);
+  if (NS_FAILED(rv)) {
+    ::JS_ReportPendingException(cx);
+  }
   if (changed) {
     ::JS_SetOptions(cx, options);
   }
@@ -868,7 +868,7 @@ nsScriptLoader::ConvertToUTF16(nsIChannel* aChannel, const PRUint8* aData,
   }
 
   nsCOMPtr<nsICharsetConverterManager> charsetConv =
-    do_GetService(kCharsetConverterManagerCID, &rv);
+    do_GetService(NS_CHARSETCONVERTERMANAGER_CONTRACTID, &rv);
 
   nsCOMPtr<nsIUnicodeDecoder> unicodeDecoder;
 

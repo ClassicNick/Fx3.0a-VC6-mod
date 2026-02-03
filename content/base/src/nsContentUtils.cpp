@@ -76,6 +76,10 @@
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
 #include "nsParserCIID.h"
+#include "nsIParser.h"
+#include "nsIFragmentContentSink.h"
+#include "nsIContentSink.h"
+#include "nsHTMLParts.h"
 #include "nsIParserService.h"
 #include "nsIServiceManager.h"
 #include "nsIAttribute.h"
@@ -130,6 +134,7 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 #include "nsXULAtoms.h"
 #include "nsIEventListenerManager.h"
 #include "nsAttrName.h"
+#include "nsIDOMUserDataHandler.h"
 
 // for ReportToConsole
 #include "nsIStringBundle.h"
@@ -138,6 +143,7 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 
 static const char kJSStackContractID[] = "@mozilla.org/js/xpc/ContextStack;1";
 static NS_DEFINE_CID(kParserServiceCID, NS_PARSERSERVICE_CID);
+static NS_DEFINE_CID(kCParserCID, NS_PARSER_CID);
 
 nsIDOMScriptObjectFactory *nsContentUtils::sDOMScriptObjectFactory = nsnull;
 nsIXPConnect *nsContentUtils::sXPConnect;
@@ -2776,44 +2782,19 @@ nsContentUtils::HasNonEmptyAttr(nsIContent* aContent, PRInt32 aNameSpaceID,
     == nsIContent::ATTR_VALUE_NO_MATCH;
 }
 
-/**
- * Quick helper to determine whether there are any mutation listeners
- * of a given type that apply to the node passed in.
- *
- * @param aNode to check for listeners.
- *
- * @return true if there are mutation listeners.
- */
 /* static */
 PRBool
-NodeHasMutationListeners(nsINode* aNode)
-{
-  nsCOMPtr<nsIEventListenerManager> manager;
-  aNode->GetListenerManager(PR_FALSE, getter_AddRefs(manager));
-  if (manager) {
-    PRBool hasListeners = PR_FALSE;
-    manager->HasMutationListeners(&hasListeners);
-    return hasListeners;
-  }
-  return PR_FALSE;
-}
-
-/* static */
-PRBool
-nsContentUtils::HasMutationListeners(nsIContent* aContent,
-                                     nsIDocument* aDocument,
+nsContentUtils::HasMutationListeners(nsINode* aNode,
                                      PRUint32 aType)
 {
-  NS_PRECONDITION(!aContent || aContent->GetCurrentDoc() == aDocument,
-                  "Incorrect aDocument");
-  if (!aDocument) {
-    // We do not support event listeners on content not attached to documents.
+  nsIDocument* doc = aNode->GetOwnerDoc();
+  if (!doc) {
     return PR_FALSE;
   }
 
   // global object will be null for documents that don't have windows.
   nsCOMPtr<nsPIDOMWindow> window;
-  window = do_QueryInterface(aDocument->GetScriptGlobalObject());
+  window = do_QueryInterface(doc->GetScriptGlobalObject());
   if (window && !window->HasMutationListeners(aType)) {
     return PR_FALSE;
   }
@@ -2835,13 +2816,20 @@ nsContentUtils::HasMutationListeners(nsIContent* aContent,
   // If we have a window, we know a mutation listener is registered, but it
   // might not be in our chain.  If we don't have a window, we might have a
   // mutation listener.  Check quickly to see.
-  for (nsIContent* curr = aContent; curr; curr = curr->GetParent()) {
-    if (NodeHasMutationListeners(curr)) {
-      return PR_TRUE;
+  while (aNode) {
+    nsCOMPtr<nsIEventListenerManager> manager;
+    aNode->GetListenerManager(PR_FALSE, getter_AddRefs(manager));
+    if (manager) {
+      PRBool hasListeners = PR_FALSE;
+      manager->HasMutationListeners(&hasListeners);
+      if (hasListeners) {
+        return PR_TRUE;
+      }
     }
+    aNode = aNode->GetNodeParent();
   }
 
-  return NodeHasMutationListeners(aDocument);
+  return PR_FALSE;
 }
 
 /* static */
@@ -3074,4 +3062,284 @@ nsContentUtils::IsValidNodeName(nsIAtom *aLocalName, nsIAtom *aPrefix,
   // If the namespace is not the XML namespace then the prefix must not be xml.
   return aPrefix != nsGkAtoms::xmlns &&
          (aNamespaceID == kNameSpaceID_XML || aPrefix != nsGkAtoms::xml);
+}
+
+/* static */
+nsresult
+nsContentUtils::SetUserData(nsINode *aNode, nsIAtom *aKey,
+                            nsIVariant *aData, nsIDOMUserDataHandler *aHandler,
+                            nsIVariant **aResult)
+{
+  *aResult = nsnull;
+
+  nsresult rv;
+  void *data;
+  if (aData) {
+    rv = aNode->SetProperty(DOM_USER_DATA, aKey, aData,
+                            nsPropertyTable::SupportsDtorFunc,
+                            &data);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    NS_ADDREF(aData);
+  }
+  else {
+    data = aNode->UnsetProperty(DOM_USER_DATA, aKey);
+  }
+
+  // Take over ownership of the old data from the property table.
+  nsCOMPtr<nsIVariant> oldData = dont_AddRef(NS_STATIC_CAST(nsIVariant*, data));
+
+  if (aData && aHandler) {
+    rv = aNode->SetProperty(DOM_USER_DATA_HANDLER, aKey, aHandler,
+                            nsPropertyTable::SupportsDtorFunc);
+    if (NS_FAILED(rv)) {
+      // We failed to set the handler, remove the data.
+      aNode->DeleteProperty(DOM_USER_DATA, aKey);
+
+      return rv;
+    }
+
+    NS_ADDREF(aHandler);
+  }
+  else {
+    aNode->DeleteProperty(DOM_USER_DATA_HANDLER, aKey);
+  }
+
+  oldData.swap(*aResult);
+
+  return NS_OK;
+}
+
+struct nsHandlerData
+{
+  PRUint16 mOperation;
+  nsIDOMNode *mSource;
+  nsIDOMNode *mDest;
+};
+
+static void
+CallHandler(void *aObject, nsIAtom *aKey, void *aHandler, void *aData)
+{
+  nsHandlerData *handlerData = NS_STATIC_CAST(nsHandlerData*, aData);
+  nsCOMPtr<nsIDOMUserDataHandler> handler =
+    NS_STATIC_CAST(nsIDOMUserDataHandler*, aHandler);
+
+  nsINode *node = NS_STATIC_CAST(nsINode*, aObject);
+  nsCOMPtr<nsIVariant> data =
+    NS_STATIC_CAST(nsIVariant*, node->GetProperty(DOM_USER_DATA, aKey));
+  NS_ASSERTION(data, "Handler without data?");
+
+  nsAutoString key;
+  aKey->ToString(key);
+  handler->Handle(handlerData->mOperation, key, data, handlerData->mSource,
+                  handlerData->mDest);
+}
+
+/* static */
+void
+nsContentUtils::CallUserDataHandler(nsIDocument *aDocument, PRUint16 aOperation,
+                                    const nsINode *aNode, nsIDOMNode *aSource,
+                                    nsIDOMNode *aDest)
+{
+#ifdef DEBUG
+  // XXX Should we guard from QI'ing nodes that are being destroyed?
+  nsCOMPtr<nsINode> node = do_QueryInterface(NS_CONST_CAST(nsINode*, aNode));
+  NS_ASSERTION(node == aNode, "Use canonical nsINode pointer!");
+#endif
+
+  nsHandlerData handlerData = { aOperation, aSource, aDest };
+  aDocument->PropertyTable()->Enumerate(aNode, DOM_USER_DATA_HANDLER,
+                                        CallHandler, &handlerData);
+}
+
+static void
+CopyData(void *aObject, nsIAtom *aKey, void *aUserData, void *aData)
+{
+  nsPropertyTable *propertyTable = NS_STATIC_CAST(nsPropertyTable*, aData);
+  nsINode *node = NS_STATIC_CAST(nsINode*, aObject);
+  nsIDOMUserDataHandler *handler =
+    NS_STATIC_CAST(nsIDOMUserDataHandler*,
+                   propertyTable->GetProperty(node, DOM_USER_DATA_HANDLER,
+                                              aKey));
+
+  nsCOMPtr<nsIVariant> result;
+  nsContentUtils::SetUserData(node, aKey,
+                              NS_STATIC_CAST(nsIVariant*, aUserData), handler,
+                              getter_AddRefs(result));
+}
+
+/* static */
+void
+nsContentUtils::CopyUserData(nsIDocument *aOldDocument, const nsINode *aNode)
+{
+#ifdef DEBUG
+  nsCOMPtr<nsINode> node = do_QueryInterface(NS_CONST_CAST(nsINode*, aNode));
+  NS_ASSERTION(node == aNode, "Use canonical nsINode pointer!");
+#endif
+
+  nsPropertyTable *table = aOldDocument->PropertyTable();
+  table->Enumerate(aNode, DOM_USER_DATA, CopyData, table);
+}
+
+/* static */
+nsresult
+nsContentUtils::CreateContextualFragment(nsIDOMNode* aContextNode,
+                                         const nsAString& aFragment,
+                                         nsIDOMDocumentFragment** aReturn)
+{
+  NS_ENSURE_ARG(aContextNode);
+  *aReturn = nsnull;
+
+  // Create a new parser for this entire operation
+  nsresult rv;
+  nsCOMPtr<nsIParser> parser = do_CreateInstance(kCParserCID, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIDocument> document;
+  nsCOMPtr<nsIDOMDocument> domDocument;
+
+  aContextNode->GetOwnerDocument(getter_AddRefs(domDocument));
+  document = do_QueryInterface(domDocument);
+
+  // If we don't have a document here, we can't get the right security context
+  // for compiling event handlers... so just bail out.
+  NS_ENSURE_TRUE(document, NS_ERROR_NOT_AVAILABLE);
+
+  nsVoidArray tagStack;
+  nsCOMPtr<nsIDOMNode> parent = aContextNode;
+  while (parent && (parent != domDocument)) {
+    PRUint16 nodeType;
+    parent->GetNodeType(&nodeType);
+    if (nsIDOMNode::ELEMENT_NODE == nodeType) {
+      nsAutoString tagName, uriStr;
+      parent->GetNodeName(tagName);
+
+      // see if we need to add xmlns declarations
+      nsCOMPtr<nsIContent> content = do_QueryInterface(parent);
+      if (!content) {
+        rv = NS_ERROR_FAILURE;
+        break;
+      }
+
+      PRUint32 count = content->GetAttrCount();
+      PRBool setDefaultNamespace = PR_FALSE;
+      if (count > 0) {
+        PRUint32 index;
+        nsAutoString nameStr, prefixStr, valueStr;
+
+        for (index = 0; index < count; index++) {
+          const nsAttrName* name = content->GetAttrNameAt(index);
+          if (name->NamespaceEquals(kNameSpaceID_XMLNS)) {
+            content->GetAttr(kNameSpaceID_XMLNS, name->LocalName(), uriStr);
+
+            // really want something like nsXMLContentSerializer::SerializeAttr
+            tagName.Append(NS_LITERAL_STRING(" xmlns")); // space important
+            if (name->GetPrefix()) {
+              tagName.Append(PRUnichar(':'));
+              name->LocalName()->ToString(nameStr);
+              tagName.Append(nameStr);
+            } else {
+              setDefaultNamespace = PR_TRUE;
+            }
+            tagName.Append(NS_LITERAL_STRING("=\"") + uriStr +
+              NS_LITERAL_STRING("\""));
+          }
+        }
+      }
+
+      if (!setDefaultNamespace) {
+        nsINodeInfo* info = content->NodeInfo();
+        if (!info->GetPrefixAtom() &&
+            info->NamespaceID() != kNameSpaceID_None) {
+          // We have no namespace prefix, but have a namespace ID.  Push
+          // default namespace attr in, so that our kids will be in our
+          // namespace.
+          nsAutoString uri;
+          info->GetNamespaceURI(uri);
+          tagName.Append(NS_LITERAL_STRING(" xmlns=\"") + uri +
+                         NS_LITERAL_STRING("\""));
+        }
+      }
+
+      // XXX Wish we didn't have to allocate here
+      PRUnichar* name = ToNewUnicode(tagName);
+      if (name) {
+        tagStack.AppendElement(name);
+        nsCOMPtr<nsIDOMNode> temp = parent;
+        rv = temp->GetParentNode(getter_AddRefs(parent));
+        if (NS_FAILED(rv)) {
+          break;
+        }
+      } else {
+        rv = NS_ERROR_OUT_OF_MEMORY;
+        break;
+      }
+    } else {
+      nsCOMPtr<nsIDOMNode> temp = parent;
+      rv = temp->GetParentNode(getter_AddRefs(parent));
+      if (NS_FAILED(rv)) {
+        break;
+      }
+    }
+  }
+
+  if (NS_SUCCEEDED(rv)) {
+    nsCAutoString contentType;
+    PRBool bCaseSensitive = PR_TRUE;
+    nsAutoString buf;
+    document->GetContentType(buf);
+    LossyCopyUTF16toASCII(buf, contentType);
+    bCaseSensitive = document->IsCaseSensitive();
+
+    nsCOMPtr<nsIHTMLDocument> htmlDoc(do_QueryInterface(domDocument));
+    PRBool bHTML = htmlDoc && !bCaseSensitive;
+    nsCOMPtr<nsIFragmentContentSink> sink;
+    if (bHTML) {
+      rv = NS_NewHTMLFragmentContentSink(getter_AddRefs(sink));
+    } else {
+      rv = NS_NewXMLFragmentContentSink(getter_AddRefs(sink));
+    }
+    if (NS_SUCCEEDED(rv)) {
+      sink->SetTargetDocument(document);
+      nsCOMPtr<nsIContentSink> contentsink(do_QueryInterface(sink));
+      parser->SetContentSink(contentsink);
+
+      nsDTDMode mode = eDTDMode_autodetect;
+      if (bHTML) {
+        switch (htmlDoc->GetCompatibilityMode()) {
+          case eCompatibility_NavQuirks:
+            mode = eDTDMode_quirks;
+            break;
+          case eCompatibility_AlmostStandards:
+            mode = eDTDMode_almost_standards;
+            break;
+          case eCompatibility_FullStandards:
+            mode = eDTDMode_full_standards;
+            break;
+          default:
+            NS_NOTREACHED("unknown mode");
+            break;
+        }
+      } else {
+        mode = eDTDMode_full_standards;
+      }
+      rv = parser->ParseFragment(aFragment, nsnull, tagStack,
+                                 !bHTML, contentType, mode);
+
+      if (NS_SUCCEEDED(rv)) {
+        rv = sink->GetFragment(aReturn);
+      }
+    }
+  }
+
+  // XXX Ick! Delete strings we allocated above.
+  PRInt32 count = tagStack.Count();
+  for (PRInt32 i = 0; i < count; i++) {
+    PRUnichar* str = (PRUnichar*)tagStack.ElementAt(i);
+    if (str) {
+      nsCRT::free(str);
+    }
+  }
+
+  return NS_OK;
 }

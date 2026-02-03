@@ -192,7 +192,10 @@
     [% title = "Invalid Series" %]
     The series_id [% series_id FILTER html %] is not valid. It may be that
     this series has been deleted.
-    
+
+  [% ELSIF error == "list_comparison_error" %]
+    Unexpected error in list comparing code.
+
   [% ELSIF error == "mismatched_bug_ids_on_obsolete" %]
     Attachment [% attach_id FILTER html %] ([% description FILTER html %]) 
     is attached to [% terms.bug %] [%+ attach_bug_id FILTER html %], 
@@ -269,6 +272,9 @@
 
   [% ELSIF error == "ldap_connect_failed" %]
     Could not connect to the LDAP server <code>[% server FILTER html %]</code>.
+
+  [% ELSIF error == "ldap_start_tls_failed" %]
+    Could not start TLS with LDAP server: <code>[% error FILTER html %]</code>.
 
   [% ELSIF error == "ldap_search_error" %]
     An error occurred while trying to search LDAP for 

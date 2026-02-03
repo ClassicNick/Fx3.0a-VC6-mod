@@ -19,9 +19,7 @@ package Bugzilla::Auth::Login::Cookie;
 use strict;
 use base qw(Bugzilla::Auth::Login);
 
-use Bugzilla::Auth;
 use Bugzilla::Constants;
-use Bugzilla::User;
 use Bugzilla::Util;
 
 use constant requires_persistence  => 0;
@@ -36,7 +34,7 @@ sub get_login_info {
     my $dbh = Bugzilla->dbh;
 
     my $ip_addr      = $cgi->remote_addr();
-    my $net_addr     = Bugzilla::Auth::get_netaddr($ip_addr);
+    my $net_addr     = get_netaddr($ip_addr);
     my $login_cookie = $cgi->cookie("Bugzilla_logincookie");
     my $user_id      = $cgi->cookie("Bugzilla_login");
 

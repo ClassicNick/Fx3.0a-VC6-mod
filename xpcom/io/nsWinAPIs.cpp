@@ -283,6 +283,7 @@ BOOL WINAPI nsGetFileAttributesExW(LPCWSTR aPath, GET_FILEEX_INFO_LEVELS aLevel,
     NS_ASSERTION(nsWinAPIs::mCopyFile != CopyFileW, 
                  "Win APIs pointers are reset to the stubs of 'W' APIs");
 #endif
+
     nsCAutoString path;
     const char *pPath;
     ConvertArg(aPath, path, pPath);

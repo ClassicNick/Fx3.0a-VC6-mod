@@ -43,4 +43,10 @@ Litmus::DB::Locale->column_alias("abbrev", "locale");
 
 Litmus::DB::Locale->has_many(test_results => "Litmus::DB::Testresult");
 
+__PACKAGE__->set_sql(RetrieveAll => qq{
+                                       SELECT __ESSENTIAL__
+                                       FROM   __TABLE__
+                                       ORDER BY abbrev ASC
+});
+
 1;

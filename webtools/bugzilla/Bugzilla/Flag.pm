@@ -65,7 +65,7 @@ use Bugzilla::Config;
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::Attachment;
-use Bugzilla::BugMail;
+use Bugzilla::Mailer;
 use Bugzilla::Constants;
 use Bugzilla::Field;
 
@@ -716,8 +716,8 @@ sub FormToNewFlags {
     # Get a list of active flag types available for this target.
     my $flag_types = Bugzilla::FlagType::match(
         { 'target_type'  => $target->{'type'},
-          'product_id'   => $target->{'product_id'},
-          'component_id' => $target->{'component_id'},
+          'product_id'   => $target->{'bug'}->{'product_id'},
+          'component_id' => $target->{'bug'}->{'component_id'},
           'is_active'    => 1 });
 
     my @flags;
@@ -903,7 +903,7 @@ sub notify {
             ThrowTemplateError($template->error());
         }
 
-        Bugzilla::BugMail::MessageToMTA($message);
+        MessageToMTA($message);
     }
 }
 

@@ -241,6 +241,8 @@ sub BuildPlatformInstaller
       die "copy $inConfigFiles/instfiles-extra.nsi $gDirDistInstall/nsis: $!\n";
     copy("$inConfigFiles/SetProgramAccess.nsi", "$gDirDistInstall/nsis") ||
       die "copy $inConfigFiles/SetProgramAccess.nsi $gDirDistInstall/nsis: $!\n";
+    copy("$inConfigFiles/appLocale.nsi", "$gDirDistInstall/nsis") ||
+      die "copy $inConfigFiles/appLocale.nsi $gDirDistInstall/nsis: $!\n";
     copy("$gDirDistInstall/license.txt", "$gDirDistInstall/nsis") ||
       die "copy $gDirDistInstall/license.txt $gDirDistInstall/nsis: $!\n";
     copy("$inDistPath/branding/wizHeader.bmp", "$gDirDistInstall/nsis") ||
@@ -301,8 +303,8 @@ sub BuildPlatformInstaller
     system("7z a -r -t7z $dosDistInstall/nsis/app.7z -mx -m0=BCJ2 -m1=LZMA:d24 -m2=LZMA:d19 -m3=LZMA:d19  -mb0:1 -mb0s1:2 -mb0s2:3") &&
       die "7z failed: $!";
 
-    system("upx --best -o $dosDistInstall/nsis/7zSD.sfx $dostopsrcdir/other-licenses/7zstub/firefox/7zSD.sfx") &&
-      die "'upx --best -o $dosDistInstall/nsis/7zSD.sfx $dostopsrcdir/other-licenses/7zstub/firefox/7zSD.sfx' failed: $!";
+    system("upx --best -o $dosDistInstall/nsis/7zSD.sfx $dostopsrcdir/$ENV{WIZ_sfxModule}") &&
+      die "'upx --best -o $dosDistInstall/nsis/7zSD.sfx $dostopsrcdir/$ENV{WIZ_sfxModule}' failed: $!";
 
     # Temporary name change to include -nsis before .exe
     $nsisFileNameSpecific = $seiFileNameSpecific;

@@ -2077,7 +2077,6 @@ js_Interpret(JSContext *cx, jsbytecode *pc, jsval *result)
 #define LOAD_BRANCH_CALLBACK(cx)    (onbranch = (cx)->branchCallback)
 
     LOAD_BRANCH_CALLBACK(cx);
-    ok = JS_TRUE;
 #define CHECK_BRANCH(len)                                                     \
     JS_BEGIN_MACRO                                                            \
         if (len <= 0 && onbranch) {                                           \
@@ -2136,6 +2135,19 @@ js_Interpret(JSContext *cx, jsbytecode *pc, jsval *result)
         JS_ASSERT(JS_UPTRDIFF(sp, fp->spbase) <= depth * sizeof(jsval));
         newsp = fp->spbase - depth;
         mark = NULL;
+    }
+
+    /*
+     * To support generator_throw and to catch ignored exceptions, fail right
+     * away if cx->throwing is set.
+     */
+    ok = !cx->throwing;
+    if (!ok) {
+#ifdef DEBUG_NOT_THROWING
+        printf("JS INTERPRETER CALLED WITH PENDING EXCEPTION %lx\n",
+               (unsigned long) cx->exception);
+#endif
+        goto out;
     }
 
 #ifdef JS_THREADED_INTERP
@@ -2673,6 +2685,8 @@ interrupt:
                                      (iterobj == obj) ? NULL : &fid,
                                      &rval);
             if (!ok) {
+                uintN protoFlags;
+
                 /* Nothing more to iterate in obj, or some other exception? */
                 if (!cx->throwing ||
                     !VALUE_IS_STOP_ITERATION(cx, cx->exception)) {
@@ -2699,14 +2713,23 @@ interrupt:
                     goto end_forinloop;
                 }
 
+                /*
+                 * Clear JSITER_FOREACH now that we are up the prototype chain
+                 * from the original object.  We can't expect to get the same
+                 * value from a prototype as we would if we started the get at
+                 * the original object, so we must do our own getting, further
+                 * below when testing 'if (flags & JSITER_FOREACH)'.
+                 */
+                protoFlags = flags & ~JSITER_FOREACH;
+
                 if (flags & JSITER_COMPAT) {
-                    ok = js_NewNativeIterator(cx, obj, flags, vp);
+                    ok = js_NewNativeIterator(cx, obj, protoFlags, vp);
                     if (!ok)
                         goto out;
                     iterobj = JSVAL_TO_OBJECT(*vp);
                 } else {
                     iterobj = js_ValueToIterator(cx, OBJECT_TO_JSVAL(obj),
-                                                 flags);
+                                                 protoFlags);
                     if (!iterobj) {
                         JS_ASSERT(!ok);
                         goto out;
@@ -2764,6 +2787,18 @@ interrupt:
             if (flags & JSITER_FOREACH) {
                 /* Clear the local foreach flag set by our prefix bytecode. */
                 flags = 0;
+
+                /*
+                 * If enumerating up the prototype chain, we suppressed the
+                 * JSITER_FOREACH flag when we created the iterator, because
+                 * the iterator can't get the value for fid without starting
+                 * from origobj.  So we must OBJ_GET_PROPERTY here.
+                 */
+                if (origobj != obj) {
+                    ok = OBJ_GET_PROPERTY(cx, origobj, fid, &rval);
+                    if (!ok)
+                        goto out;
+                }
             } else if (iterobj == obj) {
                 /* Iterators return arbitrary values, not string ids. */
                 JS_ASSERT(fid == JSVAL_NULL);
@@ -5430,7 +5465,8 @@ interrupt:
             ok = OBJ_GET_ATTRIBUTES(cx, obj, id, NULL, &attrs);
             if (!ok)
                 goto out;
-            if (!(attrs & JSPROP_READONLY)) {
+            if (!(attrs & (JSPROP_READONLY | JSPROP_PERMANENT |
+                           JSPROP_GETTER | JSPROP_SETTER))) {
                 /* Define obj[id] to contain rval and to be permanent. */
                 ok = OBJ_DEFINE_PROPERTY(cx, obj, id, rval, NULL, NULL,
                                          JSPROP_PERMANENT, NULL);
@@ -5938,14 +5974,14 @@ interrupt:
                  * on the right of 'in' in a for-in loop, and there could be
                  * other live refs still.
                  *
-                 * js_FinishNativeIterator checks whether the iterator is not
+                 * js_CloseNativeIterator checks whether the iterator is not
                  * native, and also detects the case of a native iterator that
                  * has already escaped, even though a for-in loop caused it to
                  * be created.  See jsiter.c.
                  */
                 if (rval != sp[-3]) {
                     SAVE_SP_AND_PC(fp);
-                    js_FinishNativeIterator(cx, JSVAL_TO_OBJECT(rval));
+                    js_CloseNativeIterator(cx, JSVAL_TO_OBJECT(rval));
                 }
                 sp[-2] = JSVAL_NULL;
             }
@@ -5964,7 +6000,7 @@ interrupt:
 
           BEGIN_CASE(JSOP_YIELD)
             ASSERT_NOT_THROWING(cx);
-            fp->rval = POP_OPND();
+            fp->rval = FETCH_OPND(-1);
             fp->flags |= JSFRAME_YIELDING;
             pc += JSOP_YIELD_LENGTH;
             SAVE_SP_AND_PC(fp);
@@ -6046,7 +6082,6 @@ interrupt:
 #endif /* !JS_THREADED_INTERP */
 
 out:
-
     if (!ok) {
         /*
          * Has an exception been raised?  Also insist that we are not in an

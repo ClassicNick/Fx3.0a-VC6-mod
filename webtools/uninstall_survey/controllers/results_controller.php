@@ -11,7 +11,7 @@ class ResultsController extends AppController {
      * Model's this controller uses
      * @var array
      */
-    var $uses = array('Application','Result');
+    var $uses = array('Application','Result','Intention','Issue');
 
     /**
      * Cake Helpers
@@ -50,12 +50,112 @@ class ResultsController extends AppController {
     }
 
     /**
+     * Add a new result.  This also means we're going to be adding to several other
+     * tables (for the many to many relationships).  First we'll show a form, then if
+     * there is a $_POST, we'll process.
+     */
+    function add()
+    {
+        // If these are set in $_POST, we'll use that for the query.  If this is set
+        // in $_GET, then use that.  If neither are set, make it blank, and we'll
+        // fail later on
+        $_input_name = $this->Sanitize->Sql(isset($this->data['application'][0]) ?  $this->data['application'][0] : (isset($this->params['url']['application']) ?  $this->params['url']['application'] : ''));
+        $_input_ua   = $this->Sanitize->Sql(isset($this->data['ua'][0]) ?  $this->data['ua'][0] : (isset($this->params['url']['ua']) ?  $this->params['url']['ua'] : ''));
+
+        // Please, oh please can we talk about standards in the future. :)  The ua
+        // comes over $_GET in the form:
+        //          x.x.x.x (aa-bb)
+        // Where x is the versions and a and b are locale information.  We're not
+        // interested in the locale information, 
+
+        $_conditions = "name LIKE '{$_input_name}' AND version LIKE '{$_input_ua}'";
+        $_application = $this->Application->findAll($_conditions);
+
+        if (empty($_application)) {
+            // The application they entered in the URL is not in the db.  We'll have
+            // to put it in the db, but we don't want it to show up (in case they
+            // just typed something in manually) so we'll flag it as not visible.
+            $app = new Application();
+            $app->set('name', $_input_name);
+            $app->set('version', $_input_ua);
+            $app->set('visible', 0);
+            $app->save();
+
+            $app_id = $app->getLastInsertID();
+
+            // Warning: hard coding ahead! - Hopefully this is a temporary thing.
+            // The database will handle any combination of questions
+            // (issues/intentions) and applications+versions.  However, since we're
+            // adding stuff in that comes in over the URL, we kinda have to guess at
+            // what questions should be associated.  So, I'm running a stristr() on
+            // the $_GET values to get a general set of questions to associate, and 
+            // then manually adding those values to the table.
+            if (stristr($this->params['url']['application'], 'Firefox') !== false) {
+                // Intention Id's
+                $this->Intention->query("INSERT INTO applications_intentions VALUES ({$app_id}, 1), ({$app_id}, 2), ({$app_id}, 3), ({$app_id}, 9)");
+
+                // Issue Id's
+                $this->Issue->query("INSERT INTO applications_issues VALUES ({$app_id}, 1), ({$app_id}, 2), ({$app_id}, 3), ({$app_id}, 4), ({$app_id}, 5), ({$app_id}, 6), ({$app_id}, 7), ({$app_id}, 8), ({$app_id}, 9), ({$app_id}, 15)");
+
+            } elseif (stristr($this->params['url']['application'], 'Thunderbird') !== false) {
+
+                // Intention Id's
+                $this->Intention->query("INSERT INTO applications_intentions VALUES ({$app_id}, 5), ({$app_id}, 6), ({$app_id}, 7), ({$app_id}, 8), ({$app_id}, 9)");
+
+                // Issue Id's
+                $this->Issue->query("INSERT INTO applications_issues VALUES ({$app_id}, 10), ({$app_id}, 11), ({$app_id}, 12), ({$app_id}, 13), ({$app_id}, 14), ({$app_id}, 15)"); 
+
+            } else {
+                // Whatever they entered doesn't have firefox or thunderbird in it.
+                // All they're going to see is a comment box on the other end.
+            }
+            
+
+            // We could just get the last inserted id, but we need all the info
+            // below.  Also, cake caches the query, and won't return
+            // anything if we don't alter it (add 1=1 to the end), since we already
+            // did the same query earlier
+            $_conditions = "name LIKE '{$_input_name}' AND version LIKE '{$_input_ua}' AND 1=1";
+            $_application = $this->Application->findAll($_conditions);
+        }
+
+        // Pull the information for our radio buttons (only the
+        // questions for their applications will be shown)
+        $this->set('intentions', $this->Intention->Application->findById($_application[0]['Application']['id']));
+
+        // Checkboxes
+        $this->set('issues', $this->Issue->Application->findById($_application[0]['Application']['id']));
+
+        // We'll need the url parameters to put in hidden fields
+        $this->set('url_params', $this->Sanitize->html($this->params['url']));
+
+        // If there is no $_POST, show the form, otherwise, process the data and
+        // forward the user on.
+        if (empty($this->params['data'])) {
+            $this->render();
+        } else {
+            // Add the application id from the last cake query
+            $this->params['data'] = $this->params['data'] + $_application[0];
+            if ($this->Result->save($this->params['data'])) {
+                // Redirect
+                $this->flash('Thank you.', '/results');
+                exit;
+            } else {
+                // Saving failed.  This probably means a required field wasn't set.
+                // Should we tell them it failed, or just redirect?  Hmm...
+                $this->flash('Thank you.', '/results');
+                exit;
+            }
+        }
+    }
+
+    /**
      * Front page will show the graph
      */
     function index() 
     {
         // Products dropdown
-        $this->set('products', $this->Application->getApplications());
+        $this->set('products', $this->Application->findAll('visible=1', null, 'Application.id ASC'));
 
         // Fill in all the data passed in $_GET
         $this->set('url_params',$this->decodeAndSanitize($this->params['url']));
@@ -76,7 +176,7 @@ class ResultsController extends AppController {
     function comments()
     {
         // Products dropdown
-        $this->set('products', $this->Application->getApplications());
+        $this->set('products', $this->Application->findAll('visible=1', null, 'Application.id ASC'));
 
         // Fill in all the data passed in $_GET
         $this->set('url_params',$this->decodeAndSanitize($this->params['url']));

@@ -86,13 +86,18 @@ sub check_credentials {
     my $user_entry = $detail_result->shift_entry;
 
     my $mail_attr = Param("LDAPmailattribute");
-    if (!$user_entry->exists($mail_attr)) {
-        return { failure => AUTH_ERROR,
-                 error   => "ldap_cannot_retreive_attr",
-                 details => {attr => $mail_attr} };
+    if ($mail_attr) {
+        if (!$user_entry->exists($mail_attr)) {
+            return { failure => AUTH_ERROR,
+                     error   => "ldap_cannot_retreive_attr",
+                     details => {attr => $mail_attr} };
+        }
+
+        $params->{bz_username} = $user_entry->get_value($mail_attr);
+    } else {
+        $params->{bz_username} = $username;
     }
 
-    $params->{bz_username} = $user_entry->get_value($mail_attr);
     $params->{realname}  ||= $user_entry->get_value("displayName");
     $params->{realname}  ||= $user_entry->get_value("cn");
 
@@ -159,6 +164,14 @@ sub ldap {
     my $conn_string = "$protocol://$server:$port";
     $self->{ldap} = new Net::LDAP($conn_string) 
         || ThrowCodeError("ldap_connect_failed", { server => $conn_string });
+
+    # try to start TLS if needed
+    if (Param("LDAPstarttls")) {
+        my $mesg = $self->{ldap}->start_tls();
+        ThrowCodeError("ldap_start_tls_failed", { error => $mesg->error() })
+            if $mesg->code();
+    }
+
     return $self->{ldap};
 }
 

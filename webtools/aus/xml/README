@@ -1,8 +1,4 @@
-AUS Lite
---------
-Great taste, less filling. (tm)
-
-Installation
+AUS2 Installation
 ------------
 Copy ./inc/config-dist.php to ./inc/config.php.  Configure it properly following the comments.
 Set up the ./data symlink to point to the right location (/opt/aus2/incoming, for example).
@@ -12,3 +8,8 @@ NOTE: source files must follow a naming convention:
     SOURCE_DIR/[product]/[platform]/[locale].txt
 
 NOTE: adjust the .htaccess file's RewriteBase if you are having problems.
+
+For more information on AUS, view the wiki page at:
+    http://wiki.mozilla.org/AUS
+
+Contact: <morgamic@mozilla.com>

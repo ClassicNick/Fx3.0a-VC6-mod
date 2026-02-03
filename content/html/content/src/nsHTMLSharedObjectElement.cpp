@@ -67,6 +67,7 @@ class nsHTMLSharedObjectElement : public nsGenericHTMLElement,
 public:
   nsHTMLSharedObjectElement(nsINodeInfo *aNodeInfo,
                             PRBool aFromParser = PR_FALSE);
+  virtual ~nsHTMLSharedObjectElement();
 
   // nsISupports
   NS_DECL_ISUPPORTS_INHERITED
@@ -151,6 +152,8 @@ private:
            nsGkAtoms::src;
   }
 
+  // mIsDoneAddingChildren is only really used for <applet>.  This boolean is
+  // always true for <embed>, per the documentation in nsIContent.h.
   PRPackedBool mIsDoneAddingChildren;
 };
 
@@ -161,8 +164,13 @@ NS_IMPL_NS_NEW_HTML_ELEMENT_CHECK_PARSER(SharedObject)
 nsHTMLSharedObjectElement::nsHTMLSharedObjectElement(nsINodeInfo *aNodeInfo,
                                                      PRBool aFromParser)
   : nsGenericHTMLElement(aNodeInfo),
-    mIsDoneAddingChildren(!aFromParser)
+    mIsDoneAddingChildren(aNodeInfo->Equals(nsGkAtoms::embed) || !aFromParser)
 {
+}
+
+nsHTMLSharedObjectElement::~nsHTMLSharedObjectElement()
+{
+  DestroyImageLoadingContent();
 }
 
 PRBool
@@ -174,12 +182,14 @@ nsHTMLSharedObjectElement::IsDoneAddingChildren()
 void
 nsHTMLSharedObjectElement::DoneAddingChildren(PRBool aHaveNotified)
 {
-  mIsDoneAddingChildren = PR_TRUE;
+  if (!mIsDoneAddingChildren) {
+    mIsDoneAddingChildren = PR_TRUE;
 
-  // If we're already in a document, we need to trigger the load
-  // Otherwise, BindToTree takes care of that.
-  if (IsInDoc()) {
-    StartObjectLoad(aHaveNotified);
+    // If we're already in a document, we need to trigger the load
+    // Otherwise, BindToTree takes care of that.
+    if (IsInDoc()) {
+      StartObjectLoad(aHaveNotified);
+    }
   }
 }
 
@@ -222,7 +232,7 @@ nsHTMLSharedObjectElement::BindToTree(nsIDocument *aDocument,
   NS_ENSURE_SUCCESS(rv, rv);
 
   // If we already have all the children, start the load.
-  if (mIsDoneAddingChildren || mNodeInfo->Equals(nsGkAtoms::embed)) {
+  if (mIsDoneAddingChildren) {
     // Don't need to notify: We have no frames yet, since we weren't in a
     // document
     StartObjectLoad(PR_FALSE);

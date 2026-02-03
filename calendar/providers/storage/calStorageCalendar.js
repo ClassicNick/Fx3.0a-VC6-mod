@@ -23,6 +23,7 @@
  *   Vladimir Vukicevic <vladimir.vukicevic@oracle.com>
  *   Joey Minta <jminta@gmail.com>
  *   Dan Mosedale <dan.mosedale@oracle.com>
+ *   Thomas Benisch <thomas.benisch@sun.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -720,9 +721,8 @@ calStorageCalendar.prototype = {
             // to fall within the range
             sp = this.mSelectTodosByRange.params;
             sp.cal_id = this.mCalId;
-            sp.range_start = startTime;
             sp.range_end = endTime;
-            sp.offset = aRangeStart ? aRangeStart.timezoneOffset * USECS_PER_SECOND : 0;
+            sp.end_offset = aRangeEnd ? aRangeEnd.timezoneOffset * USECS_PER_SECOND : 0;
 
             while (this.mSelectTodosByRange.step()) {
                 var row = this.mSelectTodosByRange.row;
@@ -1051,36 +1051,34 @@ calStorageCalendar.prototype = {
             );
 
         // The more readable version of the next where-clause is:
-        //   WHERE event_end >= :range_start AND event_start < :event_end
+        //   WHERE event_end >= :range_start AND event_start < :range_end
         // but that doesn't work with floating start or end times. The logic
         // is the same though.
         // For readability, a few helpers:
-        var floatingEventStart = "event_start_tz = 'floating' AND event_start - :start_offset"
+        var floatingEventStart = "event_start_tz = 'floating' AND event_start"
         var nonFloatingEventStart = "event_start_tz != 'floating' AND event_start"
-        var floatingEventEnd = "event_end_tz = 'floating' AND event_end - :end_offset"
+        var floatingEventEnd = "event_end_tz = 'floating' AND event_end"
         var nonFloatingEventEnd = "event_end_tz != 'floating' AND event_end"
         // The query needs to take both floating and non floating into account
         this.mSelectEventsByRange = createStatement(
             this.mDB,
             "SELECT * FROM cal_events " +
             "WHERE " +
-            " (("+floatingEventEnd+" >= :range_start) OR " +
+            " (("+floatingEventEnd+" >= :range_start + :start_offset) OR " +
             "  ("+nonFloatingEventEnd+" >= :range_start)) AND " +
-            " (("+floatingEventStart+" < :range_end) OR " +
+            " (("+floatingEventStart+" < :range_end + :end_offset) OR " +
             "  ("+nonFloatingEventStart+" < :range_end)) " +
             "  AND cal_id = :cal_id AND recurrence_id IS NULL"
             );
 
-        var floatingTodoEntry = "todo_entry_tz = 'floating' AND todo_entry - :offset"
+        var floatingTodoEntry = "todo_entry_tz = 'floating' AND todo_entry"
         var nonFloatingTodoEntry = "todo_entry_tz != 'floating' AND todo_entry"
         this.mSelectTodosByRange = createStatement(
             this.mDB,
             "SELECT * FROM cal_todos " +
             "WHERE " +
-            " (((("+floatingTodoEntry+" >= :range_start) OR " +
-            "    ("+nonFloatingTodoEntry+" >= :range_start)) AND " +
-            "   (("+floatingTodoEntry+" < :range_end) OR " +
-            "    ("+nonFloatingTodoEntry+" < :range_end))) " +
+            " ((("+floatingTodoEntry+" < :range_end + :end_offset) OR " +
+            "   ("+nonFloatingTodoEntry+" < :range_end)) " +
             "  OR (todo_entry IS NULL)) " +
             " AND cal_id = :cal_id AND recurrence_id IS NULL"
             );

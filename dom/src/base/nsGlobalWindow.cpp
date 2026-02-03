@@ -43,6 +43,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 // Local Includes
+#include "nsCOMPtr.h"
 #include "nsGlobalWindow.h"
 #include "nsScreen.h"
 #include "nsHistory.h"
@@ -293,7 +294,6 @@ static NS_DEFINE_CID(kHTTPHandlerCID, NS_HTTPPROTOCOLHANDLER_CID);
 static NS_DEFINE_CID(kXULControllersCID, NS_XULCONTROLLERS_CID);
 static NS_DEFINE_CID(kCharsetConverterManagerCID,
                      NS_ICHARSETCONVERTERMANAGER_CID);
-static NS_DEFINE_CID(kWindowMediatorCID, NS_WINDOWMEDIATOR_CID); // For window.find()
 
 static const char sJSStackContractID[] = "@mozilla.org/js/xpc/ContextStack;1";
 
@@ -4717,7 +4717,7 @@ nsGlobalWindow::FindInternal(const nsAString& aStr, PRBool caseSensitive,
   if (aStr.IsEmpty() || showDialog) {
     // See if the find dialog is already up using nsIWindowMediator
     nsCOMPtr<nsIWindowMediator> windowMediator =
-      do_GetService(kWindowMediatorCID);
+      do_GetService(NS_WINDOWMEDIATOR_CONTRACTID);
 
     nsCOMPtr<nsIDOMWindowInternal> findDialog;
 

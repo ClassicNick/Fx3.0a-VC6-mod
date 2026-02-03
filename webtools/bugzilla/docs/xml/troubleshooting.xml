@@ -1,5 +1,5 @@
 <!-- <!DOCTYPE chapter PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"> -->
-<!-- $Id: troubleshooting.xml,v 1.8 2006/02/21 21:50:45 mozilla%colinogilvie.co.uk Exp $ -->
+<!-- $Id: troubleshooting.xml,v 1.10 2006/06/06 15:24:10 uid623 Exp $ -->
 
 <appendix id="troubleshooting">
 <title>Troubleshooting</title>
@@ -15,7 +15,7 @@
     completion, it normally explains what's wrong and how to fix it.
     If you can't work it out, or if it's being uncommunicative, post 
     the errors in the 
-    <ulink url="news://news.mozilla.org/netscape.public.mozilla.webtools">netscape.public.mozilla.webtools</ulink>
+    <ulink url="news://news.mozilla.org/mozilla.support.bugzilla">mozilla.support.bugzilla</ulink>
     newsgroup.
     </para>
 
@@ -274,7 +274,7 @@ at /usr/lib/perl5/site_perl/5.6.0/File/Temp.pm line 233.</programlisting>
     </para>
   </section>
 
-  <section>
+  <section id="trbl-relogin-some">
   <title>Some users are constantly being forced to relogin</title>
 
     <para>First, make sure cookies are enabled in the user's browser.

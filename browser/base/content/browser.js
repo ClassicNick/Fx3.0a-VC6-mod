@@ -1425,7 +1425,10 @@ function ctrlNumberTabSelection(event)
   if (index < 0)
     return;
 
-  if (index >= gBrowser.tabContainer.childNodes.length)
+  // [Ctrl]+[9] always selects the last tab
+  if (index == 8)
+    index = gBrowser.tabContainer.childNodes.length - 1;
+  else if (index >= gBrowser.tabContainer.childNodes.length)
     return;
 
   var oldTab = gBrowser.selectedTab;
@@ -1875,7 +1878,7 @@ function BrowserCloseTabOrWindow()
   }
 #endif
 
-  if (gBrowser.localName == 'tabbrowser' && gBrowser.tabContainer.childNodes.length > 1) {
+  if (gBrowser.localName == "tabbrowser" && (gBrowser.tabContainer.childNodes.length > 1 || !gPrefService.getBoolPref("browser.tabs.autoHide"))) {
     // Just close up a tab.
     gBrowser.removeCurrentTab();
     return;
@@ -4226,7 +4229,8 @@ nsContextMenu.prototype = {
         this.menu = popup;
 
         // Get contextual info.
-        this.setTarget( document.popupNode, document.popupEvent );
+        this.setTarget( document.popupNode, document.popupRangeParent,
+                        document.popupRangeOffset );
 
         this.isTextSelected = this.isTextSelection();
         this.isContentSelected = this.isContentSelection();
@@ -4425,7 +4429,7 @@ nsContextMenu.prototype = {
         this.showItem( "context-metadata", this.onMetaDataItem );
     },
     // Set various context menu attributes based on the state of the world.
-    setTarget : function ( node, event ) {
+    setTarget : function ( node, rangeParent, rangeOffset ) {
         const xulNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
         if ( node.namespaceURI == xulNS ) {
           this.shouldDisplay = false;
@@ -4485,14 +4489,14 @@ nsContextMenu.prototype = {
                // allow spellchecking UI on all writable text boxes except passwords
                if (this.onTextInput && ! this.target.readOnly && this.target.type != "password") {
                    InlineSpellCheckerUI.init(this.target);
-                   InlineSpellCheckerUI.initFromEvent(event);
+                   InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
                }
                this.onKeywordField = this.isTargetAKeywordField(this.target);
             } else if ( this.target instanceof HTMLTextAreaElement ) {
                  this.onTextInput = true;
                  if (! this.target.readOnly) {
                      InlineSpellCheckerUI.init(this.target);
-                     InlineSpellCheckerUI.initFromEvent(event);
+                     InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
                  }
             } else if ( this.target instanceof HTMLHtmlElement ) {
                // pages with multiple <body>s are lame. we'll teach them a lesson.
@@ -5341,7 +5345,8 @@ function asyncOpenWebPanel(event)
    }
    if (event.button == 1 &&
        !event.getPreventDefault() &&
-       gPrefService.getBoolPref("middlemouse.contentLoadURL")) {
+       gPrefService.getBoolPref("middlemouse.contentLoadURL") &&
+       !gPrefService.getBoolPref("general.autoScroll")) {
      middleMousePaste(event);
    }
    return true;
