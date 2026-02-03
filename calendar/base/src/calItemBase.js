@@ -341,7 +341,9 @@ calItemBase.prototype = {
         }
     },
 
+    // The has/get/getUnproxied/set/deleteProperty methods are case-insensitive.
     getProperty: function (aName) {
+        aName = aName.toUpperCase();
         try {
             return this.mProperties.getProperty(aName);
         } catch (e) {
@@ -357,24 +359,24 @@ calItemBase.prototype = {
 
     getUnproxiedProperty: function (aName) {
         try {
-            return this.mProperties.getProperty(aName);
+            return this.mProperties.getProperty(aName.toUpperCase());
         } catch (e) { }
         return null;
     },
 
     hasProperty: function (aName) {
-        return (this.getProperty(aName) != null);
+        return (this.getProperty(aName.toUpperCase()) != null);
     },
 
     setProperty: function (aName, aValue) {
         this.modify();
-        this.mProperties.setProperty(aName, aValue);
+        this.mProperties.setProperty(aName.toUpperCase(), aValue);
     },
 
     deleteProperty: function (aName) {
         this.modify();
         try {
-            this.mProperties.deleteProperty(aName);
+            this.mProperties.deleteProperty(aName.toUpperCase());
         } catch (e) { }
     },
 
@@ -415,6 +417,7 @@ calItemBase.prototype = {
         this.mAttendees.push(attendee);
     },
 
+    mCalendar: null,
     get calendar () {
         return this.mCalendar;
     },
@@ -444,6 +447,9 @@ calItemBase.prototype = {
         throw Components.results.NS_NOT_IMPLEMENTED;
     },
 
+    // All of these property names must be in upper case for isPropertyPromoted to
+    // function correctly. The has/get/getUnproxied/set/deleteProperty interfaces
+    // are case-insensitive, but these are not.
     itemBasePromotedProps: {
         "CREATED": true,
         "UID": true,
@@ -565,9 +571,9 @@ calItemBase.prototype = {
 
             var related = triggerProp.getParameter("RELATED");
             if (related && related == "END")
-                this.alarmRelated = this.ALARM_RELATED_END;
+                this.alarmRelated = Components.interfaces.calIItemBase.ALARM_RELATED_END;
             else
-                this.alarmRelated = this.ALARM_RELATED_START;
+                this.alarmRelated = Components.interfaces.calIItemBase.ALARM_RELATED_START;
 
             var lastAck = alarmComp.getFirstProperty("X-MOZ-LASTACK");
             if (lastAck) {
@@ -594,8 +600,9 @@ calItemBase.prototype = {
         }
     },
 
+    // This method is case-insensitive.
     isPropertyPromoted: function (name) {
-        return (this.itemBasePromotedProps[name]);
+        return (this.itemBasePromotedProps[name.toUpperCase()]);
     },
 
     get icalComponent() {
