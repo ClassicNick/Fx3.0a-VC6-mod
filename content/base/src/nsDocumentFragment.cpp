@@ -127,7 +127,6 @@ public:
   NS_DECL_NSIDOM3NODE
 
   // nsIContent
-  virtual void SetParent(nsIContent* aParent) { }
   nsresult SetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
                    const nsAString& aValue, PRBool aNotify)
   {

@@ -78,6 +78,9 @@
 #ifdef MOZ_FEEDS
 #include "nsFeedSniffer.h"
 #endif
+#ifdef MOZ_SAFE_BROWSING
+#include "nsDocNavStartProgressListener.h"
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -119,6 +122,9 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsICabProfileMigrator)
 #endif
 #ifdef MOZ_FEEDS
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsFeedSniffer)
+#endif
+#ifdef MOZ_SAFE_BROWSING
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsDocNavStartProgressListener)
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -216,6 +222,13 @@ static const nsModuleComponentInfo components[] =
     NS_FEEDSNIFFER_CONTRACTID,
     nsFeedSnifferConstructor,
     nsFeedSniffer::Register },
+#endif
+
+#ifdef MOZ_SAFE_BROWSING
+  { "Safe browsing document nav start progress listener",
+    NS_DOCNAVSTARTPROGRESSLISTENER_CID,
+    NS_DOCNAVSTARTPROGRESSLISTENER_CONTRACTID,
+    nsDocNavStartProgressListenerConstructor },
 #endif
 
   { "Profile Migrator",

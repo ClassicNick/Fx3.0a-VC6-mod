@@ -84,10 +84,8 @@ public:
 	NS_IMETHOD ForceClosed();
 
 	NS_IMETHOD CreateNewCardAndAddToDB(nsIAbCard *newCard, PRBool notify);
-	NS_IMETHOD CreateNewCardAndAddToDBWithKey(nsIAbCard *newCard, PRBool notify, PRUint32 *key);	
 	NS_IMETHOD CreateNewListCardAndAddToDB(nsIAbDirectory *list, PRUint32 listRowID, nsIAbCard *newCard, PRBool notify);
 	NS_IMETHOD CreateMailListAndAddToDB(nsIAbDirectory *newList, PRBool notify);
-  NS_IMETHOD CreateMailListAndAddToDBWithKey(nsIAbDirectory *newList, PRBool notify, PRUint32 *key);
 	NS_IMETHOD EnumerateCards(nsIAbDirectory *directory, nsISimpleEnumerator **result);
 	NS_IMETHOD GetMailingListsFromDB(nsIAbDirectory *parentDir);
 	NS_IMETHOD EnumerateListAddresses(nsIAbDirectory *directory, nsISimpleEnumerator **result);
@@ -130,12 +128,6 @@ public:
 
 	NS_IMETHOD Add2ndEmail(nsIMdbRow * row, const char * value)
 	{ return AddCharStringColumn(row, m_2ndEmailColumnToken, value); }
-
-  NS_IMETHOD AddDefaultEmail(nsIMdbRow * row, const char * value)
-  { return AddCharStringColumn(row, m_DefaultEmailColumnToken, value); }
-
-  NS_IMETHOD AddCardType(nsIMdbRow * row, const char * value)
-  { return AddCharStringColumn(row, m_CardTypeColumnToken, value); }
 
 	NS_IMETHOD AddPreferMailFormat(nsIMdbRow * row, PRUint32 value)
 	{ return AddIntColumn(row, m_MailFormatColumnToken, value); }

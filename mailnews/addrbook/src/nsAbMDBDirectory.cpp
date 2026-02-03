@@ -600,17 +600,7 @@ NS_IMETHODIMP nsAbMDBDirectory::CreateDirectoryByURI(const PRUnichar *dirName, c
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
-NS_IMETHODIMP nsAbMDBDirectory::AddMailListWithKey(nsIAbDirectory *list, PRUint32 *key)
-{
-  return(InternalAddMailList(list, key));
-}
-
 NS_IMETHODIMP nsAbMDBDirectory::AddMailList(nsIAbDirectory *list)
-{
-  return(InternalAddMailList(list, nsnull));
-}
-
-nsresult nsAbMDBDirectory::InternalAddMailList(nsIAbDirectory *list, PRUint32 *key)
 {
   if (mIsQueryURI)
     return NS_ERROR_NOT_IMPLEMENTED;
@@ -636,10 +626,7 @@ nsresult nsAbMDBDirectory::InternalAddMailList(nsIAbDirectory *list, PRUint32 *k
     dblist = do_QueryInterface(list, &rv);
   }
 
-  if (!key)
-    mDatabase->CreateMailListAndAddToDB(list, PR_TRUE);
-  else
-    mDatabase->CreateMailListAndAddToDBWithKey(list, PR_TRUE, key);
+  mDatabase->CreateMailListAndAddToDB(list, PR_TRUE);
   mDatabase->Commit(nsAddrDBCommitType::kLargeCommit);
 
   PRUint32 dbRowID;
@@ -717,12 +704,6 @@ NS_IMETHODIMP nsAbMDBDirectory::DropCard(nsIAbCard* aCard, PRBool needToCopyCard
     return NS_ERROR_NOT_IMPLEMENTED;
 
   nsresult rv = NS_OK;
-
-  // Don't add the card if it's not a normal one (ie, they can't be added as members).
-  PRBool isNormal;
-  rv = aCard->GetIsANormalCard(&isNormal);
-  if (!isNormal)
-    return NS_OK;
 
   NS_ASSERTION(!mURI.IsEmpty(), "Not initialized?");
   if (mIsMailingList == -1)
