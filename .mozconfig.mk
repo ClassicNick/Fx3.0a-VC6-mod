@@ -32,3 +32,5 @@ MOZ_OBJDIR=/h/browsers/vc5compat/objdir/obj-fxvc5sp3-release/
 # --enable-default-toolkit=windows
 # --with-windows-version=400
 # --disable-places
+# --disable-storage
+# --disable-url-classifier

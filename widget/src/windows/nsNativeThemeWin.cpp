@@ -2135,7 +2135,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       else
       {
         DrawCheckedRect(hdc, widgetRect, COLOR_3DHILIGHT, COLOR_3DFACE,
-                        (HBRUSH) COLOR_SCROLLBAR+1);
+                        (HBRUSH) COLOR_SCROLLBAR);
       }
       // XXX should invert the part of the track being clicked here
       // but the track is never :active

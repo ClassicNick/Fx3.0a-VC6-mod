@@ -34,6 +34,8 @@ ac_add_options --disable-xpconnect-idispatch
 ac_add_options --enable-default-toolkit=windows
 ac_add_options --with-windows-version=400
 ac_add_options --disable-places
+ac_add_options --disable-storage
+ac_add_options --disable-url-classifier
 
 # Branding Options
 ac_add_options --with-app-name=Winternight

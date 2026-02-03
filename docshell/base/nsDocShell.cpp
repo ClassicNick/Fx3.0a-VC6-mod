@@ -45,6 +45,7 @@
 #define FORCE_PR_LOG 1
 #endif
 
+#include "nsCOMPtr.h"
 #include "nsIBrowserDOMWindow.h"
 #include "nsIComponentManager.h"
 #include "nsIContent.h"

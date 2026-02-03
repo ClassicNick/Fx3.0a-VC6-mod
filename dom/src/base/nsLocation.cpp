@@ -38,6 +38,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsISupportsUtils.h"
 #include "nsCOMPtr.h"
 #include "nsGlobalWindow.h"
 #include "nsIScriptSecurityManager.h"

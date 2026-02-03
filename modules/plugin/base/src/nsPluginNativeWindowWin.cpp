@@ -431,12 +431,21 @@ NS_IMETHODIMP PluginWindowEvent::Run()
 
   nsCOMPtr<nsIPluginInstance> inst;
   win->GetPluginInstance(inst);
+#if defined (_MSC_VER) && _MSC_VER <= 1100
+  NS_TRY_SAFE_CALL_VOID(::CallWindowProc(((int (_stdcall*)(void)) win->GetWindowProc()), 
+                        hWnd, 
+                        GetMsg(), 
+                        GetWParam(), 
+                        GetLParam()),
+                        nsnull, inst);
+#else
   NS_TRY_SAFE_CALL_VOID(::CallWindowProc(win->GetWindowProc(), 
                         hWnd, 
                         GetMsg(), 
                         GetWParam(), 
                         GetLParam()),
                         nsnull, inst);
+#endif
   Clear();
   return NS_OK;
 }
