@@ -45,7 +45,9 @@ include $(DEPTH)/config/autoconf.mk
 MODULE		= bookmarks
 XPIDL_MODULE	= bookmarks
 
-XPIDLSRCS	= nsIBookmarksService.idl nsIDOMParser.idl
-
+XPIDLSRCS	= nsIBookmarksService.idl \
+			nsIBookmarkTransactionManager.idl \
+			nsIDOMParser.idl \
+			
 include $(topsrcdir)/config/rules.mk
 

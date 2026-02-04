@@ -20,6 +20,7 @@
  the Initial Developer. All Rights Reserved.
 
  Contributor(s):
+    Karsten Düsterloh <mnyromyr@tprac.de>
 
  Alternatively, the contents of this file may be used under the terms of
  either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -190,8 +191,8 @@
 <!ENTITY sortBySizeCmd.accesskey "z">
 <!ENTITY sortByStatusCmd.label "Status">
 <!ENTITY sortByStatusCmd.accesskey "u">
-<!ENTITY sortByLabelCmd.label "Label">
-<!ENTITY sortByLabelCmd.accesskey "L">
+<!ENTITY sortByTagsCmd.label "Tags">
+<!ENTITY sortByTagsCmd.accesskey "g">
 <!ENTITY sortByJunkStatusCmd.label "Junk Status">
 <!ENTITY sortByJunkStatusCmd.accesskey "J">
 <!ENTITY sortBySubjectCmd.label "Subject">
@@ -391,8 +392,10 @@
 <!ENTITY addSenderToAddressBookCmd.accesskey "S">
 <!ENTITY addAllToAddressBookCmd.label ".Add All to Address Book">
 <!ENTITY addAllToAddressBookCmd.accesskey "A">
-<!ENTITY labelMenu.label "Label">
-<!ENTITY labelMenu.accesskey "L">
+<!ENTITY tagMenu.label "Tag">
+<!ENTITY tagMenu.accesskey "g">
+<!ENTITY newTag.label "New Tag...">
+<!ENTITY newTag.accesskey "N">
 <!ENTITY labelCmd0.accesskey "0">
 <!ENTITY labelCmd0.key "0">
 <!ENTITY labelCmd1.label "1">

@@ -141,6 +141,8 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 #include "nsIScriptError.h"
 #include "nsIConsoleService.h"
 
+const char kLoadAsData[] = "loadAsData";
+
 static const char kJSStackContractID[] = "@mozilla.org/js/xpc/ContextStack;1";
 static NS_DEFINE_CID(kParserServiceCID, NS_PARSERSERVICE_CID);
 static NS_DEFINE_CID(kCParserCID, NS_PARSER_CID);
@@ -2198,17 +2200,34 @@ nsContentUtils::UnregisterPrefCallback(const char *aPref,
 }
 
 
-static const char gEventName[] = "event";
-static const char gSVGEventName[] = "evt";
+static const char *gEventNames[] = {"event"};
+static const char *gSVGEventNames[] = {"evt"};
+// for b/w compat, the first name to onerror is still 'event', even though it
+// is actually the error message.  (pre this code, the other 2 were not avail.)
+// XXXmarkh - a quick lxr shows no affected code - should we correct this?
+static const char *gOnErrorNames[] = {"event", "source", "lineno"};
 
 // static
-const char *
-nsContentUtils::GetEventArgName(PRInt32 aNameSpaceID)
+void
+nsContentUtils::GetEventArgNames(PRInt32 aNameSpaceID,
+                                 nsIAtom *aEventName,
+                                 PRUint32 *aArgCount,
+                                 const char*** aArgArray)
 {
-  if (aNameSpaceID == kNameSpaceID_SVG)
-    return gSVGEventName;
+#define SET_EVENT_ARG_NAMES(names) \
+    *aArgCount = sizeof(names)/sizeof(names[0]); \
+    *aArgArray = names;
 
-  return gEventName;
+  // nsJSEventListener is what does the arg magic for onerror, and it does
+  // not seem to take the namespace into account.  So we let onerror in all
+  // namespaces get the 3 arg names.
+  if (aEventName == nsLayoutAtoms::onerror) {
+    SET_EVENT_ARG_NAMES(gOnErrorNames);
+  } else if (aNameSpaceID == kNameSpaceID_SVG) {
+    SET_EVENT_ARG_NAMES(gSVGEventNames);
+  } else {
+    SET_EVENT_ARG_NAMES(gEventNames);
+  }
 }
 
 nsCxPusher::nsCxPusher(nsISupports *aCurrentTarget)
@@ -3351,6 +3370,35 @@ nsContentUtils::CreateContextualFragment(nsIDOMNode* aContextNode,
     PRUnichar* str = (PRUnichar*)tagStack.ElementAt(i);
     if (str) {
       nsCRT::free(str);
+    }
+  }
+
+  return NS_OK;
+}
+
+/* static */
+nsresult
+nsContentUtils::CreateDocument(const nsAString& aNamespaceURI, 
+                               const nsAString& aQualifiedName, 
+                               nsIDOMDocumentType* aDoctype,
+                               nsIURI* aDocumentURI, nsIURI* aBaseURI,
+                               nsIPrincipal* aPrincipal,
+                               nsIDOMDocument** aResult)
+{
+  nsresult rv = NS_NewDOMDocument(aResult, aNamespaceURI, aQualifiedName,
+                                  aDoctype, aDocumentURI, aBaseURI, aPrincipal);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsIDocShell *docShell = GetDocShellFromCaller();
+  if (docShell) {
+    nsCOMPtr<nsPresContext> presContext;
+    docShell->GetPresContext(getter_AddRefs(presContext));
+    if (presContext) {
+      nsCOMPtr<nsISupports> container = presContext->GetContainer();
+      nsCOMPtr<nsIDocument> document = do_QueryInterface(*aResult);
+      if (document) {
+        document->SetContainer(container);
+      }
     }
   }
 

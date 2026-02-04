@@ -1264,14 +1264,6 @@ FormFillPrefListener.prototype =
     }
     var formController = Components.classes["@mozilla.org/satchel/form-fill-controller;1"].getService(Components.interfaces.nsIAutoCompleteInput);
     formController.disableAutoComplete = !gFormFillEnabled;
-
-    var searchBar = document.getElementsByTagName("searchbar");
-    for (var i=0; i<searchBar.length;i++) {
-      if (gFormFillEnabled)
-        searchBar[i].removeAttribute("disableautocomplete");
-      else
-        searchBar[i].setAttribute("disableautocomplete", "true");
-    }
   }
 }
 
@@ -2319,8 +2311,14 @@ function canonizeUrl(aTriggeringEvent, aPostDataRef)
       // trim leading/trailing spaces (bug 233205)
       url = url.replace( /^\s+/, "");
       url = url.replace( /\s+$/, "");
-      // Tack www. and suffix on.
-      url = "http://www." + url + suffix;
+      // Tack www. and suffix on.  If user has appended directories, insert
+      // suffix before them (bug 279035).  Be careful not to get two slashes.
+      var firstSlash = url.indexOf("/");
+      if (firstSlash >= 0)
+        url = "http://www." + url.substring(0, firstSlash) + suffix +
+              url.substring(firstSlash + 1, url.length);
+      else
+        url = "http://www." + url + suffix;
     }
   }
 
@@ -2942,6 +2940,16 @@ const BrowserSearch = {
 
     if (!etype)
       return;
+      
+    if (target.title) {
+      // If this engine (identified by title) is already in the list, ignore it.
+      // XXX This will need to be changed when engines are identified by URL;
+      // see bug 335102.
+      var searchService = Components.classes["@mozilla.org/browser/search-service;1"]
+                                    .getService(Components.interfaces.nsIBrowserSearchService);
+      if (searchService.getEngineByName(target.title))
+        return;
+    }
 
     if (etype == "application/opensearchdescription+xml" &&
         searchRelRegex.test(erel) && searchHrefRegex.test(ehref))
@@ -3049,7 +3057,14 @@ const BrowserSearch = {
     else
       engine = ss.defaultEngine;
   
-    var submission = engine.getSubmission(searchText);
+    var submission = engine.getSubmission(searchText, null); // HTML response
+
+    // getSubmission can return null if the engine doesn't have a URL
+    // with a text/html response type.  This is unlikely (since
+    // SearchService._addEngineToStore() should fail for such an engine),
+    // but let's be on the safe side.
+    if (!submission)
+      return;
   
     if (useNewTab) {
       getBrowser().loadOneTab(submission.uri.spec, null, null,

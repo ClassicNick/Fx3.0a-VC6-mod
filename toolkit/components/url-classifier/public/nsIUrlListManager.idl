@@ -12,14 +12,15 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is Url Classifier code
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Google Inc.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
+ *   Tony Chang <tony@ponderer.org> (original author)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -47,9 +48,14 @@ interface nsIUrlListManagerCallback : nsISupports {
   void handleEvent(in boolean value);
 };
 
-[scriptable, uuid(e1a80418-1bf9-4bd7-a40d-94d549c24955)]
+[scriptable, uuid(914b3a54-47a8-4cb0-b9df-c89064f6bb34)]
 interface nsIUrlListManager : nsISupports
 {
+    /**
+     * Set the URL we check for updates.
+     */
+    void setUpdateUrl(in ACString url);
+
     /**
      * Add a table to the list of tables we are managing.  The name is a
      * string of the format provider_name-semantic_type-table_type.  For

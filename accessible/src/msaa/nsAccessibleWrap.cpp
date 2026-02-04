@@ -285,7 +285,7 @@ STDMETHODIMP nsAccessibleWrap::get_accValue(
   GetXPAccessibleFor(varChild, getter_AddRefs(xpAccessible));
   if (xpAccessible) {
     nsAutoString value;
-    if (NS_FAILED(xpAccessible->GetFinalValue(value)))
+    if (NS_FAILED(xpAccessible->GetValue(value)))
       return S_FALSE;
 
     *pszValue = ::SysAllocString(value.get());
@@ -429,6 +429,11 @@ STDMETHODIMP nsAccessibleWrap::get_accRole(
   PRUint32 role = 0;
   if (NS_FAILED(xpAccessible->GetFinalRole(&role)))
     return E_FAIL;
+
+  // Begin check for extended roles that need to be mapped to something known
+  if (role == ROLE_ENTRY || role == ROLE_PASSWORD_TEXT) {
+    role = ROLE_TEXT;
+  }
 
   // -- Try enumerated role
   if (role != ROLE_NOTHING && role != ROLE_CLIENT) {
@@ -677,8 +682,14 @@ STDMETHODIMP nsAccessibleWrap::accSelect(
     if (flagsSelect & SELFLAG_TAKESELECTION)
       xpAccessible->TakeSelection();
 
+    if (flagsSelect & SELFLAG_ADDSELECTION)
+      xpAccessible->SetSelected(PR_TRUE);
+
     if (flagsSelect & SELFLAG_REMOVESELECTION)
-      xpAccessible->RemoveSelection();
+      xpAccessible->SetSelected(PR_FALSE);
+
+    if (flagsSelect & SELFLAG_EXTENDSELECTION)
+      xpAccessible->ExtendSelection();
 
     return S_OK;
   }

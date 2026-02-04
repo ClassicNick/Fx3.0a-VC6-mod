@@ -125,7 +125,8 @@ function SelectAndScrollToKey(aMsgKey)
 // returns true if we ended up scrolling to a message
 function ScrollToMessageAfterFolderLoad (folder)
 {
-  var scrolled = ScrollToMessage(nsMsgNavigationType.firstNew, true, false /* selectMessage */);
+  var scrolled = pref.getBoolPref("mailnews.scroll_to_new_message") &&
+      ScrollToMessage(nsMsgNavigationType.firstNew, true, false /* selectMessage */);
   if (!scrolled && folder && pref.getBoolPref("mailnews.remember_selected_message")) 
   {
     // if we failed to scroll to a new message,
@@ -1159,7 +1160,6 @@ function OnLoadFolderPane()
 // "mailnews.ui.threadpane.version" pref.
 function UpgradeThreadPaneUI()
 {
-  var labelCol;
   var threadPaneUIVersion;
 
   try {

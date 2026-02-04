@@ -67,46 +67,10 @@ use Date::Parse;               # For str2time().
 
 # Use standard Perl libraries for cross-platform file/directory manipulation.
 use File::Spec;
-    
-# Some environment variables are not taint safe
-delete @::ENV{'PATH', 'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};
-
-# Cwd.pm in perl 5.6.1 gives a warning if $::ENV{'PATH'} isn't defined
-# Set this to '' so that we don't get warnings cluttering the logs on every
-# system call
-$::ENV{'PATH'} = '';
-
-# Ignore SIGTERM and SIGPIPE - this prevents DB corruption. If the user closes
-# their browser window while a script is running, the webserver sends these
-# signals, and we don't want to die half way through a write.
-$::SIG{TERM} = 'IGNORE';
-$::SIG{PIPE} = 'IGNORE';
-
-# The following subroutine is for debugging purposes only.
-# Uncommenting this sub and the $::SIG{__DIE__} trap underneath it will
-# cause any fatal errors to result in a call stack trace to help track
-# down weird errors.
-#sub die_with_dignity {
-#    use Carp;  # for confess()
-#    my ($err_msg) = @_;
-#    print $err_msg;
-#    confess($err_msg);
-#}
-#$::SIG{__DIE__} = \&die_with_dignity;
 
 # XXXX - this needs to go away
 sub GenerateVersionTable {
     my $dbh = Bugzilla->dbh;
-
-    @::log_columns = $dbh->bz_table_columns('bugs');
-
-    foreach my $i ("bug_id", "creation_ts", "delta_ts", "lastdiffed") {
-        my $w = lsearch(\@::log_columns, $i);
-        if ($w >= 0) {
-            splice(@::log_columns, $w, 1);
-        }
-    }
-    @::log_columns = (sort(@::log_columns));
 
     @::legal_priority   = get_legal_field_values("priority");
     @::legal_severity   = get_legal_field_values("bug_severity");
@@ -142,8 +106,6 @@ sub GenerateVersionTable {
     print $fh "#\n";
 
     require Data::Dumper;
-    print $fh (Data::Dumper->Dump([\@::log_columns],
-                                  ['*::log_columns']));
 
     print $fh (Data::Dumper->Dump([\@::legal_priority, \@::legal_severity,
                                    \@::legal_platform, \@::legal_opsys,

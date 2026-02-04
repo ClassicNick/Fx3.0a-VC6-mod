@@ -40,7 +40,7 @@
 #include "nsISVGRendererGlyphMetrics.h"
 #include "nsISVGRenderer.h"
 #include "nsITextContent.h"
-#include "nsISVGOuterSVGFrame.h"
+#include "nsSVGOuterSVGFrame.h"
 #include "nsISVGTextFrame.h"
 #include "nsSVGContainerFrame.h"
 #include "nsISVGTextContainerFrame.h"
@@ -59,8 +59,9 @@
 #include "nsContainerFrame.h"
 #include "nsLayoutAtoms.h"
 #include "nsSVGUtils.h"
-#include "nsISVGPathFlatten.h"
 #include "nsSVGGlyphFrame.h"
+#include "nsSVGTextPathFrame.h"
+#include "nsSVGPathElement.h"
 
 //----------------------------------------------------------------------
 // Implementation
@@ -83,7 +84,6 @@ NS_NewSVGGlyphFrame(nsIPresShell* aPresShell, nsIContent* aContent, nsIFrame* pa
 
 nsSVGGlyphFrame::nsSVGGlyphFrame(nsStyleContext* aContext)
     : nsSVGGlyphFrameBase(aContext),
-      mCharOffset(0),
       mFragmentTreeDirty(PR_FALSE)
 {
 }
@@ -118,7 +118,7 @@ nsSVGGlyphFrame::Init(nsIContent*      aContent,
   }
   
   // construct our glyphmetrics & glyphgeometry objects:
-  nsISVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
+  nsSVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame) {
     NS_ERROR("No outerSVGFrame");
     DidSetStyleContext();
@@ -145,7 +145,7 @@ nsSVGGlyphFrame::CharacterDataChanged(nsPresContext*  aPresContext,
                                       nsIContent*     aChild,
                                       PRBool          aAppend)
 {
-	return UpdateGraphic();
+  return UpdateGraphic();
 }
 
 nsresult
@@ -157,7 +157,7 @@ nsSVGGlyphFrame::UpdateGraphic(PRBool suppressInvalidation)
 #ifdef DEBUG
 //  printf("** nsSVGGlyphFrame::Update\n");
 #endif
-  nsISVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
+  nsSVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame) {
     NS_ERROR("No outerSVGFrame");
     return NS_ERROR_FAILURE;
@@ -424,67 +424,37 @@ nsSVGGlyphFrame::GetCharacterData(nsAString & aCharacterData)
   return NS_OK;
 }
 
-static void
-FindPoint(nsSVGPathData *data,
-          float aX, float aY, float aAdvance,
-          nsSVGCharacterPosition *aCP)
-{
-  float x, y, length = 0;
-  float midpoint = aX + aAdvance/2;
-  for (PRUint32 i = 0; i < data->count; i++) {
-    if (data->type[i] == NS_SVGPATHFLATTEN_LINE) {
-      float dx = data->x[i] - x;
-      float dy = data->y[i] - y;
-      float sublength = sqrt(dx*dx + dy*dy);
-      
-      if (length + sublength > midpoint) {
-        float ratio = (aX - length)/sublength;
-        aCP->x = x * (1.0f - ratio) + data->x[i] * ratio;
-        aCP->y = y * (1.0f - ratio) + data->y[i] * ratio;
-
-        float dx = data->x[i] - x;
-        float dy = data->y[i] - y;
-        aCP->angle = atan2(dy, dx);
-
-        float normalization = 1.0/sqrt(dx*dx+dy*dy);
-        aCP->x += - aY * dy * normalization;
-        aCP->y +=   aY * dx * normalization;
-        return;
-      }
-      length += sublength;
-    }
-    x = data->x[i];
-    y = data->y[i];
-  }
-}
-
-/* readonly attribute nsSVGCharacterPostion characterPosition; */
+/* void GetCharacterPosition (out nsSVGCharacterPosition aCP); */
 NS_IMETHODIMP
 nsSVGGlyphFrame::GetCharacterPosition(nsSVGCharacterPosition **aCharacterPosition)
 {
   *aCharacterPosition = nsnull;
-  nsISVGPathFlatten *textPath = nsnull;
+  nsSVGTextPathFrame *textPath = nsnull;
 
   /* check if we're the child of a textPath */
-  for (nsIFrame *frame = this; frame != nsnull; frame = frame->GetParent())
+  for (nsIFrame *frame = GetParent();
+       frame != nsnull;
+       frame = frame->GetParent()) {
     if (frame->GetType() == nsLayoutAtoms::svgTextPathFrame) {
-      frame->QueryInterface(NS_GET_IID(nsISVGPathFlatten), (void **)&textPath);
+      textPath = NS_STATIC_CAST(nsSVGTextPathFrame*, frame);
       break;
     }
+    if (frame->GetType() == nsLayoutAtoms::svgTextFrame)
+      break;
+  }
 
   /* we're an ordinary fragment - return */
   /* XXX: we might want to use this for individual x/y/dx/dy adjustment */
   if (!textPath)
     return NS_OK;
 
-  nsSVGPathData *data;
-  textPath->GetFlattenedPath(&data);
+  nsAutoPtr<nsSVGFlattenedPath> data(textPath->GetFlattenedPath());
 
   /* textPath frame, but invalid target */
   if (!data)
     return NS_ERROR_FAILURE;
 
-  float length = data->Length();
+  float length = data->GetLength();
   PRUint32 strLength = mCharacterData.Length();
 
   nsSVGCharacterPosition *cp = new nsSVGCharacterPosition[strLength];
@@ -508,15 +478,25 @@ nsSVGGlyphFrame::GetCharacterPosition(nsSVGCharacterPosition **aCharacterPositio
       // add y (normal)
       // add rotation
       // move point back along tangent
-      FindPoint(data, x, mY, advance, &(cp[i]));
+      data->FindPoint(advance, x, mY,
+                      &(cp[i].x),
+                      &(cp[i].y),
+                      &(cp[i].angle));
     }
     x += advance;
   }
 
   *aCharacterPosition = cp;
 
-  delete data;
+  return NS_OK;
+}
 
+/* void GetGlyphPosition (out float aGlyphPositionX, out float aGlyphPositionY); */
+NS_IMETHODIMP
+nsSVGGlyphFrame::GetGlyphPosition(float *aGlyphPositionX, float *aGlyphPositionY)
+{
+  *aGlyphPositionX = mX;
+  *aGlyphPositionY = mY;
   return NS_OK;
 }
 
@@ -716,19 +696,6 @@ nsSVGGlyphFrame::SetGlyphPosition(float x, float y)
   UpdateGeometry(PR_TRUE, PR_FALSE);
 }
 
-NS_IMETHODIMP_(float)
-nsSVGGlyphFrame::GetGlyphPositionX()
-{
-  return mX;
-}
-
-NS_IMETHODIMP_(float)
-nsSVGGlyphFrame::GetGlyphPositionY()
-{
-  return mY;
-}
-
-
 NS_IMETHODIMP
 nsSVGGlyphFrame::GetGlyphMetrics(nsISVGRendererGlyphMetrics** metrics)
 {
@@ -750,18 +717,6 @@ nsSVGGlyphFrame::IsStartOfChunk()
 NS_IMETHODIMP_(void)
 nsSVGGlyphFrame::GetAdjustedPosition(/* inout */ float &x, /* inout */ float &y)
 {
-}
-
-NS_IMETHODIMP_(PRUint32)
-nsSVGGlyphFrame::GetNumberOfChars()
-{
-  return mCharacterData.Length();
-}
-
-NS_IMETHODIMP_(PRUint32)
-nsSVGGlyphFrame::GetCharNumberOffset()
-{
-  return mCharOffset;
 }
 
 NS_IMETHODIMP_(already_AddRefed<nsIDOMSVGLengthList>)
@@ -819,7 +774,7 @@ nsSVGGlyphFrame::IsAbsolutelyPositioned()
 {
   nsIFrame *lastFrame = this;
 
-  for (nsIFrame *frame = this->GetParent();
+  for (nsIFrame *frame = GetParent();
        frame != nsnull;
        lastFrame = frame, frame = frame->GetParent()) {
 
@@ -847,6 +802,42 @@ nsSVGGlyphFrame::IsAbsolutelyPositioned()
 
 //----------------------------------------------------------------------
 // nsISVGGlyphFragmentNode interface:
+
+NS_IMETHODIMP_(PRUint32)
+nsSVGGlyphFrame::GetNumberOfChars()
+{
+  return mCharacterData.Length();
+}
+
+NS_IMETHODIMP_(float)
+nsSVGGlyphFrame::GetComputedTextLength()
+{
+  if (mCharacterData.IsEmpty()) {
+    return 0.0f;
+  }
+
+  float fragmentLength;
+  mMetrics->GetComputedTextLength(&fragmentLength);
+  return fragmentLength;
+}
+
+NS_IMETHODIMP_(float)
+nsSVGGlyphFrame::GetSubStringLength(PRUint32 charnum, PRUint32 fragmentChars)
+{
+  float fragmentLength;
+  mMetrics->GetSubStringLength(charnum,
+                               fragmentChars,
+                               &fragmentLength);
+  return fragmentLength;
+}
+
+NS_IMETHODIMP_(PRInt32)
+nsSVGGlyphFrame::GetCharNumAtPosition(nsIDOMSVGPoint *point)
+{
+  PRInt32 index;
+  mMetrics->GetCharNumAtPosition(point, &index);
+  return index;
+}
 
 NS_IMETHODIMP_(nsISVGGlyphFragmentLeaf *)
 nsSVGGlyphFrame::GetFirstGlyphFragment()
@@ -880,7 +871,6 @@ nsSVGGlyphFrame::BuildGlyphFragmentTree(PRUint32 charNum, PRBool lastBranch)
   // XXX actually we should be building a new fragment for each chunk here...
 
 
-  mCharOffset = charNum;
   nsCOMPtr<nsITextContent> tc = do_QueryInterface(mContent);
 
   if (tc->TextLength() == 0) {
@@ -893,9 +883,9 @@ nsSVGGlyphFrame::BuildGlyphFragmentTree(PRUint32 charNum, PRBool lastBranch)
 
   mCharacterData.Truncate();
   tc->AppendTextTo(mCharacterData);
-  mCharacterData.CompressWhitespace(charNum==0, lastBranch);
+  mCharacterData.CompressWhitespace(charNum == 0, lastBranch);
 
-  return charNum+mCharacterData.Length();
+  return charNum + mCharacterData.Length();
 }
 
 NS_IMETHODIMP_(void)
@@ -950,7 +940,7 @@ nsSVGGlyphFrame::NotifyGlyphFragmentTreeUnsuspended()
 void nsSVGGlyphFrame::UpdateGeometry(PRBool bRedraw,
                                      PRBool suppressInvalidation)
 {
-  nsISVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
+  nsSVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame) {
     NS_ERROR("null outerSVGFrame");
     return;

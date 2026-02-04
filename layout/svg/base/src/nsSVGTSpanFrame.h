@@ -55,7 +55,6 @@
 #include "nsISVGTextFrame.h"
 #include "nsISVGGlyphFragmentNode.h"
 #include "nsIDOMSVGRect.h"
-#include "nsISVGOuterSVGFrame.h"
 #include "nsISVGTextContentMetrics.h"
 #include "nsSVGRect.h"
 #include "nsSVGMatrix.h"
@@ -137,6 +136,10 @@ public:
   NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetDy();
   
   // nsISVGGlyphFragmentNode interface:
+  NS_IMETHOD_(PRUint32) GetNumberOfChars();
+  NS_IMETHOD_(float) GetComputedTextLength();
+  NS_IMETHOD_(float) GetSubStringLength(PRUint32 charnum, PRUint32 fragmentChars);
+  NS_IMETHOD_(PRInt32) GetCharNumAtPosition(nsIDOMSVGPoint *point);
   NS_IMETHOD_(nsISVGGlyphFragmentLeaf *) GetFirstGlyphFragment();
   NS_IMETHOD_(nsISVGGlyphFragmentLeaf *) GetNextGlyphFragment();
   NS_IMETHOD_(PRUint32) BuildGlyphFragmentTree(PRUint32 charNum, PRBool lastBranch);
@@ -145,13 +148,8 @@ public:
   NS_IMETHOD_(void) NotifyGlyphFragmentTreeSuspended();
   NS_IMETHOD_(void) NotifyGlyphFragmentTreeUnsuspended();
 
-protected:
-  nsISVGGlyphFragmentNode *GetFirstGlyphFragmentChildNode();
-  nsISVGGlyphFragmentNode *GetNextGlyphFragmentChildNode(nsISVGGlyphFragmentNode*node);
-  
 private:
   nsCOMPtr<nsIDOMSVGMatrix> mOverrideCTM;
-  PRUint32 mCharOffset; // index of first character of this node relative to the enclosing <text>-element
   PRPackedBool mFragmentTreeDirty;
   PRPackedBool mPropagateTransform;
 };

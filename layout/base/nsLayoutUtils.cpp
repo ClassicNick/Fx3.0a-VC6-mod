@@ -59,7 +59,7 @@
 #ifdef MOZ_SVG_FOREIGNOBJECT
 #include "nsSVGForeignObjectFrame.h"
 #include "nsSVGUtils.h"
-#include "nsISVGOuterSVGFrame.h"
+#include "nsSVGOuterSVGFrame.h"
 #endif
 
 /**
@@ -505,8 +505,7 @@ nsLayoutUtils::GetEventCoordinatesRelativeTo(nsEvent* aEvent, nsIFrame* aFrame)
 #ifdef MOZ_SVG_FOREIGNOBJECT
     if (f->IsFrameOfType(nsIFrame::eSVGForeignObject)) {
       nsSVGForeignObjectFrame* fo = NS_STATIC_CAST(nsSVGForeignObjectFrame*, f);
-      nsIFrame* outer;
-      CallQueryInterface(nsSVGUtils::GetOuterSVGFrame(fo), &outer);
+      nsIFrame* outer = nsSVGUtils::GetOuterSVGFrame(fo);
       return fo->TransformPointFromOuter(
           GetEventCoordinatesRelativeTo(aEvent, outer)) -
         aFrame->GetOffsetTo(fo);
@@ -1284,7 +1283,8 @@ nsLayoutUtils::SafeGetBoundingMetrics(nsIRenderingContext* aContext,
     aLength -= len;
     aString += len;
     firstIteration = PR_FALSE;
-  }  
+  }
+  return NS_OK;
 }
 
 nsresult
@@ -1314,6 +1314,29 @@ nsLayoutUtils::SafeGetBoundingMetrics(nsIRenderingContext* aContext,
     aLength -= len;
     aString += len;
     firstIteration = PR_FALSE;
-  }  
+  }
+  return NS_OK;
 }
 #endif
+
+nsRect
+nsLayoutUtils::GetAllInFlowBoundingRect(nsIFrame* aFrame)
+{
+  // Get the union of all rectangles in this and continuation frames
+  nsRect r = aFrame->GetRect();
+  nsIFrame* parent = aFrame->GetParent();
+  if (!parent)
+    return r;
+
+  for (nsIFrame* f = aFrame->GetNextContinuation(); f; f = f->GetNextContinuation()) {
+    r.UnionRect(r, f->GetRect() + f->GetOffsetTo(parent));
+  }
+
+  if (r.IsEmpty()) {
+    // It could happen that all the rects are empty (eg zero-width or
+    // zero-height).  In that case, use the first rect for the frame.
+    r = aFrame->GetRect();
+  }
+
+  return r - aFrame->GetPosition();
+}

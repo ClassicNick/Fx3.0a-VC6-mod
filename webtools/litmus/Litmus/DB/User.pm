@@ -38,7 +38,7 @@ use base 'Litmus::DBI';
 
 Litmus::DB::User->table('users');
 
-Litmus::DB::User->columns(All => qw/user_id bugzilla_uid email password realname irc_nickname enabled is_admin/);
+Litmus::DB::User->columns(All => qw/user_id bugzilla_uid email password realname irc_nickname enabled is_admin authtoken/);
 
 Litmus::DB::User->column_alias("is_trusted", "istrusted");
 Litmus::DB::User->column_alias("is_admin", "is_trusted");
@@ -65,6 +65,20 @@ __PACKAGE__->set_sql(TopTesters => qq{
                                       ORDER BY num_results DESC
                                       LIMIT 15
 });
+
+# the COLLATE latin1_general_ci sillyness forces a case-insensitive match
+__PACKAGE__->set_sql(FullTextMatches => q{
+	SELECT *
+	FROM __TABLE__ 
+	WHERE 
+	  email COLLATE latin1_general_ci like concat('%%',?,'%%') OR 
+	  irc_nickname COLLATE latin1_general_ci  like concat('%%',?,'%%') OR 
+	  realname COLLATE latin1_general_ci like concat('%%',?,'%%') 
+	ORDER BY email ASC
+	LIMIT 300
+});
+
+
 
 #########################################################################
 # returns the crypt'd password from a linked Bugzilla account if it 

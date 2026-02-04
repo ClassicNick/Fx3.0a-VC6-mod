@@ -1001,6 +1001,8 @@ static PRBool ApplyAbsPosClipping(nsDisplayListBuilder* aBuilder,
       aBuilder->IsMovingFrame(aFrame))
     return PR_FALSE;
 
+  *aRect += aBuilder->ToReferenceFrame(aFrame);
+
   return PR_TRUE;
 }
 
@@ -2073,6 +2075,14 @@ static nsIView* GetNearestCapturingView(nsIFrame* aFrame) {
   }
   NS_ASSERTION(view, "No capturing view found");
   return view;
+}
+
+nsIFrame* nsFrame::GetNearestCapturingFrame(nsIFrame* aFrame) {
+  nsIFrame* captureFrame = aFrame;
+  while (captureFrame && !captureFrame->GetMouseCapturer()) {
+    captureFrame = captureFrame->GetParent();
+  }
+  return captureFrame;
 }
 
 NS_IMETHODIMP nsFrame::HandleDrag(nsPresContext* aPresContext, 

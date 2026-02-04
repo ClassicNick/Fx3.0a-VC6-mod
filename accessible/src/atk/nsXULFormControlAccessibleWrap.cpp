@@ -44,62 +44,6 @@
 #include "nsIDOMHTMLInputElement.h"
 #include "nsIDOMXULTextboxElement.h"
 
-NS_IMPL_ISUPPORTS_INHERITED1(nsXULProgressMeterAccessibleWrap, nsXULProgressMeterAccessible, nsIAccessibleValue)
-
-nsXULProgressMeterAccessibleWrap::nsXULProgressMeterAccessibleWrap(nsIDOMNode* aNode, nsIWeakReference* aShell):
-nsXULProgressMeterAccessible(aNode, aShell)
-{
-}
-
-/* readonly attribute double maximumValue; */
-NS_IMETHODIMP nsXULProgressMeterAccessibleWrap::GetMaximumValue(double *aMaximumValue)
-{
-  *aMaximumValue = 1; // 100% = 1;
-  return NS_OK;
-}
-
-/* readonly attribute double minimumValue; */
-NS_IMETHODIMP nsXULProgressMeterAccessibleWrap::GetMinimumValue(double *aMinimumValue)
-{
-  *aMinimumValue = 0;
-  return NS_OK;
-}
-
-/* readonly attribute double currentValue; */
-NS_IMETHODIMP nsXULProgressMeterAccessibleWrap::GetCurrentValue(double *aCurrentValue)
-{
-  nsAutoString currentValue;
-  GetValue(currentValue);
-  PRInt32 error;
-  *aCurrentValue = currentValue.ToFloat(&error) / 100;
-  return NS_OK;
-}
-
-/* boolean setCurrentValue (in double value); */
-NS_IMETHODIMP nsXULProgressMeterAccessibleWrap::SetCurrentValue(double aValue, PRBool *_retval)
-{
-  //Here I do not suppose the min/max are 0/1.00 because I want
-  // these part of code to be more extensible.
-  *_retval = PR_FALSE;
-  double min, max;
-  GetMinimumValue(&min);
-  GetMaximumValue(&max);
-  if (aValue > max || aValue < min)
-    return NS_ERROR_INVALID_ARG;
-
-  nsCOMPtr<nsIDOMElement> element(do_QueryInterface(mDOMNode));
-  NS_ASSERTION(element, "No element for DOM node!");
-  PRUint32 value = PRUint32(aValue * 100.0 + 0.5);
-  nsAutoString valueString;
-  valueString.AppendInt(value);
-  valueString.AppendLiteral("%");
-  if (NS_SUCCEEDED(element->SetAttribute(NS_LITERAL_STRING("value"), valueString))) {
-    *_retval = PR_TRUE;
-    return NS_OK;
-  }
-  return NS_ERROR_INVALID_ARG;
-}
-
 NS_IMPL_ISUPPORTS_INHERITED2(nsXULTextFieldAccessibleWrap, nsXULTextFieldAccessible, nsIAccessibleText, nsIAccessibleEditableText)
 
 nsXULTextFieldAccessibleWrap::nsXULTextFieldAccessibleWrap(nsIDOMNode* aNode, nsIWeakReference* aShell):
@@ -131,30 +75,6 @@ nsXULTextFieldAccessible(aNode, aShell), nsAccessibleEditableText(aNode)
     textFrame->GetEditor(getter_AddRefs(editor));
     SetEditor(editor);
   }
-}
-
-NS_IMETHODIMP nsXULTextFieldAccessibleWrap::GetRole(PRUint32 *aRole)
-{
-  PRUint32 state = 0;
-
-  nsresult rv = GetState(&state);
-  if (NS_SUCCEEDED(rv) && (state & STATE_PROTECTED))
-    *aRole = ROLE_PASSWORD_TEXT;
-  else
-    *aRole = ROLE_TEXT;
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsXULTextFieldAccessibleWrap::GetExtState(PRUint32 *aExtState)
-{
-  nsAccessibleWrap::GetExtState(aExtState);
-
-  PRUint32 state;
-  nsXULTextFieldAccessible::GetState(&state);
-  if (!(state & STATE_READONLY))
-    *aExtState |= EXT_STATE_EDITABLE;
-  return NS_OK;
 }
 
 NS_IMETHODIMP nsXULTextFieldAccessibleWrap::Shutdown()

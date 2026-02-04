@@ -596,10 +596,6 @@ void nsMenuX::LoadMenuItem(nsIMenu* inParentMenu, nsIContent* inMenuItemContent)
     inMenuItemContent->GetAttr(kNameSpaceID_None, nsWidgetAtoms::label, menuitemName);
 
     // printf("menuitem %s \n", NS_LossyConvertUTF16toASCII(menuitemName).get());
-
-    PRBool enabled =
-      ! (inMenuItemContent->AttrValueIs(kNameSpaceID_None, nsWidgetAtoms::disabled,
-                                        nsWidgetAtoms::_true, eCaseMatters));
     
     static nsIContent::AttrValuesArray strings[] =
       {&nsWidgetAtoms::checkbox, &nsWidgetAtoms::radio, nsnull};
@@ -615,8 +611,8 @@ void nsMenuX::LoadMenuItem(nsIMenu* inParentMenu, nsIContent* inMenuItemContent)
       return;
 
     // Create the item.
-    pnsMenuItem->Create(inParentMenu, menuitemName, PR_FALSE, itemType, 
-                          enabled, mManager, docShell, inMenuItemContent);   
+    pnsMenuItem->Create(inParentMenu, menuitemName, PR_FALSE, itemType, mManager,
+                        docShell, inMenuItemContent);
 
     // Set key shortcut and modifiers
     
@@ -992,7 +988,7 @@ nsMenuX::CountVisibleBefore(PRUint32* outVisibleBefore)
 
 
 NS_IMETHODIMP
-nsMenuX::AttributeChanged(nsIDocument *aDocument, PRInt32 aNameSpaceID, nsIAtom *aAttribute)
+nsMenuX::AttributeChanged(nsIDocument *aDocument, PRInt32 aNameSpaceID, nsIContent *aContent, nsIAtom *aAttribute)
 {
   // ignore the |open| attribute, which is by far the most common
   if (gConstructingMenu || (aAttribute == nsWidgetAtoms::open))

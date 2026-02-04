@@ -100,7 +100,7 @@ interface nsIAccessible : nsISupports
    * Accessible value -- a number or a secondary text equivalent for this node
    * Widgets that use xhtml2:role can force a value using the valuenow attribute
    */
-  readonly attribute AString finalValue;
+  readonly attribute AString value;
 
   /**
    * Accessible description -- long text associated with this node
@@ -199,14 +199,9 @@ interface nsIAccessible : nsISupports
                     out long height);
 
   /**
-   * Add this accessible to the current selection
+   * Add or remove this accessible to the current selection
    */
-  void addSelection();
-
-  /**
-   * Remove this accessible from the current selection
-   */
-  void removeSelection();
+  void setSelected(in boolean isSelected);
 
   /**
    * Extend the current selection from its current accessible anchor node
@@ -351,9 +346,9 @@ interface nsIAccessible : nsISupports
   const unsigned long RELATION_EMBEDDED_BY = 0x0b;       // ATK_RELATION_EMBEDDED_BY
   const unsigned long RELATION_POPUP_FOR = 0x0c;         // ATK_RELATION_POPUP_FOR
   const unsigned long RELATION_PARENT_WINDOW_OF = 0x0d;  // ATK_RELATION_PARENT_WINDOW_OF
+  const unsigned long RELATION_DESCRIBED_BY = 0x0e;      // ATK_RELATION_DESCRIBED_BY
+  const unsigned long RELATION_DESCRIPTION_FOR = 0x0f;   // ATK_RELATION_DESCRIPTION_FOR
   const unsigned long RELATION_DEFAULT_BUTTON = 0x4000;  // MSAA only, no ATK relation
-  const unsigned long RELATION_DESCRIBED_BY = 0x4001;    // MSAA only, no ATK relation
-  const unsigned long RELATION_DESCRIPTION_FOR = 0x4002; // MSAA only, no ATK relation
 
 %{C++
 #ifdef MOZ_ACCESSIBILITY_ATK
@@ -608,11 +603,11 @@ interface nsIAccessible : nsISupports
 // Make up for ATK roles that we don't have in MSAA
 // When in doubt map them to ROLE_NOTHING so that the role string is exposed
   enum { ROLE_ICON = ROLE_NOTHING };
-  enum { ROLE_PASSWORD_TEXT = ROLE_TEXT };
+  enum { ROLE_PASSWORD_TEXT = 1000U };
   enum { ROLE_AUTOCOMPLETE = ROLE_COMBOBOX };
   enum { ROLE_EDITBAR = ROLE_NOTHING };
   enum { ROLE_EMBEDDED = ROLE_NOTHING };
-  enum { ROLE_ENTRY = ROLE_NOTHING };
+  enum { ROLE_ENTRY = 1001U };
   enum { ROLE_CAPTION = ROLE_NOTHING };
   enum { ROLE_DOCUMENT_FRAME = ROLE_NOTHING };
   enum { ROLE_HEADING = ROLE_NOTHING };

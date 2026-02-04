@@ -1831,6 +1831,12 @@ NS_METHOD nsWindow::Show(PRBool bState)
       }
     }
   }
+  
+#ifdef MOZ_XUL
+  if (!mIsVisible && bState && mIsTopTranslucent)
+    Invalidate(PR_FALSE);
+#endif
+
   mIsVisible = bState;
 
   return NS_OK;
@@ -2983,16 +2989,10 @@ NS_METHOD nsWindow::Invalidate(PRBool aIsSynchronous)
                          (PRInt32) mWnd);
 #endif // NS_DEBUG
 
-#ifdef MOZ_XUL
-    if (mIsTranslucent && IsAlphaTranslucencySupported() && !mPainting)
-      OnPaint(w2k.mMemoryDC);
-    else
-#endif
-    {
-      VERIFY(::InvalidateRect(mWnd, NULL, TRUE));
-      if (aIsSynchronous) {
-        VERIFY(::UpdateWindow(mWnd));
-      }
+    VERIFY(::InvalidateRect(mWnd, NULL, FALSE));
+
+    if (aIsSynchronous) {
+      VERIFY(::UpdateWindow(mWnd));
     }
   }
   return NS_OK;
@@ -3016,23 +3016,17 @@ NS_METHOD nsWindow::Invalidate(const nsRect & aRect, PRBool aIsSynchronous)
                          (PRInt32) mWnd);
 #endif // NS_DEBUG
 
-#ifdef MOZ_XUL
-    if (mIsTranslucent && IsAlphaTranslucencySupported() && !mPainting)
-      OnPaint(w2k.mMemoryDC);
-    else
-#endif
-    {
-      RECT rect;
+    RECT rect;
 
-      rect.left   = aRect.x;
-      rect.top    = aRect.y;
-      rect.right  = aRect.x + aRect.width;
-      rect.bottom = aRect.y  + aRect.height;
+    rect.left   = aRect.x;
+    rect.top    = aRect.y;
+    rect.right  = aRect.x + aRect.width;
+    rect.bottom = aRect.y + aRect.height;
 
-      VERIFY(::InvalidateRect(mWnd, &rect, TRUE));
-      if (aIsSynchronous) {
-        VERIFY(::UpdateWindow(mWnd));
-      }
+    VERIFY(::InvalidateRect(mWnd, &rect, FALSE));
+
+    if (aIsSynchronous) {
+      VERIFY(::UpdateWindow(mWnd));
     }
   }
   return NS_OK;
@@ -3043,25 +3037,18 @@ nsWindow::InvalidateRegion(const nsIRegion *aRegion, PRBool aIsSynchronous)
 {
   nsresult rv = NS_OK;
   if (mWnd) {
-#ifdef MOZ_XUL
-    if (mIsTranslucent && IsAlphaTranslucencySupported() && !mPainting)
-      OnPaint(w2k.mMemoryDC);
-    else
-#endif
-    {
-      HRGN nativeRegion;
-      rv = aRegion->GetNativeRegion((void *&)nativeRegion);
-      if (nativeRegion) {
-        if (NS_SUCCEEDED(rv)) {
-          VERIFY(::InvalidateRgn(mWnd, nativeRegion, TRUE));
+    HRGN nativeRegion;
+    rv = aRegion->GetNativeRegion((void *&)nativeRegion);
+    if (nativeRegion) {
+      if (NS_SUCCEEDED(rv)) {
+        VERIFY(::InvalidateRgn(mWnd, nativeRegion, FALSE));
 
-          if (aIsSynchronous) {
-            VERIFY(::UpdateWindow(mWnd));
-          }
+        if (aIsSynchronous) {
+          VERIFY(::UpdateWindow(mWnd));
         }
-      } else {
-        rv = NS_ERROR_FAILURE;
       }
+    } else {
+      rv = NS_ERROR_FAILURE;
     }
   }
   return rv;
@@ -3079,17 +3066,8 @@ NS_IMETHODIMP nsWindow::Update()
   // updates can come through for windows no longer holding an mWnd during
   // deletes triggered by JavaScript in buttons with mouse feedback
   if (mWnd)
-  {
-#ifdef MOZ_XUL
-    if (mIsTranslucent && IsAlphaTranslucencySupported())
-    {
-//      rv = UpdateTranslucentWindow();
-    } else
-#endif
-    {
-      VERIFY(::UpdateWindow(mWnd));
-    }
-  }
+    VERIFY(::UpdateWindow(mWnd));
+
   return rv;
 }
 
@@ -4832,15 +4810,7 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         // This should work on all platforms, but it doesn't...
         SHFullScreen(mWnd, SHFS_HIDESIPBUTTON);
         
-        // So do it the hard way....
-        HWND hWndSIP = FindWindow( _T( "SipWndClass" ), NULL );
-        if (hWndSIP)
-        {
-          ShowWindow( hWndSIP, SW_HIDE );
-          SetWindowPos(hWndSIP, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-        }
-        
-        hWndSIP = FindWindow( _T( "MS_SIPBUTTON" ), NULL );
+        HWND hWndSIP = FindWindow( _T( "MS_SIPBUTTON" ), NULL );
         if (hWndSIP) 
         {
           ShowWindow( hWndSIP, SW_HIDE );
@@ -4908,46 +4878,37 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         newHeight = PRInt32(r.bottom - r.top);
         nsRect rect(wp->x, wp->y, newWidth, newHeight);
 
-        PRBool needInvalidate = PR_TRUE;
 
 #ifdef MOZ_XUL
         if (mIsTranslucent)
-        {
           ResizeTranslucentWindow(newWidth, newHeight);
-        
-          if (IsAlphaTranslucencySupported())
-            needInvalidate = PR_FALSE;
-        }
 #endif
 
-        if (needInvalidate)
+        if (newWidth > mLastSize.width)
         {
-          if (newWidth > mLastSize.width)
-          {
-            RECT drect;
+          RECT drect;
 
-            //getting wider
-            drect.left = wp->x + mLastSize.width;
-            drect.top = wp->y;
-            drect.right = drect.left + (newWidth - mLastSize.width);
-            drect.bottom = drect.top + newHeight;
+          //getting wider
+          drect.left = wp->x + mLastSize.width;
+          drect.top = wp->y;
+          drect.right = drect.left + (newWidth - mLastSize.width);
+          drect.bottom = drect.top + newHeight;
 
-            ::RedrawWindow(mWnd, &drect, NULL,
-                           RDW_INVALIDATE | RDW_NOERASE | RDW_NOINTERNALPAINT | RDW_ERASENOW | RDW_ALLCHILDREN);
-          }
-          if (newHeight > mLastSize.height)
-          {
-            RECT drect;
+          ::RedrawWindow(mWnd, &drect, NULL,
+                         RDW_INVALIDATE | RDW_NOERASE | RDW_NOINTERNALPAINT | RDW_ERASENOW | RDW_ALLCHILDREN);
+        }
+        if (newHeight > mLastSize.height)
+        {
+          RECT drect;
 
-            //getting taller
-            drect.left = wp->x;
-            drect.top = wp->y + mLastSize.height;
-            drect.right = drect.left + newWidth;
-            drect.bottom = drect.top + (newHeight - mLastSize.height);
+          //getting taller
+          drect.left = wp->x;
+          drect.top = wp->y + mLastSize.height;
+          drect.right = drect.left + newWidth;
+          drect.bottom = drect.top + (newHeight - mLastSize.height);
 
-            ::RedrawWindow(mWnd, &drect, NULL,
-                           RDW_INVALIDATE | RDW_NOERASE | RDW_NOINTERNALPAINT | RDW_ERASENOW | RDW_ALLCHILDREN);
-          }
+          ::RedrawWindow(mWnd, &drect, NULL,
+                         RDW_INVALIDATE | RDW_NOERASE | RDW_NOINTERNALPAINT | RDW_ERASENOW | RDW_ALLCHILDREN);
         }
 
         mBounds.width  = newWidth;
@@ -5776,13 +5737,15 @@ PRBool nsWindow::OnPaint(HDC aDC)
   if (!aDC && mIsTranslucent && IsAlphaTranslucencySupported())
   {
     // For layered translucent windows all drawing should go to memory DC and no
-    // WM_PAINT messages be generated. 
-    // But once such unexpected WM_PAINT message is received, it still has to be
-    // handled, to make Windows think that invalid area is painted. Otherwise it
-    // will continue sending the same message endlessly.
+    // WM_PAINT messages are normally generated. To support asynchronous painting
+    // we force generation of WM_PAINT messages by invalidating window areas with
+    // RedrawWindow, InvalidateRect or InvalidateRgn function calls.
+    // BeginPaint/EndPaint must be called to make Windows think that invalid area
+    // is painted. Otherwise it will continue sending the same message endlessly.
     ::BeginPaint(mWnd, &ps);
     ::EndPaint(mWnd, &ps);
-    return PR_TRUE;
+
+    aDC = w2k.mMemoryDC;
   }
 #endif
 
@@ -5805,10 +5768,6 @@ PRBool nsWindow::OnPaint(HDC aDC)
   RECT paintRect;
 
 #ifdef MOZ_XUL
-  // For Win9x 1-bit transparency we have to repaint entire window client area,
-  // because window clipping region might have been changed after invalidation.
-  // As result there could be some areas that are not included in window paint
-  // region, because previously they were outside old clipping region. 
   if (aDC || mIsTranslucent) {
 #else
   if (aDC) {

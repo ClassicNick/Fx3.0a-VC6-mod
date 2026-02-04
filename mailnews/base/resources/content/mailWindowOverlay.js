@@ -23,11 +23,12 @@
  * Contributor(s):
  *   timeless
  *   slucy@objectivesw.co.uk
- *   H�kan Waara <hwaara@chello.se>
+ *   Håkan Waara <hwaara@chello.se>
  *   Jan Varga <varga@ku.sk>
  *   Seth Spitzer <sspitzer@netscape.com>
  *   David Bienvenu <bienvenu@netscape.com>
  *   Ian Neal <bugzilla@arlen.demon.co.uk>
+ *   Karsten Düsterloh <mnyromyr@tprac.de>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -228,7 +229,7 @@ function InitViewSortByMenu()
     setSortByMenuItemCheckState("sortByStatusMenuitem", (sortType == nsMsgViewSortType.byStatus));
     setSortByMenuItemCheckState("sortBySubjectMenuitem", (sortType == nsMsgViewSortType.bySubject));
     setSortByMenuItemCheckState("sortByUnreadMenuitem", (sortType == nsMsgViewSortType.byUnread));
-    setSortByMenuItemCheckState("sortByLabelMenuitem", (sortType == nsMsgViewSortType.byLabel));
+    setSortByMenuItemCheckState("sortByTagsMenuitem", (sortType == nsMsgViewSortType.byTags));
     setSortByMenuItemCheckState("sortByJunkStatusMenuitem", (sortType == nsMsgViewSortType.byJunkStatus));
     setSortByMenuItemCheckState("sortBySenderMenuitem", (sortType == nsMsgViewSortType.byAuthor));
     setSortByMenuItemCheckState("sortByRecipientMenuitem", (sortType == nsMsgViewSortType.byRecipient));
@@ -237,7 +238,7 @@ function InitViewSortByMenu()
     var sortOrder = gDBView.sortOrder;
     var sortTypeSupportsGrouping = (sortType == nsMsgViewSortType.byAuthor 
         || sortType == nsMsgViewSortType.byDate || sortType == nsMsgViewSortType.byPriority
-        || sortType == nsMsgViewSortType.bySubject || sortType == nsMsgViewSortType.byLabel
+        || sortType == nsMsgViewSortType.bySubject || sortType == nsMsgViewSortType.byTags
         || sortType == nsMsgViewSortType.byRecipient|| sortType == nsMsgViewSortType.byFlagged
         || sortType == nsMsgViewSortType.byAttachments);
 
@@ -413,14 +414,14 @@ function InitMessageMenu()
   if(copyMenu)
       copyMenu.setAttribute("disabled", !aMessage);
 
-  // Disable Forward as/Label menu items if no message is selected
+  // Disable Forward as/tag menu items if no message is selected
   var forwardAsMenu = document.getElementById("forwardAsMenu");
   if(forwardAsMenu)
       forwardAsMenu.setAttribute("disabled", !aMessage);
 
-  var labelMenu = document.getElementById("labelMenu");
-  if(labelMenu)
-      labelMenu.setAttribute("disabled", !aMessage);
+  var tagMenu = document.getElementById("tagMenu");
+  if(tagMenu)
+      tagMenu.setAttribute("disabled", !aMessage);
 
   // Disable mark menu when we're not in a folder
   var markMenu = document.getElementById("markMenu");
@@ -524,6 +525,81 @@ function SetMenuItemLabel(menuItemId, customLabel)
 
     if(menuItem)
         menuItem.setAttribute('label', customLabel);
+}
+
+function ToggleMessageTagCmd(target)
+{
+  var key    = target.getAttribute("value");
+  var addKey = target.getAttribute("checked") == "true";
+  ToggleMessageTag(key, addKey);
+}
+
+function ToggleMessageTag(key, addKey)
+{
+  // XXX need to do all selected messages
+  var msgHdr = gDBView.hdrForFirstSelectedMessage;
+  var messages = Components.classes["@mozilla.org/supports-array;1"]
+                           .createInstance(Components.interfaces.nsISupportsArray);
+  messages.AppendElement(msgHdr);
+  var toggler = addKey ? "addKeywordToMessages" : "removeKeywordFromMessages";
+  msgHdr.folder[toggler](messages, key);
+}
+
+function AddTag()
+{
+  var args = {result: "", okCallback: AddTagCallback};
+  var dialog = window.openDialog("chrome://messenger/content/newTagDialog.xul",
+                                 "",
+                                 "chrome,titlebar,modal",
+                                 args);
+}
+
+function AddTagCallback(name, color)
+{
+  var tagService = Components.classes["@mozilla.org/messenger/tagservice;1"]
+                             .getService(Components.interfaces.nsIMsgTagService);
+  tagService.addTag(name, color);
+  try
+  {
+    ToggleMessageTag(tagService.getKeyForTag(name), true);
+  }
+  catch(ex)
+  {
+    return false;
+  }
+  return true;
+}
+
+function InitMessageTags(menuType)
+{
+  var tagService = Components.classes["@mozilla.org/messenger/tagservice;1"]
+                             .getService(Components.interfaces.nsIMsgTagService);
+  var allTags = tagService.tagEnumerator;
+  var allKeys = tagService.keyEnumerator;
+  // remove any existing non-static entries...
+  var menuItemId = menuType + "-tagpopup";
+  var menupopupNode = document.getElementById(menuItemId);
+  for (var i = menupopupNode.childNodes.length; i > 2; --i)
+    menupopupNode.removeChild(menupopupNode.firstChild);
+  var menuseparator = menupopupNode.firstChild;
+  // now rebuild the list
+  var msgHdr = gDBView.hdrForFirstSelectedMessage;
+  var curKeys = msgHdr.getStringProperty("keywords");
+
+  while (allTags.hasMore())
+  {
+    var tag = allTags.getNext();
+    var key = allKeys.getNext();
+    // TODO we want to either remove or "check" the tags that already exist
+    var newMenuItem = document.createElement("menuitem");
+    newMenuItem.setAttribute("label", tag);
+    newMenuItem.setAttribute("value", key);
+    newMenuItem.setAttribute("type", "checkbox");
+    var removeKey = (" " + curKeys + " ").indexOf(" " + key + " ") > -1;
+    newMenuItem.setAttribute('checked', removeKey);
+    newMenuItem.setAttribute('oncommand', 'ToggleMessageTagCmd(event.target)');
+    menupopupNode.insertBefore(newMenuItem, menuseparator);
+  }
 }
 
 function InitMessageMark()

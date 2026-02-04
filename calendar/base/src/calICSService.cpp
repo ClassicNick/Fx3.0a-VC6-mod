@@ -68,6 +68,27 @@ calIcalProperty::GetIcalProperty()
     return mProperty;
 }
 
+icalcomponent*
+calIcalProperty::GetIcalComponent()
+{
+    return mParent->GetIcalComponent();
+}
+
+NS_IMETHODIMP
+calIcalProperty::GetIcalString(nsACString &str)
+{
+    char const* icalstr = icalproperty_as_ical_string(mProperty);
+    if (icalstr == 0) {
+#ifdef DEBUG
+        fprintf(stderr, "Error getting ical string: %d (%s)\n",
+                icalerrno, icalerror_strerror(icalerrno));
+#endif
+        return calIErrors::ICS_ERROR_BASE + icalerrno;
+    }
+    str.Assign(icalstr);
+    return NS_OK;
+}
+
 NS_IMETHODIMP
 calIcalProperty::GetValue(nsACString &str)
 {
@@ -1187,7 +1208,7 @@ calICSService::GetTimezone(const nsACString& tzid,
     // not found, we need to locate it
     const ical_timezone_data_struct *tzdata = get_timezone_data_struct_for_tzid(nsPromiseFlatCString(tzid).get());
     if (!tzdata)
-        return NS_ERROR_FAILURE;
+        return calIErrors::INVALID_TIMEZONE;
 
     // found it
     nsresult rv;

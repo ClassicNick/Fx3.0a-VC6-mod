@@ -1698,9 +1698,6 @@ nsBookmarksService::Init()
             nsICache::STREAM_BASED, getter_AddRefs(mCacheSession));
     }
 
-    mTransactionManager = do_CreateInstance(NS_TRANSACTIONMANAGER_CONTRACTID, &rv);
-    if (NS_FAILED(rv)) return rv;
-
     /* create a URL for the string resource file */
     nsCOMPtr<nsIURI>    uri;
     if (NS_SUCCEEDED(rv = mNetService->NewURI(bookmark_properties, nsnull, nsnull,
@@ -3532,15 +3529,6 @@ nsBookmarksService::ResolveKeyword(const PRUnichar *aUserInput, PRUnichar** aPos
 }
 
 NS_IMETHODIMP
-nsBookmarksService::GetTransactionManager(nsITransactionManager** aTransactionManager)
-{
-    NS_ENSURE_ARG_POINTER(aTransactionManager);
-
-    NS_ADDREF(*aTransactionManager = mTransactionManager);
-    return NS_OK;
-}
-
-NS_IMETHODIMP
 nsBookmarksService::GetBookmarksToolbarFolder(nsIRDFResource** aResult)
 {
     
@@ -4360,12 +4348,15 @@ nsBookmarksService::FlushTo(const char *aURI)
  *
  *  Creates a dated backup once a day in <profile>/bookmarkbackups
  *
+ *  PRInt32 numberOfBackups - the maximum number of backups to keep
+ *
  *  PRBool forceArchive - forces creating an archive even if one was 
  *                        already created that day (overwrites)
  */
 
 nsresult
-nsBookmarksService::ArchiveBookmarksFile(PRBool forceArchive)
+nsBookmarksService::ArchiveBookmarksFile(PRInt32 numberOfBackups,
+                                         PRBool forceArchive)
 {
     nsresult rv;
     nsCOMPtr<nsIFile> bookmarksBackupDir;
@@ -4409,6 +4400,7 @@ nsBookmarksService::ArchiveBookmarksFile(PRBool forceArchive)
         nsStringArray backupFileNames;
 
         PRBool hasMoreElements = PR_FALSE;
+        PRBool hasCurrentBackup = PR_FALSE;
         
         while (NS_SUCCEEDED(existingBackups->HasMoreElements(&hasMoreElements)) &&
                hasMoreElements)
@@ -4417,17 +4409,19 @@ nsBookmarksService::ArchiveBookmarksFile(PRBool forceArchive)
             nsAutoString backupName;
             backupFile->GetLeafName(backupName);
             
-            // if we have a match, we're done
-            if (backupName == backupFilenameString)
-                return NS_OK;
-            
+            // the backup for today exists, do not create later
+            if (backupName == backupFilenameString) {
+                hasCurrentBackup = PR_TRUE;
+                continue;
+            }
+
+            // mark the rest for possible removal
             if (Substring(backupName, 0, 10) == NS_LITERAL_STRING("bookmarks-"))
                 backupFileNames.AppendString(backupName);
         }
 
-#define BACKUPS_TO_KEEP 4
-        if (backupFileNames.Count() > BACKUPS_TO_KEEP) {
-            PRInt16 numberOfBackupsToDelete = backupFileNames.Count() - BACKUPS_TO_KEEP;
+        if (numberOfBackups > 0 && backupFileNames.Count() >= numberOfBackups) {
+            PRInt32 numberOfBackupsToDelete = backupFileNames.Count() - numberOfBackups + 1;
             backupFileNames.Sort();
 
             while (numberOfBackupsToDelete--) {
@@ -4437,6 +4431,9 @@ nsBookmarksService::ArchiveBookmarksFile(PRBool forceArchive)
                 backupFileNames.RemoveStringAt(0);
             }
         }
+
+        if (hasCurrentBackup)
+            return NS_OK;
     } else {
         // if we have a backup from today, nuke it
         nsCOMPtr<nsIFile> currentBackup;
@@ -4616,39 +4613,46 @@ nsBookmarksService::LoadBookmarks()
     // Lack of Bookmarks file is non-fatal
     if (NS_FAILED(rv)) return NS_OK;
 
+    PRInt32 numberOfBackups = 5;
+    if (mBookmarksPrefs)
+        mBookmarksPrefs->GetIntPref("max_backups", &numberOfBackups);
+
     PRBool restoreDefaultBookmarks = PR_FALSE;
     if (mBookmarksPrefs)
         mBookmarksPrefs->GetBoolPref("restore_default_bookmarks", 
                                      &restoreDefaultBookmarks);
 
-    // we want to force a backup to be current if we're restoring the defaults
-    // otherwise, only if one wasn't already created today
-    rv = ArchiveBookmarksFile(restoreDefaultBookmarks);
-    if (NS_SUCCEEDED(rv) && restoreDefaultBookmarks)
+    if (numberOfBackups > 0 || restoreDefaultBookmarks)
     {
-        mBookmarksPrefs->SetBoolPref("restore_default_bookmarks", PR_FALSE);
+        // we want to force a backup to be current if we're restoring the
+        // defaults otherwise, only if one wasn't already created today
+        rv = ArchiveBookmarksFile(numberOfBackups, restoreDefaultBookmarks);
+        if (NS_SUCCEEDED(rv) && restoreDefaultBookmarks)
+        {
+            mBookmarksPrefs->SetBoolPref("restore_default_bookmarks", PR_FALSE);
 
-        nsCOMPtr<nsIFile> defaults;
-        rv = NS_GetSpecialDirectory(NS_APP_PROFILE_DEFAULTS_50_DIR,
-                                    getter_AddRefs(defaults));
+            nsCOMPtr<nsIFile> defaults;
+            rv = NS_GetSpecialDirectory(NS_APP_PROFILE_DEFAULTS_50_DIR,
+                                        getter_AddRefs(defaults));
 
-        nsDependentCString leafStr("bookmarks.html");
-        defaults->AppendNative(leafStr);
+            nsDependentCString leafStr("bookmarks.html");
+            defaults->AppendNative(leafStr);
 
-        nsCOMPtr<nsIFile> profileDir;
-        rv = NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR,
+            nsCOMPtr<nsIFile> profileDir;
+            rv = NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR,
                                         getter_AddRefs(profileDir));
 
-        PRBool exists;
-        bookmarksFile->Exists(&exists);
-        if (exists)
-            bookmarksFile->Remove(PR_FALSE);
+            PRBool exists;
+            bookmarksFile->Exists(&exists);
+            if (exists)
+                bookmarksFile->Remove(PR_FALSE);
 
-        defaults->CopyToNative(profileDir, leafStr);
+            defaults->CopyToNative(profileDir, leafStr);
 
-        bookmarksFile->Exists(&exists);
-        if (!exists)
-            return NS_OK;
+            bookmarksFile->Exists(&exists);
+            if (!exists)
+                return NS_OK;
+        }
     }
 
     PRBool foundIERoot = PR_FALSE;

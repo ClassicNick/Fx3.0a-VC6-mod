@@ -84,6 +84,7 @@ EXPORTS		= \
 		nsNodeInfoManager.h \
 		nsPropertyTable.h \
 		nsStubDocumentObserver.h \
+		nsStubImageDecoderObserver.h \
 		nsTextFragment.h \
 		$(NULL)
 
@@ -132,6 +133,7 @@ CPPSRCS		= \
 		nsScriptEventManager.cpp \
 		nsScriptLoader.cpp \
 		nsStubDocumentObserver.cpp \
+		nsStubImageDecoderObserver.cpp \
 		nsStyleLinkElement.cpp \
 		nsSyncLoadService.cpp \
 		nsTextFragment.cpp \
@@ -159,6 +161,7 @@ INCLUDES	+= \
 		-I$(srcdir)/../../../layout/generic \
 		-I$(srcdir)/../../../layout/style \
 		-I$(srcdir)/../../../dom/src/base \
+		-I$(srcdir)/../../xml/document/src \
 		$(NULL)
 
 DEFINES += -D_IMPL_NS_LAYOUT

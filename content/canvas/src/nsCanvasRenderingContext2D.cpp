@@ -142,9 +142,19 @@ _cairo_win32_surface_create_dib (cairo_format_t format,
 #ifdef XP_MACOSX
 #include <Quickdraw.h>
 #include <CGContext.h>
+
 #ifndef kCGBitmapByteOrder32Host
-#define kCGBitmapByteOrder32Host 0
+#ifdef __BIG_ENDIAN__
+/* kCGBitmapByteOrder32Big */
+#define kCGBitmapByteOrder32Host (4<<12)
+#else    /* Little endian. */
+/* kCGBitmapByteOrder32Little */
+#define kCGBitmapByteOrder32Host (2<<12)
 #endif
+#endif
+
+#include "nsDrawingSurfaceMac.h"
+
 #endif
 
 static NS_DEFINE_IID(kBlenderCID, NS_BLENDER_CID);
@@ -902,26 +912,13 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
 #else
 
     // OSX path
-
-    CGrafPtr port = nsnull;
-#ifdef MOZILLA_1_8_BRANCH
-    rv = rc->RetrieveCurrentNativeGraphicData((void**) &port);
-    if (NS_FAILED(rv) || !port)
+    nsIDrawingSurface *ds = nsnull;
+    rc->GetDrawingSurface(&ds);
+    if (!ds)
         return NS_ERROR_FAILURE;
-#else
-    port = (CGrafPtr) rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_MAC_THING);
-    if (!port)
-        return NS_ERROR_FAILURE;
-#endif
 
-    struct Rect portRect;
-    GetPortBounds(port, &portRect);
-
-    CGContextRef cgc;
-    OSStatus status;
-    status = QDBeginCGContext (port, &cgc);
-    if (status != noErr)
-        return NS_ERROR_FAILURE;
+    nsDrawingSurfaceMac *macds = NS_STATIC_CAST(nsDrawingSurfaceMac*, ds);
+    CGContextRef cgc = macds->StartQuartzDrawing();
 
     CGDataProviderRef dataProvider;
     CGImageRef img;
@@ -948,18 +945,19 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
         tx->TransformNoXLate(&sx, &sy);
     }
 
-    /* Compensate for the bottom-left Y origin */
-    CGContextTranslateCTM (cgc, NSToIntRound(x0),
-                           portRect.bottom - portRect.top - NSToIntRound(y0) - NSToIntRound(mHeight * sy));
+    CGContextTranslateCTM (cgc, NSToIntRound(x0), NSToIntRound(y0));
     if (sx != 1.0 || sy != 1.0)
         CGContextScaleCTM (cgc, sx, sy);
 
-    CGContextDrawImage (cgc, CGRectMake(0, 0, mWidth, mHeight), img);
+    // flip, so that the image gets drawn correct-side up
+    CGContextScaleCTM (cgc, 1.0, -1.0);
+    CGContextDrawImage (cgc, CGRectMake(0, -mHeight, mWidth, mHeight), img);
 
     CGImageRelease (img);
 
-    status = QDEndCGContext (port, &cgc);
-    /* if EndCGContext fails, what can we do? */
+    macds->EndQuartzDrawing(cgc);
+
+    rv = NS_OK;
 #endif
 #endif
 
@@ -2788,7 +2786,8 @@ nsCanvasRenderingContext2D::GetImageData()
     if (!JS_ConvertArguments (ctx, argc, argv, "jjjj", &x, &y, &w, &h))
         return NS_ERROR_DOM_SYNTAX_ERR;
 
-    if (x + w > mWidth || y + h > mHeight)
+    if (w <= 0 || h <= 0 ||
+        x + w > mWidth || y + h > mHeight)
         return NS_ERROR_DOM_SYNTAX_ERR;
 
     PRUint8 *surfaceData = mImageSurfaceData;
@@ -2912,6 +2911,9 @@ nsCanvasRenderingContext2D::PutImageData()
         !JSVAL_IS_OBJECT(v))
         return NS_ERROR_DOM_SYNTAX_ERR;
     dataArray = JSVAL_TO_OBJECT(v);
+
+    if (w <= 0 || h <= 0)
+        return NS_ERROR_DOM_SYNTAX_ERR;
 
     jsuint arrayLen;
     if (!JS_IsArrayObject(ctx, dataArray) ||

@@ -43,25 +43,30 @@
 #include "nsIDOMSVGPresAspectRatio.h"
 #include "imgIContainer.h"
 #include "gfxIImageFrame.h"
-#include "imgIDecoderObserver.h"
+#include "nsStubImageDecoderObserver.h"
 #include "nsImageLoadingContent.h"
 #include "nsIDOMSVGImageElement.h"
 #include "nsSVGElement.h"
 #include "nsSVGUtils.h"
+#include "nsSVGOuterSVGFrame.h"
 
 #define NS_GET_BIT(rowptr, x) (rowptr[(x)>>3] &  (1<<(7-(x)&0x7)))
 
 class nsSVGImageFrame;
 
-class nsSVGImageListener : public imgIDecoderObserver
+class nsSVGImageListener : public nsStubImageDecoderObserver
 {
 public:
   nsSVGImageListener(nsSVGImageFrame *aFrame);
   virtual ~nsSVGImageListener();
 
   NS_DECL_ISUPPORTS
-  NS_DECL_IMGIDECODEROBSERVER
-  NS_DECL_IMGICONTAINEROBSERVER
+  // imgIDecoderObserver (override nsStubImageDecoderObserver)
+  NS_IMETHOD OnStopDecode(imgIRequest *aRequest, nsresult status,
+                          const PRUnichar *statusArg);
+  // imgIContainerObserver (override nsStubImageDecoderObserver)
+  NS_IMETHOD FrameChanged(imgIContainer *aContainer, gfxIImageFrame *newframe,
+                          nsRect * dirtyRect);
 
   void SetFrame(nsSVGImageFrame *frame) { mFrame = frame; }
 
@@ -317,7 +322,7 @@ nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
   nsresult rv;
   nsCOMPtr<nsISVGRenderer> renderer;
 
-  nsISVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
+  nsSVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame)
     return NS_ERROR_FAILURE;
   rv = outerSVGFrame->GetRenderer(getter_AddRefs(renderer));
@@ -376,6 +381,10 @@ nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
 #define REVERSE_CHANNELS
 #endif
 
+#if defined(XP_MACOSX) && defined(__i386__)
+#define REVERSE_CHANNELS
+#endif
+
   // cairo/os-x wants ABGR format, GDI+ wants RGBA, cairo/unix wants BGRA
   if (!alpha) {
     for (PRInt32 y=0; y<height; y++) {
@@ -384,7 +393,7 @@ nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
       else
         target = data + stride * (1 - height) + stride * y;
       for (PRInt32 x=0; x<width; x++) {
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && !defined(__i386__)
         *target++ = 255;
 #endif
 #ifndef REVERSE_CHANNELS
@@ -396,7 +405,7 @@ nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
         *target++ = rgb[y*bpr + bpp*x + 1];
         *target++ = rgb[y*bpr + bpp*x];
 #endif
-#ifndef XP_MACOSX
+#if !defined(XP_MACOSX) || (defined(XP_MACOSX) && defined(__i386__))
         *target++ = 255;
 #endif
       }
@@ -411,7 +420,7 @@ nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
           target = data + stride * (1 - height) + stride * y;
         for (PRInt32 x=0; x<width; x++) {
           PRUint32 a = alpha[y*abpr + x];
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) && !defined(__i386__)
           *target++ = a;
 #endif
 #ifndef REVERSE_CHANNELS
@@ -423,7 +432,7 @@ nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
           FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x + 1] * a);
           FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x] * a);
 #endif
-#ifndef XP_MACOSX
+#if !defined(XP_MACOSX) || (defined(XP_MACOSX) && defined(__i386__))
           *target++ = a;
 #endif
         }
@@ -531,47 +540,6 @@ nsSVGImageListener::~nsSVGImageListener()
 {
 }
 
-NS_IMETHODIMP nsSVGImageListener::OnStartRequest(imgIRequest *aRequest)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnStartDecode(imgIRequest *aRequest)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnStartContainer(imgIRequest *aRequest,
-                                                   imgIContainer *aImage)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnStartFrame(imgIRequest *aRequest,
-                                            gfxIImageFrame *aFrame)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnDataAvailable(imgIRequest *aRequest,
-                                                  gfxIImageFrame *aFrame,
-                                                  const nsRect *aRect)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnStopFrame(imgIRequest *aRequest,
-                                              gfxIImageFrame *aFrame)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnStopContainer(imgIRequest *aRequest,
-                                                  imgIContainer *aImage)
-{
-  return NS_OK;
-}
-
 NS_IMETHODIMP nsSVGImageListener::OnStopDecode(imgIRequest *aRequest,
                                                nsresult status,
                                                const PRUnichar *statusArg)
@@ -581,12 +549,6 @@ NS_IMETHODIMP nsSVGImageListener::OnStopDecode(imgIRequest *aRequest,
 
   mFrame->mSurfaceInvalid = PR_TRUE;
   mFrame->UpdateGraphic();
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsSVGImageListener::OnStopRequest(imgIRequest *aRequest,
-                                                PRBool aLastPart)
-{
   return NS_OK;
 }
 

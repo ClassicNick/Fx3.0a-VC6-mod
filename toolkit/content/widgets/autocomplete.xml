@@ -169,6 +169,10 @@
       <property name="consumeRollupEvent" readonly="true"
                 onget="return this.mConsumeRollupEvent;"/>
 
+       <!-- This is the maximum number of drop-down rows we get when we
+            hit the drop marker beside fields that have it (like the URLbar).-->
+       <field name="maxDropMarkerRows" readonly="true">14</field>
+ 
       <method name="getSearchAt">
         <parameter name="aIndex"/>
         <body><![CDATA[
@@ -339,7 +343,16 @@
 
       <method name="showHistoryPopup">
         <body><![CDATA[
-          this.maxRows = 14;
+          // Store our "normal" maxRows on the popup, so that it can reset the
+          // value when the popup is hidden.
+          this.popup._normalMaxRows = this.maxRows;
+
+          // Increase our maxRows temporarily, since we want the dropdown to
+          // be bigger in this case. The popup's popupshowing/popuphiding
+          // handlers will take care of resetting this.
+          this.maxRows = this.maxDropMarkerRows;
+
+          // Ensure that we have focus.
           if (!this.focused)
             this.focus();
           this.mConsumeRollupEvent = true;
@@ -356,7 +369,7 @@
             this.closePopup();
         ]]></body>
       </method>
-      
+
       <!-- ::::::::::::: event dispatching ::::::::::::: -->
 
       <method name="fireEvent">
@@ -644,9 +657,25 @@
         ]]></setter>
       </property>
 
+      <!-- This is the default number of rows that we give the autocomplete
+           popup when the textbox doesn't have a "maxrows" attribute
+           for us to use. -->
+      <field name="defaultMaxRows" readonly="true">6</field>
+
+      <!-- In some cases (e.g. when the input's dropmarker button is clicked),
+           the input wants to display a popup with more rows. In that case, it
+           should increase its maxRows property and store the "normal" maxRows
+           in this field. When the popup is hidden, we restore the input's
+           maxRows to the value stored in this field.
+
+           This field is set to -1 between uses so that we can tell when it's
+           been set by the input and when we need to set it in the popupshowing
+           handler. -->
+      <field name="_normalMaxRows">-1</field>
+
       <property name="maxRows" readonly="true">
         <getter><![CDATA[
-          return (this.mInput && this.mInput.maxRows) || 6;
+          return (this.mInput && this.mInput.maxRows) || this.defaultMaxRows;
         ]]></getter>
       </property>
 
@@ -744,13 +773,23 @@
     </implementation>
 
     <handlers>
-      <handler event="popupshowing">
+      <handler event="popupshowing"><![CDATA[
+        // If normalMaxRows wasn't already set by the input, then set it here
+        // so that we restore the correct number when the popup is hidden.
+        if (this._normalMaxRows < 0)
+          this._normalMaxRows = this.mInput.maxRows;
+
         this.mPopupOpen = true;
-      </handler>
+      ]]></handler>
 
       <handler event="popuphiding">
         this.mPopupOpen = false;
-        this.mInput.maxRows = 6;
+
+        // Reset the maxRows property to the cached "normal" value, and reset
+        // _normalMaxRows so that we can detect whether it was set by the input
+        // when the popupshowing handler runs.
+        this.mInput.maxRows = this._normalMaxRows;
+        this._normalMaxRows = -1;
       </handler>
     </handlers>
   </binding>

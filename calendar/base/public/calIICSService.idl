@@ -177,6 +177,12 @@ interface calIIcalComponent : nsISupports
 interface calIIcalProperty : nsISupports
 {
     /**
+     * The whole property as an ical string.
+     * @exception Any libical error will be thrown as an calIError::ICS_ error.
+     */
+    readonly attribute AUTF8String icalString;
+    
+    /**
      * The value of the property as string.
      * The exception for properties of TEXT or X- type, those will be unescaped
      * when getting, and also expects an unescaped string when setting.
@@ -206,6 +212,12 @@ interface calIIcalProperty : nsISupports
     void clearXParameters();
 
     [noscript,notxpcom] icalpropertyptr getIcalProperty();
+    /**
+     * Returns the icalcompoment this property belongs to. Please note
+     * that the returned object is a raw pointer to the appropriate
+     * component and is owned by libical.
+     */
+    [noscript,notxpcom] icalcomponentptr getIcalComponent();
 };
 
 [scriptable,uuid(c788a1dc-0929-4029-9a14-e1bc654eafad)]

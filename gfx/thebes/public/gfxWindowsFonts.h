@@ -50,9 +50,8 @@
 
 #include <bitset>
 
-#if 0
 /** @description Font Weights
- * Each available font weight is stored as as single bit inside a PRUint16.
+ * Each available font weight is stored as as single bit inside a bitset.
  * e.g. The binary value 0000000000001000 indcates font weight 400 is available.
  * while the binary value 0000000000001001 indicates both font weight 100 and 400 are available
  *
@@ -63,31 +62,38 @@
  * a font weight of 400 then the mFont->weight will contain the value 402.
  * If lighter is applied twice to a font of weight 400 then the mFont->weight will contain the value 398.
  * Only nine steps of bolder or lighter are allowed by the CSS XPCODE.
- *
- * The font weight table is used in conjuction with the mFont->weight to determine
- * what font weight to pass in the LOGFONT structure.
  */
-class gfxWindowsFontWeight {
+// XXX change this from using a bitset to something cleaner eventually
+class WeightTable
+{
 public:
+    THEBES_DECL_REFCOUNTING
+
+    WeightTable() : mWeights(0) {}
+    ~WeightTable() {
+
+    }
+    PRBool TriedWeight(PRUint8 aWeight) {
+        return mWeights[aWeight - 1 + 10];
+    }
     PRBool HasWeight(PRUint8 aWeight) {
-        if (IsValidNumber(aWeight)) return mWeights[aValue];
-        return PR_FALSE;
+        return mWeights[aWeight - 1];
     }
-    void SetWeight(PRUint8 aValue) {
-        if (IsValidNumber(aValue)) return mWeights[aValue];
-        return PR_FALSE;
+    void SetWeight(PRUint8 aWeight, PRBool aValue) {
+        mWeights[aWeight - 1] = aValue;
+        mWeights[aWeight - 1 + 10] = PR_TRUE;
     }
-    
+
 private:
-    static IsValidNumber(PRUint8 aValue) { return (aValue > 0 && aValue <= 9); }
     std::bitset<20> mWeights;
 };
-#endif
+
 
 /* Unicode subrange table
  *   from: http://msdn.microsoft.com/library/default.asp?url=/library/en-us/intl/unicode_63ub.asp
 */
-struct UnicodeRangeTableEntry {
+struct UnicodeRangeTableEntry
+{
     PRUint8 bit;
     PRUint32 start;
     PRUint32 end;
@@ -381,6 +387,8 @@ private:
     gfxFont::Metrics *mMetrics;
 
     LOGFONTW mLogFont;
+
+    nsRefPtr<WeightTable> mWeightTable;
 };
 
 /**********************************************************************

@@ -56,7 +56,6 @@
 #include "nsIIOService.h"
 #include "nsICacheService.h"
 #include "nsICacheSession.h"
-#include "nsITransactionManager.h"
 #include "nsIPrefBranch.h"
 
 class nsIOutputStream;
@@ -84,7 +83,6 @@ protected:
     nsCOMPtr<nsIIOService>          mNetService;
     nsCOMPtr<nsICacheService>       mCacheService;
     nsCOMPtr<nsICacheSession>       mCacheSession;
-    nsCOMPtr<nsITransactionManager> mTransactionManager;
 
     PRUint32      htmlSize;
     PRInt32       mUpdateBatchNest;
@@ -165,7 +163,7 @@ protected:
     nsresult GetURLFromResource(nsIRDFResource* aResource, nsAString& aURL);
 
     nsresult LoadBookmarks();
-    nsresult ArchiveBookmarksFile(PRBool forceArchive);
+    nsresult ArchiveBookmarksFile(PRInt32 numberOfBackups, PRBool forceArchive);
     nsresult InitDataSource();
 
     nsresult GetLastModifiedFolders(nsISimpleEnumerator **aResult);

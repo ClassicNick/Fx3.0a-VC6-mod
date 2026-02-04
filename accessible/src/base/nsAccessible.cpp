@@ -59,7 +59,7 @@
 #include "nsISelectionController.h"
 #include "nsIServiceManager.h"
 #include "nsXPIDLString.h"
-
+#include "prdtoa.h"
 #include "nsIDOMComment.h"
 #include "nsITextContent.h"
 #include "nsIDOMHTMLImageElement.h"
@@ -147,6 +147,13 @@ nsresult nsAccessible::QueryInterface(REFNSIID aIID, void** aInstancePtr)
       }
     }
   }
+
+  if (aIID.Equals(NS_GET_IID(nsIAccessibleValue))) {
+    if (mRoleMapEntry && mRoleMapEntry->valueRule != eNoValue) {
+      *aInstancePtr = NS_STATIC_CAST(nsIAccessibleValue*, this);
+      NS_ADDREF_THIS();
+    }
+  }                       
 
   return nsAccessNode::QueryInterface(aIID, aInstancePtr);
 }
@@ -1034,26 +1041,10 @@ nsAccessible::GetMultiSelectFor(nsIDOMNode *aNode)
   return returnAccessible;
 }
 
-nsresult nsAccessible::SetNonTextSelection(PRBool aSelect)
-{
-  nsCOMPtr<nsIAccessible> multiSelect = GetMultiSelectFor(mDOMNode);
-  if (!multiSelect) {
-    return aSelect ? TakeFocus() : NS_ERROR_FAILURE;
-  }
-  nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
-  NS_ASSERTION(content, "Called for dead accessible");
-
-  // For DHTML widgets use WAI namespace
-  PRUint32 nameSpaceID = mRoleMapEntry ? kNameSpaceID_WAIProperties : kNameSpaceID_None;
-  if (aSelect) {
-    return content->SetAttr(nameSpaceID, nsAccessibilityAtoms::selected, NS_LITERAL_STRING("true"), PR_TRUE);
-  }
-  return content->UnsetAttr(nameSpaceID, nsAccessibilityAtoms::selected, PR_TRUE);
-}
-
 /* void removeSelection (); */
-NS_IMETHODIMP nsAccessible::RemoveSelection()
+NS_IMETHODIMP nsAccessible::SetSelected(PRBool aSelect)
 {
+  // Add or remove selection
   if (!mDOMNode) {
     return NS_ERROR_FAILURE;
   }
@@ -1061,34 +1052,28 @@ NS_IMETHODIMP nsAccessible::RemoveSelection()
   PRUint32 state;
   GetFinalState(&state);
   if (state & STATE_SELECTABLE) {
-    return SetNonTextSelection(PR_TRUE);
+    nsCOMPtr<nsIAccessible> multiSelect = GetMultiSelectFor(mDOMNode);
+    if (!multiSelect) {
+      return aSelect ? TakeFocus() : NS_ERROR_FAILURE;
+    }
+    nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
+    NS_ASSERTION(content, "Called for dead accessible");
+
+    // For DHTML widgets use WAI namespace
+    PRUint32 nameSpaceID = mRoleMapEntry ? kNameSpaceID_WAIProperties : kNameSpaceID_None;
+    if (aSelect) {
+      return content->SetAttr(nameSpaceID, nsAccessibilityAtoms::selected, NS_LITERAL_STRING("true"), PR_TRUE);
+    }
+    return content->UnsetAttr(nameSpaceID, nsAccessibilityAtoms::selected, PR_TRUE);
   }
 
-  nsCOMPtr<nsISelectionController> control(do_QueryReferent(mWeakShell));
-  if (!control) {
-    return NS_ERROR_FAILURE;  
-  }
-
-  nsCOMPtr<nsISelection> selection;
-  nsresult rv = control->GetSelection(nsISelectionController::SELECTION_NORMAL, getter_AddRefs(selection));
-  if (NS_FAILED(rv))
-    return rv;
-
-  nsCOMPtr<nsIDOMNode> parent;
-  rv = mDOMNode->GetParentNode(getter_AddRefs(parent));
-  if (NS_FAILED(rv))
-    return rv;
-
-  rv = selection->Collapse(parent, 0);
-  if (NS_FAILED(rv))
-    return rv;
-
-  return NS_OK;
+  return NS_ERROR_FAILURE;
 }
 
 /* void takeSelection (); */
 NS_IMETHODIMP nsAccessible::TakeSelection()
 {
+  // Select only this item
   if (!mDOMNode) {
     return NS_ERROR_FAILURE;
   }
@@ -1096,51 +1081,14 @@ NS_IMETHODIMP nsAccessible::TakeSelection()
   PRUint32 state;
   GetFinalState(&state);
   if (state & STATE_SELECTABLE) {
-    return SetNonTextSelection(PR_TRUE);
-  }
-
-  nsCOMPtr<nsISelectionController> control(do_QueryReferent(mWeakShell));
-  if (!control) {
-    return NS_ERROR_FAILURE;  
-  }
- 
-  nsCOMPtr<nsISelection> selection;
-  nsresult rv = control->GetSelection(nsISelectionController::SELECTION_NORMAL, getter_AddRefs(selection));
-  if (NS_FAILED(rv))
-    return rv;
-
-  nsCOMPtr<nsIDOMNode> parent;
-  rv = mDOMNode->GetParentNode(getter_AddRefs(parent));
-  if (NS_FAILED(rv))
-    return rv;
-
-  PRInt32 offsetInParent = 0;
-  nsCOMPtr<nsIDOMNode> child;
-  rv = parent->GetFirstChild(getter_AddRefs(child));
-  if (NS_FAILED(rv))
-    return rv;
-
-  nsCOMPtr<nsIDOMNode> next; 
-
-  while(child)
-  {
-    if (child == mDOMNode) {
-      // Collapse selection to just before desired element,
-      rv = selection->Collapse(parent, offsetInParent);
-      if (NS_FAILED(rv))
-        return rv;
-
-      // then extend it to just after
-      rv = selection->Extend(parent, offsetInParent+1);
-      return rv;
+    nsCOMPtr<nsIAccessible> multiSelect = GetMultiSelectFor(mDOMNode);
+    if (multiSelect) {
+      nsCOMPtr<nsIAccessibleSelectable> selectable = do_QueryInterface(multiSelect);
+      selectable->ClearSelection();
     }
-
-     child->GetNextSibling(getter_AddRefs(next));
-     child = next;
-     offsetInParent++;
+    return SetSelected(PR_TRUE);
   }
 
-  // didn't find a child
   return NS_ERROR_FAILURE;
 }
 
@@ -1187,7 +1135,7 @@ nsresult nsAccessible::AppendNameFromAccessibleFor(nsIContent *aContent,
   }
   if (accessible) {
     if (aFromValue) {
-      accessible->GetFinalValue(textEquivalent);
+      accessible->GetValue(textEquivalent);
     }
     else {
       accessible->GetName(textEquivalent);
@@ -1550,7 +1498,7 @@ nsresult nsAccessible::GetXULName(nsAString& aLabel, PRBool aCanAggregateSubtree
 
   // First check for label override via accessibility labelledby relationship
   nsAutoString label;
-  nsresult rv;
+  nsresult rv = NS_OK;
   if (content->HasAttr(kNameSpaceID_XHTML2_Unofficial, 
                        nsAccessibilityAtoms::role)) {
     rv = GetTextFromRelationID(nsAccessibilityAtoms::labelledby, label);
@@ -1731,11 +1679,11 @@ nsRoleMapEntry nsAccessible::gWAIRoleMap[] =
   {"tab", ROLE_PAGETAB, eNameOkFromChildren, eNoValue, eNoReqStates, END_ENTRY},
   {"tablist", ROLE_PAGETABLIST, eNameLabelOrTitle, eNoValue, eNoReqStates, END_ENTRY},
   {"tabpanel", ROLE_PROPERTYPAGE, eNameLabelOrTitle, eNoValue, eNoReqStates, END_ENTRY},
-  {"textarea", ROLE_TEXT, eNameLabelOrTitle, eHasValueMinMax, eNoReqStates,
+  {"textarea", ROLE_ENTRY, eNameLabelOrTitle, eHasValueMinMax, eNoReqStates,
             {"readonly", BOOL_STATE, STATE_READONLY},
             {"invalid", BOOL_STATE, STATE_INVALID},
             {"required", BOOL_STATE, STATE_REQUIRED}, END_ENTRY}, // XXX EXT_STATE_MULTI_LINE
-  {"textfield", ROLE_TEXT, eNameLabelOrTitle, eHasValueMinMax, eNoReqStates,
+  {"textfield", ROLE_ENTRY, eNameLabelOrTitle, eHasValueMinMax, eNoReqStates,
             {"readonly", BOOL_STATE, STATE_READONLY},
             {"invalid", BOOL_STATE, STATE_INVALID},
             {"required", BOOL_STATE, STATE_REQUIRED},
@@ -1835,7 +1783,10 @@ NS_IMETHODIMP nsAccessible::GetFinalState(PRUint32 *aState)
   return rv;
 }
 
-NS_IMETHODIMP nsAccessible::GetFinalValue(nsAString& aValue)
+// Not implemented by this class
+
+/* DOMString getValue (); */
+NS_IMETHODIMP nsAccessible::GetValue(nsAString& aValue)
 {
   if (!mDOMNode) {
     return NS_ERROR_FAILURE;  // Node already shut down
@@ -1850,15 +1801,112 @@ NS_IMETHODIMP nsAccessible::GetFinalValue(nsAString& aValue)
       return NS_OK;
     }
   }
-  return GetValue(aValue);
+  return NS_OK;
 }
 
-// Not implemented by this class
-
-/* DOMString getValue (); */
-NS_IMETHODIMP nsAccessible::GetValue(nsAString& _retval)
+NS_IMETHODIMP nsAccessible::GetMaximumValue(double *aMaximumValue)
 {
-  return NS_ERROR_NOT_IMPLEMENTED;
+  *aMaximumValue = 0;
+  if (!mDOMNode) {
+    return NS_ERROR_FAILURE;  // Node already shut down
+  }
+  if (mRoleMapEntry) {
+    if (mRoleMapEntry->valueRule == eNoValue) {
+      return NS_OK;
+    }
+    nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
+    nsAutoString valueMax;
+    if (content && content->GetAttr(kNameSpaceID_WAIProperties,
+                                    nsAccessibilityAtoms::valuemax, valueMax) &&
+        valueMax.IsEmpty() == PR_FALSE) {
+      *aMaximumValue = PR_strtod(NS_LossyConvertUTF16toASCII(valueMax).get(), nsnull);
+      return NS_OK;
+    }
+  }
+  return NS_ERROR_FAILURE; // No maximum
+}
+
+NS_IMETHODIMP nsAccessible::GetMinimumValue(double *aMinimumValue)
+{
+  *aMinimumValue = 0;
+  if (!mDOMNode) {
+    return NS_ERROR_FAILURE;  // Node already shut down
+  }
+  if (mRoleMapEntry) {
+    if (mRoleMapEntry->valueRule == eNoValue) {
+      return NS_OK;
+    }
+    nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
+    nsAutoString valueMin;
+    if (content && content->GetAttr(kNameSpaceID_WAIProperties,
+                                    nsAccessibilityAtoms::valuemin, valueMin) &&
+        valueMin.IsEmpty() == PR_FALSE) {
+      *aMinimumValue = PR_strtod(NS_LossyConvertUTF16toASCII(valueMin).get(), nsnull);
+      return NS_OK;
+    }
+  }
+  return NS_ERROR_FAILURE; // No minimum
+}
+
+NS_IMETHODIMP nsAccessible::GetMinimumIncrement(double *aMinIncrement)
+{
+  *aMinIncrement = 0;
+  return NS_ERROR_NOT_IMPLEMENTED; // No mimimum increment in dynamic content spec right now
+}
+
+NS_IMETHODIMP nsAccessible::GetCurrentValue(double *aValue)
+{
+  *aValue = 0;
+  if (!mDOMNode) {
+    return NS_ERROR_FAILURE;  // Node already shut down
+  }
+  if (mRoleMapEntry) {
+    if (mRoleMapEntry->valueRule == eNoValue) {
+      return NS_OK;
+    }
+    nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
+    nsAutoString value;
+    if (content && content->GetAttr(kNameSpaceID_WAIProperties,
+                                    nsAccessibilityAtoms::valuenow, value) &&
+        value.IsEmpty() == PR_FALSE) {
+      *aValue = PR_strtod(NS_LossyConvertUTF16toASCII(value).get(), nsnull);
+      return NS_OK;
+    }
+  }
+  return NS_ERROR_FAILURE; // No value
+}
+
+NS_IMETHODIMP nsAccessible::SetCurrentValue(double aValue)
+{
+  if (!mDOMNode) {
+    return NS_ERROR_FAILURE;  // Node already shut down
+  }
+  if (mRoleMapEntry) {
+    if (mRoleMapEntry->valueRule == eNoValue) {
+      return NS_OK;
+    }
+    const PRUint32 kValueCannotChange = STATE_READONLY | STATE_UNAVAILABLE;
+    PRUint32 state;
+    if (NS_FAILED(GetFinalState(&state)) || (state & kValueCannotChange)) {
+      return NS_ERROR_FAILURE;
+    }
+    double minValue;
+    if (NS_SUCCEEDED(GetMinimumValue(&minValue)) && aValue < minValue) {
+      return NS_ERROR_INVALID_ARG;
+    }
+    double maxValue;
+    if (NS_SUCCEEDED(GetMaximumValue(&maxValue)) && aValue > maxValue) {
+      return NS_ERROR_INVALID_ARG;
+    }
+    nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
+    if (content) {
+      nsAutoString newValue;
+      newValue.AppendFloat(aValue);
+      return content->SetAttr(kNameSpaceID_WAIProperties,
+                              nsAccessibilityAtoms::valuenow, newValue, PR_TRUE);
+    }
+  }
+  return NS_ERROR_FAILURE; // Not in a role that can accept value
 }
 
 /* void setName (in DOMString name); */
@@ -2098,15 +2146,10 @@ NS_IMETHODIMP nsAccessible::GetAccessibleRelated(PRUint32 aRelationType, nsIAcce
   return NS_ERROR_FAILURE;
 }
 
-/* void addSelection (); */
-NS_IMETHODIMP nsAccessible::AddSelection()
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
 /* void extendSelection (); */
 NS_IMETHODIMP nsAccessible::ExtendSelection()
 {
+  // XXX Should be implemented, but not high priority
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
@@ -2118,7 +2161,7 @@ NS_IMETHODIMP nsAccessible::GetExtState(PRUint32 *aExtState)
   }
   *aExtState = 0;
   // XXX We can remove this hack once we support RDF-based role & state maps
-  if (mRoleMapEntry && mRoleMapEntry->role == ROLE_TEXT) {
+  if (mRoleMapEntry && (mRoleMapEntry->role == ROLE_ENTRY || mRoleMapEntry->role == ROLE_PASSWORD_TEXT)) {
     *aExtState = NS_LITERAL_CSTRING("textarea").Equals(mRoleMapEntry->roleString) ? 
        EXT_STATE_MULTI_LINE : EXT_STATE_SINGLE_LINE;
   }
@@ -2297,7 +2340,7 @@ NS_IMETHODIMP nsAccessible::AddChildToSelection(PRInt32 aIndex)
     return NS_OK;
   }
 
-  return child->TakeSelection();
+  return child->SetSelected(PR_TRUE);
 }
 
 NS_IMETHODIMP nsAccessible::RemoveChildFromSelection(PRInt32 aIndex)
@@ -2319,7 +2362,7 @@ NS_IMETHODIMP nsAccessible::RemoveChildFromSelection(PRInt32 aIndex)
     return NS_OK;
   }
 
-  return child->RemoveSelection();
+  return child->SetSelected(PR_FALSE);
 }
 
 NS_IMETHODIMP nsAccessible::IsChildSelected(PRInt32 aIndex, PRBool *aIsSelected)
@@ -2348,7 +2391,7 @@ NS_IMETHODIMP nsAccessible::ClearSelection()
 {
   nsCOMPtr<nsIAccessible> selected = this;
   while ((selected = GetNextWithState(selected, STATE_SELECTED)) != nsnull) {
-    selected->RemoveSelection();
+    selected->SetSelected(PR_FALSE);
   }
   return NS_OK;
 }
@@ -2357,7 +2400,7 @@ NS_IMETHODIMP nsAccessible::SelectAllSelection(PRBool *_retval)
 {
   nsCOMPtr<nsIAccessible> selectable = this;
   while ((selectable = GetNextWithState(selectable, STATE_SELECTED)) != nsnull) {
-    selectable->TakeSelection();
+    selectable->SetSelected(PR_TRUE);
   }
   return NS_OK;
 }

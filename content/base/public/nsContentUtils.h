@@ -93,6 +93,8 @@ struct JSRuntime;
 class nsIXTFService;
 #endif
 
+extern const char kLoadAsData[];
+
 class nsContentUtils
 {
 public:
@@ -573,11 +575,13 @@ public:
   }
 
   /**
-   * Returns the appropriate event argument name for the specified
-   * namespace.  Added because we need to switch between SVG's "evt"
-   * and the rest of the world's "event".
+   * Returns the appropriate event argument names for the specified
+   * namespace and event name.  Added because we need to switch between
+   * SVG's "evt" and the rest of the world's "event", and because onerror
+   * takes 3 args.
    */
-  static const char *GetEventArgName(PRInt32 aNameSpaceID);
+  static void GetEventArgNames(PRInt32 aNameSpaceID, nsIAtom *aEventName,
+                               PRUint32 *aArgCount, const char*** aArgNames);
 
   /**
    * Return the nsIXPConnect service.
@@ -869,6 +873,30 @@ public:
   static nsresult CreateContextualFragment(nsIDOMNode* aContextNode,
                                            const nsAString& aFragment,
                                            nsIDOMDocumentFragment** aReturn);
+
+  /**
+   * Creates a new XML document, setting the document's container to be the
+   * docshell of whatever script is on the JSContext stack.
+   *
+   * @param aNamespaceURI Namespace for the root element to create and insert in
+   *                      the document. Only used if aQualifiedName is not
+   *                      empty.
+   * @param aQualifiedName Qualified name for the root element to create and
+   *                       insert in the document. If empty no root element will
+   *                       be created.
+   * @param aDoctype Doctype node to insert in the document.
+   * @param aDocumentURI URI of the document. Must not be null.
+   * @param aBaseURI Base URI of the document. Must not be null.
+   * @param aPrincipal Prinicpal of the document. Must not be null.
+   * @param aResult [out] The document that was created.
+   */
+  static nsresult CreateDocument(const nsAString& aNamespaceURI, 
+                                 const nsAString& aQualifiedName, 
+                                 nsIDOMDocumentType* aDoctype,
+                                 nsIURI* aDocumentURI,
+                                 nsIURI* aBaseURI,
+                                 nsIPrincipal* aPrincipal,
+                                 nsIDOMDocument** aResult);
 
 private:
   static nsresult doReparentContentWrapper(nsIContent *aChild,

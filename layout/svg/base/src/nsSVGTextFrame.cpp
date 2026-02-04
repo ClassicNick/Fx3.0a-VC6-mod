@@ -54,16 +54,16 @@
 #include "nsISVGGlyphFragmentNode.h"
 #include "nsISVGGlyphFragmentLeaf.h"
 #include "nsISVGRendererGlyphMetrics.h"
-#include "nsISVGOuterSVGFrame.h"
+#include "nsSVGOuterSVGFrame.h"
 #include "nsIDOMSVGRect.h"
 #include "nsISVGTextContentMetrics.h"
 #include "nsSVGRect.h"
 #include "nsSVGMatrix.h"
 #include "nsLayoutAtoms.h"
-#include "nsISVGPathFlatten.h"
+#include "nsSVGTextPathFrame.h"
+#include "nsSVGPathElement.h"
 #include "nsSVGUtils.h"
 #include "nsSVGUtils.h"
-#include "nsDOMError.h"
 #include "nsSVGClipPathFrame.h"
 #include "nsISVGRendererSurface.h"
 #include "nsINameSpaceManager.h"
@@ -165,8 +165,6 @@ protected:
   void EnsureFragmentTreeUpToDate();
   void UpdateFragmentTree();
   void UpdateGlyphPositioning();
-  nsISVGGlyphFragmentNode *GetFirstGlyphFragmentChildNode();
-  nsISVGGlyphFragmentNode *GetNextGlyphFragmentChildNode(nsISVGGlyphFragmentNode*node);
 
   enum UpdateState{
     unsuspended,
@@ -281,7 +279,7 @@ NS_IMETHODIMP
 nsSVGTextFrame::RemoveFrame(nsIAtom*        aListName,
                             nsIFrame*       aOldFrame)
 {
-  nsISVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
+  nsSVGOuterSVGFrame* outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (outerSVGFrame)
     outerSVGFrame->SuspendRedraw();
   mFragmentTreeDirty = PR_TRUE;
@@ -323,12 +321,8 @@ nsSVGTextFrame::GetNumberOfChars(PRInt32 *_retval)
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
+  *_retval = nsSVGUtils::GetNumberOfChars(&mFrames);
 
-  if (node)
-    return nsSVGUtils::GetNumberOfChars(node, _retval);
-
-  *_retval = 0;
   return NS_OK;
 }
 
@@ -337,12 +331,8 @@ nsSVGTextFrame::GetComputedTextLength(float *_retval)
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
+  *_retval = nsSVGUtils::GetComputedTextLength(&mFrames);
 
-  if (node)
-    return nsSVGUtils::GetComputedTextLength(node, _retval);
-
-  *_retval = 0.0;
   return NS_OK;
 }
 
@@ -351,13 +341,7 @@ nsSVGTextFrame::GetSubStringLength(PRUint32 charnum, PRUint32 nchars, float *_re
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-
-  if (node)
-    return nsSVGUtils::GetSubStringLength(node, charnum, nchars, _retval);
-
-  *_retval = 0.0;
-  return NS_OK;
+  return nsSVGUtils::GetSubStringLength(&mFrames, charnum, nchars, _retval);
 }
 
 NS_IMETHODIMP
@@ -365,9 +349,7 @@ nsSVGTextFrame::GetStartPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retva
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-  if (!node) return NS_ERROR_DOM_INDEX_SIZE_ERR;
-  return nsSVGUtils::GetStartPositionOfChar(node, charnum, _retval);
+  return nsSVGUtils::GetStartPositionOfChar(&mFrames, charnum, _retval);
 }
 
 NS_IMETHODIMP
@@ -375,9 +357,7 @@ nsSVGTextFrame::GetEndPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval)
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-  if (!node) return NS_ERROR_DOM_INDEX_SIZE_ERR;
-  return nsSVGUtils::GetEndPositionOfChar(node, charnum, _retval);
+  return nsSVGUtils::GetEndPositionOfChar(&mFrames, charnum, _retval);
 }
 
 NS_IMETHODIMP
@@ -385,9 +365,7 @@ nsSVGTextFrame::GetExtentOfChar(PRUint32 charnum, nsIDOMSVGRect **_retval)
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-  if (!node) return NS_ERROR_DOM_INDEX_SIZE_ERR;
-  return nsSVGUtils::GetExtentOfChar(node, charnum, _retval);
+  return nsSVGUtils::GetExtentOfChar(&mFrames, charnum, _retval);
 }
 
 NS_IMETHODIMP
@@ -395,9 +373,7 @@ nsSVGTextFrame::GetRotationOfChar(PRUint32 charnum, float *_retval)
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-  if (!node) return NS_ERROR_DOM_INDEX_SIZE_ERR;
-  return nsSVGUtils::GetRotationOfChar(node, charnum, _retval);
+  return nsSVGUtils::GetRotationOfChar(&mFrames, charnum, _retval);
 }
 
 NS_IMETHODIMP
@@ -405,11 +381,8 @@ nsSVGTextFrame::GetCharNumAtPosition(nsIDOMSVGPoint *point, PRInt32 *_retval)
 {
   EnsureFragmentTreeUpToDate();
 
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-  if (node)
-    return nsSVGUtils::GetCharNumAtPosition(node, point, _retval);
+  *_retval = nsSVGUtils::GetCharNumAtPosition(&mFrames, point);
 
-  *_retval = -1;
   return NS_OK;
 }
 
@@ -704,15 +677,7 @@ nsSVGTextFrame::UpdateFragmentTree()
 {
   NS_ASSERTION(mFragmentTreeState == unsuspended, "updating during suspension!");
 
-  PRUint32 charNum = 0;
-  
-  nsISVGGlyphFragmentNode* node = GetFirstGlyphFragmentChildNode();
-  nsISVGGlyphFragmentNode* next;
-  while (node) {
-    next = GetNextGlyphFragmentChildNode(node);
-    charNum = node->BuildGlyphFragmentTree(charNum, !next);
-    node = next;
-  }
+  nsSVGUtils::BuildGlyphFragmentTree(&mFrames, 0, PR_TRUE);
 
   mFragmentTreeDirty = PR_FALSE;
   
@@ -746,18 +711,16 @@ GetSingleValue(nsISVGGlyphFragmentLeaf *fragment,
       nsIFrame *glyph;
       CallQueryInterface(fragment, &glyph);
 
-      nsISVGPathFlatten *textPath = nsnull;
+      nsSVGTextPathFrame *textPath = nsnull;
       /* check if we're the child of a textPath */
       for (nsIFrame *frame = glyph; frame != nsnull; frame = frame->GetParent())
         if (frame->GetType() == nsLayoutAtoms::svgTextPathFrame) {
-          frame->QueryInterface(NS_GET_IID(nsISVGPathFlatten), 
-                                (void **)&textPath);
+          textPath = NS_STATIC_CAST(nsSVGTextPathFrame*, frame);
           break;
         }
 
       if (textPath) {
-        nsSVGPathData *data;
-        textPath->GetFlattenedPath(&data, nsnull);
+        nsAutoPtr<nsSVGFlattenedPath> data(textPath->GetFlattenedPath());
 
         if (!data)
           return;
@@ -765,8 +728,7 @@ GetSingleValue(nsISVGGlyphFragmentLeaf *fragment,
         float percent;
         length->GetValueInSpecifiedUnits(&percent);
 
-        *val = data->Length()*percent/100.0f;
-        delete data;
+        *val = data->GetLength()*percent/100.0f;
       }
     }
   }
@@ -777,7 +739,8 @@ nsSVGTextFrame::UpdateGlyphPositioning()
 {
   NS_ASSERTION(mMetricsState == unsuspended, "updating during suspension");
 
-  nsISVGGlyphFragmentNode *node = GetFirstGlyphFragmentChildNode();
+  nsISVGGlyphFragmentNode* node;
+  node = nsSVGUtils::GetFirstGlyphFragmentChildNode(&mFrames);
   if (!node) return;
 
   // we'll align every fragment in this chunk on the dominant-baseline:
@@ -957,33 +920,3 @@ nsSVGTextFrame::GetDy()
   animLengthList->GetAnimVal(&retval);
   return retval;
 }
-
-nsISVGGlyphFragmentNode *
-nsSVGTextFrame::GetFirstGlyphFragmentChildNode()
-{
-  nsISVGGlyphFragmentNode* retval = nsnull;
-  nsIFrame* frame = mFrames.FirstChild();
-  while (frame) {
-    frame->QueryInterface(NS_GET_IID(nsISVGGlyphFragmentNode),(void**)&retval);
-    if (retval) break;
-    frame = frame->GetNextSibling();
-  }
-  return retval;
-}
-
-nsISVGGlyphFragmentNode *
-nsSVGTextFrame::GetNextGlyphFragmentChildNode(nsISVGGlyphFragmentNode*node)
-{
-  nsISVGGlyphFragmentNode* retval = nsnull;
-  nsIFrame* frame = nsnull;
-  node->QueryInterface(NS_GET_IID(nsIFrame), (void**)&frame);
-  NS_ASSERTION(frame, "interface not implemented");
-  frame = frame->GetNextSibling();
-  while (frame) {
-    frame->QueryInterface(NS_GET_IID(nsISVGGlyphFragmentNode),(void**)&retval);
-    if (retval) break;
-    frame = frame->GetNextSibling();
-  }
-  return retval;
-}
-

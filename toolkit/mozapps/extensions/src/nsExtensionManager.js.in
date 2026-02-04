@@ -23,6 +23,7 @@
  *  Benjamin Smedberg <benjamin@smedbergs.us>
  *  Jens Bannmann <jens.b@web.de>
  *  Robert Strong <robert.bugzilla@gmail.com>
+ *  Dave Townsend <dave.townsend@blueprintit.co.uk>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -3697,10 +3698,10 @@ ExtensionManager.prototype = {
       // appDisabled is determined by an item being compatible,
       // satisfying its dependencies, and not being blocklisted
       if (this._isUsableItem(id)) {
-        if (ds.getItemProperty(id, EM_R("appDisabled")))
+        if (ds.getItemProperty(id, "appDisabled"))
           ds.setItemProperty(id, EM_R("appDisabled"), null);
       }
-      else if (!ds.getItemProperty(id, EM_R("appDisabled")))
+      else if (!ds.getItemProperty(id, "appDisabled"))
         ds.setItemProperty(id, EM_R("appDisabled"), EM_L("true"));
     }
     // Update the manifests to reflect the items that were disabled / enabled.
@@ -5620,6 +5621,14 @@ ExtensionManager.prototype = {
       break;
     case nsIXPIProgressDialog.INSTALL_DONE:
       --this._downloadCount;
+      // From nsInstall.h
+      // SUCCESS        = 0
+      // REBOOT_NEEDED  = 999
+      // USER_CANCELLED = -210
+      if (value != 0 && value != 999 && value != -210 && id != addon.xpiURL) {
+        ds.updateDownloadState(id, "failure");
+        ds.updateDownloadProgress(id, null);
+      }
       this.removeDownload(addon.xpiURL);
       break;
     case nsIXPIProgressDialog.DIALOG_CLOSE:
