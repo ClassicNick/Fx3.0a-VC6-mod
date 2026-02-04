@@ -623,7 +623,6 @@ nsSVGPathFrame::GetFlattenedPath(nsSVGPathData **data,
                                  nsIFrame *parent)
 {
   nsIFrame *oldParent = mParent;
-  nsCOMPtr<nsISVGRendererRegion> dirty_region;
 
   if (parent)
     mParent = parent;

@@ -1218,7 +1218,7 @@
   [% ELSIF error == "still_unresolved_bugs" %]
     [% IF dependency_count == 1 %]
       [% terms.Bug %]# <a href="show_bug.cgi?id=[% dependencies.0.bug_id FILTER none %]">[% dependencies.0.bug_id FILTER none %]</a>
-      has still [% dependencies.0.dependencies FILTER html %] unresolved
+      still has [% dependencies.0.dependencies FILTER html %] unresolved
       [% IF dependencies.0.dependencies == 1 %]
         dependency
       [% ELSE %]
@@ -1331,8 +1331,12 @@
   [% ELSIF error == "user_has_responsibility" %]
     [% title = "Can't Delete User Account" %]
     [% admindocslinks = {'useradmin.html' => 'User administration'} %]
-    The user you want to delete is set up for roles as default [% terms.bug %]
-    assignee or QA contact for at least one component.
+    The user you want to delete is set up as the default [% terms.bug %]
+    assignee
+    [% IF Param('useqacontact') %]
+      or QA contact
+    [% END %]
+    for at least one component.
     For this reason, you cannot delete the account at this time.
 
   [% ELSIF error == "user_login_required" %]

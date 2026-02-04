@@ -17,6 +17,7 @@ REQUIRES = \
 	string \
 	pref \
 	xpcom \
+	unicharutil \
 	gfx \
 	$(NULL)
 
@@ -43,12 +44,14 @@ endif
 EXTRA_DSO_LDOPTS += \
 	$(NSPR_LIBS) \
 	$(XPCOM_LIBS) \
+	$(MOZ_UNICHARUTIL_LIBS) \
 	$(NULL)
 
 
 ifeq ($(MOZ_GFX_TOOLKIT),windows)
 CPPSRCS	+= 	gfxWindowsPlatform.cpp \
 		gfxWindowsSurface.cpp \
+		nsUnicodeRange.cpp \
 		$(NULL)
 
 ifdef MOZ_ENABLE_CAIRO_GFX

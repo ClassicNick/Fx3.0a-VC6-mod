@@ -270,6 +270,7 @@ sub url_encode {
   $s =~ s/\'/\%27/g;
   $s =~ s/\|/\%7c/g;
   $s =~ s/\&/\%26/g;
+  $s =~ s/\+/\%2b/g;
   return $s;
 }
 
@@ -345,6 +346,7 @@ sub tb_loadquickparseinfo {
   my ($tree, $build, $times, $includeStatusOfBuilding) = (@_);
   local $_;
 
+  return if (! -d "$tree" || ! -r "$tree/build.dat");
   $maxdate = time;
   require "$tree/ignorebuilds.pl" if -r "$tree/ignorebuilds.pl";
     
@@ -454,7 +456,7 @@ sub tb_check_password {
     next if $key eq "password" or $key eq "rememberpassword";
 
     my $enc = value_encode($value);
-    print "<INPUT TYPE=HIDDEN NAME=$key VALUE=\"$enc\">\n";
+    print "<INPUT TYPE=HIDDEN NAME=\"$key\" VALUE=\"$enc\">\n";
   }
   print "<INPUT TYPE=SUBMIT value=Submit></FORM>\n";
   exit;
@@ -773,28 +775,11 @@ sub make_cgi_args {
     for $k (sort keys %form){
         $ret .= ($ret eq "" ? '?' : '&');
         $v = $form{$k};
-        $ret .= &url_encode2($k);
+        $ret .= &url_encode($k);
         $ret .= '=';
-        $ret .= &url_encode2($v);
+        $ret .= &url_encode($v);
     }
     return $ret;
-}
-
-sub url_encode2 {
-    local( $s ) = @_;
-
-    $s =~ s/\%/\%25/g;
-    $s =~ s/\=/\%3d/g;
-    $s =~ s/\?/\%3f/g;
-    $s =~ s/ /\%20/g;
-    $s =~ s/\n/\%0a/g;
-    $s =~ s/\r//g;
-    $s =~ s/\"/\%22/g;
-    $s =~ s/\'/\%27/g;
-    $s =~ s/\|/\%7c/g;
-    $s =~ s/\&/\%26/g;
-    $s =~ s/\+/\%2b/g;
-    return $s;
 }
 
 @weekdays = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat');

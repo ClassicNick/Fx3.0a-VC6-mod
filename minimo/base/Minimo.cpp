@@ -56,7 +56,6 @@ const static char* start_url = "chrome://minimo/content/minimo.xul";
 //const static char* start_url = "resource://gre/res/start.html";
 //const static char* start_url = "resource://gre/res/1.html";
 
-static NS_DEFINE_CID(kEventQueueServiceCID, NS_EVENTQUEUESERVICE_CID);
 static NS_DEFINE_CID(kAppShellCID, NS_APPSHELL_CID);
 
 void OpenNewTab(char* url)
@@ -121,10 +120,6 @@ ApplicationObserver::ApplicationObserver(nsIAppShell* aAppShell)
   
   nsCOMPtr<nsIObserverService> os = do_GetService("@mozilla.org/observer-service;1");
   
-  
-  os->AddObserver(this, "nsIEventQueueActivated", PR_FALSE);
-  os->AddObserver(this, "nsIEventQueueDestroyed", PR_FALSE);
-  
   os->AddObserver(this, "xul-window-registered", PR_FALSE);
   os->AddObserver(this, "xul-window-destroyed", PR_FALSE);
   os->AddObserver(this, "xul-window-visible", PR_FALSE);
@@ -141,31 +136,7 @@ NS_IMPL_ISUPPORTS1(ApplicationObserver, nsIObserver)
 NS_IMETHODIMP
 ApplicationObserver::Observe(nsISupports *aSubject, const char *aTopic, const PRUnichar *aData)
 {
-  if (!strcmp(aTopic, "nsIEventQueueActivated")) 
-  {
-    nsCOMPtr<nsIEventQueue> eq(do_QueryInterface(aSubject));
-    if (eq)
-    {
-      PRBool isNative = PR_TRUE;
-      // we only add native event queues to the appshell
-      eq->IsQueueNative(&isNative);
-      if (isNative)
-        mAppShell->ListenToEventQueue(eq, PR_TRUE);
-    }
-  } 
-  else if (!strcmp(aTopic, "nsIEventQueueDestroyed")) 
-  {
-    nsCOMPtr<nsIEventQueue> eq(do_QueryInterface(aSubject));
-    if (eq) 
-    {
-      PRBool isNative = PR_TRUE;
-      // we only remove native event queues from the appshell
-      eq->IsQueueNative(&isNative);
-      if (isNative)
-        mAppShell->ListenToEventQueue(eq, PR_FALSE);
-    }
-  } 
-  else if (!strcmp(aTopic, "xul-window-visible"))
+  if (!strcmp(aTopic, "xul-window-visible"))
   {
     KillSplashScreen();
   }
@@ -780,7 +751,7 @@ int main(int argc, char *argv[])
   OverrideComponents();
   
   NS_TIMELINE_ENTER("appStartup");
-  nsCOMPtr<nsIAppShell> appShell = do_CreateInstance(kAppShellCID);
+  nsCOMPtr<nsIAppShell> appShell = do_GetService(kAppShellCID);
   if (!appShell)
   {
     // if we can't get the nsIAppShell, then we should auto reg.
@@ -791,14 +762,12 @@ int main(int argc, char *argv[])
 
     registrar->AutoRegister(nsnull);
 
-	appShell = do_CreateInstance(kAppShellCID);
+	appShell = do_GetService(kAppShellCID);
 
 	if (!appShell)
 		return 1;
   }
 
-  appShell->Create(nsnull, nsnull);
-  
   ApplicationObserver *appObserver = new ApplicationObserver(appShell);
   if (!appObserver)
     return 1;
