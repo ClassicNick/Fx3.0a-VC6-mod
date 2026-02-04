@@ -180,11 +180,6 @@ gfxWindowsPlatform::GetFontList(const nsACString& aLangGroup,
     return NS_OK;
 }
 
-<<<<<<< HEAD
-#if !defined (_MSC_VER) || _MSC_VER >= 1200
-IMultiLanguage *
-gfxWindowsPlatform::GetMLangService()
-=======
 FontEntry *
 gfxWindowsPlatform::FindFontEntry(const nsAString& aName) const
 {
@@ -303,7 +298,6 @@ AppendGenericFontFromPref(nsString& aFonts, const char *aLangGroup, const char *
 
 const char *
 gfxWindowsPlatform::FindPrefFonts(PRUnichar ch, nsString& aFonts)
->>>>>>> 84926e6
 {
     aFonts.Truncate();
 
