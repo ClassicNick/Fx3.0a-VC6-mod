@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -13,14 +12,15 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org Code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
+ * Contributor(s): Ria Klaassen
+ *                 Gavin Sharp  
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,43 +35,22 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 340369;
+var summary = 'Oh for crying out loud.';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
-/*
+printBugNumber (bug);
+printStatus (summary);
 
-  The Sidebar API for 3rd parties
-
-*/
-
-#include "nsISupports.idl"
-
-[scriptable, uuid(577cb745-8caf-11d3-aaef-00805f8a4905)]
-interface nsISidebar : nsISupports
+try
+{  
+  eval('return /;');
+}
+catch(ex)
 {
-    void addPanel(in wstring aTitle, in string aContentURL,
-                  in string aCustomizeURL);
-    void addPersistentPanel(in wstring aTitle, in string aContentURL,
-                            in string aCustomizeURL);
-    void addSearchEngine(in string engineURL, in string iconURL,
-                         in wstring suggestedTitle, in wstring suggestedCategory);
-    void addMicrosummaryGenerator(in string generatorURL);
-};
+  writeLineToLog(ex+'');
+}
 
-[scriptable, uuid(edd70275-c131-4558-8f6c-9c4716b554a6)]
-interface nsISidebarExternal : nsISupports
-{
-    void AddSearchProvider(in string aDescriptionURL);
-};
-
-%{ C++
-// {577CB744-8CAF-11d3-AAEF-00805F8A4905} 
-#define NS_SIDEBAR_CID \
-{ 0x577cb744, 0x8caf, 0x11d3, { 0xaa, 0xef, 0x0, 0x80, 0x5f, 0x8a, 0x49, 0x5 } }
-
-#define NS_SIDEBAR_CONTRACTID "@mozilla.org/sidebar;1"
-%}
-
-/*
- var isidebar = Components.interfaces.nsISidebar;
- var csidebar = Components.classes['@mozilla.org/sidebar;1'];
- var sidebar = csidebar.createInstance(isidebar);
-*/
+reportCompare(expect, actual, summary);
