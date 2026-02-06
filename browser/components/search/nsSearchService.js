@@ -15,13 +15,14 @@
 #
 # The Initial Developer of the Original Code is
 # Google Inc.
-# Portions created by the Initial Developer are Copyright (C) 2005
+# Portions created by the Initial Developer are Copyright (C) 2005-2006
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
 #   Ben Goodger <beng@google.com> (Original author)
 #   Gavin Sharp <gavin@gavinsharp.com>
 #   Joe Hughes  <joe@retrovirus.com
+#   Pamela Greene <pamg.bugs@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -53,6 +54,8 @@ const MODE_TRUNCATE = 0x20;
 // Directory service keys
 const NS_APP_SEARCH_DIR_LIST  = "SrchPluginsDL";
 const NS_APP_USER_SEARCH_DIR  = "UsrSrchPlugns";
+const NS_APP_SEARCH_DIR       = "SrchPlugns";
+const NS_APP_USER_PROFILE_50_DIR = "ProfD";
 
 // See documentation in nsIBrowserSearchService.idl.
 const SEARCH_ENGINE_TOPIC        = "browser-search-engine-modified";
@@ -98,7 +101,7 @@ const OPENSEARCH_NS_11  = "http://a9.com/-/spec/opensearch/1.1/";
 
 // Although the specification at http://opensearch.a9.com/spec/1.1/description/
 // gives the namespace names defined above, many existing OpenSearch engines
-// are using the former versions.  We therefore allow either.
+// are using the following versions.  We therefore allow either.
 const OPENSEARCH_NAMESPACES = [ OPENSEARCH_NS_11, OPENSEARCH_NS_10,
                                 "http://a9.com/-/spec/opensearchdescription/1.1/",
                                 "http://a9.com/-/spec/opensearchdescription/1.0/"];
@@ -726,8 +729,24 @@ function EngineURL(aType, aMethod, aTemplate) {
 
   this.type     = type;
   this.method   = method;
-  this.template = aTemplate;
   this.params   = [];
+
+  var templateURI = makeURI(aTemplate);
+  ENSURE(templateURI, "new EngineURL: template is not a valid URI!",
+         Cr.NS_ERROR_FAILURE);
+
+  switch (templateURI.scheme) {
+    case "http":
+    case "https":
+    // Disable these for now, see bug 295018
+    // case "file":
+    // case "resource":
+      this.template = templateURI.spec;
+      break;
+    default:
+      ENSURE(false, "new EngineURL: template uses invalid scheme!",
+             Cr.NS_ERROR_FAILURE);
+  }
 }
 EngineURL.prototype = {
 
@@ -847,6 +866,7 @@ function Engine(aLocation, aSourceDataType, aIsReadOnly) {
     switch (aLocation.scheme) {
       case "https":
       case "http":
+      case "ftp":
       case "data":
       case "file":
       case "resource":
@@ -889,8 +909,8 @@ Engine.prototype = {
   // A URL string pointing to the engine's search form.
   _searchForm: null,
   // The URI object from which the engine was retrieved.
-  // This is null for local plugins, and is only used for error messages and
-  // logging.
+  // This is null for local plugins, and is used for error messages, logging,
+  // and determining whether to start using a newly added engine right away.
   _uri: null,
 
   /**
@@ -1048,10 +1068,10 @@ Engine.prototype = {
    * Sets the .iconURI property of the engine.
    *
    *  @param aIconURL
-   *         A URI string pointing to the engine's icon. Must have a http[s] or
-   *         data scheme. Icons with HTTP[S] schemes will be downloaded and
-   *         converted to data URIs for storage in the engine XML files, if
-   *         the engine is not readonly.
+   *         A URI string pointing to the engine's icon. Must have a http[s],
+   *         ftp, or data scheme. Icons with HTTP[S] or FTP schemes will be
+   *         downloaded and converted to data URIs for storage in the engine
+   *         XML files, if the engine is not readonly.
    *  @param aIsPreferred
    *         Whether or not this icon is to be preferred. Preferred icons can
    *         override non-preferred icons.
@@ -1070,7 +1090,7 @@ Engine.prototype = {
 
     LOG("_setIcon: Setting icon url \"" + uri.spec + "\" for engine \""
         + this.name + "\".");
-    // Only accept remote icons from http[s]
+    // Only accept remote icons from http[s] or ftp
     switch (uri.scheme) {
       case "data":
         this._iconURI = uri;
@@ -1079,6 +1099,7 @@ Engine.prototype = {
         break;
       case "http":
       case "https":
+      case "ftp":
         // No use downloading the icon if the engine file is read-only
         // XXX could store the data: URI in a pref... ew?
         if (!this._readOnly) {
@@ -1772,6 +1793,15 @@ Engine.prototype = {
   // use this as the identifier to store data in the sqlite database
   get _id() {
     ENSURE_WARN(this._file, "No _file for id!", Cr.NS_ERROR_FAILURE);
+
+    if (this._file.parent.equals(getDir(NS_APP_USER_SEARCH_DIR)))
+      return "[profile]/" + this._file.leafName;
+
+    if (this._file.parent.equals(getDir(NS_APP_SEARCH_DIR)))
+      return "[app]/" + this._file.leafName;
+
+    // We're not in the profile or appdir, so this must be an extension-shipped
+    // plugin. Use the full path.
     return this._file.path;
   },
 #endif
@@ -1782,6 +1812,12 @@ Engine.prototype = {
 
   get type() {
     return this._type;
+  },
+
+  // This getter is used in SearchService.observer.  It is not intended to be
+  // used (or needed) by callers outside this file.
+  get uri() {
+    return this._uri;
   },
 
   get searchForm() {
@@ -1895,6 +1931,14 @@ function SearchService() {
 SearchService.prototype = {
   _engines: { },
   _sortedEngines: [],
+
+  // If this is set to the URI of the description of a search engine being added
+  // to the list (typically by calling addEngine()), that engine will be
+  // selected as the current engine when it finishes loading.  If another
+  // engine is added with "start using this one now" before the first selected
+  // engine finishes loading, the second choice will override the first one.
+  // If the selected engine fails to load, this marker will be cleared.
+  _selectNewEngineURI: null,
 
   _init: function() {
 #ifdef MOZ_STORAGE
@@ -2307,11 +2351,17 @@ SearchService.prototype = {
     this._addEngineToStore(engine);
   },
 
-  addEngine: function SRCH_SVC_addEngine(aEngineURL, aType, aIconURL) {
+  // If aSelect is true, the newly added engine will be selected as the current
+  // engine when it finishes loading.
+  addEngine: function SRCH_SVC_addEngine(aEngineURL, aType, aIconURL, aSelect) {
     LOG("addEngine: Adding \"" + aEngineURL + "\".");
     try {
-      var engine = new Engine(makeURI(aEngineURL), aType, false);
+      var uri = makeURI(aEngineURL);
+      var engine = new Engine(uri, aType, false);
       engine._initFromURI();
+
+      if (aSelect)
+        this._selectNewEngineURI = uri;
     } catch (ex) {
       LOG("addEngine: Error adding engine:\n" + ex);
       throw Cr.NS_ERROR_FAILURE;
@@ -2410,6 +2460,12 @@ SearchService.prototype = {
           LOG("nsISearchEngine::observe: Done installation of " + engine.name
               + ".");
           this._addEngineToStore(engine.wrappedJSObject);
+          // Optionally start using this engine now.
+          if (this._selectNewEngineURI &&
+              this._selectNewEngineURI == engine.wrappedJSObject.uri) {
+            this.currentEngine = aEngine;
+            this._selectNewEngineURI = null;
+          }
         }
         break;
       case XPCOM_SHUTDOWN_TOPIC:
@@ -2453,9 +2509,11 @@ var engineMetadataService = {
       new Components.Constructor("@mozilla.org/storage/statement-wrapper;1",
                                  Ci.mozIStorageStatementWrapper);
     var engineDataTable = "id INTEGER PRIMARY KEY, engineid STRING, name STRING, value STRING";
+    var file = getDir(NS_APP_USER_PROFILE_50_DIR);
     var dbService = Cc["@mozilla.org/storage/service;1"].
-                      getService(Ci.mozIStorageService);
-    this.mDB = dbService.openSpecialDatabase("profile");
+                    getService(Ci.mozIStorageService);
+    file.append("search.sqlite");
+    this.mDB = dbService.openDatabase(file);
 
     try {
       this.mDB.createTable("engine_data", engineDataTable);

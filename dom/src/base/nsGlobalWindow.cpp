@@ -1002,11 +1002,6 @@ WindowStateHolder::~WindowStateHolder()
 
     JSAutoRequest ar(cx);
     mInnerWindow->FreeInnerObjects(GetScriptContextFromJSContext(cx));
-
-    if (mLocation) {
-      // Don't leave the weak reference to the docshell lying around.
-      mLocation->SetDocShell(nsnull);
-    }
   }
 }
 
