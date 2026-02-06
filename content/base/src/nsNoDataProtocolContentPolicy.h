@@ -12,15 +12,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG project.
+ * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is
- * Crocodile Clips Ltd..
- * Portions created by the Initial Developer are Copyright (C) 2002
+ * The Initial Developer of the Original Code is Mozilla Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Alex Fritze <alex.fritze@crocodile-clips.com> (original author)
+ *         Jonas Sicking <jonas@sicking.cc> (Original Author)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -36,35 +35,35 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef __NS_ISVGTEXTCONTAINERFRAME_H__
-#define __NS_ISVGTEXTCONTAINERFRAME_H__
+/*
+ * Content policy implementation that prevents all loads of images,
+ * subframes, etc from documents loaded as data (eg documents loaded
+ * via XMLHttpRequest).
+ */
 
-#include "nsISupports.h"
-#include "nsIDOMSVGLengthList.h"
-class nsISVGTextFrame;
+#ifndef nsNoDataProtocolContentPolicy_h__
+#define nsNoDataProtocolContentPolicy_h__
 
-#define NS_ISVGTEXTCONTAINERFRAME_IID \
-{ 0x3d3a12c4, 0x06bb, 0x4662, { 0xa3, 0xe3, 0x55, 0xaf, 0x5a, 0x48, 0x22, 0x78 } }
+/* ac9e3e82-bfbd-4f26-941e-f58c8ee178c1 */
+#define NS_NODATAPROTOCOLCONTENTPOLICY_CID \
+ {0xac9e3e82, 0xbfbd, 0x4f26, {0x94, 0x1e, 0xf5, 0x8c, 0x8e, 0xe1, 0x78, 0xc1}}
+#define NS_NODATAPROTOCOLCONTENTPOLICY_CONTRACTID \
+ "@mozilla.org/no-data-protocol-content-policy;1"
 
-class nsISVGTextContainerFrame : public nsISupports
+
+#include "nsIContentPolicy.h"
+
+class nsNoDataProtocolContentPolicy : public nsIContentPolicy
 {
 public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSICONTENTPOLICY
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ISVGTEXTCONTAINERFRAME_IID)
-
-  NS_IMETHOD_(nsISVGTextFrame *) GetTextFrame()=0;
-  NS_IMETHOD_(PRBool) GetAbsolutePositionAdjustmentX(float &x, PRUint32 charNum)=0;
-  NS_IMETHOD_(PRBool) GetAbsolutePositionAdjustmentY(float &y, PRUint32 charNum)=0;
-  NS_IMETHOD_(PRBool) GetRelativePositionAdjustmentX(float &dx, PRUint32 charNum)=0;
-  NS_IMETHOD_(PRBool) GetRelativePositionAdjustmentY(float &dy, PRUint32 charNum)=0;
-
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetX()=0;
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetY()=0;
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetDx()=0;
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetDy()=0;
+  nsNoDataProtocolContentPolicy()
+  {}
+  ~nsNoDataProtocolContentPolicy()
+  {}
 };
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsISVGTextContainerFrame,
-                              NS_ISVGTEXTCONTAINERFRAME_IID)
 
-#endif // __NS_ISVGTEXTCONTAINERFRAME_H__
+#endif /* nsNoDataProtocolContentPolicy_h__ */

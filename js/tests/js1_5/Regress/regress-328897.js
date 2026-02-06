@@ -12,19 +12,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG project.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Crocodile Clips Ltd..
- * Portions created by the Initial Developer are Copyright (C) 2002
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Alex Fritze <alex@croczilla.com> (original author)
+ * Contributor(s): Boris Zbarsky
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,31 +34,26 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 328897;
+var summary = 'JS_ReportPendingException should';
+var actual = 'Error';
+var expect = 'Error';
 
-#ifndef __NS_ISVGTEXTFRAME_H__
-#define __NS_ISVGTEXTFRAME_H__
-
-#include "nsISVGTextContainerFrame.h"
-
-class nsISVGGlyphFragmentNode;
-class nsIDOMSVGMatrix;
-
-// {24717461-465F-4575-85B2-923285EC18D5}
-#define NS_ISVGTEXTFRAME_IID \
-{ 0x24717461, 0x465f, 0x4575, { 0x85, 0xb2, 0x92, 0x32, 0x85, 0xec, 0x18, 0xd5 } }
-
-class nsISVGTextFrame : public nsISVGTextContainerFrame
+printBugNumber (bug);
+printStatus (summary);
+  
+if (typeof window != 'undefined')
 {
-public:
+  try
+  {
+    window.location="javascript:Components.classes";
+    actual = 'No Error';
+  }
+  catch(ex)
+  {
+    printStatus(ex+'');
+  }
+}
 
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ISVGTEXTFRAME_IID)
-
-  NS_IMETHOD_(void) NotifyGlyphMetricsChange(nsISVGGlyphFragmentNode* caller)=0;
-  NS_IMETHOD_(void) NotifyGlyphFragmentTreeChange(nsISVGGlyphFragmentNode* caller)=0;
-  NS_IMETHOD_(PRBool) IsMetricsSuspended()=0;
-  NS_IMETHOD_(PRBool) IsGlyphFragmentTreeSuspended()=0;
-};
-
-NS_DEFINE_STATIC_IID_ACCESSOR(nsISVGTextFrame, NS_ISVGTEXTFRAME_IID)
-
-#endif // __NS_ISVGTEXTFRAME_H__
+reportCompare(expect, actual, summary);

@@ -54,6 +54,7 @@
 #include "nsShellService.h"
 #include "nsWindowsShellService.h"
 #include "nsIObserverService.h"
+#include "nsIProcess.h"
 #include "nsICategoryManager.h"
 #include "nsBrowserCompsCID.h"
 #include "nsNativeCharsetUtils.h"
@@ -668,8 +669,12 @@ WriteBitmap(nsIFile* aFile, gfxIImageFrame* aImage)
 
   PRUint8* bits;
   PRUint32 length;
+  aImage->LockImageData();
   aImage->GetImageData(&bits, &length);
-  if (!bits) return NS_ERROR_FAILURE;
+  if (!bits) {
+      aImage->UnlockImageData();
+      return NS_ERROR_FAILURE;
+  }
 
   PRUint32 bpr;
   aImage->GetImageBytesPerRow(&bpr);
@@ -677,25 +682,25 @@ WriteBitmap(nsIFile* aFile, gfxIImageFrame* aImage)
 
   // initialize these bitmap structs which we will later
   // serialize directly to the head of the bitmap file
-  LPBITMAPINFOHEADER bmi = (LPBITMAPINFOHEADER)new BITMAPINFO;
-  bmi->biSize = sizeof(BITMAPINFOHEADER);
-  bmi->biWidth = width;
-  bmi->biHeight = height;
-  bmi->biPlanes = 1;
-  bmi->biBitCount = (WORD)bitCount*8;
-  bmi->biCompression = BI_RGB;
-  bmi->biSizeImage = 0; // don't need to set this if bmp is uncompressed
-  bmi->biXPelsPerMeter = 0;
-  bmi->biYPelsPerMeter = 0;
-  bmi->biClrUsed = 0;
-  bmi->biClrImportant = 0;
+  BITMAPINFOHEADER bmi;
+  bmi.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.biWidth = width;
+  bmi.biHeight = height;
+  bmi.biPlanes = 1;
+  bmi.biBitCount = (WORD)bitCount*8;
+  bmi.biCompression = BI_RGB;
+  bmi.biSizeImage = length;
+  bmi.biXPelsPerMeter = 0;
+  bmi.biYPelsPerMeter = 0;
+  bmi.biClrUsed = 0;
+  bmi.biClrImportant = 0;
 
   BITMAPFILEHEADER bf;
   bf.bfType = 0x4D42; // 'BM'
   bf.bfReserved1 = 0;
   bf.bfReserved2 = 0;
   bf.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-  bf.bfSize = bf.bfOffBits + bmi->biSizeImage;
+  bf.bfSize = bf.bfOffBits + bmi.biSizeImage;
 
   // get a file output stream
   nsresult rv;
@@ -710,17 +715,35 @@ WriteBitmap(nsIFile* aFile, gfxIImageFrame* aImage)
     PRUint32 written;
     stream->Write((const char*)&bf, sizeof(BITMAPFILEHEADER), &written);
     if (written == sizeof(BITMAPFILEHEADER)) {
-      stream->Write((const char*)bmi, sizeof(BITMAPINFOHEADER), &written);
+      stream->Write((const char*)&bmi, sizeof(BITMAPINFOHEADER), &written);
       if (written == sizeof(BITMAPINFOHEADER)) {
+#ifndef MOZ_CAIRO_GFX
         stream->Write((const char*)bits, length, &written);
         if (written == length)
           rv = NS_OK;
+#else
+        // write out the image data backwards because the desktop won't
+        // show bitmaps with negative heights for top-to-bottom
+        PRUint32 i = length;
+        do {
+          i -= bpr;
+
+          stream->Write(((const char*)bits) + i, bpr, &written);
+          if (written == bpr) {
+            rv = NS_OK;
+          } else {
+            rv = NS_ERROR_FAILURE;
+            break;
+          }
+        } while (i != 0);
+#endif
       }
     }
 
     stream->Close();
   }
 
+  aImage->UnlockImageData();
   return rv;
 }
 
@@ -1055,5 +1078,24 @@ nsWindowsShellService::Observe(nsISupports* aObject, const char* aTopic, const P
   }
 
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsWindowsShellService::OpenApplicationWithURI(nsILocalFile* aApplication, const nsACString& aURI)
+{
+  nsresult rv;
+  nsCOMPtr<nsIProcess> process = 
+    do_CreateInstance("@mozilla.org/process/util;1", &rv);
+  if (NS_FAILED(rv))
+    return rv;
+  
+  rv = process->Init(aApplication);
+  if (NS_FAILED(rv))
+    return rv;
+  
+  const nsPromiseFlatCString& spec = PromiseFlatCString(aURI);
+  const char* specStr = spec.get();
+  PRUint32 pid;
+  return process->Run(PR_FALSE, &specStr, 1, &pid);
 }
 

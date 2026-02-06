@@ -15,13 +15,12 @@
  * The Original Code is mozilla.org code.
  *
  * The Initial Developer of the Original Code is
- * Sun Microsystems, Inc.
- * Portions created by the Initial Developer are Copyright (C) 2002
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Pete Zha (pete.zha@sun.com)
- *   Kyle Yuan (kyle.yuan@sun.com)
+ *   Original Author: Mike Pinkerton (pinkerton@netscape.com)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -36,57 +35,37 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+#ifndef nsWidgetAtoms_h___
+#define nsWidgetAtoms_h___
 
-#ifndef _nsHTMLTableAccessibleWrap_H_
-#define _nsHTMLTableAccessibleWrap_H_
+#include "prtypes.h"
+#include "nsIAtom.h"
 
-#include "nsHTMLTableAccessible.h"
-#include "nsIAccessibleTable.h"
-
-class nsITableLayout;
-
-class nsHTMLTableCellAccessibleWrap : public nsHTMLTableCellAccessible
-{
+/**
+ * This class wraps up the creation and destruction of the standard
+ * set of xul atoms used during normal xul handling. This object
+ * is created when the first xul content object is created, and
+ * destroyed when the last such content object is destroyed.
+ *
+ * It's here because we cannot use nsHTMLAtoms or nsXULAtoms from
+ * the Widget shlb. They are components are we're not.
+ */
+class nsWidgetAtoms {
 public:
-  NS_DECL_ISUPPORTS_INHERITED
 
-  nsHTMLTableCellAccessibleWrap(nsIDOMNode* aDomNode, nsIWeakReference* aShell);
+  static void RegisterAtoms();
+
+  /* Declare all atoms
+
+     The atom names and values are stored in nsWidgetAtomList.h and
+     are brought to you by the magic of C preprocessing
+
+     Add new atoms to nsWidgetAtomList and all support logic will be auto-generated
+   */
+#define WIDGET_ATOM(_name, _value) static nsIAtom* _name;
+#include "nsWidgetAtomList.h"
+#undef WIDGET_ATOM
+
 };
 
-class nsHTMLTableAccessibleWrap : public nsHTMLTableAccessible,
-                                  public nsIAccessibleTable
-{
-public:
-  NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_NSIACCESSIBLETABLE
-
-  nsHTMLTableAccessibleWrap(nsIDOMNode* aDomNode, nsIWeakReference* aShell);
-
-protected:
-  nsresult GetTableNode(nsIDOMNode **_retval);
-  nsresult GetTableLayout(nsITableLayout **aLayoutObject);
-  nsresult GetCellAt(PRInt32        aRowIndex,
-                     PRInt32        aColIndex,
-                     nsIDOMElement* &aCell);
-};
-
-class nsHTMLTableHeadAccessible : public nsHTMLTableAccessibleWrap
-{
-public:
-  NS_DECL_ISUPPORTS_INHERITED
-
-  nsHTMLTableHeadAccessible(nsIDOMNode *aDomNode, nsIWeakReference *aShell);
-
-  /* nsIAccessible */
-  NS_IMETHOD GetRole(PRUint32 *aResult);
-
-  /* nsIAccessibleTable */
-  NS_IMETHOD GetCaption(nsIAccessible **aCaption);
-  NS_IMETHOD SetCaption(nsIAccessible *aCaption);
-  NS_IMETHOD GetSummary(nsAString &aSummary);
-  NS_IMETHOD SetSummary(const nsAString &aSummary);
-  NS_IMETHOD GetColumnHeader(nsIAccessibleTable **aColumnHeader);
-  NS_IMETHOD GetRows(PRInt32 *aRows);
-};
-
-#endif
+#endif /* nsXULAtoms_h___ */

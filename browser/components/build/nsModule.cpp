@@ -77,6 +77,8 @@
 #include "rdf.h"
 #ifdef MOZ_FEEDS
 #include "nsFeedSniffer.h"
+#include "nsAboutFeeds.h"
+#include "nsIAboutModule.h"
 #endif
 #ifdef MOZ_SAFE_BROWSING
 #include "nsDocNavStartProgressListener.h"
@@ -222,6 +224,12 @@ static const nsModuleComponentInfo components[] =
     NS_FEEDSNIFFER_CONTRACTID,
     nsFeedSnifferConstructor,
     nsFeedSniffer::Register },
+
+  { "about:feeds Page",
+    NS_ABOUTFEEDS_CID,
+    NS_ABOUT_MODULE_CONTRACTID_PREFIX "feeds",
+    nsAboutFeeds::Create
+  },
 #endif
 
 #ifdef MOZ_SAFE_BROWSING

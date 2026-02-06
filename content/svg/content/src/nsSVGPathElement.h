@@ -42,6 +42,7 @@
 #include "nsSVGPathGeometryElement.h"
 #include "nsIDOMSVGPathElement.h"
 #include "nsIDOMSVGAnimatedPathData.h"
+#include "cairo.h"
 
 class nsSVGPathList
 {
@@ -119,7 +120,7 @@ public:
   virtual void GetMarkPoints(nsTArray<nsSVGMark> *aMarks);
   virtual void ConstructPath(cairo_t *aCtx);
 
-  nsSVGFlattenedPath *GetFlattenedPath();
+  virtual nsSVGFlattenedPath *GetFlattenedPath();
 
 protected:
 

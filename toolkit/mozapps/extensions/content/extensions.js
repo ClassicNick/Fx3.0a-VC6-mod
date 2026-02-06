@@ -63,6 +63,7 @@ const PREF_EXTENSIONS_GETMORETHEMESURL      = "extensions.getMoreThemesURL";
 const PREF_EXTENSIONS_GETMOREEXTENSIONSURL  = "extensions.getMoreExtensionsURL";
 const PREF_EXTENSIONS_DSS_ENABLED           = "extensions.dss.enabled";
 const PREF_EXTENSIONS_DSS_SWITCHPENDING     = "extensions.dss.switchPending";
+const PREF_EXTENSIONS_HIDE_INSTALL_BTN      = "extensions.hideInstallButton";
 const PREF_EM_LAST_SELECTED_SKIN            = "extensions.lastSelectedSkin";
 const PREF_GENERAL_SKINS_SELECTEDSKIN       = "general.skins.selectedSkin";
 const PREF_UPDATE_NOTIFYUSER                = "extensions.update.notifyUser";
@@ -228,6 +229,10 @@ function showView(aView) {
                       ["version", "?version"] ];
 
   var showInstallFile = true;
+  try {
+    showInstallFile = !gPref.getBoolPref(PREF_EXTENSIONS_HIDE_INSTALL_BTN);
+  }
+  catch (e) { }
   var showCheckUpdatesAll = true;
   var showInstallUpdatesAll = false;
   var showRestartApp = false;
@@ -470,7 +475,6 @@ function setRestartMessage(aItem)
 // Startup, Shutdown
 function Startup() 
 {
-  var startupView = window.location.search.substr("?view=".length, window.location.search.length);
   gExtensionStrings = document.getElementById("extensionsStrings");
   gPref = Components.classes["@mozilla.org/preferences-service;1"]
                     .getService(Components.interfaces.nsIPrefBranch);
@@ -507,12 +511,6 @@ function Startup()
   gExtensionsView.setAttribute("ref", RDFURI_ITEM_ROOT);
 
   var viewGroup = document.getElementById("viewGroup");
-  if (startupView == "installs")
-    showView("installs");
-  else if (viewGroup.hasAttribute("last-selected"))
-    showView(viewGroup.getAttribute("last-selected"));
-  else
-    showView("extensions");
 
   gExtensionsView.focus();
   gExtensionsViewController.onCommandUpdate(); 
@@ -546,16 +544,15 @@ function Startup()
   if ("arguments" in window) {
     try {
       var params = window.arguments[0].QueryInterface(Components.interfaces.nsIDialogParamBlock);
+      showView("installs");
       gDownloadManager.addDownloads(params);
     }
     catch (e) {
-      if (window.arguments[0] == "updatecheck")
-        checkUpdatesAll();
-      else if (window.arguments[0] == "updates-only") {
+      if (window.arguments[0] == "updates-only") {
         gUpdatesOnly = true;
         document.getElementById("viewGroup").hidden = true;
         document.getElementById("extensionsView").setAttribute("norestart", "");
-        showView('updates');
+        showView("updates");
         var addonsMsg = document.getElementById("addonsMsg");
         addonsMsg.showMessage("chrome://mozapps/skin/extensions/question.png",
                               getExtensionString("newUpdatesAvailableMsg"),
@@ -564,11 +561,18 @@ function Startup()
       }
     }
   }
+  else if (viewGroup.hasAttribute("last-selected"))
+    showView(viewGroup.getAttribute("last-selected"));
+  else
+    showView("extensions");
 
   if (gExtensionsView.selectedItem)
     gExtensionsView.scrollBoxObject.scrollToElement(gExtensionsView.selectedItem);
 
   gPref.setBoolPref(PREF_UPDATE_NOTIFYUSER, false);
+
+  if (gUpdatesOnly && gExtensionsView.children.length == 0)
+    window.close();
 }
 
 function Shutdown() 
@@ -1214,7 +1218,7 @@ function isXPInstallEnabled() {
       return true;
     locked = gPref.prefIsLocked("xpinstall.enabled");
   }
-  catch (e) { alert(e); }
+  catch (e) { }
 
   var msgText = getExtensionString(locked ? "xpinstallDisabledMsgLocked" :
                                             "xpinstallDisabledMsg");
@@ -1394,7 +1398,10 @@ function installUpdatesAll() {
 
 function restartApp() {
   const nsIAppStartup = Components.interfaces.nsIAppStartup;
-  if (canQuitApplication())
+
+  if (gUpdatesOnly)
+    window.close();
+  else if (canQuitApplication())
     Components.classes["@mozilla.org/toolkit/app-startup;1"].getService(nsIAppStartup)
               .quit(nsIAppStartup.eRestart | nsIAppStartup.eAttemptQuit);
 }

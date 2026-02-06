@@ -190,7 +190,7 @@ $shiptalkback  = 0;
 #$ReleaseToLatest = 1; # Push the release to latest-<milestone>?
 #$ReleaseToDated = 1; # Push the release to YYYY-MM-DD-HH-<milestone>?
 $build_hour    = "6";
-#$package_creation_path = "/xpinstall/packager";
+$package_creation_path = "/calendar/installer";
 # needs setting for mac + talkback: $mac_bundle_path = "/browser/app";
 $ssh_version   = "2";
 #$ssh_user      = "cltbld";
@@ -202,7 +202,7 @@ $url_path      = "http://ftp.mozilla.org/pub/mozilla.org/calendar/sunbird/nightl
 $milestone     = "trunk";
 $notify_list   = "build-announce\@mozilla.org";
 $stub_installer = 0;
-$sea_installer = 0;
+$sea_installer = 1;
 $archive       = 1;
 $push_raw_xpis = 0;
 

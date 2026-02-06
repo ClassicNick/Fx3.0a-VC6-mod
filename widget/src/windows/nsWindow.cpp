@@ -1784,7 +1784,7 @@ nsWindow* nsWindow::GetParent(PRBool aStopOnFirstTopLevel)
 #ifndef WINCE
 bool gWindowsVisible;
 
-BOOL CALLBACK gEnumWindowsProc(HWND hwnd, LPARAM lParam)
+static BOOL CALLBACK gEnumWindowsProc(HWND hwnd, LPARAM lParam)
 {
   DWORD pid;
   ::GetWindowThreadProcessId(hwnd, &pid);

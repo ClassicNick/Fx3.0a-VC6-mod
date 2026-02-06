@@ -39,50 +39,30 @@
 #ifndef NSSVGTSPANFRAME_H
 #define NSSVGTSPANFRAME_H
 
-#include "nsIDOMSVGTSpanElement.h"
-#include "nsPresContext.h"
-#include "nsISVGTextContainerFrame.h"
-#include "nsISVGRendererCanvas.h"
-#include "nsISVGValue.h"
-#include "nsIDOMSVGSVGElement.h"
-#include "nsIDOMSVGMatrix.h"
-#include "nsIDOMSVGLengthList.h"
-#include "nsIDOMSVGLength.h"
-#include "nsISVGValueUtils.h"
-#include "nsIDOMSVGAnimatedLengthList.h"
-#include "nsSVGContainerFrame.h"
-#include "nsISVGChildFrame.h"
-#include "nsISVGTextFrame.h"
+#include "nsSVGTextContainerFrame.h"
 #include "nsISVGGlyphFragmentNode.h"
-#include "nsIDOMSVGRect.h"
-#include "nsISVGTextContentMetrics.h"
-#include "nsSVGRect.h"
-#include "nsSVGMatrix.h"
-#include "nsINameSpaceManager.h"
-#include "nsSVGAtoms.h"
-#include "nsLayoutAtoms.h"
 
-typedef nsSVGDisplayContainerFrame nsSVGTSpanFrameBase;
+typedef nsSVGTextContainerFrame nsSVGTSpanFrameBase;
 
 class nsSVGTSpanFrame : public nsSVGTSpanFrameBase,
-                        public nsISVGTextContainerFrame,
-                        public nsISVGGlyphFragmentNode,
-                        public nsISVGTextContentMetrics
+                        public nsISVGGlyphFragmentNode
 {
   friend nsIFrame*
   NS_NewSVGTSpanFrame(nsIPresShell* aPresShell, nsIContent* aContent,
                       nsIFrame* parentFrame, nsStyleContext* aContext);
 protected:
-  nsSVGTSpanFrame(nsStyleContext* aContext);
-  
+  nsSVGTSpanFrame(nsStyleContext* aContext) :
+    nsSVGTextContainerFrame(aContext),
+    mFragmentTreeDirty(PR_FALSE), mPropagateTransform(PR_TRUE) {}
+
    // nsISupports interface:
   NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);
 private:
   NS_IMETHOD_(nsrefcnt) AddRef() { return NS_OK; }
   NS_IMETHOD_(nsrefcnt) Release() { return NS_OK; }  
+
 public:
   // nsIFrame:
-
   NS_IMETHOD  RemoveFrame(nsIAtom*        aListName,
                           nsIFrame*       aOldFrame);
   NS_IMETHOD  AttributeChanged(PRInt32         aNameSpaceID,
@@ -102,38 +82,12 @@ public:
     return MakeFrameName(NS_LITERAL_STRING("SVGTSpan"), aResult);
   }
 #endif
-
-  // nsISVGTextContentMetrics
-  NS_IMETHOD GetNumberOfChars(PRInt32 *_retval);
-  NS_IMETHOD GetComputedTextLength(float *_retval);
-  NS_IMETHOD GetSubStringLength(PRUint32 charnum, PRUint32 nchars, float *_retval);
-  NS_IMETHOD GetStartPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval);
-  NS_IMETHOD GetEndPositionOfChar(PRUint32 charnum, nsIDOMSVGPoint **_retval);
-  NS_IMETHOD GetExtentOfChar(PRUint32 charnum, nsIDOMSVGRect **_retval);
-  NS_IMETHOD GetRotationOfChar(PRUint32 charnum, float *_retval);
-  NS_IMETHOD GetCharNumAtPosition(nsIDOMSVGPoint *point, PRInt32 *_retval);
-
-  // nsISupportsWeakReference
-  // implementation inherited from nsSupportsWeakReference
-  
   // nsISVGChildFrame interface:
-  NS_IMETHOD PaintSVG(nsISVGRendererCanvas* canvas);
   NS_IMETHOD SetMatrixPropagation(PRBool aPropagate);
   NS_IMETHOD SetOverrideCTM(nsIDOMSVGMatrix *aCTM);
   
   // nsSVGContainerFrame methods:
   virtual already_AddRefed<nsIDOMSVGMatrix> GetCanvasTM();
-  
-  // nsISVGTextContainerFrame interface:
-  NS_IMETHOD_(nsISVGTextFrame *) GetTextFrame();
-  NS_IMETHOD_(PRBool) GetAbsolutePositionAdjustmentX(float &x, PRUint32 charNum);
-  NS_IMETHOD_(PRBool) GetAbsolutePositionAdjustmentY(float &y, PRUint32 charNum);
-  NS_IMETHOD_(PRBool) GetRelativePositionAdjustmentX(float &dx, PRUint32 charNum);
-  NS_IMETHOD_(PRBool) GetRelativePositionAdjustmentY(float &dy, PRUint32 charNum);
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetX();
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetY();
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetDx();
-  NS_IMETHOD_(already_AddRefed<nsIDOMSVGLengthList>) GetDy();
   
   // nsISVGGlyphFragmentNode interface:
   NS_IMETHOD_(PRUint32) GetNumberOfChars();

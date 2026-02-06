@@ -1573,17 +1573,20 @@ NS_IMETHODIMP nsWindow::Update()
 	nsresult rv = NS_ERROR_FAILURE;
 	//Switching scrolling trigger off
 	mIsScrolling = PR_FALSE;
-	// Getting whole paint cache filled in native and non-native Invalidate() calls.
-	// Sending it all to view manager via OnPaint()
+	if (mWindowType == eWindowType_child)
+		return NS_OK;
 	BRegion reg;
 	reg.MakeEmpty();
 	if(mView && mView->LockLooper())
 	{
-		//Flushing native pending updates*/
+		//Flushing native pending updates if any
 		if (mView->Window())
 			mView->Window()->UpdateIfNeeded();
+		// Let app_server to invalidate
+		mView->Invalidate();
 		bool nonempty = mView->GetPaintRegion(&reg);
 		mView->UnlockLooper();
+		// Look if native update calls above filled update region and paint it
 		if (nonempty)
 			rv = OnPaint(&reg);
 	}
