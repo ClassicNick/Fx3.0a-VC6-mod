@@ -8,6 +8,10 @@
   -moz-image-region: rect(0px, 16px, 16px, 0px);
 }
 
+.searchbar-popup {
+  min-width: 100px;
+}
+
 .search-go-button-container {
   border-left: 1px solid ThreeDShadow;
 }
@@ -44,6 +48,7 @@
   border: none;
   border-right: 2px solid ThreeDFace;
   -moz-appearance: none;
+  min-width: 0px !important;
 }
 
 .search-go-button > .toolbarbutton-menubutton-button > .toolbarbutton-icon {

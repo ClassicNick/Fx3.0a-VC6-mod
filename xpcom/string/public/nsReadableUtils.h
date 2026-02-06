@@ -371,4 +371,11 @@ CompareUTF8toUTF16(const nsASingleFragmentCString& aUTF8String,
 NS_COM void
 AppendUCS4ToUTF16(const PRUint32 aSource, nsAString& aDest);
 
+template<class T>
+inline PRBool EnsureStringLength(T& aStr, PRUint32 aLen)
+{
+    aStr.SetLength(aLen);
+    return (aStr.Length() == aLen);
+}
+
 #endif // !defined(nsReadableUtils_h___)

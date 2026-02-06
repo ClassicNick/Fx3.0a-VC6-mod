@@ -119,6 +119,7 @@ sub trim_logs {
 
 sub create_tree {
     $treename = $form{'treename'};
+    $who_days = $form{'who_days'};
     my $repository = $form{'repository'};
     $modulename = $form{'modulename'};
     $branchname = $form{'branchname'};
@@ -155,6 +156,7 @@ sub create_tree {
         mkdir( $treename, oct($dir_perm)) || die "<h1> Cannot mkdir $treename</h1>";
     }
     open( F, ">$treename/treedata.pl" );
+    print F "\$who_days=$who_days;\n";
     print F "\$use_bonsai=$use_bonsai;\n";
     print F "\$use_viewvc=$use_viewvc;\n";
     print F "\$cvs_module='$modulename';\n";
@@ -183,10 +185,17 @@ sub create_tree {
     open( F, ">$treename/notes.txt" );
     close( F );
 
+    open( F, ">$treename/index.html");
+    print F "<HTML>\n";
+    print F "<HEAD><META HTTP-EQUIV=\"refresh\" content=\"0,url=../showbuilds.cgi?tree=$treename\"></HEAD>\n";
+    print F "<BODY></BODY>\n";
+    print F "</HTML>\n";
+    close( F );
+    
     chmod oct($perm), "$treename/build.dat", "$treename/who.dat", "$treename/notes.txt",
-                "$treename/treedata.pl";
+    "$treename/treedata.pl", "$treename/index.html";
 
-    print "<h2><a href=showbuilds.cgi?tree=$treename>Tree created or modified</a></h2>\n";
+    print "<h2><a href=\"showbuilds.cgi?tree=$treename\">Tree created or modified</a></h2>\n";
 }
 
 

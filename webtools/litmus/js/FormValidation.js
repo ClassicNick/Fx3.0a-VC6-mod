@@ -365,7 +365,10 @@ function toggleMessage(msgType,msg) {
 
   switch (msgType) {
     case "loading":
-      em.innerHTML = '<div class="loading">Loading...</div>';
+      if (!msg || msg == '') {
+        msg = 'Loading...';
+      }
+      em.innerHTML = '<div class="loading">'+msg+'</div>';
       em.style.display = 'block';
       break;
     case "info":
@@ -392,5 +395,51 @@ function toggleMessage(msgType,msg) {
   }
 }
 
+function enableForm(formid) {
+  var f = document.getElementById(formid);
+  var ems = f.getElementsByTagName('input');
+  for (var i in ems) {
+    ems[i].disabled=false;
+  }
+  ems = f.getElementsByTagName('select');
+  for (var i in ems) {
+    ems[i].disabled=false;
+  }
+  ems = f.getElementsByTagName('textarea');
+  for (var i in ems) {
+    ems[i].disabled=false;
+  }
+}
 
+function disableForm(formid) {
+  var f = document.getElementById(formid);
+  var ems = f.getElementsByTagName('input');
+  for (var i in ems) {
+    ems[i].disabled=true;
+  }
+  ems = f.getElementsByTagName('select');
+  for (var i in ems) {
+    ems[i].disabled=true;
+  }
+  ems = f.getElementsByTagName('textarea');
+  for (var i in ems) {
+    ems[i].disabled=true;
+  }
+}
 
+function changeSelectedValue(selectid, optionvalue) {
+  var em = document.getElementById(selectid)
+  var options = em.getElementsByTagName('option');
+  var found = 0;
+  for (var i=0; i<options.length; i++) {
+    if (options[i].value == optionvalue) {
+      options[i].selected = true;
+      found=1;
+    } else {
+      options[i].selected = false;
+    }
+  }
+  if (found == 0) {
+    options[0].selected = true;
+  }
+}

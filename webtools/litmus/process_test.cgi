@@ -37,6 +37,7 @@ use Litmus::SysConfig;
 use Litmus::Auth;
 use Litmus::Utils;
 use Litmus::DB::Resultbug;
+use Litmus::XML;
 
 use CGI;
 use Date::Manip;
@@ -44,16 +45,31 @@ use diagnostics;
 
 my $c = Litmus->cgi(); 
 
+if ($c->param('data')) {
+	# we're getting XML result data from an automated testing provider, 
+	# so pass that off to XML.pm for processing
+	my $x = Litmus::XML->new();
+	$x->processResults($c->param('data'));
+	
+	# return whatever response was generated:
+	print $c->header('text/plain');
+	print $x->response();
+	exit; # that's all folks!
+}
+
 my $user;
 my $sysconfig;
 if ($c->param("isSysConfig")) {
+  $user = $user || Litmus::Auth::getCurrentUser();
+  if (!$user) {
+    my $return = $c->param("return") || 'index.cgi';
+    Litmus::Auth::requireLogin($return);    
+  }
   $sysconfig = Litmus::SysConfig->processForm($c);
-  my $email = $c->param("email");
-  $user = Litmus::DB::User->find_or_create(email => $email);
-  print $c->header(-cookie => [$sysconfig->setCookie(), Litmus::Auth::setCookie($user)]);
-} else {
-  print $c->header();
+  # get the user id and set a sysconfig cookie
+  $c->storeCookie($sysconfig->setCookie());
 }
+print $c->header();
 
 my @names = $c->param();
 
@@ -117,7 +133,7 @@ foreach my $curtestid (@tests) {
   # should go configure themselves first.
   if (!$sysconfig) {
     Litmus::SysConfig->displayForm($product,
-                                   "process_test_results.cgi",
+                                   "process_test.cgi",
                                    $c);
     exit;
   }

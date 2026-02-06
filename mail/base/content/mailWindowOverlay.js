@@ -1514,7 +1514,7 @@ function MsgApplyFilters()
   for (var i = 0; i < numFilters; i++)
   {
     var curFilter = curFilterList.getFilterAt(i);
-    if (curFilter.enabled)
+    if (curFilter.enabled && !curFilter.temporary) // only add enabled, UI visibile filters
     {
       tempFilterList.insertFilterAt(newFilterIndex, curFilter);
       newFilterIndex++;
@@ -2018,13 +2018,13 @@ function SendUnsentMessages()
 function CoalesceGetMsgsForPop3ServersByDestFolder(currentServer, pop3DownloadServersArray, localFoldersToDownloadTo)
 {
   var outNumFolders = new Object();
-  var inboxFolder = currentServer.rootMsgFolder.getFoldersWithFlag(0x1000, 1, outNumFolders); 
-  pop3Server = currentServer.QueryInterface(Components.interfaces.nsIPop3IncomingServer);
+  var inboxFolder = currentServer.rootMsgFolder.getFoldersWithFlag(0x1000, 1, outNumFolders);
+  var pop3Server = currentServer.QueryInterface(Components.interfaces.nsIPop3IncomingServer);
   // coalesce the servers that download into the same folder...
   var index = localFoldersToDownloadTo.GetIndexOf(inboxFolder);
   if (index == -1)
   {
-    if(inboxFolder) 
+    if(inboxFolder)
     {
       inboxFolder.biffState =  Components.interfaces.nsIMsgFolder.nsMsgBiffState_NoMail;
       inboxFolder.clearNewMessages();

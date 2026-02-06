@@ -63,8 +63,6 @@ OSStatus ATSInitializeGlyphVector(int size, void *glyphVectorPtr);
 OSStatus ATSClearGlyphVector(void *glyphVectorPtr);
 #endif
 
-THEBES_IMPL_REFCOUNTING(gfxAtsuiFont)
-
 gfxAtsuiFont::gfxAtsuiFont(ATSUFontID fontID,
                            const gfxFontStyle *fontStyle)
     : gfxFont(EmptyString(), fontStyle),
@@ -289,8 +287,6 @@ gfxAtsuiFontGroup::MakeTextRun(const nsAString& aString)
 /**
  ** gfxAtsuiTextRun
  **/
-
-THEBES_IMPL_REFCOUNTING(gfxAtsuiTextRun)
 
 gfxAtsuiTextRun::gfxAtsuiTextRun(const nsAString& aString, gfxAtsuiFontGroup *aGroup)
     : mString(aString), mGroup(aGroup)

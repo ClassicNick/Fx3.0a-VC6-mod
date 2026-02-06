@@ -52,12 +52,6 @@
 #include "gfxASurface.h"
 #include "gfxPattern.h"
 
-// this doesn't really belong here, but it doesn't need
-// its own file
-THEBES_IMPL_REFCOUNTING(gfxUnknownSurface)
-
-THEBES_IMPL_REFCOUNTING(gfxContext)
-
 gfxContext::gfxContext(gfxASurface *surface) :
     mSurface(surface)
 {

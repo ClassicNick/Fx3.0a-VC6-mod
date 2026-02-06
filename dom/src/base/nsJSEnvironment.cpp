@@ -1,4 +1,5 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=2 sw=2 et tw=78: */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -104,6 +105,10 @@
 
 #ifdef NS_DEBUG
 #include "jsgc.h"       // for WAY_TOO_MUCH_GC, if defined for GC debugging
+#endif
+
+#ifdef MOZ_JSDEBUGGER
+#include "jsdIDebuggerService.h"
 #endif
 
 #include "nsIStringBundle.h"
@@ -634,6 +639,35 @@ nsJSContext::DOMBranchCallback(JSContext *cx, JSScript *script)
   ireq->GetInterface(NS_GET_IID(nsIPrompt), getter_AddRefs(prompt));
   NS_ENSURE_TRUE(prompt, JS_TRUE);
 
+  nsresult rv;
+
+  // Check if we should offer the option to debug
+  PRBool debugPossible = (cx->runtime && cx->runtime->debuggerHandler);
+#ifdef MOZ_JSDEBUGGER
+  // Get the debugger service if necessary.
+  if (debugPossible) {
+    PRBool jsds_IsOn = PR_FALSE;
+    const char jsdServiceCtrID[] = "@mozilla.org/js/jsd/debugger-service;1";
+    nsCOMPtr<jsdIExecutionHook> jsdHook;  
+    nsCOMPtr<jsdIDebuggerService> jsds = do_GetService(jsdServiceCtrID, &rv);
+  
+    // Check if there's a user for the debugger service that's 'on' for us
+    if (NS_SUCCEEDED(rv)) {
+      jsds->GetDebuggerHook(getter_AddRefs(jsdHook));
+      jsds->GetIsOn(&jsds_IsOn);
+      if (jsds_IsOn) { // If this is not true, the next call would start jsd...
+        rv = jsds->OnForRuntime(cx->runtime);
+        jsds_IsOn = NS_SUCCEEDED(rv);
+      }
+    }
+
+    // If there is a debug handler registered for this runtime AND
+    // ((jsd is on AND has a hook) OR (jsd isn't on (something else debugs)))
+    // then something useful will be done with our request to debug.
+    debugPossible = ((jsds_IsOn && (jsdHook != nsnull)) || !jsds_IsOn);
+  }
+#endif
+
   // Get localizable strings
   nsCOMPtr<nsIStringBundleService>
     stringService(do_GetService(NS_STRINGBUNDLE_CONTRACTID));
@@ -645,13 +679,9 @@ nsJSContext::DOMBranchCallback(JSContext *cx, JSScript *script)
   if (!bundle)
     return JS_TRUE;
   
-  nsXPIDLString title, msg, stopButton, waitButton, neverShowDlg;
+  nsXPIDLString title, msg, stopButton, waitButton, debugButton, neverShowDlg;
 
-  nsresult rv;
-
-  rv = bundle->GetStringFromName(NS_LITERAL_STRING("KillScriptMessage").get(),
-                                  getter_Copies(msg));
-  rv |= bundle->GetStringFromName(NS_LITERAL_STRING("KillScriptTitle").get(),
+  rv = bundle->GetStringFromName(NS_LITERAL_STRING("KillScriptTitle").get(),
                                   getter_Copies(title));
   rv |= bundle->GetStringFromName(NS_LITERAL_STRING("StopScriptButton").get(),
                                   getter_Copies(stopButton));
@@ -660,24 +690,37 @@ nsJSContext::DOMBranchCallback(JSContext *cx, JSScript *script)
   rv |= bundle->GetStringFromName(NS_LITERAL_STRING("NeverShowDialogAgain").get(),
                                   getter_Copies(neverShowDlg));
 
+
+  if (debugPossible) {
+    rv |= bundle->GetStringFromName(NS_LITERAL_STRING("DebugScriptButton").get(),
+                                    getter_Copies(debugButton));
+    rv |= bundle->GetStringFromName(NS_LITERAL_STRING("KillScriptWithDebugMessage").get(),
+                                   getter_Copies(msg));
+  }
+  else {
+    rv |= bundle->GetStringFromName(NS_LITERAL_STRING("KillScriptMessage").get(),
+                                   getter_Copies(msg));
+  }
+
   //GetStringFromName can return NS_OK and still give NULL string
   if (NS_FAILED(rv) || !title || !msg || !stopButton || !waitButton ||
-      !neverShowDlg) {
+      (!debugButton && debugPossible) || !neverShowDlg) {
     NS_ERROR("Failed to get localized strings.");
     return JS_TRUE;
   }
 
   PRInt32 buttonPressed = 1; //In case user exits dialog by clicking X
   PRBool neverShowDlgChk = PR_FALSE;
+  PRUint32 buttonFlags = (nsIPrompt::BUTTON_TITLE_IS_STRING *
+                          (nsIPrompt::BUTTON_POS_0 + nsIPrompt::BUTTON_POS_1));
+
+  // Add a third button if necessary:
+  if (debugPossible)
+    buttonFlags += nsIPrompt::BUTTON_TITLE_IS_STRING * nsIPrompt::BUTTON_POS_2;
 
   // Open the dialog.
-  rv = prompt->ConfirmEx(title, msg,
-                         (nsIPrompt::BUTTON_TITLE_IS_STRING *
-                          nsIPrompt::BUTTON_POS_0) +
-                         (nsIPrompt::BUTTON_TITLE_IS_STRING *
-                          nsIPrompt::BUTTON_POS_1),
-                         stopButton, waitButton,
-                         nsnull, neverShowDlg, &neverShowDlgChk,
+  rv = prompt->ConfirmEx(title, msg, buttonFlags, stopButton, waitButton,
+                         debugButton, neverShowDlg, &neverShowDlgChk,
                          &buttonPressed);
 
   if (NS_FAILED(rv) || (buttonPressed == 1)) {
@@ -693,6 +736,25 @@ nsJSContext::DOMBranchCallback(JSContext *cx, JSScript *script)
 
     ctx->mBranchCallbackTime = PR_Now();
     return JS_TRUE;
+  }
+  else if ((buttonPressed == 2) && debugPossible) {
+    // Debug the script
+    jsval rval;
+    switch(cx->runtime->debuggerHandler(cx, script, cx->fp->pc, &rval, 
+                                        cx->runtime->debuggerHandlerData)) {
+      case JSTRAP_RETURN:
+        cx->fp->rval = rval;
+        return JS_TRUE;
+      case JSTRAP_ERROR:
+        cx->throwing = JS_FALSE;
+        return JS_FALSE;
+      case JSTRAP_THROW:
+        JS_SetPendingException(cx, rval);
+        return JS_FALSE;
+      case JSTRAP_CONTINUE:
+      default:
+        return JS_TRUE;
+    }
   }
 
   return JS_FALSE;
@@ -1576,7 +1638,12 @@ nsJSContext::CallEventHandler(nsISupports* aTarget, void *aScope, void *aHandler
     PRUint32 argc = 0;
     jsval *argv = nsnull;
 
-    rv = ConvertSupportsTojsvals(aargv, aScope, &argc,
+    // Use |target| as the scope for wrapping the arguments, since aScope is
+    // the safe scope in many cases, which isn't very useful.  Wrapping aTarget
+    // was OK because those typically have PreCreate methods that give them the
+    // right scope anyway, and we want to make sure that the arguments end up
+    // in the same scope as aTarget.
+    rv = ConvertSupportsTojsvals(aargv, target, &argc,
                                  NS_REINTERPRET_CAST(void **, &argv), &mark);
     NS_ENSURE_SUCCESS(rv, rv);
   
@@ -2160,8 +2227,9 @@ nsJSContext::ConvertSupportsTojsvals(nsISupports *aArgs,
     NS_ENSURE_SUCCESS(rv, rv);
     if (argCount == 0)
       return NS_OK;
-  } else
+  } else {
     argCount = 1; // the nsISupports which is not an array
+  }
 
   jsval *argv = js_AllocStack(mContext, argCount, aMarkp);
   NS_ENSURE_TRUE(argv, NS_ERROR_OUT_OF_MEMORY);
@@ -2170,9 +2238,12 @@ nsJSContext::ConvertSupportsTojsvals(nsISupports *aArgs,
     for (argCtr = 0; argCtr < argCount && NS_SUCCEEDED(rv); argCtr++) {
       nsCOMPtr<nsISupports> arg;
       jsval *thisval = argv + argCtr;
-      rv = argsArray->QueryElementAt(argCtr, NS_GET_IID(nsISupports),
-                                     getter_AddRefs(arg));
-      NS_ASSERTION(NS_SUCCEEDED(rv), "Array elt doesn't have nsISupports?");
+      argsArray->QueryElementAt(argCtr, NS_GET_IID(nsISupports),
+                                getter_AddRefs(arg));
+      if (!arg) {
+        *thisval = JSVAL_NULL;
+        continue;
+      }
       nsCOMPtr<nsIVariant> variant(do_QueryInterface(arg));
       if (variant != nsnull) {
         rv = xpc->VariantToJS(mContext, (JSObject *)aScope, variant, 

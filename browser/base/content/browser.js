@@ -2962,16 +2962,6 @@ const BrowserSearch = {
     if (!etype)
       return;
       
-    if (target.title) {
-      // If this engine (identified by title) is already in the list, ignore it.
-      // XXX This will need to be changed when engines are identified by URL;
-      // see bug 335102.
-      var searchService = Components.classes["@mozilla.org/browser/search-service;1"]
-                                    .getService(Components.interfaces.nsIBrowserSearchService);
-      if (searchService.getEngineByName(target.title))
-        return;
-    }
-
     if (etype == "application/opensearchdescription+xml" &&
         searchRelRegex.test(erel) && searchHrefRegex.test(ehref))
     {
@@ -2982,21 +2972,45 @@ const BrowserSearch = {
       if (searchButton) {
         var browser = gBrowser.getBrowserForDocument(targetDoc);
          // Append the URI and an appropriate title to the browser data.
-        var engines = [];
-        if (browser.engines)
-          engines = browser.engines;
-
         var iconURL = null;
         if (gBrowser.shouldLoadFavIcon(browser.currentURI))
           iconURL = browser.currentURI.prePath + "/favicon.ico";
         var usableTitle = target.title || browser.contentTitle || target.href;
+        var hidden = false;
+        if (target.title) {
+          // If this engine (identified by title) is already in the list, add it
+          // to the list of hidden engines rather than to the main list.
+          // XXX This will need to be changed when engines are identified by URL;
+          // see bug 335102.
+          var searchService =
+              Components.classes["@mozilla.org/browser/search-service;1"]
+                        .getService(Components.interfaces.nsIBrowserSearchService);
+          if (searchService.getEngineByName(target.title))
+            hidden = true;
+        }
+
+        var engines = [];
+        if (hidden) {
+          if (browser.hiddenEngines)
+            engines = browser.hiddenEngines;
+        }
+        else {
+          if (browser.engines)
+            engines = browser.engines;
+        }
+
         engines.push({ uri: target.href,
                        title: usableTitle,
                        icon: iconURL });
-        browser.engines = engines;
 
-        if (browser == gBrowser || browser == gBrowser.mCurrentBrowser)
-          this.updateSearchButton();
+         if (hidden) {
+           browser.hiddenEngines = engines;
+         }
+         else {
+           browser.engines = engines;
+           if (browser == gBrowser || browser == gBrowser.mCurrentBrowser)
+             this.updateSearchButton();
+         }
       }
     }
   },
@@ -3734,6 +3748,27 @@ nsBrowserStatusHandler.prototype =
 
   onLocationChange : function(aWebProgress, aRequest, aLocation)
   {
+
+   if (document.tooltipNode) {
+     // Optimise for the common case
+     if (aWebProgress.DOMWindow == content) {
+       document.getElementById("aHTMLTooltip").hidePopup();
+       document.tooltipNode = null;
+     }
+     else {
+       for (var tooltipWindow =
+              document.tooltipNode.target.ownerDocument.defaultView;
+            tooltipWindow != tooltipWindow.parent;
+            tooltipWindow = tooltipWindow.parent) {
+         if (tooltipWindow == aWebProgress.DOMWindow) {
+           document.getElementById("aHTMLTooltip").hidePopup();
+           document.tooltipNode = null;
+           break;
+         }
+       }
+     }
+   }
+
     // This code here does not compare uris exactly when determining
     // whether or not the message should be hidden since the message
     // may be prematurely hidden when an install is invoked by a click
@@ -4249,6 +4284,7 @@ function nsContextMenu( xulMenu ) {
     this.isContentSelected = false;
     this.inDirList         = false;
     this.shouldDisplay     = true;
+    this.isDesignMode      = false;
 
     // Initialize new menu.
     this.initMenu( xulMenu );
@@ -4437,7 +4473,7 @@ nsContextMenu.prototype = {
         this.showItem( "context-paste", this.onTextInput );
         this.showItem( "context-delete", this.onTextInput );
         this.showItem( "context-sep-paste", this.onTextInput );
-        this.showItem( "context-selectall", !( this.onLink || this.onImage ) );
+        this.showItem( "context-selectall", !( this.onLink || this.onImage ) || this.isDesignMode );
         this.showItem( "context-sep-selectall", this.isContentSelected );
 
         // XXX dr
@@ -4524,14 +4560,14 @@ nsContextMenu.prototype = {
                this.onTextInput = this.isTargetATextBox(this.target);
                // allow spellchecking UI on all writable text boxes except passwords
                if (this.onTextInput && ! this.target.readOnly && this.target.type != "password") {
-                   InlineSpellCheckerUI.init(this.target);
+                   InlineSpellCheckerUI.init(this.target.QueryInterface(Components.interfaces.nsIDOMNSEditableElement).editor);
                    InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
                }
                this.onKeywordField = this.isTargetAKeywordField(this.target);
             } else if ( this.target instanceof HTMLTextAreaElement ) {
                  this.onTextInput = true;
                  if (! this.target.readOnly) {
-                     InlineSpellCheckerUI.init(this.target);
+                     InlineSpellCheckerUI.init(this.target.QueryInterface(Components.interfaces.nsIDOMNSEditableElement).editor);
                      InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
                  }
             } else if ( this.target instanceof HTMLHtmlElement ) {
@@ -4669,6 +4705,30 @@ nsContextMenu.prototype = {
             this.inFrame = true;
         }
 
+        // if the document is editable, show context menu like in text inputs
+        var win = this.target.ownerDocument.defaultView;
+        if (win) {
+          var editingSession = win.QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+                                  .getInterface(Components.interfaces.nsIWebNavigation)
+                                  .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+                                  .getInterface(Components.interfaces.nsIEditingSession);
+          if (editingSession.windowIsEditable(win)) {
+            this.onTextInput       = true;
+            this.onKeywordField    = false;
+            this.onImage           = false;
+            this.onLoadedImage     = false;
+            this.onMetaDataItem    = false;
+            this.onMathML          = false;
+            this.inFrame           = false;
+            this.hasBGImage        = false;
+            this.isDesignMode      = true;
+            InlineSpellCheckerUI.init(editingSession.getEditorForWindow(win));
+            var canSpell = InlineSpellCheckerUI.canSpellCheck;
+            InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
+            this.showItem("spell-check-enabled", canSpell);
+            this.showItem("spell-separator", canSpell);
+          }
+        }
     },
     // Returns the computed style attribute for the given element.
     getComputedStyle: function( elem, prop ) {

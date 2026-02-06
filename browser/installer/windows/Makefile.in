@@ -55,13 +55,13 @@ PP_LOCALIZED_FILES = \
 
 INSTALLER_FILES = \
 	app.tag \
-	nsis/instfiles-extra.nsi \
-	nsis/uninstfiles-extra.nsi \
+	nsis/installer.nsi \
 	nsis/SetProgramAccess.nsi \
 	$(NULL)
 
 BRANDING_FILES = \
 	wizHeader.bmp \
+	wizHeaderRTL.bmp \
 	wizWatermark.bmp \
 	$(NULL)
 
@@ -74,12 +74,12 @@ DEFINES += \
 	$(NULL)
 
 include $(topsrcdir)/config/config.mk
+include $(call EXPAND_LOCALE_SRCDIR,toolkit/locales)/installer/windows/charset.mk
 
 installer::
 	$(MAKE) -C .. installer-stage
 	$(RM) -rf instgen && mkdir instgen
 	$(INSTALL) $(addprefix $(srcdir)/,$(INSTALLER_FILES)) instgen
-	$(INSTALL) $(call EXPAND_LOCALE_SRCDIR,browser/locales)/installer/appLocale.nsi instgen
 	$(INSTALL) $(addprefix $(DIST)/branding/,$(BRANDING_FILES)) instgen
 	cp $(topsrcdir)/browser/EULA instgen/license.txt
 	$(EXIT_ON_ERROR) \
@@ -90,6 +90,9 @@ installer::
 	  ../removed-files > instgen/removed-files.log
 	$(PERL) $(topsrcdir)/config/preprocessor.pl -Fsubstitution $(DEFINES) $(ACDEFINES) \
 	  $(srcdir)/nsis/defines.nsi.in > instgen/defines.nsi
+	$(PERL) $(topsrcdir)/toolkit/mozapps/installer/windows/nsis/preprocess-locale.pl \
+	  $(topsrcdir) $(call EXPAND_LOCALE_SRCDIR,browser/locales)/installer $(AB_CD) \
+	  $(WIN_INSTALLER_CHARSET)
 
 include $(topsrcdir)/config/rules.mk
 include $(topsrcdir)/toolkit/mozapps/installer/windows/nsis/makensis.mk
@@ -100,5 +103,6 @@ ifndef MOZ_BRANDING_DIRECTORY
 	cp $(srcdir)/Header.bmp    $(DIST)/branding/Header.bmp
 	cp $(srcdir)/Watermrk.bmp  $(DIST)/branding/Watermrk.bmp
 	cp $(srcdir)/wizHeader.bmp     $(DIST)/branding/wizHeader.bmp
+	cp $(srcdir)/wizHeaderRTL.bmp  $(DIST)/branding/wizHeaderRTL.bmp
 	cp $(srcdir)/wizWatermark.bmp  $(DIST)/branding/wizWatermark.bmp
 endif

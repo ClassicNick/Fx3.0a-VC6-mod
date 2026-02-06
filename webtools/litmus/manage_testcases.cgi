@@ -33,6 +33,7 @@ use strict;
 
 use Litmus;
 use Litmus::Auth;
+use Litmus::Cache;
 use Litmus::Error;
 use Litmus::FormWidget;
 use Litmus::Utils;
@@ -55,6 +56,8 @@ if ($c->param("testcase_id")) {
   $testcase_id = $c->param("testcase_id");
 }
 
+my $rebuild_cache = 0;
+my $defaults;
 if ($c->param("delete_testcase_button")) {
   my $testcase = Litmus::DB::Testcase->retrieve($testcase_id);
   if ($testcase) {
@@ -62,6 +65,7 @@ if ($c->param("delete_testcase_button")) {
     if ($rv) {
       $status = "success";
       $message = "Testcase ID# $testcase_id deleted successfully.";
+      $rebuild_cache=1;
     } else {
       $status = "failure";
       $message = "Failed to delete Testcase ID# $testcase_id.";
@@ -76,6 +80,8 @@ if ($c->param("delete_testcase_button")) {
   if ($new_testcase) {
     $status = "success";
     $message = "Testcase cloned successfully. New testcase ID# is " . $new_testcase->testcase_id;
+    $defaults->{'testcase_id'} = $new_testcase->testcase_id;
+    $rebuild_cache=1;
   } else {
     $status = "failure";
     $message = "Failed to clone Testcase ID# $testcase_id.";
@@ -83,7 +89,7 @@ if ($c->param("delete_testcase_button")) {
 } elsif ($c->param("editform_mode")) {
   requireField('summary', $c->param('editform_summary'));
   requireField('product', $c->param('product'));
-  requireField('product', $c->param('subgroup'));
+  requireField('subgroup', $c->param('subgroup'));
   requireField('author', $c->param('editform_author_id'));
   my $enabled = $c->param('editform_enabled') ? 1 : 0;
   my $community_enabled = $c->param('editform_communityenabled') ? 1 : 0;
@@ -109,6 +115,8 @@ if ($c->param("delete_testcase_button")) {
       $new_testcase->update_subgroups(\@selected_subgroups);
       $status = "success";
       $message = "Testcase added successfully. New testcase ID# is " . $new_testcase->testcase_id;
+      $defaults->{'testcase_id'} = $new_testcase->testcase_id;
+      $rebuild_cache=1;
     } else {
       $status = "failure";
       $message = "Failed to add testcase.";        
@@ -135,6 +143,8 @@ if ($c->param("delete_testcase_button")) {
         $testcase->update_subgroups(\@selected_subgroups);
         $status = "success";
 	$message = "Testcase ID# $testcase_id updated successfully.";
+        $defaults->{'testcase_id'} = $testcase_id;
+        $rebuild_cache=1;
       } else {
 	$status = "failure";
 	$message = "Failed to update testcase ID# $testcase_id.";        
@@ -145,13 +155,19 @@ if ($c->param("delete_testcase_button")) {
     }
   } 
 } else {
-  my $defaults;
   $defaults->{'testcase_id'} = $c->param("testcase_id");
-  $vars->{'defaults'} = $defaults;  
+}
+
+if ($defaults) {
+  $vars->{'defaults'} = $defaults;
 }
 
 if ($status and $message) {
   $vars->{'onload'} = "toggleMessage('$status','$message');";
+}
+
+if ($rebuild_cache) {
+  rebuildCache();
 }
 
 my $testcases = Litmus::FormWidget->getTestcases;

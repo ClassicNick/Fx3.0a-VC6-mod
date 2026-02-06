@@ -37,13 +37,13 @@ use base 'Litmus::DBI';
 
 Litmus::DB::Log->table('test_result_logs');
 
-Litmus::DB::Log->columns(All => qw/log_id test_result_id last_updated submission_time log_type_id log_text/);
+Litmus::DB::Log->columns(All => qw/log_id last_updated submission_time log_type_id log_text/);
 
-Litmus::DB::Log->column_alias("test_result_id", "test_result");
+Litmus::DB::Log->column_alias("test_results", "testresults");
 Litmus::DB::Log->column_alias("log_type_id", "log_type");
 
-Litmus::DB::Log->has_a(test_result => "Litmus::DB::Testresult");
 Litmus::DB::Log->has_a(log_type => "Litmus::DB::LogType");
+Litmus::DB::Log->has_many(test_results => ["Litmus::DB::LogTestresult" => 'test_result']);
 
 Litmus::DB::Testresult->autoinflate(dates => 'Time::Piece');
 

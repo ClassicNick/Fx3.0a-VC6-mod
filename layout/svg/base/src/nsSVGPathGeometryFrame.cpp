@@ -63,6 +63,7 @@
 #include "nsSVGOuterSVGFrame.h"
 #include "nsSVGRect.h"
 #include "nsISVGCairoCanvas.h"
+#include "nsSVGPathGeometryElement.h"
 
 struct nsSVGMarkerProperty {
   nsSVGMarkerFrame *mMarkerStart;
@@ -75,6 +76,17 @@ struct nsSVGMarkerProperty {
         mMarkerEnd(nsnull)
   {}
 };
+
+//----------------------------------------------------------------------
+// Implementation
+
+nsIFrame*
+NS_NewSVGPathGeometryFrame(nsIPresShell* aPresShell,
+                           nsIContent* aContent,
+                           nsStyleContext* aContext)
+{
+  return new (aPresShell) nsSVGPathGeometryFrame(aContext);
+}
 
 ////////////////////////////////////////////////////////////////////////
 // nsSVGPathGeometryFrame
@@ -134,9 +146,11 @@ nsSVGPathGeometryFrame::AttributeChanged(PRInt32         aNameSpaceID,
                                          PRInt32         aModType)
 {
   if (aNameSpaceID == kNameSpaceID_None &&
-      aAttribute == nsGkAtoms::transform)
+      (NS_STATIC_CAST(nsSVGPathGeometryElement*,
+                      mContent)->IsDependentAttribute(aAttribute) ||
+       aAttribute == nsGkAtoms::transform))
     UpdateGraphic();
-  
+
   return NS_OK;
 }
 
@@ -271,7 +285,7 @@ nsSVGPathGeometryFrame::PaintSVG(nsISVGRendererCanvas* canvas)
   /* render */
   Render(canvas);
 
-  if (IsMarkable()) {
+  if (NS_STATIC_CAST(nsSVGPathGeometryElement*, mContent)->IsMarkable()) {
     // Marker Property is added lazily and may have been removed by a restyle
     UpdateMarkerProperty();
     nsSVGMarkerProperty *property = GetMarkerProperty();
@@ -282,23 +296,24 @@ nsSVGPathGeometryFrame::PaintSVG(nsISVGRendererCanvas* canvas)
          property->mMarkerStart)) {
       float strokeWidth = GetStrokeWidth();
         
-      nsVoidArray marks;
-      GetMarkPoints(&marks);
+      nsTArray<nsSVGMark> marks;
+      NS_STATIC_CAST(nsSVGPathGeometryElement*,
+                     mContent)->GetMarkPoints(&marks);
         
-      PRUint32 num = marks.Count();
+      PRUint32 num = marks.Length();
         
       if (num && property->mMarkerStart)
         property->mMarkerStart->PaintMark(canvas, this,
-                                          (nsSVGMark *)marks[0], strokeWidth);
+                                          &marks[0], strokeWidth);
         
       if (num && property->mMarkerMid)
         for (PRUint32 i = 1; i < num - 1; i++)
           property->mMarkerMid->PaintMark(canvas, this,
-                                          (nsSVGMark *)marks[i], strokeWidth);
+                                          &marks[i], strokeWidth);
         
       if (num && property->mMarkerEnd)
         property->mMarkerEnd->PaintMark(canvas, this,
-                                        (nsSVGMark *)marks[num-1], strokeWidth);
+                                        &marks[num-1], strokeWidth);
     }
   }
 
@@ -346,7 +361,7 @@ nsSVGPathGeometryFrame::GetFrameForPointSVG(float x, float y, nsIFrame** hit)
 NS_IMETHODIMP_(nsRect)
 nsSVGPathGeometryFrame::GetCoveredRegion()
 {
-  if (IsMarkable()) {
+  if (NS_STATIC_CAST(nsSVGPathGeometryElement*, mContent)->IsMarkable()) {
     nsSVGMarkerProperty *property = GetMarkerProperty();
 
     if (!property ||
@@ -359,15 +374,15 @@ nsSVGPathGeometryFrame::GetCoveredRegion()
 
     float strokeWidth = GetStrokeWidth();
 
-    nsVoidArray marks;
-    GetMarkPoints(&marks);
+    nsTArray<nsSVGMark> marks;
+    NS_STATIC_CAST(nsSVGPathGeometryElement*, mContent)->GetMarkPoints(&marks);
 
-    PRUint32 num = marks.Count();
+    PRUint32 num = marks.Length();
 
     if (num && property->mMarkerStart) {
       nsRect mark;
       mark = property->mMarkerStart->RegionMark(this,
-                                                (nsSVGMark *)marks[0],
+                                                &marks[0],
                                                 strokeWidth);
       rect.UnionRect(rect, mark);
     }
@@ -376,7 +391,7 @@ nsSVGPathGeometryFrame::GetCoveredRegion()
       for (PRUint32 i = 1; i < num - 1; i++) {
         nsRect mark;
         mark = property->mMarkerMid->RegionMark(this,
-                                                (nsSVGMark *)marks[i],
+                                                &marks[i],
                                                 strokeWidth);
         rect.UnionRect(rect, mark);
       }
@@ -384,7 +399,7 @@ nsSVGPathGeometryFrame::GetCoveredRegion()
     if (num && property->mMarkerEnd) {
       nsRect mark;
       mark = property->mMarkerEnd->RegionMark(this,
-                                              (nsSVGMark *)marks[num-1],
+                                              &marks[num-1],
                                               strokeWidth);
 
       rect.UnionRect(rect, mark);
@@ -666,7 +681,7 @@ nsSVGPathGeometryFrame::GeneratePath(cairo_t *ctx, nsISVGCairoCanvas* aCanvas)
   cairo_set_matrix(ctx, &matrix);
 
   cairo_new_path(ctx);
-  ConstructPath(ctx);
+  NS_STATIC_CAST(nsSVGPathGeometryElement*, mContent)->ConstructPath(ctx);
 }
 
 

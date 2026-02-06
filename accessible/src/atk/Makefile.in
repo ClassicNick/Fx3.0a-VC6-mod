@@ -68,12 +68,7 @@ CPPSRCS = \
   nsDocAccessibleWrap.cpp \
   nsRootAccessibleWrap.cpp \
   nsAppRootAccessible.cpp \
-  nsAccessibleText.cpp \
-  nsAccessibleHyperText.cpp \
-  nsHTMLFormControlAccessibleWrap.cpp \
-  nsHTMLLinkAccessibleWrap.cpp \
   nsHTMLTableAccessibleWrap.cpp \
-  nsHTMLBlockAccessible.cpp \
   nsMaiInterfaceComponent.cpp \
   nsMaiInterfaceAction.cpp \
   nsMaiInterfaceText.cpp \
@@ -87,7 +82,6 @@ CPPSRCS = \
 
 #ifdef MOZ_XUL
 CPPSRCS += \
-  nsXULFormControlAccessibleWrap.cpp \
   nsXULTreeAccessibleWrap.cpp \
   $(NULL)
 #endif
@@ -96,11 +90,11 @@ EXPORTS = \
   nsAccessNodeWrap.h \
   nsAccessibleWrap.h \
   nsDocAccessibleWrap.h \
+  nsHTMLFormControlAccessibleWrap.h \
   nsRootAccessibleWrap.h \
   nsTextAccessibleWrap.h \
   nsXULMenuAccessibleWrap.h \
   nsXULTreeAccessibleWrap.h \
-  nsAccessibleText.h \
   $(NULL)
 
 # we want to force the creation of a static lib.

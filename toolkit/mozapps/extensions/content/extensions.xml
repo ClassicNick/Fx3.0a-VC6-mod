@@ -313,31 +313,31 @@
 
   <binding id="addon-needs-install">
     <content>
-      <xul:label value="&needsInstall.label;" crop="end"/>
+      <xul:label value="&toBeInstalled.label;" crop="end"/>
     </content>
   </binding>
 
   <binding id="addon-needs-upgrade">
     <content>
-      <xul:label value="&needsUpgrade.label;" crop="end"/>
+      <xul:label value="&toBeUpgraded.label;" crop="end"/>
     </content>
   </binding>
 
   <binding id="addon-needs-uninstall">
     <content>
-      <xul:label value="&needsUninstall.label;" crop="end"/>
+      <xul:label value="&toBeUninstalled.label;" crop="end"/>
     </content>
   </binding>
 
   <binding id="addon-needs-enable">
     <content>
-      <xul:label value="&needsEnable.label;" crop="end"/>
+      <xul:label value="&toBeEnabled.label;" crop="end"/>
     </content>
   </binding>
 
   <binding id="addon-needs-disable">
     <content>
-      <xul:label value="&needsDisable.label;" crop="end"/>
+      <xul:label value="&toBeDisabled.label;" crop="end"/>
     </content>
   </binding>
 
@@ -585,7 +585,7 @@
         <body>
           <![CDATA[
             this.hidden = true;
-            if (this.closeButton.hidden && this.notifyData) {
+            if (this._buttonElement.style.visibility == "hidden" && this.notifyData) {
               var os = Components.classes["@mozilla.org/observer-service;1"]
                                  .getService(Components.interfaces.nsIObserverService);
               os.notifyObservers(null, "addons-message-notification", this.notifyData);
@@ -639,6 +639,8 @@
         </setter>
       </property>
       
+<!-- _buttonElement uses visibility hidden so the height of the notification
+     box is consistent whether the button is displayed or not. -->
       <field name="_buttonElement">
         document.getAnonymousElementByAttribute(this, "anonid", "messageButton");
       </field>

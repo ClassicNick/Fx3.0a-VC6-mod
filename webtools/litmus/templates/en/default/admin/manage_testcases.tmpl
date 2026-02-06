@@ -35,57 +35,8 @@
 var d;
 var testcase;
 
-function changeSelectedValue(selectid, optionvalue) {
-  var em = document.getElementById(selectid)
-  var options = em.getElementsByTagName('option');  
-  var found = 0;
-  for (var i=0; i<options.length; i++) {
-    if (options[i].value == optionvalue) {
-      options[i].selected = true;
-      found=1;
-    } else {
-      options[i].selected = false;
-    }      
-  }
-  if (found == 0) {
-    options[0].selected = true;
-  } 
-}
-
 function setAuthor(user_id) {
   changeSelectedValue('editform_author_id',user_id);;
-}
-
-function enableForm(formid) {
-  var f = document.getElementById(formid);
-  var ems = f.getElementsByTagName('input');
-  for (var i in ems) {
-    ems[i].disabled=false;
-  }
-  ems = f.getElementsByTagName('select');
-  for (var i in ems) {
-    ems[i].disabled=false;
-  }
-  ems = f.getElementsByTagName('textarea');
-  for (var i in ems) {
-    ems[i].disabled=false;
-  }
-}
-
-function disableForm(formid) {
-  var f = document.getElementById(formid);
-  var ems = f.getElementsByTagName('input');
-  for (var i in ems) {
-    ems[i].disabled=true;
-  }
-  ems = f.getElementsByTagName('select');
-  for (var i in ems) {
-    ems[i].disabled=true;
-  }
-  ems = f.getElementsByTagName('textarea');
-  for (var i in ems) {
-    ems[i].disabled=true;
-  }
 }
 
 function enableModeButtons() {
@@ -106,6 +57,8 @@ function loadTestcase() {
   if (! testcase_select ||
       testcase_select.options[testcase_select.selectedIndex].value=="") {
     disableModeButtons();
+    document.getElementById('testcase_display_div').style.display = 'none';
+    document.getElementById('editform_div').style.display = 'none';
     disableForm('edit_testcase_form');
     blankForm('edit_testcase_form');
     return false;
@@ -114,10 +67,12 @@ function loadTestcase() {
   var testcase_id = testcase_select.options[testcase_select.selectedIndex].value;
 
   disableForm('edit_testcase_form');
+  toggleMessage('loading','Loading Testcase ID# ' + testcase_id + '...');
   var url = 'json.cgi?testcase_id=' + testcase_id;
   var d = loadJSONDoc(url);
   d.addBoth(function (res) { 
     d.deferred = null;  
+    toggleMessage('none');
     return res; 
   }); 
   d.addCallback(populateTestcase); 
@@ -139,12 +94,18 @@ function populateTestcase(data) {
   document.getElementById('editform_summary').value = testcase.summary;
   document.getElementById('editform_steps').value = testcase.steps;
   document.getElementById('editform_results').value = testcase.expected_results;
+  document.getElementById('testcase_id_display').innerHTML = testcase.testcase_id;
+  document.getElementById('summary_text').innerHTML = testcase.summary;
+  document.getElementById('steps_text').innerHTML = testcase.steps;
+  document.getElementById('results_text').innerHTML = testcase.expected_results;
+
   var product_box = document.getElementById('product');
   var options = product_box.getElementsByTagName('option');  
   var found_product = 0;
   for (var i=0; i<options.length; i++) {
     if (options[i].value == testcase.product_id.product_id) {
       options[i].selected = true;
+      document.getElementById('product_text').innerHTML = options[i].text;
       found_product=1;
     } else {
       options[i].selected = false;
@@ -170,6 +131,20 @@ function populateTestcase(data) {
   if (found_testgroup == 0) {
     options[0].selected = true;
   }
+
+  var testgroups_text = "";
+  for (var i in testcase.testgroups) {
+    if (testcase.testgroups[i].name != '') {
+      testgroups_text = testgroups_text + testcase.testgroups[i].name + ', ';
+    }
+  }
+  if (testgroups_text != '') {
+    testgroups_text = testgroups_text.replace(/, $/g,'');
+    document.getElementById('testgroups_display').innerHTML = testgroups_text;
+  } else {
+    document.getElementById('testgroups_display').innerHTML = '<span class="errorHeading">This testcase does not belong to any testgroups that are currently enabled.</span>';
+  }
+
   changeTestgroup();
   var found_subgroup = 0;
   if (testcase.subgroups[0]) {
@@ -187,6 +162,20 @@ function populateTestcase(data) {
   if (found_subgroup == 0) {
     options[0].selected = true;
   }
+
+  var subgroups_text = "";
+  for (var i in testcase.subgroups) {
+    if (testcase.subgroups[i].name != '') {
+      subgroups_text = subgroups_text + testcase.subgroups[i].name + ', ';
+    }
+  }
+  if (subgroups_text != '') {
+    subgroups_text = subgroups_text.replace(/, $/g,'');
+    document.getElementById('subgroups_display').innerHTML = subgroups_text;
+  } else {
+    document.getElementById('subgroups_display').innerHTML = '<span class="errorHeading">This testcase does not belong to any subgroups that are currently enabled.</span>';
+  }
+
   var enabled_em = document.getElementById('editform_enabled')
   if (testcase.enabled == 1) {
     enabled_em.checked = true;
@@ -209,6 +198,8 @@ function populateTestcase(data) {
   document.getElementById('editform_testrunner_case_id').innerHTML = testcase.testrunner_case_id;
   document.getElementById('editform_testrunner_case_version').innerHTML = testcase.testrunner_case_version;
 
+  document.getElementById('editform_div').style.display = 'none';
+  document.getElementById('testcase_display_div').style.display = 'block';
   enableModeButtons();
 }
 
@@ -250,12 +241,16 @@ function switchToAdd() {
   document.getElementById('editform_submit').value = 'Add Testcase';
   document.getElementById('editform_mode').value = 'add';
   enableForm('edit_testcase_form');
+  document.getElementById('testcase_display_div').style.display = 'none';
+  document.getElementById('editform_div').style.display = 'block';
 }
 
 function switchToEdit() {
   document.getElementById('editform_submit').value = 'Submit Edits';
   document.getElementById('editform_mode').value = 'edit';
   enableForm('edit_testcase_form');
+  document.getElementById('testcase_display_div').style.display = 'none';
+  document.getElementById('editform_div').style.display = 'block';
 }
 
 </script>
@@ -271,7 +266,7 @@ function switchToEdit() {
     <div class="section-full">
       <div class="section-header">Existing Testcases</div>
 
-      <div class="section-content">
+      <div class="section-content" style="overflow:hidden;">
 
         <form id="select_testcase_and_mode_form" name="select_testcase_and_mode_form" method="post" action="manage_testcases.cgi">
 	<table border="0" cellspacing="0" cellpadding="5">
@@ -279,20 +274,32 @@ function switchToEdit() {
         <td>
 	[% INCLUDE form_widgets/select_testcase_id.tmpl name="testcase_id" placeholder=1 size=10 show_summary=1 onchange="loadTestcase();" %]
         </td>
-        <td>
-	<input id="add_testcase_button" name="add_testcase_button" class="manage" type="button" onClick="switchToAdd();" value="Add testcase"><br/><br/>
-	<input id="edit_testcase_button" name="edit_testcase_button" class="manage" type="button" onClick="switchToEdit();" value="Edit testcase" disabled><br/><br/>
-	<input id="clone_testcase_button" name="clone_testcase_button" class="manage" type="submit" onClick="confirm('Really clone this testcase?');" value="Clone testcase" disabled><br/><br/>
-	<input id="delete_testcase_button" name="delete_testcase_button" class="manage" type="submit" onClick="confirm('Really delete this testcase?');" value="Delete testcase" disabled>
-        </td>
+     </tr>
+     <tr>
+      <td>
+	   <input id="add_testcase_button" name="add_testcase_button" class="manage" type="button" onClick="switchToAdd();" value="Add new testcase">&nbsp;
+	   <input id="edit_testcase_button" name="edit_testcase_button" class="manage" type="button" onClick="switchToEdit();" value="Edit testcase" disabled>&nbsp;
+	   <input id="clone_testcase_button" name="clone_testcase_button" class="manage" type="submit" onClick="return confirm('Really clone this testcase?');" value="Clone testcase" disabled>&nbsp;
+	   <input id="delete_testcase_button" name="delete_testcase_button" class="manage" type="submit" onClick="return confirm('Really delete this testcase?');" value="Delete testcase" disabled>&nbsp;
+      </td>
+      </tr>
 	</table>
 	</form>
 
       </div> <!--end section-content-->
     </div> <!--end section-full-->
 
-    <div class="section-full">
-      <div id="testcase-title" class="section-header">Testcase info</div>
+    <div style="display: none;" id="testcase_display_div" class="section-full">     <div id="testcase-title" class="section-header">Testcase Info</div>
+      <div class="section-content">
+
+        <div class="testcase-content">
+          [% INCLUDE test/test.html.tmpl testcase=testcase show_config=1 show_edit=1 %]
+        </div>
+      </div>
+    </div>
+
+    <div style="display: none;" id="editform_div" class="section-full">
+      <div id="testcase-title" class="section-header">Testcase Info</div>
 
       <div class="section-content">
 

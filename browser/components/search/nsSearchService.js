@@ -2106,7 +2106,7 @@ SearchService.prototype = {
       this._sortedEngines.push(engine);
       addedEngines[engineName] = engine;
 #else
-    this._sortedEngines = new Array(this._engines.length);
+    this._sortedEngines = [];
     var engine;
 
     for each (engine in this._engines) {
