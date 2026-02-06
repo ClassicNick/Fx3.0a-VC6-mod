@@ -143,7 +143,9 @@ function isUsefulLine(aLine) {
  */
 const kIsUserInput = /(\s|["'=])user(\s|[>="'\/\\+]|$)/i;
 
+#ifdef MOZ_STORAGE
 var MozStorageStatementWrapper = null;
+#endif
 
 /**
  * Prefixed to all search debug output.
@@ -566,6 +568,21 @@ function setLocalizedPref(aPrefName, aValue) {
   prefB.setComplexValue(aPrefName, Ci.nsIPrefLocalizedString, pls);
 }
 
+#ifndef MOZ_STORAGE
+/**
+ * Wrapper for nsIPrefBranch::setBoolPref.
+ * @param aPrefName
+ *        The name of the pref to set.
+ * @param aValue
+ *        The value of the pref.
+ */
+function setBoolPref(aName, aVal) {
+  var prefB = Cc["@mozilla.org/preferences-service;1"].
+              getService(Ci.nsIPrefBranch);
+  prefB.setBoolPref(aName, aVal);
+}
+#endif
+
 /**
  * Wrapper for nsIPrefBranch::getBoolPref.
  * @param aPrefName
@@ -659,6 +676,7 @@ function QueryParameter(aName, aValue) {
   this.value = aValue;
 }
 
+#ifdef MOZ_STORAGE
 /**
  * Creates a mozStorage statement that can be used to access the database we
  * use to hold metadata.
@@ -673,6 +691,7 @@ function createStatement (dbconn, sql) {
   wrapper.initialize(stmt);
   return wrapper;
 }
+#endif
 
 /**
  * Creates an engineURL object, which holds the query URL and all parameters.
@@ -1146,6 +1165,13 @@ Engine.prototype = {
     // passed in URL), get one now
     if (!this._file)
       this._file = getSanitizedFile(this.name);
+      
+#ifndef MOZ_STORAGE
+	// Generate a unique ID for this engine. Use the name of the engine, URI
+    // encoded because pref names can only contain certain characters
+    this._pref = BROWSER_SEARCH_PREF + "engine." +
+                 encodeURIComponent(this.name) + ".";
+#endif
   },
 
   /**
@@ -1670,13 +1696,21 @@ Engine.prototype = {
   // nsISearchEngine
   get alias() {
     if (this._alias === null)
+#ifndef MOZ_STORAGE
+      this._alias = getLocalizedPref(this._pref + "alias", "");
+#else
       this._alias = engineMetadataService.getAttr(this, "alias");
+#endif
 
     return this._alias;
   },
   set alias(val) {
     this._alias = val;
-    engineMetadataService.setAttr(this, "alias", val);
+#ifndef MOZ_STORAGE
+    setLocalizedPref(this._pref + "alias", val);
+#else
+	engineMetadataService.setAttr(this, "alias", val);
+#endif
     notifyAction(this, SEARCH_ENGINE_CHANGED);
   },
 
@@ -1685,15 +1719,27 @@ Engine.prototype = {
   },
 
   get hidden() {
+#ifndef MOZ_STORAGE
+	if (this._hidden === null) {
+      // Initialize the hidden property from a pref
+      this._hidden = getBoolPref(this._pref + "hidden", false);
+    }
+#else
     if (this._hidden === null)
       this._hidden = engineMetadataService.getAttr(this, "hidden");
+#endif
     return this._hidden;
   },
   set hidden(val) {
     var value = !!val;
     if (value != this._hidden) {
+#ifndef MOZ_STORAGE
+	  setBoolPref(this._pref + "hidden", value);
+#endif
       this._hidden = value;
+#ifdef MOZ_STORAGE
       engineMetadataService.setAttr(this, "hidden", value);
+#endif
       notifyAction(this, SEARCH_ENGINE_CHANGED);
     }
   },
@@ -1721,12 +1767,14 @@ Engine.prototype = {
     return "";
   },
 
+#ifdef MOZ_STORAGE
   // The file that the plugin is loaded from is a unique identifier for it.  We
   // use this as the identifier to store data in the sqlite database
   get _id() {
     ENSURE_WARN(this._file, "No _file for id!", Cr.NS_ERROR_FAILURE);
     return this._file.path;
   },
+#endif
 
   get name() {
     return this._name;
@@ -1849,7 +1897,9 @@ SearchService.prototype = {
   _sortedEngines: [],
 
   _init: function() {
+#ifdef MOZ_STORAGE
     engineMetadataService.init();
+#endif
     this._addObservers();
 
     var fileLocator = Cc["@mozilla.org/file/directory_service;1"].
@@ -1862,7 +1912,9 @@ SearchService.prototype = {
       this._loadEngines(location);
     }
 
+#ifdef MOZ_STORAGE
     this._convertOldPrefs();
+#endif
 
     // Now that all engines are loaded, build the sorted engine list
     this._buildSortedEngineList();
@@ -1962,13 +2014,54 @@ SearchService.prototype = {
   },
 
   _saveSortedEngineList: function SRCH_SVC_saveSortedEngineList() {
+#ifndef MOZ_STORAGE
+    var preferences = Cc["@mozilla.org/preferences-service;1"].
+                      getService(Ci.nsIPrefService);
+    var orderBranch = preferences.getBranch(BROWSER_SEARCH_PREF + "order.");
+
+    // First, reset the old branch
+    for (var i = 1; orderBranch.prefHasUserValue(i); ++i)
+      orderBranch.clearUserPref(i);
+
+    // Now, create the new branch
+    var pls = Cc["@mozilla.org/pref-localizedstring;1"].
+              createInstance(Ci.nsIPrefLocalizedString);
+#endif
     var engines = this._getSortedEngines(false);
+#ifndef MOZ_STORAGE
+	for (var i = 0; i < engines.length; ++i) {
+      pls.data = engines[i].name;
+      orderBranch.setComplexValue(i+1, Ci.nsIPrefLocalizedString, pls);
+    }
+
+    // Save the pref file explicitly, since we're called at XPCOM shutdown
+    preferences.savePrefFile(null);
+#else
     for (var i = 0; i < engines.length; ++i)
       engineMetadataService.setAttr(engines[i], "order", i+1);
+#endif
   },
 
   _buildSortedEngineList: function SRCH_SVC_buildSortedEngineList() {
     var addedEngines = { };
+#ifndef MOZ_STORAGE
+    this._sortedEngines = [];
+    var engineName, engine;
+    var i = 0;
+
+    // Get sorted engines first
+    while (true) {
+      engineName = getLocalizedPref(BROWSER_SEARCH_PREF + "order." + (++i));
+      if (!engineName)
+        break;
+
+      engine = this._engines[engineName];
+      if (!engine || (engineName in addedEngines))
+        continue;
+
+      this._sortedEngines.push(engine);
+      addedEngines[engineName] = engine;
+#else
     this._sortedEngines = new Array(this._engines.length);
     var engine;
 
@@ -1978,14 +2071,22 @@ SearchService.prototype = {
         this._sortedEngines[orderNumber-1] = engine;
         addedEngines[engine.name] = engine;
       }
+#endif
     }
 
     // Array for the remaining engines, alphabetically sorted
     var alphaEngines = [];
-
+    
+#ifndef MOZ_STORAGE
+    for (engineName in this._engines) {
+      engine = this._engines[engineName];
+      if (!(engineName in addedEngines))
+        alphaEngines.push(this._engines[engineName]);
+#else
     for each (engine in this._engines) {
       if (!(engine.name in addedEngines))
         alphaEngines.push(this._engines[engine.name]);
+#endif
     }
     alphaEngines = alphaEngines.sort(function (a, b) {
                                        if (a.name < b.name)
@@ -1997,6 +2098,7 @@ SearchService.prototype = {
     this._sortedEngines = this._sortedEngines.concat(alphaEngines);
   },
 
+#ifdef MOZ_STORAGE
   /**
    *  On first startup, there are some default prefs that we need to migrate 
    *  into our sqlite database.  This function moves those values, along with
@@ -2035,6 +2137,7 @@ SearchService.prototype = {
       engineBranch.deleteBranch("");
     }
 },
+#endif
 
   /**
    * Converts a Sherlock file and its icon into the custom XML format used by
@@ -2336,6 +2439,7 @@ SearchService.prototype = {
   }
 };
 
+#ifdef MOZ_STORAGE
 var engineMetadataService = {
   // Keeps track of whether init() actually created a new table, or the table
   // already existed.
@@ -2419,6 +2523,7 @@ var engineMetadataService = {
     this.mDeleteData.reset();
   }
 }
+#endif
 
 const kClassID    = Components.ID("{7319788a-fe93-4db3-9f39-818cf08f4256}");
 const kClassName  = "Browser Search Service";
