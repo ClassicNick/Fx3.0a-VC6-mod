@@ -808,7 +808,7 @@ function EngineURL(aType, aMethod, aTemplate) {
     // Disable these for now, see bug 295018
     // case "file":
     // case "resource":
-      this.template = aTemplate;
+      this.template = templateURI.spec;
       break;
     default:
       ENSURE(false, "new EngineURL: template uses invalid scheme!",
