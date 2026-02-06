@@ -1815,7 +1815,11 @@ NS_METHOD nsWindow::Show(PRBool bState)
 #ifndef WINCE
             // If none of our windows is visible, allow taking of focus
             gWindowsVisible = false;
+#if !defined (_MSC_VER) || _MSC_VER >= 1200
             EnumWindows(gEnumWindowsProc, 0);
+#else
+			EnumWindows(((int (_stdcall*)(void)) gEnumWindowsProc), 0);
+#endif
             if (!gWindowsVisible)
             {
               ::ShowWindow(mWnd, SW_SHOWNORMAL);
