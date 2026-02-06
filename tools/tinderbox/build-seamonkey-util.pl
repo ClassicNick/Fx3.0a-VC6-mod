@@ -24,7 +24,7 @@ use Config;         # for $Config{sig_name} and $Config{sig_num}
 use File::Find ();
 use File::Copy;
 
-$::UtilsVersion = '$Revision: 1.320 $ ';
+$::UtilsVersion = '$Revision: 1.323 $ ';
 
 package TinderUtils;
 
@@ -390,6 +390,12 @@ sub SetupEnv {
 
     my $topsrcdir = "$Settings::BaseDir/$Settings::DirName/mozilla";
     $objdir = "$topsrcdir/${Settings::ObjDir}";
+
+    if (not -e $objdir) {
+        # Not checking errors here, because it's too early to set $status and the 
+        # build will fail anyway; failing loudly is better than failing silently.
+        run_shell_command("mkdir -p $objdir");
+    }
 
     $Settings::TopsrcdirFull = $topsrcdir;
     $Settings::TopsrcdirLast = $topsrcdir . ".last";
@@ -858,7 +864,40 @@ sub BuildIt {
             print "\n\nSleeping $sleep_time seconds ...\n";
             sleep $sleep_time;
         }
-        $start_time = time();
+        if ($Settings::TestOnlyTinderbox) {
+            print_log("Downloading $Settings::TinderboxServerURL\n"); 
+            my $tbox_server_info = `wget -qO - \'$Settings::TinderboxServerURL\'`;
+            if (0 != ($? >> 8)) {
+              die("FetchBuild failed: $?\n"); 
+            }
+            my $build_found = 0;
+            foreach my $line (split(/\n/,$tbox_server_info)) {
+                my @data = split('\|',$line);
+                my $buildname = $data[2];
+                my $status = $data[3];
+                if ($buildname eq $Settings::MatchBuildname){
+                    if ($status eq 'success') {
+                            $start_time = $data[4];
+                        if ($start_time =~ /\d+/) {
+                            $build_found = 1;
+                        }else{
+                            print_log("Error - downloaded start time is no good: $start_time \n");
+                        }
+                    }else{
+                        print_log("Found match: $buildname but status is not success: $status\n");
+                    }
+                }
+            }
+            unless ($start_time){
+                unless ($build_found) {
+                    print_log("Could not find $Settings::MatchBuildname at $Settings::TinderboxServerURL\n");
+                }
+                print_log("Fall back start_time to current time()\n");
+                $start_time = time();
+            }
+        } else {
+            $start_time = time();
+        }
 
         # Set this each time, since post-mozilla.pl can reset this.
         $ENV{MOZILLA_FIVE_HOME} = "$binary_dir";
@@ -1100,6 +1139,19 @@ sub BuildIt {
                 $build_status = 'success';
               }
             }
+          } elsif ($build_status ne 'busted' and $Settings::TestOnlyTinderbox) {
+            my $prebuilt = "$build_dir/$Settings::DownloadBuildDir";
+            my $status = 0;
+            if ( -f $prebuilt) {
+              $status = run_shell_command("rm -rf $prebuilt");
+              $build_status = 'busted' if not ($status);
+            }
+            $status = run_shell_command("mkdir -p $prebuilt");
+            $build_status = 'busted' if not ($status);
+            $status = run_shell_command("wget -O $prebuilt/build.tgz $Settings::DownloadBuildURL");
+            $build_status = 'busted' if not ($status);
+            $status = run_shell_command("tar -C $prebuilt -xvf $prebuilt/build.tgz");
+            $build_status = 'busted' if not ($status);
           }
 
           if ($build_status ne 'busted' and BinaryExists($full_binary_name)) {

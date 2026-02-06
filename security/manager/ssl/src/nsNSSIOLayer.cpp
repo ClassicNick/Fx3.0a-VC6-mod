@@ -1040,6 +1040,8 @@ isTLSIntoleranceError(PRInt32 err, PRBool withInitialCleartext)
     case SSL_ERROR_BAD_MAC_ALERT:
     case SSL_ERROR_BAD_MAC_READ:
     case SSL_ERROR_HANDSHAKE_FAILURE_ALERT:
+    case SSL_ERROR_HANDSHAKE_UNEXPECTED_ALERT:
+    case SSL_ERROR_CLIENT_KEY_EXCHANGE_FAILURE:
     case SSL_ERROR_ILLEGAL_PARAMETER_ALERT:
     case SSL_ERROR_NO_CYPHER_OVERLAP:
     case SSL_ERROR_BAD_SERVER:
@@ -1076,19 +1078,18 @@ nsSSLThread::checkHandshake(PRInt32 bytesTransfered, PRFileDesc* ssl_layer_fd, n
   PRBool handleHandshakeResultNow;
   socketInfo->GetHandshakePending(&handleHandshakeResultNow);
 
-  if (0 > bytesTransfered && handleHandshakeResultNow) {
+  if (0 > bytesTransfered) {
     PRInt32 err = PR_GetError();
-
-    // Let's see if there was an error set by the SSL libraries that we
-    // should tell the user about.
-    if (PR_WOULD_BLOCK_ERROR == err) {
-      // we are not yet ready to handle the result code from the 
-      // first transfer after the handshake
-      handleHandshakeResultNow = PR_FALSE;
-      socketInfo->SetHandshakeInProgress(PR_TRUE);
-    }
-    else {
-      PRBool wantRetry = PR_FALSE;
+    PRBool wantRetry = PR_FALSE;
+    
+    if (handleHandshakeResultNow) {
+      // Let's see if there was an error set by the SSL libraries that we
+      // should tell the user about.
+      if (PR_WOULD_BLOCK_ERROR == err) {
+        socketInfo->SetHandshakeInProgress(PR_TRUE);
+        return bytesTransfered;
+      }
+      
       PRBool withInitialCleartext = socketInfo->GetHasCleartextPhase();
 
       // When not using a proxy we'll see a connection reset error.
@@ -1104,10 +1105,10 @@ nsSSLThread::checkHandshake(PRInt32 bytesTransfered, PRFileDesc* ssl_layer_fd, n
           PR_SetError(PR_CONNECT_RESET_ERROR, 0);
         }
       }
-
-      if (!wantRetry && (IS_SSL_ERROR(err) || IS_SEC_ERROR(err))) {
-        nsHandleSSLError(socketInfo, err);
-      }
+    }
+    
+    if (!wantRetry && (IS_SSL_ERROR(err) || IS_SEC_ERROR(err))) {
+      nsHandleSSLError(socketInfo, err);
     }
   }
 

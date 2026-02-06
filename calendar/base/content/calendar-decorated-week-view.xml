@@ -38,6 +38,8 @@
    - ***** END LICENSE BLOCK *****
 -->
 
+<!-- Note that we depend on some helper functions in calendarUtils.js here-->
+
 <bindings id="calendar-specific-view-bindings"
     xmlns="http://www.mozilla.org/xbl"
     xmlns:html="http://www.w3.org/1999/xhtml"
@@ -56,33 +58,27 @@
 
         <implementation implements="calIDecoratedView">
 	    <constructor><![CDATA[
-                var pb2 = Components.classes
-                          ["@mozilla.org/preferences-service;1"]
-                          .getService(Components.interfaces.nsIPrefBranch2);
-
                 // get default start/end times from prefs and set on the
-                // view.  if we hit an error (eg because sunbird's pref
-                // infrastructure hasn't created the pref yet), the
-                // defaults will do
-                try {
-                    this.mStartMin = pb2.getIntPref(
-                                     "calendar.view.defaultstarthour") * 60;
-                    this.mEndMin = pb2.getIntPref(
-                                   "calendar.view.defaultendhour") * 60;
-                } catch (ex) {
-                }
+                // view.  
+                this.mStartMin = getPrefSafe(
+                                 "calendar.view.defaultstarthour", 8) * 60;
+                this.mEndMin = getPrefSafe(
+                               "calendar.view.defaultendhour", 17) * 60;
 
                 var viewElement = document.getAnonymousElementByAttribute(
                                   this, "anonid", "view-element");
                 viewElement.setStartEndMinutes(this.mStartMin,
                                                this.mEndMin);
 
-                try {
-                    this.mWeekStartOffset = pb2.getIntPref("calendar.week.start");
-                } catch (ex) {}
+                this.mWeekStartOffset = getPrefSafe("calendar.week.start", 0);
 
                 // add a preference observer to monitor changes
+                var pb2 = Components.classes
+                          ["@mozilla.org/preferences-service;1"]
+                          .getService(Components.interfaces.nsIPrefBranch2);
                 pb2.addObserver("calendar.", this.mPrefObserver, false);
+
+                this.updateDaysOffPrefs();
                 return;
             ]]></constructor>
 
@@ -119,6 +115,22 @@
                            return;
                        }
 
+                       this.calView.updateDaysOffPrefs();
+                       this.calView.goToDay(this.calView.selectedDay);
+                       break;
+
+                   case "calendar.week.start":
+                       this.calView.mWeekStartOffset = subj.getIntPref(pref);
+                       viewElem = document.getAnonymousElementByAttribute(
+                                  this.calView, "anonid", "view-element");
+                       viewElem.weekStartOffset = subj.getIntPref(pref);
+
+                       if (!this.calView.startDay || !this.calView.endDay) {
+                           // Don't refresh if we're not initialized
+                           return;
+                       }
+
+                       // Refresh the view so the settings take effect
                        this.calView.goToDay(this.calView.selectedDay);
                        break;
 
@@ -128,41 +140,16 @@
                                       this.calView, "anonid", "view-element");
                        viewElem.setStartEndMinutes(this.calView.mStartMin,
                                                    this.calView.mEndMin);
-		       break;
+                       break;
 
-                   case "calendar.week.d0sundaysoff":
-                   case "calendar.week.d1mondaysoff":
-                   case "calendar.week.d2tuesdaysoff":
-                   case "calendar.week.d3wednesdaysoff":
-                   case "calendar.week.d4thursdaysoff":
-                   case "calendar.week.d5fridaysoff":
-                   case "calendar.week.d6saturdaysoff":
-                       if (this.calView.mWorkdaysOnly) {
-                           this.calView.goToDay(this.calView.selectedDay);
-                       }
-                       break;
-                   case "calendar.week.start":
-                       this.calView.goToDay(this.calView.selectedDay);
-                       break;
                    case "calendar.view.defaultendhour":
                        this.calView.mEndMin = subj.getIntPref(pref) * 60;
                        viewElem = document.getAnonymousElementByAttribute(
                                   this.calView, "anonid", "view-element");
                        viewElem.setStartEndMinutes(this.calView.mStartMin, 
                                                    this.calView.mEndMin);
-		       break;
-
-                   case "calendar.week.start":
-                       this.calView.mWeekStartOffset = subj.getIntPref(pref);
-
-                       if (!this.calView.startDay || !this.calView.endDay) {
-                           // Don't refresh if we're not initialized
-                           return;
-                       }
-
-                       // Refresh the view.  goToDay will do the calculation
-                       this.calView.goToDay(this.calView.selectedDay);
                        break;
+
                    case "calendar.timezone.local":
                        var viewElem = document.getAnonymousElementByAttribute(
                                       this.calView, "anonid", "view-element");
@@ -282,6 +269,27 @@
                         }
                     }
                     viewElement.setDateList(newDateList.length, newDateList);
+                ]]></body>
+            </method>
+
+            <method name="updateDaysOffPrefs">
+                <body><![CDATA[
+                    var weekBranch = prefService.getBranch("calendar.week.");
+                    var prefNames = ["d0sundaysoff", "d1mondaysoff", "d2tuesdaysoff",
+                                     "d3wednesdaysoff", "d4thursdaysoff",
+                                     "d5fridaysoff", "d6saturdaysoff"];
+                    var defaults = [true, false, false, false, false, false, true];
+                    var daysOff = new Array();
+                    const weekPrefix = "calendar.week.";
+                    for (var i in prefNames) {
+                         if (getPrefSafe(weekPrefix+prefNames[i], defaults[i])) {
+                                daysOff.push(Number(i));
+                         }
+                    }
+                    var viewElem = document.getAnonymousElementByAttribute(
+                                            this, "anonid", "view-element");
+
+                    viewElem.daysOffArray = daysOff;
                 ]]></body>
             </method>
         </implementation>

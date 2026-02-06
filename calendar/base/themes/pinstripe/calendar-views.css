@@ -45,6 +45,11 @@ calendar-header-container {
   border-top: 1px solid #3F7D91;
 }
 
+calendar-event-column[weekend="true"],
+calendar-header-container[weekend="true"] {
+  background: #FFF9E7;
+}
+
 calendar-event-column[today="true"],
 calendar-header-container[today="true"] {
   background: #dfeaf4;
@@ -279,4 +284,12 @@ calendar-month-view-column-header {
 calendar-editable-item[selected="true"] .calendar-event-box-container { 
   color: #000000 !important;
   background: #ffdb67 !important;
+}
+
+box[dropbox="true"] { 
+  background: blue !important;
+  height: 1.2em;
+  margin: 1px;
+  padding: 0px 1px 0px 1px;
+  opacity: 0.5;
 }

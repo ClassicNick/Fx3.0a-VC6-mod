@@ -207,10 +207,11 @@ nsSVGClipPathFrame::ClipPaint(nsISVGRendererCanvas* canvas,
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsISVGChildFrame* SVGFrame=nsnull;
-    kid->QueryInterface(NS_GET_IID(nsISVGChildFrame),(void**)&SVGFrame);
+    nsISVGChildFrame* SVGFrame = nsnull;
+    CallQueryInterface(kid, &SVGFrame);
     if (SVGFrame) {
-      SVGFrame->PaintSVG(canvas);
+      SVGFrame->NotifyCanvasTMChanged(PR_TRUE);
+      SVGFrame->PaintSVG(canvas, nsnull);
     }
   }
 
@@ -273,20 +274,21 @@ NS_IMETHODIMP
 nsSVGClipPathFrame::IsTrivial(PRBool *aTrivial)
 {
   *aTrivial = PR_TRUE;
-  PRBool foundOne = PR_FALSE;
+  PRBool foundChild = PR_FALSE;
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsISVGChildFrame* SVGFrame = nsnull;
-    kid->QueryInterface(NS_GET_IID(nsISVGChildFrame),(void**)&SVGFrame);
-    if (SVGFrame) {
-      nsIFrame *frame = nsnull;
-      CallQueryInterface(SVGFrame, &frame);
-      if (foundOne || frame->GetContent()->Tag() == nsSVGAtoms::g) {
+    nsISVGChildFrame *svgChild = nsnull;
+    CallQueryInterface(kid, &svgChild);
+
+    if (svgChild) {
+      // We consider a non-trivial clipPath to be one containing
+      // either more than one svg child and/or a svg container
+      if (foundChild || svgChild->IsDisplayContainer()) {
         *aTrivial = PR_FALSE;
         return NS_OK;
       }
-      foundOne = PR_TRUE;
+      foundChild = PR_TRUE;
     }
   }
 

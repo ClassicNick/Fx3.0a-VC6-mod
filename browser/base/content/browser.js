@@ -4260,8 +4260,9 @@ var gHomeButton = {
 
     // use this if we can't find the pref
     if (!url) {
-      var navigatorRegionBundle = document.getElementById("bundle_browser_region");
-      url = navigatorRegionBundle.getString("homePageDefault");
+      var SBS = Cc["@mozilla.org/intl/stringbundle;1"].getService(Ci.nsIStringBundleService);
+      var configBundle = SBS.getBundle("resource:/browserconfig.properties");
+      url = configBundle.getString(this.prefDomain);
     }
 
     return url;
@@ -4385,7 +4386,7 @@ nsContextMenu.prototype = {
             this.setItemAttr( "context-setDesktopBackground", "disabled", this.disableSetDesktopBackground());
 
         // View Image depends on whether an image was clicked on.
-        this.showItem( "context-viewimage", this.onImage  && !this.onStandaloneImage );
+        this.showItem( "context-viewimage", this.onImage  && ( !this.onStandaloneImage || this.inFrame ) );
 
         // View background image depends on whether there is one.
         this.showItem( "context-viewbgimage", !( this.inDirList || this.onImage || this.isContentSelected || this.onLink || this.onTextInput ) );
@@ -6673,10 +6674,21 @@ window.controllers.appendController(BrowserController);
  * This object is for augmenting tabs
  */
 var AugmentTabs = {
+
+  tabContextMenu: null,
+  undoCloseTabMenu: null,
+
   /**
    * Called in delayedStartup
    */
   init: function at_init() {
+    // get tab context menu
+    var tabbrowser = getBrowser();
+    this.tabContextMenu = document.getAnonymousElementByAttribute(tabbrowser, "anonid", "tabContextMenu");
+
+    // listen for tab-context menu showing
+    this.tabContextMenu.addEventListener("popupshowing", this.onTabContextMenuLoad, false);
+
     // add the tab context menu for undo-close-tab (bz254021)
     var ssEnabled = true;
     var prefBranch = Cc["@mozilla.org/preferences-service;1"].
@@ -6693,10 +6705,6 @@ var AugmentTabs = {
    * Add undo-close-tab to tab context menu
    */
   _addUndoCloseTabContextMenu: function at_addUndoCloseTabContextMenu() {
-    // get tab context menu
-    var tabbrowser = getBrowser();
-    var tabMenu = document.getAnonymousElementByAttribute(tabbrowser,"anonid","tabContextMenu");
-
     // get strings 
     var menuLabel = gNavigatorBundle.getString("tabContext.undoCloseTab");
     var menuAccessKey = gNavigatorBundle.getString("tabContext.undoCloseTabAccessKey");
@@ -6708,8 +6716,8 @@ var AugmentTabs = {
     undoCloseTabItem.addEventListener("command", this.undoCloseTab, false);
 
     // add to tab context menu
-    var insertPos = tabMenu.lastChild.previousSibling;
-    tabMenu.insertBefore(undoCloseTabItem, insertPos);
+    var insertPos = this.tabContextMenu.lastChild.previousSibling;
+    this.undoCloseTabMenu = this.tabContextMenu.insertBefore(undoCloseTabItem, insertPos);
   },
 
   /**
@@ -6720,5 +6728,14 @@ var AugmentTabs = {
     var ss = Cc["@mozilla.org/browser/sessionstore;1"].
              getService(Ci.nsISessionStore);
     ss.undoCloseTab(window, 0);
+  },
+
+  onTabContextMenuLoad: function at_onTabContextMenuLoad() {
+    if (AugmentTabs.undoCloseTabMenu) {
+      // only add the menu of there are tabs to restore
+      var ss = Cc["@mozilla.org/browser/sessionstore;1"].
+               getService(Ci.nsISessionStore);
+      AugmentTabs.undoCloseTabMenu.hidden = !(ss.getClosedTabCount(window) > 0);
+    }
   }
 };

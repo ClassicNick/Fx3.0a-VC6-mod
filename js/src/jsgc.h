@@ -131,31 +131,17 @@ js_AddRootRT(JSRuntime *rt, void *rp, const char *name);
 extern JSBool
 js_RemoveRoot(JSRuntime *rt, void *rp);
 
-/*
- * Table for tracking objects of extended classes that have non-null close
- * hooks, and need the GC to perform two-phase finalization.  The array grows
- * by powers of two starting from length GC_CLOSE_TABLE_MIN, but switching to
- * linear growth when length reaches GC_CLOSE_TABLE_LINEAR.  The count member
- * counts valid slots in array, so the current allocated length is given by
- * GC_CLOSE_TABLE_LENGTH(count).
- */
-typedef struct JSGCCloseTable {
-    JSObject    **array;
-    uint32      count;
-} JSGCCloseTable;
+/* Table of pointers with count valid members. */
+typedef struct JSPtrTable {
+    size_t      count;
+    void        **array;
+} JSPtrTable;
+
+extern JSBool
+js_RegisterCloseableIterator(JSContext *cx, JSObject *obj);
 
 extern JSBool
 js_AddObjectToCloseTable(JSContext *cx, JSObject *obj);
-
-#define GC_CLOSE_TABLE_MIN_LOG2     3
-#define GC_CLOSE_TABLE_MIN          JS_BIT(GC_CLOSE_TABLE_MIN_LOG2)
-#define GC_CLOSE_TABLE_LINEAR_LOG2  10
-#define GC_CLOSE_TABLE_LINEAR       JS_BIT(GC_CLOSE_TABLE_LINEAR_LOG2)
-
-#define GC_CLOSE_TABLE_LENGTH(count)                                          \
-    (((count) < GC_CLOSE_TABLE_LINEAR)                                        \
-     ? JS_MAX(JS_BIT(JS_CeilingLog2(count)), GC_CLOSE_TABLE_MIN)              \
-     : JS_ROUNDUP(count, GC_CLOSE_TABLE_LINEAR))
 
 /*
  * The private JSGCThing struct, which describes a gcFreeList element.
@@ -239,8 +225,7 @@ extern void
 js_ForceGC(JSContext *cx, uintN gcflags);
 
 /*
- * Return false when GC was canceled or true when the full GC cycle was
- * performed which may or may not free things.
+ * Return false when the branch callback cancels GC and true otherwise.
  */
 extern JSBool
 js_GC(JSContext *cx, uintN gcflags);

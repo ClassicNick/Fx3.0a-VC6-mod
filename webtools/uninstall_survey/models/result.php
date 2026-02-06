@@ -2,16 +2,21 @@
 class Result extends AppModel {
     var $name = 'Result';
 
-    var $belongsTo = array('Application', 'Intention');
+    var $belongsTo = array('Application');
 
-    var $hasAndBelongsToMany = array('Issue' =>
-                                   array('className' => 'Issue',
-                                         'joinTable' => 'issues_results',
-                                         'foreignKey'=> 'issue_id',
-                                         'assocationForeignKey'=>'result_id',
+    var $hasAndBelongsToMany = array('Choice' =>
+                                   array('className' => 'Choice',
                                          'uniq'      => true
                                         )
                                );
+
+    var $Sanitize;
+
+    function Result()
+    {
+        parent::appModel();
+        $this->Sanitize = new Sanitize();
+    }
 
     /**
      * Count's all the comments, according to the parameters.
@@ -24,14 +29,14 @@ class Result extends AppModel {
         $params = $this->cleanArrayForSql($params);
 
         // We only want to see rows with comments
-        $_conditions = array("comments NOT LIKE ''");
+        $_conditions = "comments NOT LIKE ''";
 
         if (!empty($params['start_date'])) {
             $_timestamp = strtotime($params['start_date']);
 
             if (!($_timestamp == -1) || $_timestamp == false) {
                 $_date = date('Y-m-d H:i:s', $_timestamp);//sql format
-                array_push($_conditions, "`created` >= '{$_date}'");
+                $_conditions .= " AND `created` >= '{$_date}'";
             }
         }
         if (!empty($params['end_date'])) {
@@ -39,41 +44,50 @@ class Result extends AppModel {
 
             if (!($_timestamp == -1) || $_timestamp == false) {
                 $_date = date('Y-m-d 23:59:59', $_timestamp);//sql format
-                array_push($_conditions, "`created` <= '{$_date}'");
+                $_conditions .= " AND `created` <= '{$_date}'";
             }
         }
 
-        if (!empty($params['product'])) {
-            // product's come in looking like:
-            //      Mozilla Firefox 1.5.0.1
-            $_exp = explode(' ',urldecode($params['product']));
+        $_application_id = $this->Application->getIdFromUrl($params);
+        $_conditions .= " AND `results`.`application_id`={$_application_id}";
 
-            if(count($_exp) == 3) {
-                $_product = $_exp[0].' '.$_exp[1];
-
-                $_version = $_exp[2];
-
-                /* Note that 'Application' is not the actual name of the table!  You can
-                 * thank cake for that.*/
-                array_push($_conditions, "`Application`.`name` LIKE '{$_product}'");
-                array_push($_conditions, "`Application`.`version` LIKE '{$_version}'");
+        // Next determine our collection
+            if (!empty($params['collection'])) {
+                $_collection_id = $this->Choice->Collection->findByDescription($params['collection']);
+                $clear = true;
+                foreach ($_collection_id['Application'] as $var => $val) {
+                    if ($_application_id == $val['id']) {
+                        $clear = false;
+                    }
+                }
+                if ($clear) {
+                    $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
+                    $_collection_id['Collection']['id'] = $_id[0][0]['max'];
+                }
             } else {
-                // defaults I guess?
-                array_push($_conditions, "`Application`.`name` LIKE 'Mozilla Firefox'");
-                array_push($_conditions, "`Application`.`version` LIKE '1.5'");
+                $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
+                $_collection_id['Collection']['id'] = $_id[0][0]['max'];
             }
+        $_conditions .= " AND `collections`.`id`={$_collection_id['Collection']['id']}";
 
-        } else {
-            // I'm providing a default here, because otherwise all results will be
-            // returned (across all applications) and that is not desired
-            array_push($_conditions, "`Application`.`name` LIKE 'Mozilla Firefox'");
-            array_push($_conditions, "`Application`.`version` LIKE '1.5'");
-        }
+        $_query = "
+            SELECT 
+                COUNT(*) as count 
+            FROM 
+                results 
+            JOIN choices_results ON choices_results.result_id = results.id
+            JOIN choices ON choices_results.choice_id = choices.id
+            JOIN choices_collections ON choices_collections.choice_id = choices.id
+            JOIN collections ON collections.id = choices_collections.collection_id
+            
+            WHERE 
+             {$_conditions} 
+        ";
 
         // Do the actual query
-        $comments = $this->findCount($_conditions);
+        $comments = $this->query($_query);
 
-        return $comments;
+        return $comments[0][0]['count'];
     }
 
     /**
@@ -88,6 +102,8 @@ class Result extends AppModel {
     {
         $params = $this->cleanArrayForSql($params);
 
+        $_application_id = $this->Application->getIdFromUrl($params);
+
         // We only want to see rows with comments
         $_conditions = array("comments NOT LIKE ''");
 
@@ -108,50 +124,75 @@ class Result extends AppModel {
             }
         }
 
-        if (!empty($params['product'])) {
-            // product's come in looking like:
-            //      Mozilla Firefox 1.5.0.1
-            $_exp = explode(' ',urldecode($params['product']));
+        $_application_id = $this->Application->getIdFromUrl($params);
+        array_push($_conditions, "`Result`.`application_id`={$_application_id}");
 
-            if(count($_exp) == 3) {
-                $_product = $_exp[0].' '.$_exp[1];
-
-                $_version = $_exp[2];
-
-                /* Note that 'Application' is not the actual name of the table!  You can
-                 * thank cake for that.*/
-                array_push($_conditions, "`Application`.`name` LIKE '{$_product}'");
-                array_push($_conditions, "`Application`.`version` LIKE '{$_version}'");
-            } else {
-                // defaults I guess?
-                array_push($_conditions, "`Application`.`name` LIKE 'Mozilla Firefox'");
-                array_push($_conditions, "`Application`.`version` LIKE '1.5'");
+        // Next determine our collection
+        if (!empty($params['collection'])) {
+            $_collection_id = $this->Choice->Collection->findByDescription($params['collection']);
+            $clear = true;
+            foreach ($_collection_id['Application'] as $var => $val) {
+                if ($_application_id == $val['id']) {
+                    $clear = false;
+                }
             }
-
+            if ($clear) {
+                $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
+                $_collection_id['Collection']['id'] = $_id[0][0]['max'];
+            }
         } else {
-            // I'm providing a default here, because otherwise all results will be
-            // returned (across all applications) and that is not desired
-            array_push($_conditions, "`Application`.`name` LIKE 'Mozilla Firefox'");
-            array_push($_conditions, "`Application`.`version` LIKE '1.5'");
+            $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
+            $_collection_id['Collection']['id'] = $_id[0][0]['max'];
         }
 
-        // Save ourselves quite a few joins
-        $this->unBindModel(array('hasAndBelongsToMany' => array('Issue')));
-        $comments = $this->findAll($_conditions, null, $pagination['order'], $pagination['show'], $pagination['page']);
+echo '<h1>TODOTHAT</h1>';
+        $_query = "
+            SELECT `Result`.`id`, 
+             `Result`.`comments`, `Result`.`created`
+            
+            FROM `results` AS `Result`
+            
+            JOIN choices_results ON choices_results.result_id = Result.id
+            JOIN choices ON choices_results.choice_id = choices.id
+            JOIN choices_collections ON choices_collections.choice_id = choices.id
+            JOIN collections ON collections.id = choices_collections.collection_id
+            
+            
+            WHERE ( comments NOT LIKE
+            '') 
+            AND collection_id={$_collection_id['Collection']['id']}
+            
+            AND Result.application_id={$_application_id}
+            
+            ORDER BY `Result`.`created` DESC
+            LIMIT 10
+        ";
+        $comments = $this->query($_query);
+        //$comments = $this->findAll($_conditions, null, $pagination['order'], $pagination['show'], $pagination['page']);
 
         if ($privacy) {
-            // Pull out all the email addresses and phone numbers
+            // Pull out all the email addresses and phone numbers.  The original
+            // lines are below, but commented out for the sake of speed.
+            // preg_replace() will replace a single level of an array according to a
+            // pattern.  This behavior doesn't seem to be documented (at this time), so I'm not sure
+            // if they are going to "fix" it later.  If they do, you can replace the
+            // current code with the commented ones, but realize it will take about
+            // twice as long.
             foreach ($comments as $var => $val) {
 
                 // Handle foo@bar.com
                 $_email_regex = '/\ ?(.+)?@(.+)?\.(.+)?\ ?/';
-                $comments[$var]['Result']['comments'] = preg_replace($_email_regex,'$1@****.$3',$comments[$var]['Result']['comments']);
-                $comments[$var]['Result']['intention_text'] = preg_replace($_email_regex,'$1@****.$3',$comments[$var]['Result']['intention_text']);
+                $comments[$var]['Result'] = preg_replace($_email_regex,'$1@****.$3',$comments[$var]['Result']);
+
+                //$comments[$var]['Result']['comments'] = preg_replace($_email_regex,'$1@****.$3',$comments[$var]['Result']['comments']);
+                //$comments[$var]['Result']['intention_text'] = preg_replace($_email_regex,'$1@****.$3',$comments[$var]['Result']['intention_text']);
 
                 // Handle xxx-xxx-xxxx
                 $_phone_regex = '/([0-9]{3})[ .-]?[0-9]{4}/';
-                $comments[$var]['Result']['comments'] = preg_replace($_phone_regex,'$1-****',$comments[$var]['Result']['comments']);
-                $comments[$var]['Result']['intention_text'] = preg_replace($_phone_regex,'$1-****',$comments[$var]['Result']['intention_text']);
+                $comments[$var]['Result'] = preg_replace($_phone_regex,'$1-****',$comments[$var]['Result']);
+
+                //$comments[$var]['Result']['comments'] = preg_replace($_phone_regex,'$1-****',$comments[$var]['Result']['comments']);
+                //$comments[$var]['Result']['intention_text'] = preg_replace($_phone_regex,'$1-****',$comments[$var]['Result']['intention_text']);
             }
         }
 
@@ -220,14 +261,14 @@ class Result extends AppModel {
                 $_query .= " AND `applications`.`version` LIKE '{$_version}'";
             } else {
                 // defaults I guess?
-                $_query .= " AND `applications`.`name` LIKE 'Mozilla Firefox'";
-                $_query .= " AND `applications`.`version` LIKE '1.5'";
+                $_query .= " AND `applications`.`name` LIKE '".DEFAULT_APP_NAME."'";
+                $_query .= " AND `applications`.`version` LIKE '".DEFAULT_APP_VERSION."'";
             }
         } else {
             // I'm providing a default here, because otherwise all results will be
             // returned (across all applications) and that is not desired
-            $_query .= " AND `applications`.`name` LIKE 'Mozilla Firefox'";
-            $_query .= " AND `applications`.`version` LIKE '1.5'";
+            $_query .= " AND `applications`.`name` LIKE '".DEFAULT_APP_NAME."'";
+            $_query .= " AND `applications`.`version` LIKE '".DEFAULT_APP_VERSION."'";
         }
 
         $_query .= " ORDER BY `results`.`created` ASC";
@@ -236,7 +277,6 @@ class Result extends AppModel {
 
         // Since we're exporting to a CSV, we need to flatten the results into a 2
         // dimensional table array
-        $newdata = array();
 
         foreach ($res as $result) {
 
@@ -244,18 +284,28 @@ class Result extends AppModel {
         }
 
         if ($privacy) {
-            // Pull out all the email addresses and phone numbers
+            // Pull out all the email addresses and phone numbers.  The original
+            // lines are below, but commented out for the sake of speed.
+            // preg_replace() will replace a single level of an array according to a
+            // pattern.  This behavior doesn't seem to be documented (at this time), so I'm not sure
+            // if they are going to "fix" it later.  If they do, you can replace the
+            // current code with the commented ones, but realize it will take about
+            // twice as long.
             foreach ($newdata as $var => $val) {
 
                 // Handle foo@bar.com
                 $_email_regex = '/\ ?(.+)?@(.+)?\.(.+)?\ ?/';
-                $newdata[$var]['comments'] = preg_replace($_email_regex,'$1@****.$3',$newdata[$var]['comments']);
-                $newdata[$var]['intention_other'] = preg_replace($_email_regex,'$1@****.$3',$newdata[$var]['intention_other']);
+                $newdata[$var] = preg_replace($_email_regex,'$1@****.$3',$newdata[$var]);
+
+                //$newdata[$var]['comments'] = preg_replace($_email_regex,'$1@****.$3',$newdata[$var]['comments']);
+                //$newdata[$var]['intention_other'] = preg_replace($_email_regex,'$1@****.$3',$newdata[$var]['intention_other']);
 
                 // Handle xxx-xxx-xxxx
                 $_phone_regex = '/([0-9]{3})[ .-]?[0-9]{4}/';
-                $newdata[$var]['comments'] = preg_replace($_phone_regex,'$1-****',$newdata[$var]['comments']);
-                $newdata[$var]['intention_other'] = preg_replace($_phone_regex,'$1-****',$newdata[$var]['intention_other']);
+                $newdata[$var] = preg_replace($_phone_regex,'$1-****',$newdata[$var]);
+
+                //$newdata[$var]['comments'] = preg_replace($_phone_regex,'$1-****',$newdata[$var]['comments']);
+                //$newdata[$var]['intention_other'] = preg_replace($_phone_regex,'$1-****',$newdata[$var]['intention_other']);
             }
         }
 
@@ -281,7 +331,7 @@ class Result extends AppModel {
 
         /* Below is the original query for this function.  It was beautiful and
          * brought back just what we needed.  However, it took 5.5s to run with 43000
-         * results, and since that number is just going up, it won't due to have a
+         * results, and since that number is just going up, it won't do to have a
          * query take that long (especially one on the front page).
 
             //It would be nice to drop something like this in the SELECT:
@@ -307,51 +357,45 @@ class Result extends AppModel {
         */
 
         $_conditions = "1=1";
+
         // Firstly, determine our application
-        if (!empty($params['product'])) {
-
-            // product's come in looking like:
-            //      Mozilla Firefox 1.5.0.1
-            $_exp = explode(' ',urldecode($params['product']));
-            
-            if(count($_exp) == 3) {
-                $_product = $_exp[0].' '.$_exp[1];
-
-                $_version = $_exp[2];
-
-                $_conditions .= " AND `Application`.`name` LIKE '{$_product}'";
-                $_conditions .= " AND `Application`.`version` LIKE '{$_version}'";
-            } else {
-                // defaults I guess?
-                $_conditions .= " AND `Application`.`name` LIKE 'Mozilla Firefox'";
-                $_conditions .= " AND `Application`.`version` LIKE '1.5'";
+        $_application_id = $this->Application->getIdFromUrl($params);
+        $_conditions .= " AND `Result`.`application_id`={$_application_id}";
+        
+        // Next determine our collection
+        if (!empty($params['collection'])) {
+            $_collection_id = $this->Choice->Collection->findByDescription($params['collection']);
+            $clear = true;
+            foreach ($_collection_id['Application'] as $var => $val) {
+                if ($_application_id == $val['id']) {
+                    $clear = false;
+                }
+            }
+            if ($clear) {
+                $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
+                $_collection_id['Collection']['id'] = $_id[0][0]['max'];
             }
         } else {
-            // I'm providing a default here, because otherwise all results will be
-            // returned (across all applications) and that is not desired
-            $_conditions .= " AND `Application`.`name` LIKE 'Mozilla Firefox'";
-            $_conditions .= " AND `Application`.`version` LIKE '1.5'";
+            $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
+            $_collection_id['Collection']['id'] = $_id[0][0]['max'];
         }
-
-        // Save ourselves some joins
-        $this->Application->unBindModel(array('hasAndBelongsToMany' => array('Intention','Issue')));
-
-        $_application_id = $this->Application->findAll($_conditions, 'Application.id');
 
         // The second query will retrieve all the issues that are related to our
         // application.
         $_query = "
             SELECT 
-                issues.description, issues.id
+                choices.description, choices.id
             FROM
-                applications_issues, issues
-            WHERE
-                applications_issues.application_id = {$_application_id[0]['Application']['id']}
-            AND
-                issues.id = applications_issues.issue_id
-            ORDER BY 
-                issues.description DESC
-        ";
+                choices
+            JOIN choices_collections ON choices_collections.choice_id = choices.id
+            JOIN collections ON collections.id = choices_collections.collection_id
+            JOIN applications_collections ON applications_collections.collection_id = collections.id
+            JOIN applications ON applications.id = applications_collections.application_id
+            AND applications.id = {$_application_id}
+            AND collections.id = {$_collection_id['Collection']['id']}
+            AND choices.type = 'issue'
+            ORDER BY choices.pos ASC
+                ";
 
         $_issues = $this->query($_query);
 
@@ -363,24 +407,27 @@ class Result extends AppModel {
             // Cake has a pretty specific way it stores data, and this is consistent
             // with the old query.  Here we start our results array so it's holding the
             // descriptions and a zeroed total
-            $_results[$val['issues']['id']]['issues']['description'] = $val['issues']['description'];
-            $_results[$val['issues']['id']][0]['total'] = 0; // default to nothing - this will get filled in later
+            $_results[$val['choices']['id']]['choices']['description'] = $val['choices']['description'];
+            $_results[$val['choices']['id']][0]['total'] = 0; // default to nothing - this will get filled in later
 
             // Since we're already walking through this loop, we might as well build
             // up a query string to get our totals
-            $_issue_ids .= empty($_issue_ids) ? $val['issues']['id'] : ', '.$val['issues']['id'];
+            $_issue_ids .= empty($_issue_ids) ? $val['choices']['id'] : ',
+            '.$val['choices']['id'];
         }
 
         $_query = "
             SELECT 
-                issues_results.issue_id, count(id) 
+                choices_results.choice_id, count(results.id) 
             AS 
                 total 
             FROM 
-                issues_results 
-            JOIN results ON results.id=issues_results.result_id 
-            AND results.application_id={$_application_id[0]['Application']['id']} 
-            AND issues_results.issue_id in ({$_issue_ids})
+                results 
+            JOIN choices_results ON results.id = choices_results.result_id
+            WHERE 
+                results.application_id = {$_application_id}
+            AND 
+                choices_results.choice_id in ({$_issue_ids})
         ";
 
         if (!empty($params['start_date'])) {
@@ -401,13 +448,13 @@ class Result extends AppModel {
             }
         }
 
-        $_query .= "GROUP BY issue_id";
+        $_query .= " GROUP BY choices_results.choice_id";
 
         $ret = $this->query($_query);
 
         foreach ($ret as $var => $val) {
             // fill in the totals we retrieved
-            $_results[$val['issues_results']['issue_id']][0]['total'] = $val[0]['total'];
+            $_results[$val['choices_results']['choice_id']][0]['total'] = $val[0]['total'];
         }
         
         return $_results;
@@ -427,10 +474,10 @@ class Result extends AppModel {
         // Apparently these are all escaped for us by cake.  It still makes me
         // nervous.
         $_application_id  = $data['Application']['id'];
-        $_intention_id    = $data['Result']['intention_id'];
+        $_intention_id    = $data['Intention']['id']; // Doesn't quite conform to cake standards
         $_comments        = $data['Result']['comments'];
-        $_issues_text     = $data['issues_results']['other'];
-        $_intention_text  = $data['Result']['intention_text'];
+        $_issues_text     = $this->Sanitize->Sql($data['Issue']['text']);
+        $_intention_text  = $this->Sanitize->Sql($data['Intention']['text']);
         // Joined for legacy reasons
             $_user_agent  = mysql_real_escape_string("{$data['ua'][0]} {$data['lang'][0]}");
         $_http_user_agent = mysql_real_escape_string($_SERVER['HTTP_USER_AGENT']);
@@ -443,16 +490,20 @@ class Result extends AppModel {
         // Special cases for the "other" fields.  If their corresponding option isn't
         // set, we don't want the field values.
             // issue is determined below
-            $_issue_array     = $this->Issue->findByDescription('other');
-            $_intention_array = $this->Intention->findByDescription('other');
-            
-            if ($_intention_id != $_intention_array['Intention']['id']) {
+            $this->Choice->unBindModel(array('hasAndBelongsToMany' => array('Result')));
+            $this->Choice->unBindModel(array('hasAndBelongsToMany' => array('Collection')));
+            //$_issue_array     = $this->Issue->findByDescription('other');
+            $_conditions = "description LIKE 'Other' AND type='intention'";
+            $_intention_array = $this->Choice->findAll($_conditions);
+
+            $_conditions = "description LIKE 'Other' AND type='issue'";
+            $_issue_array = $this->Choice->findAll($_conditions);
+
+            if ($_intention_id != $_intention_array[0]['Choice']['id']) {
                 $_intention_text = '';
             }
 
         $this->set('application_id', $_application_id);
-        $this->set('intention_id', $_intention_id);
-        $this->set('intention_text', $_intention_text);
         $this->set('comments', $_comments);
         $this->set('useragent', $_user_agent);
         $this->set('http_user_agent', $_http_user_agent);
@@ -460,12 +511,29 @@ class Result extends AppModel {
         // We kinda overrode $this's save(), so we'll have to ask our guardians
         parent::save();
 
+        $_result_id = $this->getLastInsertID();
 
-        // The issues_results table isn't represented by a class in cake, so we have
+        // Insert our intention
+        if (!empty($_intention_id)) {
+            $_query = "
+                INSERT INTO choices_results(
+                    result_id,
+                    choice_id,
+                    other
+                ) VALUES (
+                    {$_result_id},
+                    {$_intention_id},
+                    '{$_intention_text}'
+                )
+            ";
+            $this->query($_query);
+        }
+
+
+        // The choices_results table isn't represented by a class in cake, so we have
         // to do the query manually.
         if (!empty($data['Issue']['id'])) {
 
-            $_result_id = $this->getLastInsertID();
             $_query     = '';
 
             foreach ($data['Issue']['id'] as $var => $val) {
@@ -475,15 +543,15 @@ class Result extends AppModel {
                 }
 
                 // If the 'other' id matches the id we're putting in, add the issue text
-                $_other_text = ($val == $_issue_array['Issue']['id']) ? $_issues_text : '';
+                $_other_text = ($val == $_issue_array[0]['Choice']['id']) ? $_issues_text : '';
 
                 $_query .= empty($_query) ? "({$_result_id},{$val},'{$_other_text}')" : ",({$_result_id},{$val},'{$_other_text}')";
             }
 
             $_query = "
-            INSERT INTO issues_results(
+            INSERT INTO choices_results(
                 result_id,
-                issue_id,
+                choice_id,
                 other
             ) VALUES 
                 {$_query}
@@ -494,5 +562,6 @@ class Result extends AppModel {
 
         return false;
     }
+
 }
 ?>

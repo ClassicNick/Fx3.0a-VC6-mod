@@ -360,6 +360,11 @@ nsresult nsMsgDBView::AppendKeywordProperties(const char *keywords, nsISupportsA
   // append that as a property.
   nsCStringArray keywordsArray;
   nsCAutoString color;
+  // skip leading spaces 
+  while (*keywords == ' ')
+    keywords++;
+  if (!*keywords)
+    return NS_OK;
   keywordsArray.ParseString(keywords, " ");
   nsresult rv;
   if (!mTagService)
@@ -710,27 +715,40 @@ nsresult nsMsgDBView::FetchTags(nsIMsgDBHdr *aHdr, PRUnichar ** aTagString)
     mTagService = do_GetService(NS_MSGTAGSERVICE_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
   }
+
+  nsXPIDLString tags;
   nsXPIDLCString keywords;
-  nsXPIDLString label, tags;
-  FetchLabel(aHdr, getter_Copies(label));
   aHdr->GetStringProperty("keywords", getter_Copies(keywords));
+
+  nsMsgLabelValue label = 0;
+  rv = aHdr->GetLabel(&label);  
+  if (label > 0)
+  {
+    nsCAutoString labelStr("$label");
+    labelStr.Append((char) (label + '0'));
+    if (!FindInReadable(labelStr, keywords))
+      FetchLabel(aHdr, getter_Copies(tags));
+  }
+
   nsCStringArray keywordsArray;
   keywordsArray.ParseString(keywords.get(), " ");
   nsAutoString tag;
+
   for (PRInt32 i = 0; i < keywordsArray.Count(); i++)
   {
     rv = mTagService->GetTagForKey(*(keywordsArray[i]), tag);
-    if (NS_SUCCEEDED(rv) && !tag.IsEmpty() && !tag.Equals(label))
+    if (NS_SUCCEEDED(rv) && !tag.IsEmpty())
     {
       if (!tags.IsEmpty())
         tags.Append((PRUnichar) ' ');
       tags.Append(tag);
     }
   }
-  tags.Append(label);
+
   *aTagString = ToNewUnicode(tags);
   return rv;
 }
+
 nsresult nsMsgDBView::FetchLabel(nsIMsgDBHdr *aHdr, PRUnichar ** aLabelString)
 {
   nsresult rv = NS_OK;
@@ -1792,6 +1810,11 @@ NS_IMETHODIMP nsMsgDBView::Close()
   // be consistent
   m_flags.RemoveAll();
   m_levels.RemoveAll();
+
+  // clear these out since they no longer apply if we're switching a folder
+  nsMemory::Free(mJunkIndices);
+  mJunkIndices = nsnull;
+  mNumJunkIndices = 0;
 
   // this needs to happen after we remove all the keys, since RowCountChanged() will call our GetRowCount()
   if (mTree) 

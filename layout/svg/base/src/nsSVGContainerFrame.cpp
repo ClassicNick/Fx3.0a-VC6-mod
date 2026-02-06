@@ -71,6 +71,10 @@ nsSVGContainerFrame::InsertFrames(nsIAtom* aListName,
                                   nsIFrame* aPrevFrame,
                                   nsIFrame* aFrameList)
 {
+  NS_ASSERTION(!aListName, "unexpected child list");
+  NS_ASSERTION(!aPrevFrame || aPrevFrame->GetParent() == this,
+               "inserting after sibling frame with different parent");
+
   mFrames.InsertFrames(this, aPrevFrame, aFrameList);
 
   return NS_OK;
@@ -80,7 +84,9 @@ NS_IMETHODIMP
 nsSVGContainerFrame::RemoveFrame(nsIAtom* aListName,
                                  nsIFrame* aOldFrame)
 {
-  return mFrames.DestroyFrame(aOldFrame);
+  NS_ASSERTION(!aListName, "unexpected child list");
+
+  return mFrames.DestroyFrame(aOldFrame) ? NS_OK : NS_ERROR_FAILURE;
 }
 
 NS_IMETHODIMP
@@ -175,7 +181,8 @@ nsSVGDisplayContainerFrame::RemoveFrame(nsIAtom* aListName,
 // nsISVGChildFrame methods
 
 NS_IMETHODIMP
-nsSVGDisplayContainerFrame::PaintSVG(nsISVGRendererCanvas* canvas)
+nsSVGDisplayContainerFrame::PaintSVG(nsISVGRendererCanvas* canvas,
+                                     nsRect *aDirtyRect)
 {
   const nsStyleDisplay *display = mStyleContext->GetStyleDisplay();
   if (display->mOpacity == 0.0)
@@ -183,7 +190,7 @@ nsSVGDisplayContainerFrame::PaintSVG(nsISVGRendererCanvas* canvas)
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsSVGUtils::PaintChildWithEffects(canvas, kid);
+    nsSVGUtils::PaintChildWithEffects(canvas, aDirtyRect, kid);
   }
 
   return NS_OK;
