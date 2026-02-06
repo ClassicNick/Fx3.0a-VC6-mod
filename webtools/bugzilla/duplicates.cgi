@@ -35,6 +35,7 @@ use Bugzilla;
 use Bugzilla::Search;
 use Bugzilla::Config qw(:DEFAULT $datadir);
 use Bugzilla::Constants;
+use Bugzilla::Product;
 
 my $cgi = Bugzilla->cgi;
 
@@ -52,8 +53,6 @@ if (defined $cgi->param('ctype') && $cgi->param('ctype') eq "xul") {
 
 my $template = Bugzilla->template;
 my $vars = {};
-
-GetVersionTable();
 
 # collectstats.pl uses duplicates.cgi to generate the RDF duplicates stats.
 # However, this conflicts with requirelogin if it's enabled; so we make
@@ -86,13 +85,9 @@ my @query_products = $cgi->param('product');
 my $sortvisible = formvalue("sortvisible");
 my @buglist = (split(/[:,]/, formvalue("bug_id")));
 
-my $product_id;
+# Make sure all products are valid.
 foreach my $p (@query_products) {
-    $product_id = get_product_id($p);
-    if (!$product_id) {
-        ThrowUserError("invalid_product_name",
-                       { product => $p });
-    }
+    Bugzilla::Product::check_product($p);
 }
 
 # Small backwards-compatibility hack, dated 2002-04-10.
@@ -102,7 +97,7 @@ $sortby = "count" if $sortby eq "dup_count";
 my $today = days_ago(0);
 my $yesterday = days_ago(1);
 
-# We don't know the exact file name, because the extention depends on the
+# We don't know the exact file name, because the extension depends on the
 # underlying dbm library, which could be anything. We can't glob, because
 # perl < 5.6 considers if (<*>) { ... } to be tainted
 # Instead, just check the return value for today's data and yesterday's,

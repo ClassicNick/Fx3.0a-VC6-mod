@@ -88,7 +88,7 @@
 #     add more database-related checks                 --DATABASE--
 #     change table definitions                         --TABLE--
 #     add more groups                                  --GROUPS--
-#     add user-adjustable sttings                      --SETTINGS--
+#     add user-adjustable settings                     --SETTINGS--
 #     create initial administrator account             --ADMIN--
 #
 # Note: sometimes those special comments occur more than once. For
@@ -1104,13 +1104,13 @@ END
     chmod $fileperm, "Bugzilla/.htaccess";
   }
   # Even though $datadir may not (and should not) be in the webtree,
-  # we can't know for sure, so create the .htaccess anyeay. Its harmless
-  # if its not accessible...
+  # we can't know for sure, so create the .htaccess anyway. It's harmless
+  # if it's not accessible...
   if (!-e "$datadir/.htaccess") {
     print "Creating $datadir/.htaccess...\n";
     open HTACCESS, '>', "$datadir/.htaccess";
     print HTACCESS <<'END';
-# nothing in this directory is retrievable unless overriden by an .htaccess
+# nothing in this directory is retrievable unless overridden by an .htaccess
 # in a subdirectory; the only exception is duplicates.rdf, which is used by
 # duplicates.xul and must be loadable over the web
 deny from all
@@ -1126,7 +1126,7 @@ END
     print "Creating $templatedir/.htaccess...\n";
     open HTACCESS, '>', "$templatedir/.htaccess";
     print HTACCESS <<'END';
-# nothing in this directory is retrievable unless overriden by an .htaccess
+# nothing in this directory is retrievable unless overridden by an .htaccess
 # in a subdirectory
 deny from all
 END
@@ -2613,7 +2613,7 @@ $dbh->bz_drop_column("profiles", "emailnotification");
 $dbh->bz_drop_column("profiles", "newemailtech");
 
 
-# 2003-11-19; chicks@chicks.net; bug 225973: fix field size to accomodate
+# 2003-11-19; chicks@chicks.net; bug 225973: fix field size to accommodate
 # wider algorithms such as Blowfish. Note that this needs to be run
 # before recrypting passwords in the following block.
 $dbh->bz_alter_column('profiles', 'cryptpassword', {TYPE => 'varchar(128)'});
@@ -3406,7 +3406,7 @@ if ($dbh->bz_table_info("flagtypes")) {
 
 # 2002-11-24 - bugreport@peshkin.net - bug 147275 
 #
-# If group_control_map is empty, backward-compatbility 
+# If group_control_map is empty, backward-compatibility 
 # usebuggroups-equivalent records should be created.
 my $entry = Param('useentrygroupdefault');
 $sth = $dbh->prepare("SELECT COUNT(*) FROM group_control_map");
@@ -4323,7 +4323,7 @@ if ($dbh->bz_column_info('flags', 'id')->{'TYPE'} eq 'INT3') {
 
 # short_desc should not be a mediumtext, fix anything longer than 255 chars.
 if($dbh->bz_column_info('bugs', 'short_desc')->{TYPE} eq 'MEDIUMTEXT') {
-    # Move extremely long summarries into a comment ("from" the Reporter),
+    # Move extremely long summaries into a comment ("from" the Reporter),
     # and then truncate the summary.
     my $long_summary_bugs = $dbh->selectall_arrayref(
         'SELECT bug_id, short_desc, reporter
@@ -4372,7 +4372,7 @@ EOF
 #
 
 #
-# BugZilla uses --GROUPS-- to assign various rights to its users.
+# Bugzilla uses --GROUPS-- to assign various rights to its users.
 #
 
 AddGroup('tweakparams', 'Can tweak operating parameters');
@@ -4595,7 +4595,7 @@ if ($sth->rows == 0) {
     my $mailcheck    = ""; 
 
     # Here we look to see what the emailregexp is set to so we can 
-    # check the email addy they enter. Bug 96675. If they have no 
+    # check the email address they enter. Bug 96675. If they have no 
     # params (likely but not always the case), we use the default.
     if (-e "$datadir/params") { 
         require "$datadir/params"; # if they have a params file, use that

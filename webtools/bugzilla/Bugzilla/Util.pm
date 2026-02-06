@@ -50,7 +50,7 @@ use Date::Parse;
 use Date::Format;
 use Text::Wrap;
 
-# This is from the perlsec page, slightly modifed to remove a warning
+# This is from the perlsec page, slightly modified to remove a warning
 # From that page:
 #      This function makes use of the fact that the presence of
 #      tainted data anywhere within an expression renders the
@@ -114,7 +114,7 @@ sub value_quote {
     $var =~ s/>/\&gt;/g;
     $var =~ s/\"/\&quot;/g;
     # See bug http://bugzilla.mozilla.org/show_bug.cgi?id=4928 for 
-    # explanaion of why bugzilla does this linebreak substitution. 
+    # explanation of why Bugzilla does this linebreak substitution. 
     # This caused form submission problems in mozilla (bug 22983, 32000).
     $var =~ s/\r\n/\&#013;/g;
     $var =~ s/\n\r/\&#013;/g;

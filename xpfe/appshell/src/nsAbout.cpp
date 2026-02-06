@@ -45,8 +45,6 @@
 #include "nsIScriptSecurityManager.h"
 #include "nsLiteralString.h"
 
-static NS_DEFINE_CID(kIOServiceCID, NS_IOSERVICE_CID);
-
 NS_IMPL_ISUPPORTS1(nsAbout, nsIAboutModule)
 
 static const char kURI[] = "chrome://global/content/about.xhtml";
@@ -55,7 +53,7 @@ NS_IMETHODIMP
 nsAbout::NewChannel(nsIURI *aURI, nsIChannel **result)
 {
     nsresult rv;
-    nsCOMPtr<nsIIOService> ioService(do_GetService(kIOServiceCID, &rv));
+    nsCOMPtr<nsIIOService> ioService(do_GetService(NS_IOSERVICE_CONTRACTID, &rv));
     if ( NS_FAILED(rv) )
         return rv;
 
@@ -77,6 +75,13 @@ nsAbout::NewChannel(nsIURI *aURI, nsIChannel **result)
     *result = tempChannel.get();
     NS_ADDREF(*result);
     return rv;
+}
+
+NS_IMETHODIMP
+nsAbout::GetURIFlags(nsIURI *aURI, PRUint32 *result)
+{
+    *result = 0;
+    return NS_OK;
 }
 
 NS_METHOD

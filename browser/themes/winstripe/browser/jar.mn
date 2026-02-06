@@ -2,6 +2,7 @@ classic.jar:
 % skin browser classic/1.0 %skin/classic/browser/
 *       skin/classic/browser/browser.css                        (browser.css)
         skin/classic/browser/browser.xml
+*       skin/classic/browser/engineManager.css                  (engineManager.css)
         skin/classic/browser/Go.png
         skin/classic/browser/Go-rtl.png
         skin/classic/browser/Info.png
@@ -41,6 +42,7 @@ classic.jar:
 #else
         skin/classic/browser/Bookmarks-folder.png
         skin/classic/browser/bookmarks/addBookmark.css          (bookmarks/addBookmark.css)
+        skin/classic/browser/bookmarks/bookmarksProperties.css  (bookmarks/bookmarksProperties.css)
         skin/classic/browser/bookmarks/bookmarksManager.css     (bookmarks/bookmarksManager.css)
         skin/classic/browser/bookmarks/Bookmarks-toolbar.png    (bookmarks/Bookmarks-toolbar.png)
 #endif

@@ -38,6 +38,7 @@ use Bugzilla::Constants;
 use Bugzilla::Config qw(:DEFAULT $datadir);
 use Bugzilla::Util;
 use Bugzilla::Bug;
+use Bugzilla::Product;
 use Bugzilla::Component;
 use Bugzilla::Mailer;
 
@@ -101,11 +102,6 @@ END
 # This hash usually comes from the "mailrecipients" var in a template call.
 sub Send {
     my ($id, $forced) = (@_);
-
-    # This only works in a sub. Probably something to do with the
-    # require abuse we do.
-    &::GetVersionTable();
-
     return ProcessOneBug($id, $forced);
 }
 
@@ -135,8 +131,9 @@ sub ProcessOneBug {
                 lastdiffed AS start, LOCALTIMESTAMP(0) AS end
            FROM bugs WHERE bug_id = ?',
         undef, $id)};
-    
-    $values{product} = &::get_product_name($values{product_id});
+
+    my $product = new Bugzilla::Product($values{product_id});
+    $values{product} = $product->name;
     my $component = new Bugzilla::Component($values{component_id});
     $values{component} = $component->name;
 
@@ -184,10 +181,10 @@ sub ProcessOneBug {
     # Convert to names, for later display
     $values{'changer'} = $changer;
     $values{'changername'} = Bugzilla::User->new_from_login($changer)->name;
-    $values{'assigned_to'} = &::DBID_to_name($values{'assigned_to'});
-    $values{'reporter'} = &::DBID_to_name($values{'reporter'});
+    $values{'assigned_to'} = user_id_to_login($values{'assigned_to'});
+    $values{'reporter'} = user_id_to_login($values{'reporter'});
     if ($values{'qa_contact'}) {
-        $values{'qa_contact'} = &::DBID_to_name($values{'qa_contact'});
+        $values{'qa_contact'} = user_id_to_login($values{'qa_contact'});
     }
     $values{'cc'} = join(', ', @cc_login_names);
     $values{'estimated_time'} = format_time_decimal($values{'estimated_time'});
@@ -633,7 +630,7 @@ sub sendMail {
     }
     push @headerrel, 'None' if !scalar(@headerrel);
     push @watchingrel, 'None' if !scalar(@watchingrel);
-    push @watchingrel, map { &::DBID_to_name($_) } @$watchingRef;
+    push @watchingrel, map { user_id_to_login($_) } @$watchingRef;
     $substs{"reasonsheader"} = join(" ", @headerrel);
     $substs{"reasonswatchheader"} = join(" ", @watchingrel);
 

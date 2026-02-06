@@ -256,6 +256,9 @@ function pasteFromClipboard()
             }
             var destCal = getDefaultCalendar();
             var firstDate = document.getElementById("view-deck").selectedPanel.selectedDay;
+            if (!firstDate.isMutable) {
+                firstDate = firstDate.clone();
+            }
             firstDate.isDate = false;
 
             function makeNewStartingDate(oldDate) {
@@ -269,6 +272,9 @@ function pasteFromClipboard()
                 date.second = oldDate.second;
                 date.timezone = oldDate.timezone;
                 date.normalize();
+                if (oldDate.isDate) {
+                    date.isDate = true;
+                }
                 return date;
             }
 

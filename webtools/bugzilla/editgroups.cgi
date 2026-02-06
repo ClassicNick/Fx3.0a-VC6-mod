@@ -33,6 +33,7 @@ use Bugzilla;
 use Bugzilla::Constants;
 use Bugzilla::Config qw(:DEFAULT :admin);
 use Bugzilla::Group;
+use Bugzilla::Product;
 use Bugzilla::User;
 require "globals.pl";
 
@@ -364,7 +365,7 @@ if ($action eq 'del') {
     my $hasbugs = scalar(@$bug_ids) ? 1 : 0;
     my $buglist = join(',', @$bug_ids);
 
-    my $hasproduct = get_product_id($name) ? 1 : 0;
+    my $hasproduct = Bugzilla::Product->new({'name' => $name}) ? 1 : 0;
 
     my $hasflags = $dbh->selectrow_array('SELECT 1 FROM flagtypes 
                                            WHERE grant_group_id = ?
@@ -436,7 +437,9 @@ if ($action eq 'delete') {
         $cantdelete = 1;
     }
 
-    if (get_product_id($name) && !defined $cgi->param('unbind')) {
+    if (Bugzilla::Product->new({'name' => $name})
+        && !defined $cgi->param('unbind'))
+    {
         $cantdelete = 1;
     }
 
@@ -487,7 +490,7 @@ if ($action eq 'delete') {
 #
 
 if ($action eq 'postchanges') {
-    # ZLL: Bug 181589: we need to have something to remove explictly listed users from
+    # ZLL: Bug 181589: we need to have something to remove explicitly listed users from
     # groups in order for the conversion to 2.18 groups to work
     my $action;
 

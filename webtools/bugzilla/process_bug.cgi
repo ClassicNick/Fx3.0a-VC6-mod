@@ -64,15 +64,6 @@ use Bugzilla::Keyword;
 use Bugzilla::Flag;
 use Bugzilla::FlagType;
 
-# Shut up misguided -w warnings about "used only once":
-
-use vars qw(%legal_opsys
-          %legal_platform
-          %legal_priority
-          %settable_resolution
-          %legal_severity
-           );
-
 my $user = Bugzilla->login(LOGIN_REQUIRED);
 my $whoid = $user->id;
 my $grouplist = $user->groups_as_string;
@@ -259,14 +250,12 @@ if (defined $cgi->param('id')) {
     }
 }
 
-# Set up the vars for nagiavtional <link> elements
+# Set up the vars for navigational <link> elements
 my @bug_list;
 if ($cgi->cookie("BUGLIST") && defined $cgi->param('id')) {
     @bug_list = split(/:/, $cgi->cookie("BUGLIST"));
     $vars->{'bug_list'} = \@bug_list;
 }
-
-GetVersionTable();
 
 foreach my $field_name ('product', 'component', 'version') {
     defined($cgi->param($field_name))
@@ -639,10 +628,10 @@ if (defined $cgi->param('id')) {
         check_field('target_milestone', scalar $cgi->param('target_milestone'), 
                     [map($_->name, @{$prod_obj->milestones})]);
     }
-    check_field('rep_platform', scalar $cgi->param('rep_platform'), \@::legal_platform);
-    check_field('op_sys',       scalar $cgi->param('op_sys'),       \@::legal_opsys);
-    check_field('priority',     scalar $cgi->param('priority'),     \@::legal_priority);
-    check_field('bug_severity', scalar $cgi->param('bug_severity'), \@::legal_severity);
+    check_field('rep_platform', scalar $cgi->param('rep_platform'));
+    check_field('op_sys',       scalar $cgi->param('op_sys'));
+    check_field('priority',     scalar $cgi->param('priority'));
+    check_field('bug_severity', scalar $cgi->param('bug_severity'));
 
     # Those fields only have to exist. We don't validate their value here.
     foreach my $field_name ('bug_file_loc', 'short_desc', 'longdesclength') {
@@ -1127,7 +1116,7 @@ if (defined $cgi->param('qa_contact')
                 my $qa_user = $usercache{$qacontact};
                 foreach my $product_id (@newprod_ids) {
                     if (!$qa_user->can_edit_product($product_id)) {
-                        my $product_name = get_product_name($product_id);
+                        my $product_name = Bugzilla::Product->new($product_id)->name;
                         ThrowUserError('invalid_user_group',
                                           {'users'   => $qa_user->login,
                                            'product' => $product_name,
@@ -1173,7 +1162,7 @@ SWITCH: for ($cgi->param('knob')) {
     /^(resolve|change_resolution)$/ && CheckonComment( "resolve" ) && do {
         # Check here, because its the only place we require the resolution
         check_field('resolution', scalar $cgi->param('resolution'),
-                    \@::settable_resolution);
+                    Bugzilla::Bug->settable_resolutions);
 
         # don't resolve as fixed while still unresolved blocking bugs
         if (Param("noresolveonopenblockers")
@@ -1212,7 +1201,7 @@ SWITCH: for ($cgi->param('knob')) {
                 my $assign_user = $usercache{$assignee};
                 foreach my $product_id (@newprod_ids) {
                     if (!$assign_user->can_edit_product($product_id)) {
-                        my $product_name = get_product_name($product_id);
+                        my $product_name = Bugzilla::Product->new($product_id)->name;
                         ThrowUserError('invalid_user_group',
                                           {'users'   => $assign_user->login,
                                            'product' => $product_name,
@@ -1587,8 +1576,8 @@ foreach my $id (@idlist) {
                 $vars->{'field'} = 'component';
             } elsif ($col eq 'assigned_to' || $col eq 'qa_contact') {
                 # Display the assignee or QA contact email address
-                $vars->{'oldvalue'} = DBID_to_name($oldhash{$col});
-                $vars->{'newvalue'} = DBID_to_name($formhash{$col});
+                $vars->{'oldvalue'} = user_id_to_login($oldhash{$col});
+                $vars->{'newvalue'} = user_id_to_login($formhash{$col});
                 $vars->{'field'} = $col;
             } else {
                 $vars->{'oldvalue'} = $oldhash{$col};
@@ -1618,7 +1607,7 @@ foreach my $id (@idlist) {
         ThrowUserError("illegal_change", $vars);
     }
 
-    $oldhash{'product'} = get_product_name($oldhash{'product_id'});
+    $oldhash{'product'} = $old_bug_obj->product;
     if (!Bugzilla->user->can_edit_product($oldhash{'product_id'})) {
         ThrowUserError("product_edit_denied",
                       { product => $oldhash{'product'} });
@@ -1754,11 +1743,6 @@ foreach my $id (@idlist) {
         $dbh->do(q{DELETE FROM duplicates WHERE dupe = ?}, undef, $id);
     }
 
-    my $newproduct_id = $oldhash{'product_id'};
-    if ($cgi->param('product') ne $cgi->param('dontchange')) {
-        my $newproduct_id = get_product_id($cgi->param('product'));
-    }
-
     my %groupsrequired = ();
     my %groupsforbidden = ();
     my $group_controls =
@@ -1768,7 +1752,7 @@ foreach my $id (@idlist) {
                                        ON id = group_id
                                       AND product_id = ?
                                     WHERE isactive != 0},
-        undef, $newproduct_id);
+        undef, $oldhash{'product_id'});
     foreach my $group_control (@$group_controls) {
         my ($group, $control) = @$group_control;
         $control ||= 0;
@@ -1925,9 +1909,8 @@ foreach my $id (@idlist) {
     # about which can be found in comments within the conditionals below.
     # Check if the user has changed the product to which the bug belongs;
     if ($cgi->param('product') ne $cgi->param('dontchange')
-        && $cgi->param('product') ne $oldhash{'product'}
-    ) {
-        $newproduct_id = get_product_id($cgi->param('product'));
+        && $cgi->param('product') ne $oldhash{'product'})
+    {
         # Depending on the "addtonewgroup" variable, groups with
         # defaults will change.
         #
@@ -1954,7 +1937,7 @@ foreach my $id (@idlist) {
             LEFT JOIN bug_group_map
                    ON bug_group_map.group_id = groups.id
                   AND bug_group_map.bug_id = ?},
-            undef, $oldhash{'product_id'}, $newproduct_id, $id);
+            undef, $oldhash{'product_id'}, $product->id, $id);
         my @groupstoremove = ();
         my @groupstoadd = ();
         my @defaultstoremove = ();
@@ -2077,8 +2060,8 @@ foreach my $id (@idlist) {
             # Products and components are now stored in the DB using ID's
             # We need to translate this to English before logging it
             if ($col eq 'product_id') {
-                $old = get_product_name($old);
-                $new = get_product_name($new);
+                $old = $old_bug_obj->product;
+                $new = $new_bug_obj->product;
                 $col = 'product';
             }
             if ($col eq 'component_id') {
@@ -2091,16 +2074,16 @@ foreach my $id (@idlist) {
             # the old assignee can be notified
             #
             if ($col eq 'assigned_to') {
-                $old = ($old) ? DBID_to_name($old) : "";
-                $new = ($new) ? DBID_to_name($new) : "";
+                $old = ($old) ? user_id_to_login($old) : "";
+                $new = ($new) ? user_id_to_login($new) : "";
                 $origOwner = $old;
             }
 
             # ditto for the old qa contact
             #
             if ($col eq 'qa_contact') {
-                $old = ($old) ? DBID_to_name($old) : "";
-                $new = ($new) ? DBID_to_name($new) : "";
+                $old = ($old) ? user_id_to_login($old) : "";
+                $new = ($new) ? user_id_to_login($new) : "";
                 $origQaContact = $old;
             }
 
@@ -2128,7 +2111,7 @@ foreach my $id (@idlist) {
         }
     }
     # Set and update flags.
-    Bugzilla::Flag::process($id, undef, $timestamp, $cgi);
+    Bugzilla::Flag::process($new_bug_obj, undef, $timestamp, $cgi);
 
     if ($bug_changed) {
         $dbh->do(q{UPDATE bugs SET delta_ts = ? WHERE bug_id = ?},
@@ -2160,7 +2143,7 @@ foreach my $id (@idlist) {
                 || !$cgi->param('confirm_add_duplicate')) {
             # The reporter is oblivious to the existence of the new bug and is permitted access
             # ... add 'em to the cc (and record activity)
-            LogActivityEntry($duplicate,"cc","",DBID_to_name($reporter),
+            LogActivityEntry($duplicate,"cc","",user_id_to_login($reporter),
                              $whoid,$timestamp);
             $dbh->do(q{INSERT INTO cc (who, bug_id) VALUES (?, ?)},
                      undef, $reporter, $duplicate);

@@ -1201,25 +1201,6 @@ nsScriptSecurityManager::GetBaseURIScheme(nsIURI* aURI,
     rv = uri->GetScheme(aScheme);
     if (NS_FAILED(rv)) return rv;
 
-    //-- if aURI is an about uri, distinguish 'safe' and 'unsafe' about URIs
-    if(aScheme.EqualsLiteral("about"))
-    {
-        nsCAutoString path;
-        rv = NS_GetAboutModuleName(uri, path);
-        NS_ENSURE_SUCCESS(rv, rv);
-        if (path.EqualsLiteral("blank")   ||
-            path.EqualsLiteral("mozilla") ||
-            path.EqualsLiteral("logo")    ||
-            path.EqualsLiteral("license") ||
-            path.EqualsLiteral("licence") ||
-            path.EqualsLiteral("credits") ||
-            path.EqualsLiteral("neterror"))
-        {
-            aScheme = NS_LITERAL_CSTRING("about safe");
-            return NS_OK;
-        }
-    }
-
     return NS_OK;
 }
 
@@ -1273,14 +1254,6 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     nsresult rv = GetBaseURIScheme(sourceURI, sourceScheme);
     if (NS_FAILED(rv)) return rv;
 
-    NS_NAMED_LITERAL_STRING(errorTag, "CheckLoadURIError");
-
-    // Don't allow null principals to load anything
-    if (sourceScheme.LowerCaseEqualsLiteral(NS_NULLPRINCIPAL_SCHEME)) {
-        ReportError(nsnull, errorTag, sourceURI, aTargetURI);
-        return NS_ERROR_DOM_BAD_URI;
-    }
-
     // Some loads are not allowed from mail/news messages
     if ((aFlags & nsIScriptSecurityManager::DISALLOW_FROM_MAIL) &&
         (sourceScheme.LowerCaseEqualsLiteral("mailbox") ||
@@ -1306,9 +1279,11 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     }
 
     if (targetScheme.Equals(sourceScheme,
-                            nsCaseInsensitiveCStringComparator()))
+                            nsCaseInsensitiveCStringComparator()) &&
+        !sourceScheme.LowerCaseEqualsLiteral(NS_NULLPRINCIPAL_SCHEME))
     {
-        // every scheme can access another URI from the same scheme
+        // every scheme can access another URI from the same scheme,
+        // as long as they don't represent null principals.
         return NS_OK;
     }
 
@@ -1334,8 +1309,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
         { "news",            AllowProtocol  },
         { "javascript",      AllowProtocol  },
         { "ftp",             AllowProtocol  },
-        { "about safe",      AllowProtocol  },
-        { "about",           ChromeProtocol },
+        { "moz-safe-about",  AllowProtocol  },
+        { "about",           DenyProtocol   },
         { "mailto",          AllowProtocol  },
         { "aim",             AllowProtocol  },
         { "data",            AllowProtocol  },
@@ -1353,6 +1328,7 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
         { NS_NULLPRINCIPAL_SCHEME, DenyProtocol }
     };
 
+    NS_NAMED_LITERAL_STRING(errorTag, "CheckLoadURIError");
     for (unsigned i=0; i < sizeof(protocolList)/sizeof(protocolList[0]); i++)
     {
         if (targetScheme.LowerCaseEqualsASCII(protocolList[i].name))
@@ -1365,6 +1341,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
             case PrefControlled:
                 {
                     // resource: and chrome: are equivalent, securitywise
+                    // That's bogus!!  Fix this.  But watch out for
+                    // the view-source stylesheet?
                     if (sourceScheme.EqualsLiteral("chrome") ||
                         sourceScheme.EqualsLiteral("resource"))
                         return NS_OK;
@@ -1390,6 +1368,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
                 if (aFlags & nsIScriptSecurityManager::ALLOW_CHROME)
                     return NS_OK;
                 // resource: and chrome: are equivalent, securitywise
+                // That's bogus!!  Fix this.  But watch out for
+                // the view-source stylesheet?
                 if (sourceScheme.EqualsLiteral("chrome") ||
                     sourceScheme.EqualsLiteral("resource"))
                     return NS_OK;

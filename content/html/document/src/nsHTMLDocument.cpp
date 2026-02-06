@@ -153,7 +153,6 @@ const PRInt32 kBackward = 1;
 #define ID_NOT_IN_DOCUMENT ((nsIContent *)2)
 #define NAME_NOT_VALID ((nsBaseContentList*)1)
 
-static NS_DEFINE_CID(kCookieServiceCID, NS_COOKIESERVICE_CID);
 static NS_DEFINE_CID(kRDFServiceCID, NS_RDFSERVICE_CID);
 
 // Returns the name atom of aContent, if the content is a named item
@@ -965,6 +964,19 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
   }
 
   return rv;
+}
+
+void
+nsHTMLDocument::StopDocumentLoad()
+{
+  // If we're writing (i.e., there's been a document.open call), then
+  // nsDocument::StopDocumentLoad will do the wrong thing and simply terminate
+  // our parser.
+  if (mWriteState != eNotWriting) {
+    Close();
+  } else {
+    nsDocument::StopDocumentLoad();
+  }
 }
 
 // static
@@ -1852,7 +1864,7 @@ nsHTMLDocument::GetCookie(nsAString& aCookie)
                       // no cookie isn't an error condition.
 
   // not having a cookie service isn't an error
-  nsCOMPtr<nsICookieService> service = do_GetService(kCookieServiceCID);
+  nsCOMPtr<nsICookieService> service = do_GetService(NS_COOKIESERVICE_CONTRACTID);
   if (service) {
     // Get a URI from the document principal. We use the original
     // codebase in case the codebase was changed by SetDomain
@@ -1878,7 +1890,7 @@ NS_IMETHODIMP
 nsHTMLDocument::SetCookie(const nsAString& aCookie)
 {
   // not having a cookie service isn't an error
-  nsCOMPtr<nsICookieService> service = do_GetService(kCookieServiceCID);
+  nsCOMPtr<nsICookieService> service = do_GetService(NS_COOKIESERVICE_CONTRACTID);
   if (service && mDocumentURI) {
     nsCOMPtr<nsIPrompt> prompt;
     nsCOMPtr<nsPIDOMWindow> window = GetWindow();
@@ -2192,6 +2204,12 @@ nsHTMLDocument::Close()
   nsresult rv = NS_OK;
 
   if (mParser && mWriteState == eDocumentOpened) {
+    mPendingScripts.RemoveElement(GenerateParserKey());
+
+    mWriteState = mPendingScripts.Count() == 0
+                  ? eDocumentClosed
+                  : ePendingClose;
+
     ++mWriteLevel;
     if (mContentType.EqualsLiteral("text/html")) {
       rv = mParser->Parse(NS_LITERAL_STRING("</HTML>"),
@@ -2202,12 +2220,6 @@ nsHTMLDocument::Close()
                           mContentType, PR_TRUE);
     }
     --mWriteLevel;
-
-    mPendingScripts.RemoveElement(GenerateParserKey());
-
-    mWriteState = mPendingScripts.Count() == 0
-                  ? eDocumentClosed
-                  : ePendingClose;
 
     // XXX Make sure that all the document.written content is
     // reflowed.  We should remove this call once we change

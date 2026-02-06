@@ -25,11 +25,10 @@ package Bugzilla;
 
 use strict;
 
+use Bugzilla::Constants;
 use Bugzilla::Auth;
 use Bugzilla::Auth::Persist::Cookie;
 use Bugzilla::CGI;
-use Bugzilla::Config qw(:DEFAULT :locations);
-use Bugzilla::Constants;
 use Bugzilla::DB;
 use Bugzilla::Template;
 use Bugzilla::User;
@@ -97,7 +96,7 @@ if (!$^C
     $vars->{'message'} = 'shutdown';
     $vars->{'userid'} = $userid;
     # Generate and return a message about the downtime, appropriately
-    # for if we're a command-line script or a CGI sript.
+    # for if we're a command-line script or a CGI script.
     my $extension;
     if (i_am_cgi() && (!Bugzilla->cgi->param('ctype')
                        || Bugzilla->cgi->param('ctype') eq 'html')) {
@@ -175,7 +174,7 @@ sub login {
     my $authorizer = new Bugzilla::Auth();
     $type = LOGIN_REQUIRED if Bugzilla->cgi->param('GoAheadAndLogIn');
     if (!defined $type || $type == LOGIN_NORMAL) {
-        $type = Param('requirelogin') ? LOGIN_REQUIRED : LOGIN_NORMAL;
+        $type = Bugzilla->params->{'requirelogin'} ? LOGIN_REQUIRED : LOGIN_NORMAL;
     }
     my $authenticated_user = $authorizer->login($type);
     
@@ -274,7 +273,7 @@ sub switch_to_shadow_db {
     my $class = shift;
 
     if (!$_dbh_shadow) {
-        if (Param('shadowdb')) {
+        if (Bugzilla->params->{'shadowdb'}) {
             $_dbh_shadow = Bugzilla::DB::connect_shadow();
         } else {
             $_dbh_shadow = $_dbh_main;
@@ -329,7 +328,7 @@ sub _cleanup {
 
     # When we support transactions, need to ->rollback here
     $_dbh_main->disconnect if $_dbh_main;
-    $_dbh_shadow->disconnect if $_dbh_shadow and Param("shadowdb");
+    $_dbh_shadow->disconnect if $_dbh_shadow && Bugzilla->params->{"shadowdb"};
     undef $_dbh_main;
     undef $_dbh_shadow;
     undef $_dbh;
@@ -337,6 +336,7 @@ sub _cleanup {
 
 sub _load_param_values {
     my %params;
+    my $datadir = bz_locations()->{'datadir'};
     if (-e "$datadir/params") {
         # Note that checksetup.pl sets file permissions on '$datadir/params'
 

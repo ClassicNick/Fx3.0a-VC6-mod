@@ -126,7 +126,7 @@ if ($action eq 'add') {
 
 if ($action eq 'new') {
 
-    # Cleanups and valididy checks
+    # Cleanups and validity checks
     $version_name || ThrowUserError('version_blank_name');
 
     # Remove unprintable characters
@@ -143,9 +143,6 @@ if ($action eq 'new') {
     trick_taint($version_name);
     $dbh->do("INSERT INTO versions (value, product_id)
               VALUES (?, ?)", undef, ($version_name, $product->id));
-
-    # Make versioncache flush
-    unlink "$datadir/versioncache";
 
     $version = new Bugzilla::Version($product->id, $version_name);
     $vars->{'version'} = $version;
@@ -200,8 +197,6 @@ if ($action eq 'delete') {
 
     $dbh->do("DELETE FROM versions WHERE product_id = ? AND value = ?",
               undef, ($product->id, $version->name));
-
-    unlink "$datadir/versioncache";
 
     $vars->{'version'} = $version;
     $vars->{'product'} = $product;
@@ -278,8 +273,6 @@ if ($action eq 'update') {
                   SET value = ?
                   WHERE product_id = ? AND value = ?", undef,
                   ($version_name, $product->id, $version_old->name));
-
-        unlink "$datadir/versioncache";
 
         $vars->{'updated_name'} = 1;
     }

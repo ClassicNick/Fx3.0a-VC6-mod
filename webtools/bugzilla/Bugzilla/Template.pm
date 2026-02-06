@@ -130,8 +130,8 @@ sub getTemplateIncludePath {
     my @usedlanguages;
     foreach my $lang (@accept_language) {
         # Per RFC 1766 and RFC 2616 any language tag matches also its 
-        # primary tag. That is 'en' (accept lanuage)  matches 'en-us',
-        # 'en-uk' etc. but not the otherway round. (This is unfortunally
+        # primary tag. That is 'en' (accept language)  matches 'en-us',
+        # 'en-uk' etc. but not the otherway round. (This is unfortunately
         # not very clearly stated in those RFC; see comment just over 14.5
         # in http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.4)
         if(my @found = grep /^\Q$lang\E(-.+)?$/i, @languages) {
@@ -251,7 +251,7 @@ sub quoteUrls {
     # bug refs out, so we have to do replacements.
     # mailto can't contain space or #, so we don't have to bother for that
     # Do this by escaping \0 to \1\0, and replacing matches with \0\0$count\0\0
-    # \0 is used because its unliklely to occur in the text, so the cost of
+    # \0 is used because its unlikely to occur in the text, so the cost of
     # doing this should be very small
     # Also, \0 won't appear in the value_quote'd bug title, so we don't have
     # to worry about bogus substitutions from there
@@ -264,7 +264,7 @@ sub quoteUrls {
     # In particular, attachment matches go before bug titles, so that titles
     # with 'attachment 1' don't double match.
     # Dupe checks go afterwards, because that uses ^ and \Z, which won't occur
-    # if it was subsituted as a bug title (since that always involve leading
+    # if it was substituted as a bug title (since that always involve leading
     # and trailing text)
 
     # Because of entities, its easier (and quicker) to do this before escaping

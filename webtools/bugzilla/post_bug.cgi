@@ -22,12 +22,14 @@
 #                 Dan Mosedale <dmose@mozilla.org>
 #                 Joe Robins <jmrobins@tgix.com>
 #                 Gervase Markham <gerv@gerv.net>
+#                 Marc Schumann <wurblzap@gmail.com>
 
 use strict;
 use lib qw(.);
 
 require "globals.pl";
 use Bugzilla;
+use Bugzilla::Attachment;
 use Bugzilla::Constants;
 use Bugzilla::Util;
 use Bugzilla::Bug;
@@ -36,16 +38,6 @@ use Bugzilla::Field;
 use Bugzilla::Product;
 use Bugzilla::Keyword;
 use Bugzilla::Token;
-
-# Shut up misguided -w warnings about "used only once". For some reason,
-# "use vars" chokes on me when I try it here.
-sub sillyness {
-    my $zz;
-    $zz = @::legal_opsys;
-    $zz = @::legal_platform;
-    $zz = @::legal_priority;
-    $zz = @::legal_severity;
-}
 
 my $user = Bugzilla->login(LOGIN_REQUIRED);
 
@@ -246,14 +238,12 @@ if (!Param('letsubmitterchoosepriority')) {
     $cgi->param(-name => 'priority', -value => Param('defaultpriority'));
 }
 
-GetVersionTable();
-
 # Some more sanity checking
-check_field('rep_platform', scalar $cgi->param('rep_platform'), \@::legal_platform);
-check_field('bug_severity', scalar $cgi->param('bug_severity'), \@::legal_severity);
-check_field('priority',     scalar $cgi->param('priority'),     \@::legal_priority);
-check_field('op_sys',       scalar $cgi->param('op_sys'),       \@::legal_opsys);
-check_field('bug_status',   scalar $cgi->param('bug_status'),   ['UNCONFIRMED', 'NEW']);
+check_field('rep_platform', scalar $cgi->param('rep_platform'));
+check_field('bug_severity', scalar $cgi->param('bug_severity'));
+check_field('priority',     scalar $cgi->param('priority'));
+check_field('op_sys',       scalar $cgi->param('op_sys'));
+check_field('bug_status',   scalar $cgi->param('bug_status'), ['UNCONFIRMED', 'NEW']);
 check_field('version',      scalar $cgi->param('version'),
             [map($_->name, @{$product->versions})]);
 check_field('target_milestone', scalar $cgi->param('target_milestone'),
@@ -343,7 +333,7 @@ foreach my $field ("dependson", "blocked") {
         foreach my $id (split(/[\s,]+/, $cgi->param($field))) {
             next unless $id;
             # $field is not passed to ValidateBugID to prevent adding new 
-            # dependencies on inacessible bugs.
+            # dependencies on inaccessible bugs.
             ValidateBugID($id);
             push(@validvalues, $id);
         }
@@ -545,6 +535,21 @@ $dbh->do("UPDATE bugs SET creation_ts = ? WHERE bug_id = ?",
           undef, ($timestamp, $id));
 
 $dbh->bz_unlock_tables();
+
+# Add an attachment if requested.
+if (defined($cgi->upload('data')) || $cgi->param('attachurl')) {
+    $cgi->param('isprivate', $cgi->param('commentprivacy'));
+    Bugzilla::Attachment->insert_attachment_for_bug(!THROW_ERROR,
+                                                    $id, $user, $timestamp,
+                                                    \$vars)
+        || ($vars->{'message'} = 'attachment_creation_failed');
+
+    # Determine if Patch Viewer is installed, for Diff link
+    eval {
+        require PatchReader;
+        $vars->{'patchviewerinstalled'} = 1;
+    };
+}
 
 # Email everyone the details of the new bug 
 $vars->{'mailrecipients'} = {'changer' => $user->login};

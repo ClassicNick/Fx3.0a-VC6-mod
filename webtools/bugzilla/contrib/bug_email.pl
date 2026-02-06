@@ -38,7 +38,7 @@
 #
 # You need to work with bug_email.pl the MIME::Parser installed.
 # 
-# $Id: bug_email.pl,v 1.35 2006/05/29 17:24:54 lpsolit%gmail.com Exp $
+# $Id: bug_email.pl,v 1.41 2006/06/19 17:30:24 lpsolit%gmail.com Exp $
 ###############################################################
 
 # 02/12/2000 (SML)
@@ -248,7 +248,7 @@ sub Reply( $$$$ ) {
 ###############################################################
 # getEnumList
 # Queries the Database for the table description and figures the
-# enum-settings out - usefull for checking fields for enums like
+# enum-settings out - useful for checking fields for enums like
 # prios 
 sub getEnumList( $ )
 {
@@ -468,7 +468,7 @@ END
 ###############################################################
 # generateTemplate
 # 
-# This functiuon generates a mail-Template with the 
+# This function generates a mail-Template with the 
 sub generateTemplate()
 {
     my $w;
@@ -963,10 +963,10 @@ if ( $Version eq "" ) {
 
 $Control{'version'} = $Version;
 
-# GroupsSet: Protections for Bug info. This parameter controls the visiblility of the 
+# GroupsSet: Protections for Bug info. This parameter controls the visibility of the 
 # given bug. An Error in the given Buggroup is not a blocker, a default is taken.
 #
-# The GroupSet is accepted only as literals linked with whitespaces, plus-signs or kommas
+# The GroupSet is accepted only as literals linked with whitespaces, plus-signs or commas
 #
 my $GroupSet = "";
 my %GroupArr = ();
@@ -1081,7 +1081,7 @@ END
         
         $val = $Control{ $field };
       
-        $val = DBID_to_name( $val ) if( $field =~ /reporter|assigned_to|qa_contact/ );
+        $val = user_id_to_login( $val ) if( $field =~ /reporter|assigned_to|qa_contact/ );
       
         $tmp_reply .= sprintf( "     \@%-15s = %-15s\n", $field, $val );
 
@@ -1176,7 +1176,7 @@ END
     Bugzilla::BugMail::Send($id) if( ! $test);
     
 } else {
-    # There were critical errors in the mail - the bug couldnt be inserted. !
+    # There were critical errors in the mail - the bug couldn't be inserted. !
 my $errreply = <<END
   
   +---------------------------------------------------------------------------+

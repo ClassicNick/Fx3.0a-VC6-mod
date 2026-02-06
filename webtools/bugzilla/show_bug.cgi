@@ -54,8 +54,6 @@ if (!$cgi->param('id') && $single) {
 my $format = $template->get_format("bug/show", scalar $cgi->param('format'), 
                                    scalar $cgi->param('ctype'));
 
-GetVersionTable();
-
 my @bugs = ();
 my %marks;
 
@@ -78,8 +76,12 @@ if ($single) {
     }
 } else {
     foreach my $id ($cgi->param('id')) {
-        my $bug = new Bugzilla::Bug($id, Bugzilla->user->id);
-        push @bugs, $bug;
+        # Be kind enough and accept URLs of the form: id=1,2,3.
+        my @ids = split(/,/, $id);
+        foreach (@ids) {
+            my $bug = new Bugzilla::Bug($_, Bugzilla->user->id);
+            push(@bugs, $bug);
+        }
     }
 }
 

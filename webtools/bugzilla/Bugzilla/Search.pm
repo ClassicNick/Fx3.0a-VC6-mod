@@ -63,7 +63,7 @@ our %specialorder = (
 
 # When we add certain fields to the ORDER BY, we need to then add a
 # table join to the FROM statement. This hash maps input fields to 
-# the join statements that ned to be added.
+# the join statements that need to be added.
 our %specialorderjoin = (
     'bugs.target_milestone' => 'LEFT JOIN milestones AS ms_order ON ms_order.value = bugs.target_milestone AND ms_order.product_id = bugs.product_id',
     'bugs.bug_status' => 'LEFT JOIN bug_status ON bug_status.value = bugs.bug_status',
@@ -115,8 +115,6 @@ sub init {
 
     my $dbh = Bugzilla->dbh;
 
-    &::GetVersionTable();
-    
     # First, deal with all the old hard-coded non-chart-based poop.
     if (grep(/map_assigned_to/, @$fieldsref)) {
         push @supptables, "INNER JOIN profiles AS map_assigned_to " .
@@ -182,25 +180,26 @@ sub init {
     # into their equivalent lists of open and closed statuses.
     if ($params->param('bug_status')) {
         my @bug_statuses = $params->param('bug_status');
-        if (scalar(@bug_statuses) == scalar(@::legal_bug_status) 
+        my @legal_statuses = @{get_legal_field_values('bug_status')};
+        if (scalar(@bug_statuses) == scalar(@legal_statuses)
             || $bug_statuses[0] eq "__all__")
         {
             $params->delete('bug_status');
         }
         elsif ($bug_statuses[0] eq '__open__') {
             $params->param('bug_status', map(is_open_state($_) ? $_ : undef, 
-                                             @::legal_bug_status));
+                                             @legal_statuses));
         }
         elsif ($bug_statuses[0] eq "__closed__") {
             $params->param('bug_status', map(is_open_state($_) ? undef : $_, 
-                                             @::legal_bug_status));
+                                             @legal_statuses));
         }
     }
     
     if ($params->param('resolution')) {
         my @resolutions = $params->param('resolution');
-        
-        if (scalar(@resolutions) == scalar(@::legal_resolution)) {
+        my $legal_resolutions = get_legal_field_values('resolution');
+        if (scalar(@resolutions) == scalar(@$legal_resolutions)) {
             $params->delete('resolution');
         }
     }
@@ -924,7 +923,6 @@ sub init {
          },
 
          "^keywords,(?!changed)" => sub {
-             &::GetVersionTable();
              my @list;
              my $table = "keywords_$chartid";
              foreach my $value (split(/[\s,]+/, $v)) {

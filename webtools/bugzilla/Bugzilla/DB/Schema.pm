@@ -1051,7 +1051,7 @@ use constant ABSTRACT_SCHEMA => {
 =head1 METHODS
 
 Note: Methods which can be implemented generically for all DBs are
-implemented in this module. If needed, they can be overriden with
+implemented in this module. If needed, they can be overridden with
 DB-specific code in a subclass. Methods which are prefixed with C<_>
 are considered protected. Subclasses may override these methods, but
 other modules should not invoke these methods directly.
@@ -1160,7 +1160,7 @@ sub _adjust_schema {
     # Loop over each table in the abstract database schema.
     foreach my $table (keys %{ $self->{schema} }) {
         my %fields = (@{ $self->{schema}{$table}{FIELDS} });
-        # Loop over the field defintions in each table.
+        # Loop over the field definitions in each table.
         foreach my $field_def (values %fields) {
             # If the field type is an abstract data type defined in the
             # $db_specific hash, replace it with the DBMS-specific data type
@@ -2072,7 +2072,7 @@ The following abstract data types are used:
 
 Database-specific subclasses should define the implementation for these data
 types as a hash reference stored internally in the schema object as
-C<db_specific>. This is typically done in overriden L<_initialize> method.
+C<db_specific>. This is typically done in overridden L<_initialize> method.
 
 The following abstract boolean values should also be defined on a
 database-specific basis:
