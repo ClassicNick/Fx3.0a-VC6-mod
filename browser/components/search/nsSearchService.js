@@ -146,7 +146,9 @@ function isUsefulLine(aLine) {
  */
 const kIsUserInput = /(\s|["'=])user(\s|[>="'\/\\+]|$)/i;
 
+#ifdef MOZ_STORAGE
 var MozStorageStatementWrapper = null;
+#endif
 
 /**
  * Prefixed to all search debug output.
