@@ -27,16 +27,17 @@ use Bugzilla;
 use Bugzilla::Constants;
 use Bugzilla::Util;
 use Bugzilla::Error;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Classification;
 
-my $cgi = Bugzilla->cgi;
 my $dbh = Bugzilla->dbh;
+my $cgi = Bugzilla->cgi;
 my $template = Bugzilla->template;
-my $vars = {};
+local our $vars = {};
 
 sub LoadTemplate {
     my $action = shift;
+    my $cgi = Bugzilla->cgi;
+    my $template = Bugzilla->template;
 
     $action =~ /(\w+)/;
     $action = $1;
@@ -59,7 +60,8 @@ exists Bugzilla->user->groups->{'editclassifications'}
                                      action => "edit",
                                      object => "classifications"});
 
-ThrowUserError("auth_classification_not_enabled") unless Param("useclassification");
+ThrowUserError("auth_classification_not_enabled") 
+    unless Bugzilla->params->{"useclassification"};
 
 #
 # often used variables

@@ -543,7 +543,9 @@ SessionStoreService.prototype = {
         pos: aTab._tPos
       });
       var maxTabsUndo = this._getPref("sessionstore.max_tabs_undo", DEFAULT_MAX_TABS_UNDO);
-      this._windows[aWindow.__SSi]._closedTabs.splice(maxTabsUndo);
+      var length = this._windows[aWindow.__SSi]._closedTabs.length;
+      if (length > maxTabsUndo)
+        this._windows[aWindow.__SSi]._closedTabs.splice(maxTabsUndo, length - maxTabsUndo);
     }
   },
 
@@ -677,8 +679,22 @@ SessionStoreService.prototype = {
     return aIx in tabs ? tabs[aIx].title : null;
   },
 
+  /**
+   * Returns nsIDictionary
+   */
   getClosedTabData: function sss_getClosedTabDataAt(aWindow) {
-    return this._windows[aWindow.__SSi]._closedTabs;
+    try {
+      var wrappedData = Cc["@mozilla.org/dictionary;1"].createInstance(Ci.nsIDictionary);
+      var closedTabData = this._windows[aWindow.__SSi]._closedTabs;
+      if (closedTabData.length == 0)
+        return wrappedData;
+
+      // wrap it
+      for (var i = 0; i < closedTabData.length; i++)
+        wrappedData.setValue(i, {wrappedJSObject: closedTabData[i]});
+
+      return wrappedData;
+    } catch(ex) { debug("getClosedTabData: " + ex); }
   },
 
   setClosedTabData: function sss_setClosedTabDataAt(aWindow, aData) {
@@ -690,7 +706,7 @@ SessionStoreService.prototype = {
 
     // default to the most-recently closed tab
     aIndex = aIndex || 0;
-      
+
     if (aIndex in closedTabs) {
       var browser = aWindow.getBrowser();
 
@@ -737,6 +753,13 @@ SessionStoreService.prototype = {
     }
   },
 
+  deleteWindowValue: function sss_deleteWindowValue(aWindow, aKey) {
+    if (this._windows[aWindow.__SSi].extData[aKey])
+      delete this._windows[aWindow.__SSi].extData[aKey];
+    else
+      Components.returnCode = -1; //zeniko: or should we rather fail silently?
+  },
+
   getTabValue: function sss_getTabValue(aTab, aKey) {
     var data = aTab.__SS_extdata || {};
     return data[aKey] || "";
@@ -747,8 +770,16 @@ SessionStoreService.prototype = {
       aTab.__SS_extdata = {};
     }
     aTab.__SS_extdata[aKey] = aStringValue;
-    this.saveStateDelayed(aTop.ownerDocument.defaultView);
+    this.saveStateDelayed(aTab.ownerDocument.defaultView);
   },
+
+  deleteTabValue: function sss_deleteTabValue(aTab, aKey) {
+    if (aTab.__SS_extdata[aKey])
+      delete aTab.__SS_extdata[aKey];
+    else
+      Components.returnCode = -1; //zeniko: or should we rather fail silently?
+  },
+
 
   persistTabAttribute: function sss_persistTabAttribute(aName) {
     this.xulAttributes.push(aName);

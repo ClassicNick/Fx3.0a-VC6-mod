@@ -161,6 +161,7 @@ sub help_page {
     my $programname = $0;
     $programname =~ s#^\./##;
     print "$programname - checks your setup and updates your Bugzilla installation\n";
+    printf "Version: " . BUGZILLA_VERSION . " on perl %vd\n", $^V; 
     print "\nUsage: $programname [SCRIPT [--verbose]] [--check-modules|--help]\n";
     print "                     [--no-templates]\n";
     print "\n";
@@ -196,6 +197,12 @@ if ($ARGV[0] && ($ARGV[0] !~ /^-/)) {
         or die("Error $! processing $ARGV[0]");
     $silent = !grep(/^--no-silent$/, @ARGV) && !grep(/^--verbose$/, @ARGV);
 }
+
+###########################################################################
+# Display version information
+###########################################################################
+
+printf "\n*** This is Bugzilla " . BUGZILLA_VERSION . " on perl %vd ***\n", $^V unless $silent;
 
 ###########################################################################
 # Check required module
@@ -416,7 +423,7 @@ if ((!$gd || !$chartbase) && !$silent) {
 }
 if (!$xmlparser && !$silent) {
     print "If you want to use the bug import/export feature to move bugs to\n",
-          "or from other bugzilla installations, you will need to install\n ",
+          "or from other bugzilla installations, you will need to install\n",
           "the XML::Twig module by running (as $::root):\n\n",
     "   " . install_command("XML::Twig") . "\n\n";
 }
@@ -510,7 +517,7 @@ BEGIN {
     $::ENV{'PATH'} = $env;
 
     require Bugzilla::Config;
-    import Bugzilla::Config qw(:DEFAULT :admin);
+    import Bugzilla::Config qw(:admin);
 }
 
 # 12/17/00 justdave@syndicomm.com - removed declarations of the localconfig
@@ -1382,7 +1389,7 @@ if (@oldparams) {
 # if running on Windows and no third party sendmail wrapper
 # is available
 if ($^O =~ /MSWin32/i
-    && Param('mail_delivery_method') eq 'sendmail'
+    && Bugzilla->params->{'mail_delivery_method'} eq 'sendmail'
     && !-e SENDMAIL_EXE)
 {
     print "\nBugzilla requires an SMTP server to function on Windows.\n" .
@@ -1663,7 +1670,7 @@ import Bugzilla::Bug qw(is_open_state);
 # Check for LDAP
 ###########################################################################
 
-for my $verifymethod (split /,\s*/, Param('user_verify_class')) {
+for my $verifymethod (split /,\s*/, Bugzilla->params->{'user_verify_class'}) {
     if ($verifymethod eq 'LDAP') {
         my $netLDAP = have_vers("Net::LDAP", 0);
         if (!$netLDAP && !$silent) {
@@ -1681,12 +1688,12 @@ for my $verifymethod (split /,\s*/, Param('user_verify_class')) {
 # and that the generated images are accessible.
 #
 
-if( Param('webdotbase') && Param('webdotbase') !~ /^https?:/ ) {
+if( Bugzilla->params->{'webdotbase'} && Bugzilla->params->{'webdotbase'} !~ /^https?:/ ) {
     printf("Checking for %15s %-9s ", "GraphViz", "(any)") unless $silent;
-    if(-x Param('webdotbase')) {
+    if(-x Bugzilla->params->{'webdotbase'}) {
         print "ok: found\n" unless $silent;
     } else {
-        print "not a valid executable: " . Param('webdotbase') . "\n";
+        print "not a valid executable: " . Bugzilla->params->{'webdotbase'} . "\n";
     }
 
     # Check .htaccess allows access to generated images
@@ -2264,7 +2271,8 @@ if (!$dbh->bz_column_info('bugs', 'lastdiffed')) {
 # declared to be unique.  Sure enough, somehow, I got 22 duplicated entries
 # in my database.  This code detects that, cleans up the duplicates, and
 # then tweaks the table to declare the field to be unique.  What a pain.
-if (!$dbh->bz_index_info('profiles', 'profiles_login_name_idx')->{TYPE}) {
+if (!$dbh->bz_index_info('profiles', 'profiles_login_name_idx') ||
+    !$dbh->bz_index_info('profiles', 'profiles_login_name_idx')->{TYPE}) {
     print "Searching for duplicate entries in the profiles table ...\n";
     while (1) {
         # This code is weird in that it loops around and keeps doing this
@@ -3406,7 +3414,7 @@ if ($dbh->bz_table_info("flagtypes")) {
 #
 # If group_control_map is empty, backward-compatibility 
 # usebuggroups-equivalent records should be created.
-my $entry = Param('useentrygroupdefault');
+my $entry = Bugzilla->params->{'useentrygroupdefault'};
 $sth = $dbh->prepare("SELECT COUNT(*) FROM group_control_map");
 $sth->execute();
 my ($mapcnt) = $sth->fetchrow_array();
@@ -4081,7 +4089,7 @@ if (!exists $dbh->bz_column_info('whine_queries', 'title')->{DEFAULT}) {
              undef, "Other", "other");
     $dbh->do('UPDATE bugs SET op_sys = ? WHERE op_sys = ?',
              undef, "Other", "other");
-    if (Param('defaultopsys') eq 'other') {
+    if (Bugzilla->params->{'defaultopsys'} eq 'other') {
         # We can't actually fix the param here, because WriteParams() will
         # make $datadir/params unwriteable to the webservergroup.
         # It's too much of an ugly hack to copy the permission-fixing code
@@ -4601,9 +4609,9 @@ if ($sth->rows == 0) {
     if (-e "$datadir/params") { 
         require "$datadir/params"; # if they have a params file, use that
     }
-    if (Param('emailregexp')) {
-        $mailcheckexp = Param('emailregexp');
-        $mailcheck    = Param('emailregexpdesc');
+    if (Bugzilla->params->{'emailregexp'}) {
+        $mailcheckexp = Bugzilla->params->{'emailregexp'};
+        $mailcheck    = Bugzilla->params->{'emailregexpdesc'};
     } else {
         $mailcheckexp = '^[\\w\\.\\+\\-=]+@[\\w\\.\\-]+\\.[\\w\\-]+$';
         $mailcheck    = 'A legal address must contain exactly one \'@\', 
@@ -4798,7 +4806,7 @@ foreach my $item (@params) {
     last;
 }
 
-if (Param('urlbase') eq $urlbase_default) {
+if (Bugzilla->params->{'urlbase'} eq $urlbase_default) {
     print "Now that you have installed Bugzilla, you should visit the \n" .
           "'Parameters' page (linked in the footer of the Administrator \n" .
           "account) to ensure it is set up as you wish - this includes \n" .

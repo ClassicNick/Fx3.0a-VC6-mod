@@ -38,7 +38,7 @@
 #
 # You need to work with bug_email.pl the MIME::Parser installed.
 # 
-# $Id: bug_email.pl,v 1.42 2006/06/21 00:44:48 lpsolit%gmail.com Exp $
+# $Id: bug_email.pl,v 1.44 2006/07/03 21:42:47 mkanat%bugzilla.org Exp $
 ###############################################################
 
 # 02/12/2000 (SML)
@@ -91,7 +91,6 @@ use lib "../";
 
 use Bugzilla;
 use BugzillaEmail;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Constants;
 use Bugzilla::Util;
 use Bugzilla::BugMail;
@@ -274,12 +273,12 @@ sub CheckPriority
         my $Text = "You sent wrong priority-setting, valid values are:" .
             join( "\n\t", @$all_prios ) . "\n\n";
         $Text .= "*  The priority is set to the default value ". 
-            Param('defaultpriority') . "\n";
+            Bugzilla->params->{'defaultpriority'} . "\n";
 
         BugMailError( 0, $Text );
 
         # set default value from param-file
-        $Control{'priority'} = Param( 'defaultpriority' );
+        $Control{'priority'} = Bugzilla->params->{ 'defaultpriority' };
     } else {
         # Nothing to do
     }
@@ -767,7 +766,7 @@ if (! CheckPermissions("CreateBugs", $SenderShort ) ) {
 }
 
 # Set QA
-if (Param("useqacontact")) {
+if (Bugzilla->params->{"useqacontact"}) {
     if (defined($Control{'qa_contact'}) 
         && $Control{'qa_contact'} !~ /^\s*$/ ) {
         $Control{'qa_contact'} = DBname_to_id($Control{'qa_contact'});

@@ -41,16 +41,10 @@
 
 use strict;
 
-my $UserInEditGroupSet = -1;
-my $UserInCanConfirmGroupSet = -1;
-my $PrivilegesRequired = 0;
-my $lastbugid = 0;
-
 use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Bug;
 use Bugzilla::Mailer;
 use Bugzilla::User;
@@ -66,18 +60,19 @@ use Bugzilla::Flag;
 use Bugzilla::FlagType;
 
 my $user = Bugzilla->login(LOGIN_REQUIRED);
-my $whoid = $user->id;
+local our $whoid = $user->id;
 my $grouplist = $user->groups_as_string;
 
 my $cgi = Bugzilla->cgi;
 my $dbh = Bugzilla->dbh;
 my $template = Bugzilla->template;
-my $vars = {};
+local our $vars = {};
 $vars->{'use_keywords'} = 1 if Bugzilla::Keyword::keyword_count();
 
 my @editable_bug_fields = editable_bug_fields();
 
 my $requiremilestone = 0;
+my $PrivilegesRequired = 0;
 
 ######################################################################
 # Subroutines
@@ -143,6 +138,11 @@ if (defined $cgi->param('id')) {
 # Make sure there are bugs to process.
 scalar(@idlist) || ThrowUserError("no_bugs_chosen");
 
+# Build a bug object using $cgi->param('id') as ID.
+# If there are more than one bug changed at once, the bug object will be
+# empty, which doesn't matter.
+my $bug = new Bugzilla::Bug(scalar $cgi->param('id'), $whoid);
+
 # Make sure form param 'dontchange' is defined so it can be compared to easily.
 $cgi->param('dontchange','') unless defined $cgi->param('dontchange');
 
@@ -159,7 +159,7 @@ foreach my $field ("estimated_time", "work_time", "remaining_time") {
     }
 }
 
-if (UserInGroup(Param('timetrackinggroup'))) {
+if (UserInGroup(Bugzilla->params->{'timetrackinggroup'})) {
     my $wk_time = $cgi->param('work_time');
     if ($cgi->param('comment') =~ /^\s*$/ && $wk_time && $wk_time != 0) {
         ThrowUserError('comment_required');
@@ -176,7 +176,6 @@ ValidateComment(scalar $cgi->param('comment'));
 # during validation.
 foreach my $field ("dependson", "blocked") {
     if ($cgi->param('id')) {
-        my $bug = new Bugzilla::Bug($cgi->param('id'), $user->id);
         my @old = @{$bug->$field};
         my @new;
         foreach my $id (split(/[\s,]+/, $cgi->param($field))) {
@@ -190,7 +189,7 @@ foreach my $field ("dependson", "blocked") {
             # ValidateBugID is called without $field here so that it will
             # throw an error if any of the changed bugs are not visible.
             ValidateBugID($id);
-            if (Param("strict_isolation")) {
+            if (Bugzilla->params->{"strict_isolation"}) {
                 my $deltabug = new Bugzilla::Bug($id, $user->id);
                 if (!$user->can_edit_product($deltabug->{'product_id'})) {
                     $vars->{'field'} = $field;
@@ -198,8 +197,9 @@ foreach my $field ("dependson", "blocked") {
                 }
             }
         }
-        if ((@$added  || @$removed)
-            && (!CheckCanChangeField($field, $bug->bug_id, 0, 1))) {
+        if ((@$added || @$removed)
+            && !$bug->check_can_change_field($field, 0, 1, \$PrivilegesRequired))
+        {
             $vars->{'privs'} = $PrivilegesRequired;
             $vars->{'field'} = $field;
             ThrowUserError("illegal_change", $vars);
@@ -269,9 +269,10 @@ foreach my $field_name ('product', 'component', 'version') {
 #
 sub CheckonComment {
     my ($function) = (@_);
+    my $cgi = Bugzilla->cgi;
     
     # Param is 1 if comment should be added !
-    my $ret = Param( "commenton" . $function );
+    my $ret = Bugzilla->params->{ "commenton" . $function };
 
     # Allow without comment in case of undefined Params.
     $ret = 0 unless ( defined( $ret ));
@@ -307,8 +308,9 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
     && CheckonComment( "reassignbycomponent" ))
 {
     # Check to make sure they actually have the right to change the product
-    if (!CheckCanChangeField('product', scalar $cgi->param('id'), $oldproduct,
-                              $cgi->param('product'))) {
+    if (!$bug->check_can_change_field('product', $oldproduct, $cgi->param('product'),
+                                      \$PrivilegesRequired))
+    {
         $vars->{'oldvalue'} = $oldproduct;
         $vars->{'newvalue'} = $cgi->param('product');
         $vars->{'field'} = 'product';
@@ -352,7 +354,7 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
 
     my $mok = 1;   # so it won't affect the 'if' statement if milestones aren't used
     my @milestone_names = ();
-    if ( Param("usetargetmilestone") ) {
+    if ( Bugzilla->params->{"usetargetmilestone"} ) {
        defined($cgi->param('target_milestone'))
          || ThrowCodeError('undefined_field', { field => 'target_milestone' });
 
@@ -380,7 +382,7 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
             if ($cok) {
                 $defaults{'component'} = $cgi->param('component');
             }
-            if (Param("usetargetmilestone")) {
+            if (Bugzilla->params->{"usetargetmilestone"}) {
                 $vars->{'use_target_milestone'} = 1;
                 $vars->{'milestones'} = \@milestone_names;
                 if ($mok) {
@@ -410,171 +412,12 @@ if (((defined $cgi->param('id') && $cgi->param('product') ne $oldproduct)
     }
 }
 
-
-# Checks that the user is allowed to change the given field.  Actually, right
-# now, the rules are pretty simple, and don't look at the field itself very
-# much, but that could be enhanced.
-
-my $ownerid;
-my $reporterid;
-my $qacontactid;
-
-################################################################################
-# CheckCanChangeField() defines what users are allowed to change what bugs. You
-# can add code here for site-specific policy changes, according to the 
-# instructions given in the Bugzilla Guide and below. Note that you may also
-# have to update the Bugzilla::Bug::user() function to give people access to the
-# options that they are permitted to change.
-#
-# CheckCanChangeField() should return true if the user is allowed to change this
-# field, and false if they are not.
-#
-# The parameters to this function are as follows:
-# $field    - name of the field in the bugs table the user is trying to change
-# $bugid    - the ID of the bug they are changing
-# $oldvalue - what they are changing it from
-# $newvalue - what they are changing it to
-#
-# Note that this function is currently not called for dependency changes 
-# (bug 141593) or CC changes, which means anyone can change those fields.
-#
-# Do not change the sections between START DO_NOT_CHANGE and END DO_NOT_CHANGE.
-################################################################################
-sub CheckCanChangeField {
-    # START DO_NOT_CHANGE
-    my ($field, $bugid, $oldvalue, $newvalue) = (@_);
-
-    $oldvalue = defined($oldvalue) ? $oldvalue : '';
-    $newvalue = defined($newvalue) ? $newvalue : '';
-
-    # Return true if they haven't changed this field at all.
-    if ($oldvalue eq $newvalue) {
-        return 1;
-    } elsif (trim($oldvalue) eq trim($newvalue)) {
-        return 1;
-    # numeric fields need to be compared using == 
-    } elsif (($field eq "estimated_time" || $field eq "remaining_time")
-             && $newvalue ne $cgi->param('dontchange')
-             && $oldvalue == $newvalue)
-    {
-        return 1;
-    }
-    # END DO_NOT_CHANGE
-
-    # Allow anyone to change comments.
-    if ($field =~ /^longdesc/) {
-        return 1;
-    }
-
-    # Ignore the assigned_to field if the bug is not being reassigned
-    if ($field eq "assigned_to"
-        && $cgi->param('knob') ne "reassignbycomponent"
-        && $cgi->param('knob') ne "reassign")
-    {
-        return 1;
-    }
-
-    # START DO_NOT_CHANGE
-    # Find out whether the user is a member of the "editbugs" and/or
-    # "canconfirm" groups. $UserIn*GroupSet are caches of the return value of 
-    # the UserInGroup calls.
-    if ($UserInEditGroupSet < 0) {
-        $UserInEditGroupSet = UserInGroup("editbugs");
-    }
-    
-    if ($UserInCanConfirmGroupSet < 0) {
-        $UserInCanConfirmGroupSet = UserInGroup("canconfirm");
-    }
-    # END DO_NOT_CHANGE
-
-    # If the user isn't allowed to change a field, we must tell him who can.
-    # We store the required permission set into the $PrivilegesRequired
-    # variable which gets passed to the error template.
-    #
-    # $PrivilegesRequired = 0 : no privileges required;
-    # $PrivilegesRequired = 1 : the reporter, assignee or an empowered user;
-    # $PrivilegesRequired = 2 : the assignee or an empowered user;
-    # $PrivilegesRequired = 3 : an empowered user.
-
-    # Allow anyone with "editbugs" privs to change anything.
-    if ($UserInEditGroupSet) {
-        return 1;
-    }
-
-    # *Only* users with "canconfirm" privs can confirm bugs.
-    if ($field eq "canconfirm"
-        || ($field eq "bug_status"
-            && $oldvalue eq 'UNCONFIRMED'
-            && is_open_state($newvalue)))
-    {
-        $PrivilegesRequired = 3;
-        return $UserInCanConfirmGroupSet;
-    }
-
-    # START DO_NOT_CHANGE
-    # $reporterid, $ownerid and $qacontactid are caches of the results of
-    # the call to find out the assignee, reporter and qacontact of the current bug.
-    if ($lastbugid != $bugid) {
-        ($reporterid, $ownerid, $qacontactid) = $dbh->selectrow_array(
-            q{SELECT reporter, assigned_to, qa_contact FROM bugs
-            WHERE bug_id = ? }, undef, $bugid);
-        $lastbugid = $bugid;
-    }
-    # END DO_NOT_CHANGE
-
-    # Allow the assignee to change anything else.
-    if ($ownerid == $whoid) {
-        return 1;
-    }
-    
-    # Allow the QA contact to change anything else.
-    if (Param('useqacontact') && $qacontactid && ($qacontactid == $whoid)) {
-        return 1;
-    }
-    
-    # At this point, the user is either the reporter or an
-    # unprivileged user. We first check for fields the reporter
-    # is not allowed to change.
-
-    # The reporter may not:
-    # - reassign bugs, unless the bugs are assigned to him;
-    #   in that case we will have already returned 1 above
-    #   when checking for the assignee of the bug.
-    if ($field eq "assigned_to") {
-        $PrivilegesRequired = 2;
-        return 0;
-    }
-    # - change the QA contact
-    if ($field eq "qa_contact") {
-        $PrivilegesRequired = 2;
-        return 0;
-    }
-    # - change the target milestone
-    if ($field eq "target_milestone") {
-        $PrivilegesRequired = 2;
-        return 0;
-    }
-    # - change the priority (unless he could have set it originally)
-    if ($field eq "priority"
-        && !Param('letsubmitterchoosepriority'))
-    {
-        $PrivilegesRequired = 2;
-        return 0;
-    }
-
-    # The reporter is allowed to change anything else.
-    if ($reporterid == $whoid) {
-        return 1;
-    }
-
-    # If we haven't returned by this point, then the user doesn't
-    # have the necessary permissions to change this field.
-    $PrivilegesRequired = 1;
-    return 0;
-}
-
 # Confirm that the reporter of the current bug can access the bug we are duping to.
 sub DuplicateUserConfirm {
+    my $cgi = Bugzilla->cgi;
+    my $dbh = Bugzilla->dbh;
+    my $template = Bugzilla->template;
+
     # if we've already been through here, then exit
     if (defined $cgi->param('confirm_add_duplicate')) {
         return;
@@ -625,7 +468,7 @@ if (defined $cgi->param('id')) {
                 [map($_->name, @{$prod_obj->components})]);
     check_field('version', scalar $cgi->param('version'),
                 [map($_->name, @{$prod_obj->versions})]);
-    if ( Param("usetargetmilestone") ) {
+    if ( Bugzilla->params->{"usetargetmilestone"} ) {
         check_field('target_milestone', scalar $cgi->param('target_milestone'), 
                     [map($_->name, @{$prod_obj->milestones})]);
     }
@@ -648,8 +491,8 @@ if (defined $cgi->param('id')) {
 
 my $action = trim($cgi->param('action') || '');
 
-if ($action eq Param('move-button-text')) {
-    Param('move-enabled') || ThrowUserError("move_bugs_disabled");
+if ($action eq Bugzilla->params->{'move-button-text'}) {
+    Bugzilla->params->{'move-enabled'} || ThrowUserError("move_bugs_disabled");
 
     $user->is_mover || ThrowUserError("auth_failure", {action => 'move',
                                                        object => 'bugs'});
@@ -667,7 +510,7 @@ if ($action eq Param('move-button-text')) {
     if (defined $cgi->param('comment') && $cgi->param('comment') !~ /^\s*$/) {
         $comment = $cgi->param('comment') . "\n\n";
     }
-    $comment .= "Bug moved to " . Param('move-to-url') . ".\n\n";
+    $comment .= "Bug moved to " . Bugzilla->params->{'move-to-url'} . ".\n\n";
     $comment .= "If the move succeeded, " . $user->login . " will receive a mail\n";
     $comment .= "containing the number of the new bug in the other database.\n";
     $comment .= "If all went well,  please mark this bug verified, and paste\n";
@@ -714,9 +557,9 @@ if ($action eq Param('move-button-text')) {
         $vars->{'header_done'} = 1;
     }
     # Prepare and send all data about these bugs to the new database
-    my $to = Param('move-to-address');
+    my $to = Bugzilla->params->{'move-to-address'};
     $to =~ s/@/\@/;
-    my $from = Param('moved-from-address');
+    my $from = Bugzilla->params->{'moved-from-address'};
     $from =~ s/@/\@/;
     my $msg = "To: $to\n";
     $msg .= "From: Bugzilla <" . $from . ">\n";
@@ -748,11 +591,12 @@ if ($action eq Param('move-button-text')) {
 
 $::query = "UPDATE bugs SET";
 $::comma = "";
-my @values;
+local our @values;
 umask(0);
 
 sub _remove_remaining_time {
-    if (UserInGroup(Param('timetrackinggroup'))) {
+    my $cgi = Bugzilla->cgi;
+    if (UserInGroup(Bugzilla->params->{'timetrackinggroup'})) {
         if ( defined $cgi->param('remaining_time') 
              && $cgi->param('remaining_time') > 0 )
         {
@@ -773,9 +617,12 @@ sub DoComma {
 
 # $everconfirmed is used by ChangeStatus() to determine whether we are
 # confirming the bug or not.
-my $everconfirmed;
+local our $everconfirmed;
 sub DoConfirm {
-    if (CheckCanChangeField("canconfirm", scalar $cgi->param('id'), 0, 1)) {
+    my $bug = shift;
+    if ($bug->check_can_change_field("canconfirm", 0, 1, 
+                                     \$PrivilegesRequired)) 
+    {
         DoComma();
         $::query .= "everconfirmed = 1";
         $everconfirmed = 1;
@@ -784,6 +631,9 @@ sub DoConfirm {
 
 sub ChangeStatus {
     my ($str) = (@_);
+    my $cgi = Bugzilla->cgi;
+    my $dbh = Bugzilla->dbh;
+
     if (!$cgi->param('dontchange')
         || $str ne $cgi->param('dontchange')) {
         DoComma();
@@ -845,6 +695,9 @@ sub ChangeStatus {
 
 sub ChangeResolution {
     my ($str) = (@_);
+    my $dbh = Bugzilla->dbh;
+    my $cgi = Bugzilla->cgi;
+
     if (!$cgi->param('dontchange')
         || $str ne $cgi->param('dontchange'))
     {
@@ -860,7 +713,9 @@ sub ChangeResolution {
                 $dbh->selectrow_array('SELECT resolution FROM bugs WHERE bug_id = ?',
                                        undef, $bug_id);
         }
-        unless (CheckCanChangeField('resolution', $bug_id, $old_resolution, $str)) {
+        unless ($bug->check_can_change_field('resolution', $old_resolution, $str,
+                                             \$PrivilegesRequired))
+        {
             $vars->{'oldvalue'} = $old_resolution;
             $vars->{'newvalue'} = $str;
             $vars->{'field'} = 'resolution';
@@ -873,7 +728,7 @@ sub ChangeResolution {
         trick_taint($str);
         push(@values, $str);
         # We define this variable here so that customized installations
-        # may set rules based on the resolution in CheckCanChangeField.
+        # may set rules based on the resolution in Bug::check_can_change_field().
         $cgi->param('resolution', $str);
     }
 }
@@ -976,7 +831,7 @@ if ($cgi->param('component') ne $cgi->param('dontchange')) {
 
 # If this installation uses bug aliases, and the user is changing the alias,
 # add this change to the query.
-if (Param("usebugaliases") && defined $cgi->param('alias')) {
+if (Bugzilla->params->{"usebugaliases"} && defined $cgi->param('alias')) {
     my $alias = trim($cgi->param('alias'));
     
     # Since aliases are unique (like bug numbers), they can only be changed
@@ -1022,8 +877,10 @@ if (defined $cgi->param('id')) {
     }
 }
 
-if (defined $cgi->param('id') &&
-    (Param("insidergroup") && UserInGroup(Param("insidergroup")))) {
+if ( defined $cgi->param('id') &&
+     (Bugzilla->params->{"insidergroup"} 
+      && UserInGroup(Bugzilla->params->{"insidergroup"})) ) 
+{
 
     my $sth = $dbh->prepare('UPDATE longdescs SET isprivate = ?
                              WHERE bug_id = ? AND bug_when = ?');
@@ -1112,7 +969,7 @@ if (defined $cgi->param('qa_contact')
     # The QA contact cannot be deleted from show_bug.cgi for a single bug!
     if ($name ne $cgi->param('dontchange')) {
         $qacontact = login_to_id($name, THROW_ERROR) if ($name ne "");
-        if ($qacontact && Param("strict_isolation")) {
+        if ($qacontact && Bugzilla->params->{"strict_isolation"}) {
                 $usercache{$qacontact} ||= Bugzilla::User->new($qacontact);
                 my $qa_user = $usercache{$qacontact};
                 foreach my $product_id (@newprod_ids) {
@@ -1144,14 +1001,16 @@ SWITCH: for ($cgi->param('knob')) {
         last SWITCH;
     };
     /^confirm$/ && CheckonComment( "confirm" ) && do {
-        DoConfirm();
+        DoConfirm($bug);
         ChangeStatus('NEW');
         last SWITCH;
     };
     /^accept$/ && CheckonComment( "accept" ) && do {
-        DoConfirm();
+        DoConfirm($bug);
         ChangeStatus('ASSIGNED');
-        if (Param("usetargetmilestone") && Param("musthavemilestoneonaccept")) {
+        if (Bugzilla->params->{"usetargetmilestone"} 
+            && Bugzilla->params->{"musthavemilestoneonaccept"}) 
+        {
             $requiremilestone = 1;
         }
         last SWITCH;
@@ -1166,7 +1025,7 @@ SWITCH: for ($cgi->param('knob')) {
                     Bugzilla::Bug->settable_resolutions);
 
         # don't resolve as fixed while still unresolved blocking bugs
-        if (Param("noresolveonopenblockers")
+        if (Bugzilla->params->{"noresolveonopenblockers"}
             && $cgi->param('resolution') eq 'FIXED')
         {
             my @dependencies = Bugzilla::Bug::CountOpenDependencies(@idlist);
@@ -1190,14 +1049,14 @@ SWITCH: for ($cgi->param('knob')) {
     };
     /^reassign$/ && CheckonComment( "reassign" ) && do {
         if ($cgi->param('andconfirm')) {
-            DoConfirm();
+            DoConfirm($bug);
         }
         ChangeStatus('NEW');
         DoComma();
         if (defined $cgi->param('assigned_to')
             && trim($cgi->param('assigned_to')) ne "") { 
             $assignee = login_to_id(trim($cgi->param('assigned_to')), THROW_ERROR);
-            if (Param("strict_isolation")) {
+            if (Bugzilla->params->{"strict_isolation"}) {
                 $usercache{$assignee} ||= Bugzilla::User->new($assignee);
                 my $assign_user = $usercache{$assignee};
                 foreach my $product_id (@newprod_ids) {
@@ -1222,7 +1081,7 @@ SWITCH: for ($cgi->param('knob')) {
     };
     /^reassignbycomponent$/  && CheckonComment( "reassignbycomponent" ) && do {
         if ($cgi->param('compconfirm')) {
-            DoConfirm();
+            DoConfirm($bug);
         }
         ChangeStatus('NEW');
         last SWITCH;
@@ -1336,7 +1195,7 @@ if ($::comma eq ""
 }
 
 # Process data for Time Tracking fields
-if (UserInGroup(Param('timetrackinggroup'))) {
+if (UserInGroup(Bugzilla->params->{'timetrackinggroup'})) {
     foreach my $field ("estimated_time", "remaining_time") {
         if (defined $cgi->param($field)) {
             my $er_time = trim($cgi->param($field));
@@ -1366,13 +1225,13 @@ if (UserInGroup(Param('timetrackinggroup'))) {
 }
 
 my $basequery = $::query;
-my $delta_ts;
 
-
+local our $delta_ts;
 sub SnapShotBug {
     my ($id) = (@_);
+    my $dbh = Bugzilla->dbh;
     my @row = $dbh->selectrow_array(q{SELECT delta_ts, } .
-                join(',', @editable_bug_fields).q{ FROM bugs WHERE bug_id = ?},
+                join(',', editable_bug_fields()).q{ FROM bugs WHERE bug_id = ?},
                 undef, $id);
     $delta_ts = shift @row;
 
@@ -1382,6 +1241,7 @@ sub SnapShotBug {
 
 sub SnapShotDeps {
     my ($i, $target, $me) = (@_);
+    my $dbh = Bugzilla->dbh;
     my $list = $dbh->selectcol_arrayref(qq{SELECT $target FROM dependencies
                                         WHERE $me = ? ORDER BY $target},
                                         undef, $i);
@@ -1390,10 +1250,11 @@ sub SnapShotDeps {
 
 
 my $timestamp;
-my $bug_changed;
 
+local our $bug_changed;
 sub LogDependencyActivity {
     my ($i, $oldstr, $target, $me, $timestamp) = (@_);
+    my $dbh = Bugzilla->dbh;
     my $newstr = SnapShotDeps($i, $target, $me);
     if ($oldstr ne $newstr) {
         # Figure out what's really different...
@@ -1408,7 +1269,7 @@ sub LogDependencyActivity {
     return 0;
 }
 
-if (Param("strict_isolation")) {
+if (Bugzilla->params->{"strict_isolation"}) {
     my @blocked_cc = ();
     foreach my $pid (keys %cc_add) {
         $usercache{$pid} ||= Bugzilla::User->new($pid);
@@ -1427,7 +1288,7 @@ if (Param("strict_isolation")) {
     }
 }
 
-if ($prod_changed && Param("strict_isolation")) {
+if ($prod_changed && Bugzilla->params->{"strict_isolation"}) {
     my $sth_cc = $dbh->prepare("SELECT who
                                 FROM cc
                                 WHERE bug_id = ?");
@@ -1498,7 +1359,7 @@ foreach my $id (@idlist) {
                                            undef, $new_comp_id);
         $query .= ", assigned_to = ?";
         push(@bug_values, $assignee);
-        if (Param("useqacontact")) {
+        if (Bugzilla->params->{"useqacontact"}) {
             $qacontact = $dbh->selectrow_array('SELECT initialqacontact
                                                 FROM components
                                                 WHERE components.id = ?',
@@ -1541,7 +1402,8 @@ foreach my $id (@idlist) {
         $oldvalues[$i] = defined($oldvalues[$i]) ? $oldvalues[$i] : '';
         # Convert the deadline taken from the DB into the YYYY-MM-DD format
         # for consistency with the deadline provided by the user, if any.
-        # Else CheckCanChangeField() would see them as different in all cases.
+        # Else Bug::check_can_change_field() would see them as different
+        # in all cases.
         if ($col eq 'deadline') {
             $oldvalues[$i] = format_time($oldvalues[$i], "%Y-%m-%d");
         }
@@ -1554,7 +1416,7 @@ foreach my $id (@idlist) {
     #   email addresses into their corresponding IDs;
     # - update $newhash{'bug_status'} to its real state if the bug
     #   is in the unconfirmed state.
-    $formhash{'qa_contact'} = $qacontact if Param('useqacontact');
+    $formhash{'qa_contact'} = $qacontact if Bugzilla->params->{'useqacontact'};
     if ($cgi->param('knob') eq 'reassignbycomponent'
         || $cgi->param('knob') eq 'reassign') {
         $formhash{'assigned_to'} = $assignee;
@@ -1562,12 +1424,18 @@ foreach my $id (@idlist) {
             $formhash{'bug_status'} = $oldhash{'bug_status'};
         }
     }
+    # This hash is required by Bug::check_can_change_field().
+    my $cgi_hash = {
+        'dontchange' => scalar $cgi->param('dontchange'),
+        'knob'       => scalar $cgi->param('knob')
+    };
     foreach my $col (@editable_bug_fields) {
         # The 'resolution' field is checked by ChangeResolution(),
         # i.e. only if we effectively use it.
         next if ($col eq 'resolution');
         if (exists $formhash{$col}
-            && !CheckCanChangeField($col, $id, $oldhash{$col}, $formhash{$col}))
+            && !$old_bug_obj->check_can_change_field($col, $oldhash{$col}, $formhash{$col},
+                                                     \$PrivilegesRequired, $cgi_hash))
         {
             my $vars;
             if ($col eq 'component_id') {
@@ -1592,14 +1460,15 @@ foreach my $id (@idlist) {
     
     # When editing multiple bugs, users can specify a list of keywords to delete
     # from bugs.  If the list matches the current set of keywords on those bugs,
-    # CheckCanChangeField above will fail to check permissions because it thinks
-    # the list hasn't changed.  To fix that, we have to call CheckCanChangeField
+    # Bug::check_can_change_field will fail to check permissions because it thinks
+    # the list hasn't changed. To fix that, we have to call Bug::check_can_change_field
     # again with old!=new if the keyword action is "delete" and old=new.
     if ($keywordaction eq "delete"
         && defined $cgi->param('keywords')
         && length(@keywordlist) > 0
         && $cgi->param('keywords') eq $oldhash{keywords}
-        && !CheckCanChangeField("keywords", $id, "old is not", "equal to new"))
+        && !$old_bug_obj->check_can_change_field("keywords", "old is not", "equal to new",
+                                                 \$PrivilegesRequired))
     {
         $vars->{'oldvalue'} = $oldhash{keywords};
         $vars->{'newvalue'} = "no keywords";
@@ -1670,7 +1539,7 @@ foreach my $id (@idlist) {
     $timestamp = $dbh->selectrow_array(q{SELECT NOW()});
 
     my $work_time;
-    if (UserInGroup(Param('timetrackinggroup'))) {
+    if (UserInGroup(Bugzilla->params->{'timetrackinggroup'})) {
         $work_time = $cgi->param('work_time');
         if ($work_time) {
             # AppendComment (called below) can in theory raise an error,
@@ -1757,10 +1626,10 @@ foreach my $id (@idlist) {
     foreach my $group_control (@$group_controls) {
         my ($group, $control) = @$group_control;
         $control ||= 0;
-        unless ($control > &::CONTROLMAPNA)  {
+        unless ($control > CONTROLMAPNA)  {
             $groupsforbidden{$group} = 1;
         }
-        if ($control == &::CONTROLMAPMANDATORY) {
+        if ($control == CONTROLMAPMANDATORY) {
             $groupsrequired{$group} = 1;
         }
     }

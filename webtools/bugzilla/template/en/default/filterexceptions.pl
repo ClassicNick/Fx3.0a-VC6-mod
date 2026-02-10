@@ -114,7 +114,7 @@
 
 'reports/keywords.html.tmpl' => [
   'keyword.description', 
-  'keyword.bugcount', 
+  'keyword.bug_count', 
 ],
 
 'reports/report-table.csv.tmpl' => [
@@ -350,7 +350,7 @@
 ],
 
 'bug/show.xml.tmpl' => [
-  'VERSION', 
+  'constants.BUGZILLA_VERSION', 
   'a.id', 
   'field', 
 ],

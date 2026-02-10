@@ -47,16 +47,19 @@ use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Error;
 use Bugzilla::Util;
 use Bugzilla::Chart;
 use Bugzilla::Series;
 use Bugzilla::User;
 
-my $cgi = Bugzilla->cgi;
-my $template = Bugzilla->template;
-my $vars = {};
+# For most scripts we don't make $cgi and $template global variables. But
+# when preparing Bugzilla for mod_perl, this script used these
+# variables in so many subroutines that it was easier to just
+# make them globals.
+local our $cgi = Bugzilla->cgi;
+local our $template = Bugzilla->template;
+local our $vars = {};
 
 # Go back to query.cgi if we are adding a boolean chart parameter.
 if (grep(/^cmd-/, $cgi->param())) {
@@ -90,8 +93,8 @@ if ($action eq "search") {
 
 my $user = Bugzilla->login(LOGIN_REQUIRED);
 
-UserInGroup(Param("chartgroup"))
-  || ThrowUserError("auth_failure", {group  => Param("chartgroup"),
+UserInGroup(Bugzilla->params->{"chartgroup"})
+  || ThrowUserError("auth_failure", {group  => Bugzilla->params->{"chartgroup"},
                                      action => "use",
                                      object => "charts"});
 

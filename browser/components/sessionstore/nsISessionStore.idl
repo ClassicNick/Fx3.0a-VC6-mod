@@ -39,6 +39,8 @@
 #include "nsISupports.idl"
 
 interface nsIDOMWindow;
+interface nsIDOMNode;
+interface nsIDictionary;
 
 /**
  * nsISessionStore keeps track of the current browsing state - i.e.
@@ -46,7 +48,7 @@ interface nsIDOMWindow;
  * - and allows to restore everything into one window.
  */
 
-[scriptable, uuid(38bad250-0021-11db-92e3-0800200c9a66)]
+[scriptable, uuid(f217cde0-0c68-11db-9cd8-0800200c9a66)]
 interface nsISessionStore : nsISupports
 {
   /**
@@ -60,10 +62,63 @@ interface nsISessionStore : nsISupports
   unsigned long getClosedTabCount(in nsIDOMWindow aWindow);
 
   /**
+   * Get closed tab data
+   * XXX - This format is not final, and will be updated when a better way is found.
+   */
+  nsIDictionary getClosedTabData(in nsIDOMWindow aWindow);
+
+  /**
    * @param aWindow
    *          The window to reopen a closed tab in.
    * @param aIndex
    *          Indicates the window to be restored (FIFO ordered).
    */
   void undoCloseTab(in nsIDOMWindow aWindow, in unsigned long aIndex);
+
+  /**
+   * @param aWindow is the window to get the value for.
+   * @param aKey    is the value's name.
+   * 
+   * @return A string value or "" if none is set.
+   */
+  string getWindowValue(in nsIDOMWindow aWindow, in string aKey);
+
+  /**
+   * @param aWindow      is the window to set the value for.
+   * @param aKey         is the value's name.
+   * @param aStringValue is the value itself (use toSource/eval before setting JS objects).
+   */
+  void setWindowValue(in nsIDOMWindow aWindow, in string aKey, in string aStringValue);
+  
+  /**
+   * @param aWindow is the window to get the value for.
+   * @param aKey    is the value's name.
+   */
+  void deleteWindowValue(in nsIDOMWindow aWindow, in string aKey);
+
+  /**
+   * @param aTab is the tab to get the value for.
+   * @param aKey is the value's name.
+   * 
+   * @return A string value or "" if none is set.
+   */
+  string getTabValue(in nsIDOMNode aTab, in string aKey);
+
+  /**
+   * @param aTab         is the tab to set the value for.
+   * @param aKey         is the value's name.
+   * @param aStringValue is the value itself (use toSource/eval before setting JS objects).
+   */
+  void setTabValue(in nsIDOMNode aTab, in string aKey, in string aStringValue);
+
+  /**
+   * @param aTab is the tab to get the value for.
+   * @param aKey is the value's name.
+   */
+  void deleteTabValue(in nsIDOMNode aTab, in string aKey);
+
+  /**
+   * @param aName is the name of the attribute to save/restore for all xul:tabs.
+   */
+  void persistTabAttribute(in string aName);
 };

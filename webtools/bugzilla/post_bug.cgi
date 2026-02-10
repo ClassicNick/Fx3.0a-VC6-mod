@@ -30,7 +30,6 @@ use lib qw(.);
 use Bugzilla;
 use Bugzilla::Attachment;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::Bug;
@@ -156,7 +155,7 @@ if (!defined $cgi->param('short_desc')
 # Check that if required a description has been provided
 # This has to go somewhere after 'maketemplate' 
 #  or it breaks bookmarks with no comments.
-if (Param("commentoncreate") && !trim($cgi->param('comment'))) {
+if (Bugzilla->params->{"commentoncreate"} && !trim($cgi->param('comment'))) {
     ThrowUserError("description_required");
 }
 
@@ -166,11 +165,7 @@ $cgi->param('bug_file_loc', '') if $cgi->param('bug_file_loc') eq 'http://';
 
 # Default assignee is the component owner.
 if (!UserInGroup("editbugs") || $cgi->param('assigned_to') eq "") {
-    my $initialowner = $dbh->selectrow_array(q{SELECT initialowner
-                                                 FROM components
-                                                WHERE id = ?},
-                                               undef, $component->id);
-    $cgi->param(-name => 'assigned_to', -value => $initialowner);
+    $cgi->param(-name => 'assigned_to', -value => $component->default_assignee->id);
 } else {
     $cgi->param(-name => 'assigned_to',
                 -value => login_to_id(trim($cgi->param('assigned_to')), THROW_ERROR));
@@ -181,7 +176,7 @@ my @bug_fields = ("version", "rep_platform",
                   "bug_status", "everconfirmed", "bug_file_loc", "short_desc",
                   "target_milestone", "status_whiteboard");
 
-if (Param("usebugaliases")) {
+if (Bugzilla->params->{"usebugaliases"}) {
    my $alias = trim($cgi->param('alias') || "");
    if ($alias ne "") {
        ValidateBugAlias($alias);
@@ -191,14 +186,11 @@ if (Param("usebugaliases")) {
 }
 
 # Retrieve the default QA contact if the field is empty
-if (Param("useqacontact")) {
+if (Bugzilla->params->{"useqacontact"}) {
     my $qa_contact;
     if (!UserInGroup("editbugs") || !defined $cgi->param('qa_contact')
         || trim($cgi->param('qa_contact')) eq "") {
-        ($qa_contact) = $dbh->selectrow_array(q{SELECT initialqacontact 
-                                                  FROM components 
-                                                 WHERE id = ?},
-                                                undef, $component->id);
+        $qa_contact = $component->default_qa_contact->id;
     } else {
         $qa_contact = login_to_id(trim($cgi->param('qa_contact')), THROW_ERROR);
     }
@@ -209,34 +201,23 @@ if (Param("useqacontact")) {
     }
 }
 
-if (UserInGroup("editbugs") || UserInGroup("canconfirm")) {
-    # Default to NEW if the user hasn't selected another status
-    if (!defined $cgi->param('bug_status')) {
-        $cgi->param(-name => 'bug_status', -value => "NEW");
+my $bug_status = 'UNCONFIRMED';
+if ($product->votes_to_confirm) {
+    # Default to NEW if the user with privs hasn't selected another status.
+    if (UserInGroup('editbugs') || UserInGroup('canconfirm')) {
+        $bug_status = scalar($cgi->param('bug_status')) || 'NEW';
     }
 } else {
-    # Default to UNCONFIRMED if we are using it, NEW otherwise
-    $cgi->param(-name => 'bug_status', -value => 'UNCONFIRMED');
-    my $votestoconfirm = $dbh->selectrow_array(q{SELECT votestoconfirm 
-                                                   FROM products 
-                                                  WHERE id = ?},
-                                                 undef, $product->id);
-
-    if (!$votestoconfirm) {
-        $cgi->param(-name => 'bug_status', -value => "NEW");
-    }
+    $bug_status = 'NEW';
 }
+$cgi->param(-name => 'bug_status', -value => $bug_status);
 
 if (!defined $cgi->param('target_milestone')) {
-    my $defaultmilestone = $dbh->selectrow_array(q{SELECT defaultmilestone
-                                                     FROM products
-                                                    WHERE name = ?},
-                                                    undef, $product->name);
-    $cgi->param(-name => 'target_milestone', -value => $defaultmilestone);
+    $cgi->param(-name => 'target_milestone', -value => $product->default_milestone);
 }
 
-if (!Param('letsubmitterchoosepriority')) {
-    $cgi->param(-name => 'priority', -value => Param('defaultpriority'));
+if (!Bugzilla->params->{'letsubmitterchoosepriority'}) {
+    $cgi->param(-name => 'priority', -value => Bugzilla->params->{'defaultpriority'});
 }
 
 # Some more sanity checking
@@ -305,11 +286,11 @@ if ($cgi->param('keywords') && UserInGroup("editbugs")) {
     }
 }
 
-if (Param("strict_isolation")) {
+if (Bugzilla->params->{"strict_isolation"}) {
     my @blocked_users = ();
     my %related_users = %ccids;
     $related_users{$cgi->param('assigned_to')} = 1;
-    if (Param('useqacontact') && $cgi->param('qa_contact')) {
+    if (Bugzilla->params->{'useqacontact'} && $cgi->param('qa_contact')) {
         $related_users{$cgi->param('qa_contact')} = 1;
     }
     foreach my $pid (keys %related_users) {
@@ -382,7 +363,7 @@ my $est_time = 0;
 my $deadline;
 
 # Time Tracking
-if (UserInGroup(Param("timetrackinggroup")) &&
+if (UserInGroup(Bugzilla->params->{"timetrackinggroup"}) &&
     defined $cgi->param('estimated_time')) {
 
     $est_time = $cgi->param('estimated_time');
@@ -393,7 +374,9 @@ if (UserInGroup(Param("timetrackinggroup")) &&
 
 push (@fields_values, $est_time, $est_time);
 
-if ((UserInGroup(Param("timetrackinggroup"))) && ($cgi->param('deadline'))) {
+if ( UserInGroup(Bugzilla->params->{"timetrackinggroup"})
+     && $cgi->param('deadline') ) 
+{
     validate_date($cgi->param('deadline'))
       || ThrowUserError('illegal_date', {date => $cgi->param('deadline'),
                                          format => 'YYYY-MM-DD'});
@@ -481,7 +464,9 @@ foreach my $grouptoadd (@groupstoadd) {
 
 # Add the initial comment, allowing for the fact that it may be private
 my $privacy = 0;
-if (Param("insidergroup") && UserInGroup(Param("insidergroup"))) {
+if (Bugzilla->params->{"insidergroup"} 
+    && UserInGroup(Bugzilla->params->{"insidergroup"})) 
+{
     $privacy = $cgi->param('commentprivacy') ? 1 : 0;
 }
 
@@ -509,7 +494,8 @@ if (UserInGroup("editbugs")) {
         my $list = $dbh->selectcol_arrayref(qq{
                                     SELECT name 
                                       FROM keyworddefs 
-                                     WHERE id IN ($kw_ids)});
+                                     WHERE id IN ($kw_ids)
+                                  ORDER BY name});
         my $kw_list = join(', ', @$list);
         $dbh->do(q{UPDATE bugs 
                       SET delta_ts = ?, keywords = ? 

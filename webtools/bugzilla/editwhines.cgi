@@ -31,7 +31,6 @@ use lib ".";
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::User;
@@ -237,7 +236,7 @@ if ($cgi->param('update')) {
                     if ($can_mail_others && $mailto) {
                         if ($mailto_type == MAILTO_USER) {
                             # detaint
-                            my $emailregexp = Param('emailregexp');
+                            my $emailregexp = Bugzilla->params->{'emailregexp'};
                             if ($mailto =~ /($emailregexp)/) {
                                 $mailto_id = login_to_id($1);
                             }
@@ -445,6 +444,7 @@ $template->process("whine/schedule.html.tmpl", $vars)
 # the subject and body of each event that user owns
 sub get_events {
     my $userid = shift;
+    my $dbh = Bugzilla->dbh;
     my $events = {};
 
     my $sth = $dbh->prepare("SELECT DISTINCT id, subject, body " .

@@ -28,14 +28,13 @@ use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Search;
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::User;
 
 my $template = Bugzilla->template;
-my $vars = {};
+local our $vars = {};
 
 ###############################################################################
 # Each panel has two functions - panel Foo has a DoFoo, to get the data 
@@ -50,7 +49,7 @@ sub DoAccount {
     ($vars->{'realname'}) = $dbh->selectrow_array(
         "SELECT realname FROM profiles WHERE userid = ?", undef, $user->id);
 
-    if(Param('allowemailchange') 
+    if(Bugzilla->params->{'allowemailchange'} 
        && Bugzilla->user->authorizer->can_change_email) {
         my @token = $dbh->selectrow_array(
             "SELECT tokentype, issuedate + " .
@@ -113,7 +112,7 @@ sub SaveAccount {
         }
     }
 
-    if(Param("allowemailchange") && $cgi->param('new_login_name')) {
+    if(Bugzilla->params->{"allowemailchange"} && $cgi->param('new_login_name')) {
         my $old_login_name = $cgi->param('Bugzilla_login');
         my $new_login_name = trim($cgi->param('new_login_name'));
 
@@ -200,7 +199,7 @@ sub DoEmail {
     ###########################################################################
     # User watching
     ###########################################################################
-    if (Param("supportwatchers")) {
+    if (Bugzilla->params->{"supportwatchers"}) {
         my $watched_ref = $dbh->selectcol_arrayref(
             "SELECT profiles.login_name FROM watch INNER JOIN profiles" .
             " ON watch.watched = profiles.userid" .
@@ -298,7 +297,9 @@ sub SaveEmail {
     ###########################################################################
     # User watching
     ###########################################################################
-    if (Param("supportwatchers") && defined $cgi->param('watchedusers')) {
+    if (Bugzilla->params->{"supportwatchers"} 
+        && defined $cgi->param('watchedusers')) 
+    {
         # Just in case.  Note that this much locking is actually overkill:
         # we don't really care if anyone reads the watch table.  So 
         # some small amount of contention could be gotten rid of by

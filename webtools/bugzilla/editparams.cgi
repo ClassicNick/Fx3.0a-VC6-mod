@@ -27,12 +27,10 @@ use lib ".";
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT :admin :params);
+use Bugzilla::Config qw(:admin);
 use Bugzilla::Config::Common;
 use Bugzilla::Util;
 use Bugzilla::Error;
-
-use vars qw(@parampanels);
 
 my $user = Bugzilla->login(LOGIN_REQUIRED);
 my $cgi = Bugzilla->cgi;
@@ -53,9 +51,8 @@ $current_panel = $1;
 
 my $current_module;
 my @panels = ();
-foreach my $panel (@parampanels) {
-    next if ($panel eq 'Common');
-    require "Bugzilla/Config/$panel.pm";
+foreach my $panel (Bugzilla::Config::param_panels()) {
+    eval("require Bugzilla::Config::$panel") || die $@;
     my @module_param_list = "Bugzilla::Config::${panel}"->get_param_list(1);
     my $item = { name => lc($panel),
                  current => ($current_panel eq lc($panel)) ? 1 : 0,
@@ -92,7 +89,7 @@ if ($action eq 'save' && $current_module) {
 
         my $changed;
         if ($i->{'type'} eq 'm') {
-            my @old = sort @{Param($name)};
+            my @old = sort @{Bugzilla->params->{$name}};
             my @new = sort @$value;
             if (scalar(@old) != scalar(@new)) {
                 $changed = 1;
@@ -107,7 +104,7 @@ if ($action eq 'save' && $current_module) {
                 }
             }
         } else {
-            $changed = ($value eq Param($name))? 0 : 1;
+            $changed = ($value eq Bugzilla->params->{$name})? 0 : 1;
         }
 
         if ($changed) {

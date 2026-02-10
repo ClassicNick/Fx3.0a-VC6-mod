@@ -440,13 +440,6 @@ nsAccessibilityService::CreateHTMLButtonAccessibleXBL(nsIDOMNode *aNode, nsIAcce
   return NS_OK;
 }
 
-PRBool nsAccessibilityService::GetRole(nsIContent *aContent,
-                                       nsAString& aRole)
-{
-  return aContent->GetAttr(kNameSpaceID_XHTML2_Unofficial,
-                           nsAccessibilityAtoms::role, aRole);
-}
-
 nsresult
 nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsISupports *aFrame,
                                                      nsIWeakReference *aWeakShell,
@@ -501,6 +494,10 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsISupports *aFrame,
            tag == nsAccessibilityAtoms::thead ||
 #endif
            content->HasAttr(kNameSpaceID_None, nsAccessibilityAtoms::tabindex) ||
+           content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::describedby) ||
+           content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::labelledby) ||
+           content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::required) ||
+           content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::invalid) ||
            // The role from a <body> or doc element is already exposed in nsDocAccessible
            (tag != nsAccessibilityAtoms::body && content->GetParent() &&
            !aRole.IsEmpty())) {
@@ -1195,10 +1192,25 @@ nsAccessibilityService::CreateXULMenuitemAccessible(nsIDOMNode *aNode, nsIAccess
 NS_IMETHODIMP
 nsAccessibilityService::CreateXULMenupopupAccessible(nsIDOMNode *aNode, nsIAccessible **_retval)
 {
+  *_retval = nsnull;
 #ifdef MOZ_XUL
   nsCOMPtr<nsIWeakReference> weakShell;
   GetShellFromNode(aNode, getter_AddRefs(weakShell));
-
+  nsCOMPtr<nsIContent> content = do_QueryInterface(aNode);
+#ifdef MOZ_ACCESSIBILITY_ATK
+  // ATK considers this node to be redundant when within menubars, and it makes menu
+  // navigation with assistive technologies more difficult
+  // XXX In the future we will should this for consistency across the nsIAccessible
+  // implementations on each platform for a consistent scripting environment, but
+  // then strip out redundant accessibles in the nsAccessibleWrap class for each platform.
+  if (content) {
+    nsIContent *parent = content->GetParent();
+    if (parent && parent->NodeInfo()->Equals(nsAccessibilityAtoms::menu, kNameSpaceID_XUL)) {
+      return NS_OK;
+    }
+  }
+#endif
+ 
   *_retval = new nsXULMenupopupAccessible(aNode, weakShell);
   if (! *_retval) 
     return NS_ERROR_OUT_OF_MEMORY;
@@ -1813,9 +1825,9 @@ NS_IMETHODIMP nsAccessibilityService::GetAccessible(nsIDOMNode *aNode,
     // XUL elements may implement nsIAccessibleProvider via XBL
     // This allows them to say what kind of accessible to create
     // Non-HTML elements must have an nsIAccessibleProvider, tabindex
-    // or XHTML2 role or they're not in the accessible tree.
+    // or role attribute or they're not in the accessible tree.
     nsAutoString role;
-    if (GetRole(content, role) &&
+    if (nsAccessNode::GetRoleAttribute(content, role) &&
         StringEndsWith(role, NS_LITERAL_STRING(":presentation"))) {
       return NS_ERROR_FAILURE;
     }
@@ -1842,7 +1854,7 @@ NS_IMETHODIMP nsAccessibilityService::GetAccessible(nsIDOMNode *aNode,
   else {
     // --- Try creating accessible for HTML ---
     nsAutoString role;
-    GetRole(content, role);
+    nsAccessNode::GetRoleAttribute(content, role);
     if (!content->HasAttr(kNameSpaceID_None, nsAccessibilityAtoms::tabindex)) {
       // If no tabindex, check for a Presentation role, which 
       // tells us not to expose this to the accessibility hierarchy.
@@ -1864,7 +1876,7 @@ NS_IMETHODIMP nsAccessibilityService::GetAccessible(nsIDOMNode *aNode,
           nsAutoString tableRole;
           while ((tableContent = tableContent->GetParent()) != nsnull) {
             if (tableContent->Tag() == nsAccessibilityAtoms::table) {
-              if (GetRole(tableContent, tableRole) &&
+              if (nsAccessNode::GetRoleAttribute(tableContent, tableRole) &&
                   StringEndsWith(tableRole, NS_LITERAL_STRING(":presentation"),
                   nsCaseInsensitiveStringComparator())) {
                 // Table that we're a descendant of is presentational

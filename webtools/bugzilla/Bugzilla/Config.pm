@@ -35,11 +35,6 @@ use strict;
 use base qw(Exporter);
 use Bugzilla::Constants;
 
-our @parampanels = ();
-
-# Module stuff
-@Bugzilla::Config::EXPORT = qw(Param);
-
 # Don't export localvars by default - people should have to explicitly
 # ask for it, as a (probably futile) attempt to stop code using it
 # when it shouldn't
@@ -48,12 +43,8 @@ our @parampanels = ();
    admin => [qw(UpdateParams SetParam WriteParams)],
    db => [qw($db_driver $db_host $db_port $db_name $db_user $db_pass $db_sock)],
    localconfig => [qw($cvsbin $interdiffbin $diffpath $webservergroup)],
-   params => [qw(@parampanels)],
   );
-Exporter::export_ok_tags('admin', 'db', 'localconfig', 'params');
-
-# Bugzilla version
-$Bugzilla::Config::VERSION = "2.23.1+";
+Exporter::export_ok_tags('admin', 'db', 'localconfig');
 
 use vars qw(@param_list);
 
@@ -74,17 +65,12 @@ do $localconfig;
 my %params;
 # Load in the param definitions
 sub _load_params {
-    my $libpath = bz_locations()->{'libpath'};
-    foreach my $item ((glob "$libpath/Bugzilla/Config/*.pm")) {
-        $item =~ m#/([^/]+)\.pm$#;
-        my $module = $1;
-        next if ($module eq 'Common');
-        require "Bugzilla/Config/$module.pm";
+    foreach my $module (param_panels()) {
+        eval("require Bugzilla::Config::$module") || die $@;
         my @new_param_list = "Bugzilla::Config::$module"->get_param_list();
         foreach my $item (@new_param_list) {
             $params{$item->{'name'}} = $item;
         }
-        push(@parampanels, $module);
         push(@param_list, @new_param_list);
     }
 }
@@ -92,26 +78,15 @@ sub _load_params {
 
 # Subroutines go here
 
-sub Param {
-    my ($param) = @_;
-
-    _load_params unless %params;
-    my %param_values = %{Bugzilla->params};
-
-    # By this stage, the param must be in the hash
-    die "Can't find param named $param" unless (exists $params{$param});
-
-    # When module startup code runs (which is does even via -c, when using
-    # |use|), we may try to grab params which don't exist yet. This affects
-    # tests, so have this as a fallback for the -c case
-    return $params{$param}->{default} 
-        if ($^C && not exists $param_values{$param});
-
-    # If we have a value for the param, return it
-    return $param_values{$param} if exists $param_values{$param};
-
-    # Else error out
-    die "No value for param $param (try running checksetup.pl again)";
+sub param_panels {
+    my @param_panels;
+    my $libpath = bz_locations()->{'libpath'};
+    foreach my $item ((glob "$libpath/Bugzilla/Config/*.pm")) {
+        $item =~ m#/([^/]+)\.pm$#;
+        my $module = $1;
+        push(@param_panels, $module) unless $module eq 'Common';
+    }
+    return @param_panels;
 }
 
 sub SetParam {
@@ -277,11 +252,6 @@ Bugzilla::Config - Configuration parameters for Bugzilla
 
 =head1 SYNOPSIS
 
-  # Getting parameters
-  use Bugzilla::Config;
-
-  my $fooSetting = Param('foo');
-
   # Administration functions
   use Bugzilla::Config qw(:admin);
 
@@ -304,11 +274,6 @@ This package contains ways to access Bugzilla configuration parameters.
 Parameters can be set, retrieved, and updated.
 
 =over 4
-
-=item C<Param($name)>
-
-Returns the Param with the specified name. Either a string, or, in the case
-of multiple-choice parameters, an array reference.
 
 =item C<SetParam($name, $value)>
 

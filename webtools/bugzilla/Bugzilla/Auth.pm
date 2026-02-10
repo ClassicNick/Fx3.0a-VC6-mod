@@ -32,7 +32,6 @@ use fields qw(
 
 use Bugzilla::Constants;
 use Bugzilla::Error;
-use Bugzilla::Config;
 use Bugzilla::Auth::Login::Stack;
 use Bugzilla::Auth::Verify::Stack;
 use Bugzilla::Auth::Persist::Cookie;
@@ -44,8 +43,8 @@ sub new {
     my $self = fields::new($class);
 
     $params            ||= {};
-    $params->{Login}   ||= Param('user_info_class') . ',Cookie';
-    $params->{Verify}  ||= Param('user_verify_class');
+    $params->{Login}   ||= Bugzilla->params->{'user_info_class'} . ',Cookie';
+    $params->{Verify}  ||= Bugzilla->params->{'user_verify_class'};
 
     $self->{_info_getter} = new Bugzilla::Auth::Login::Stack($params->{Login});
     $self->{_verifier} = new Bugzilla::Auth::Verify::Stack($params->{Verify});

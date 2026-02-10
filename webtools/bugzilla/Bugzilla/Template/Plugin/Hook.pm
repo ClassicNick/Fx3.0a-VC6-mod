@@ -25,7 +25,6 @@ package Bugzilla::Template::Plugin::Hook;
 
 use strict;
 
-use Bugzilla::Config;
 use Bugzilla::Constants;
 use Bugzilla::Template;
 use Bugzilla::Util;
@@ -107,7 +106,7 @@ sub process {
 # get a list of languages we accept so we can find the hook 
 # that corresponds to our desired languages:
 sub getLanguages() {
-    my $languages = trim(Param('languages'));
+    my $languages = trim(Bugzilla->params->{'languages'});
     if (not ($languages =~ /,/)) { # only one language
         return $languages;
     }

@@ -33,7 +33,6 @@ use strict;
 use base qw(Bugzilla::Auth::Login);
 use constant user_can_create_account => 1;
 
-use Bugzilla::Config;
 use Bugzilla::Constants;
 use Bugzilla::Util;
 use Bugzilla::Error;
@@ -60,8 +59,10 @@ sub fail_nodata {
     my $template = Bugzilla->template;
 
     # Redirect to SSL if required
-    if (Param('sslbase') ne '' and Param('ssl') ne 'never') {
-        $cgi->require_https(Param('sslbase'));
+    if (Bugzilla->params->{'sslbase'} ne '' 
+        and Bugzilla->params->{'ssl'} ne 'never') 
+    {
+        $cgi->require_https(Bugzilla->params->{'sslbase'});
     }
     print $cgi->header();
     $template->process("account/auth/login.html.tmpl",

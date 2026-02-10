@@ -33,7 +33,6 @@ use strict;
 use CGI::Carp qw(fatalsToBrowser);
 
 use Bugzilla::Attachment;
-use Bugzilla::Config;
 use Bugzilla::Constants;
 use Bugzilla::Field;
 use Bugzilla::Flag;
@@ -100,19 +99,12 @@ sub initBug  {
   my ($bug_id, $user_id) = (@_);
   my $dbh = Bugzilla->dbh;
 
-  $bug_id = trim($bug_id);
+  $bug_id = trim($bug_id || 0);
 
   my $old_bug_id = $bug_id;
 
   # If the bug ID isn't numeric, it might be an alias, so try to convert it.
   $bug_id = bug_alias_to_id($bug_id) if $bug_id !~ /^0*[1-9][0-9]*$/;
-
-  if ((! defined $bug_id) || (!$bug_id) || (!detaint_natural($bug_id))) {
-      # no bug number given or the alias didn't match a bug
-      $self->{'bug_id'} = $old_bug_id;
-      $self->{'error'} = "InvalidBugId";
-      return $self;
-  }
 
   # If the user is not logged in, sets $user_id to 0.
   # Else gets $user_id from the user login name if this
@@ -125,6 +117,13 @@ sub initBug  {
   }
 
   $self->{'who'} = new Bugzilla::User($user_id);
+
+  unless ($bug_id && detaint_natural($bug_id)) {
+      # no bug number given or the alias didn't match a bug
+      $self->{'bug_id'} = $old_bug_id;
+      $self->{'error'} = "InvalidBugId";
+      return $self;
+  }
 
     my $custom_fields = "";
     if (scalar(Bugzilla->custom_field_names) > 0) {
@@ -298,10 +297,9 @@ sub fields {
            reporter assigned_to cc),
     
         # Conditional Fields
-        Param('useqacontact') ? "qa_contact" : (),
-        Param('timetrackinggroup') ? qw(estimated_time remaining_time
-                                        actual_time deadline)
-                                   : (),
+        Bugzilla->params->{'useqacontact'} ? "qa_contact" : (),
+        Bugzilla->params->{'timetrackinggroup'} ? 
+            qw(estimated_time remaining_time actual_time deadline) : (),
     
         # Custom Fields
         Bugzilla->custom_field_names
@@ -346,7 +344,7 @@ sub actual_time {
     return $self->{'actual_time'} if exists $self->{'actual_time'};
 
     if ( $self->{'error'} || 
-         !Bugzilla->user->in_group(Param("timetrackinggroup")) ) {
+         !Bugzilla->user->in_group(Bugzilla->params->{"timetrackinggroup"}) ) {
         $self->{'actual_time'} = undef;
         return $self->{'actual_time'};
     }
@@ -492,7 +490,7 @@ sub qa_contact {
     return $self->{'qa_contact'} if exists $self->{'qa_contact'};
     return undef if $self->{'error'};
 
-    if (Param('useqacontact') && $self->{'qa_contact_id'}) {
+    if (Bugzilla->params->{'useqacontact'} && $self->{'qa_contact_id'}) {
         $self->{'qa_contact'} = new Bugzilla::User($self->{'qa_contact_id'});
     } else {
         # XXX - This is somewhat inconsistent with the assignee/reporter 
@@ -542,7 +540,8 @@ sub use_votes {
 
     $self->{'prod_obj'} ||= new Bugzilla::Product({name => $self->{'product'}});
 
-    return Param('usevotes') && $self->{'prod_obj'}->votes_per_user > 0;
+    return Bugzilla->params->{'usevotes'} 
+           && $self->{'prod_obj'}->votes_per_user > 0;
 }
 
 sub groups {
@@ -617,7 +616,7 @@ sub user {
     return {} if $self->{'error'};
 
     my $user = Bugzilla->user;
-    my $canmove = Param('move-enabled') && $user->is_mover;
+    my $canmove = Bugzilla->params->{'move-enabled'} && $user->is_mover;
 
     # In the below, if the person hasn't logged in, then we treat them
     # as if they can do anything.  That's because we don't know why they
@@ -629,7 +628,7 @@ sub user {
                              || $user->in_group("editbugs");
     my $canedit = $unknown_privileges
                   || $user->id == $self->{assigned_to_id}
-                  || (Param('useqacontact')
+                  || (Bugzilla->params->{'useqacontact'}
                       && $self->{'qa_contact_id'}
                       && $user->id == $self->{qa_contact_id});
     my $canconfirm = $unknown_privileges
@@ -703,7 +702,7 @@ sub settable_resolutions {
 # the ID of the bug if it exists or the undefined value if it doesn't.
 sub bug_alias_to_id {
     my ($alias) = @_;
-    return undef unless Param("usebugaliases");
+    return undef unless Bugzilla->params->{"usebugaliases"};
     my $dbh = Bugzilla->dbh;
     trick_taint($alias);
     return $dbh->selectrow_array(
@@ -823,7 +822,7 @@ sub GetComments {
     while (my $comment_ref = $sth->fetchrow_hashref()) {
         my %comment = %$comment_ref;
 
-        $comment{'email'} .= Param('emailsuffix');
+        $comment{'email'} .= Bugzilla->params->{'emailsuffix'};
         $comment{'name'} = $comment{'name'} || $comment{'email'};
 
         push (@comments, \%comment);
@@ -856,7 +855,9 @@ sub GetBugActivity {
     # Only includes attachments the user is allowed to see.
     my $suppjoins = "";
     my $suppwhere = "";
-    if (Param("insidergroup") && !UserInGroup(Param('insidergroup'))) {
+    if (Bugzilla->params->{"insidergroup"} 
+        && !UserInGroup(Bugzilla->params->{'insidergroup'})) 
+    {
         $suppjoins = "LEFT JOIN attachments 
                    ON attachments.attach_id = bugs_activity.attach_id";
         $suppwhere = "AND COALESCE(attachments.isprivate, 0) = 0";
@@ -901,7 +902,8 @@ sub GetBugActivity {
             || $fieldname eq 'work_time'
             || $fieldname eq 'deadline')
         {
-            $activity_visible = UserInGroup(Param('timetrackinggroup')) ? 1 : 0;
+            $activity_visible = 
+                UserInGroup(Bugzilla->params->{'timetrackinggroup'}) ? 1 : 0;
         } else {
             $activity_visible = 1;
         }
@@ -1090,7 +1092,7 @@ sub RemoveVotes {
             # been reduced or removed.
             my $vars = {
 
-                'to' => $name . Param('emailsuffix'),
+                'to' => $name . Bugzilla->params->{'emailsuffix'},
                 'bugid' => $id,
                 'reason' => $reason,
 
@@ -1164,6 +1166,138 @@ sub CheckIfVotedConfirmed {
         $ret = 1;
     }
     return $ret;
+}
+
+################################################################################
+# check_can_change_field() defines what users are allowed to change. You
+# can add code here for site-specific policy changes, according to the
+# instructions given in the Bugzilla Guide and below. Note that you may also
+# have to update the Bugzilla::Bug::user() function to give people access to the
+# options that they are permitted to change.
+#
+# check_can_change_field() returns true if the user is allowed to change this
+# field, and false if they are not.
+#
+# The parameters to this method are as follows:
+# $field    - name of the field in the bugs table the user is trying to change
+# $oldvalue - what they are changing it from
+# $newvalue - what they are changing it to
+# $PrivilegesRequired - return the reason of the failure, if any
+# $data     - hash containing relevant parameters, e.g. from the CGI object
+################################################################################
+sub check_can_change_field {
+    my $self = shift;
+    my ($field, $oldvalue, $newvalue, $PrivilegesRequired, $data) = (@_);
+    my $user = $self->{'who'};
+
+    $oldvalue = defined($oldvalue) ? $oldvalue : '';
+    $newvalue = defined($newvalue) ? $newvalue : '';
+
+    # Return true if they haven't changed this field at all.
+    if ($oldvalue eq $newvalue) {
+        return 1;
+    } elsif (trim($oldvalue) eq trim($newvalue)) {
+        return 1;
+    # numeric fields need to be compared using ==
+    } elsif (($field eq 'estimated_time' || $field eq 'remaining_time')
+             && $newvalue ne $data->{'dontchange'}
+             && $oldvalue == $newvalue)
+    {
+        return 1;
+    }
+
+    # Allow anyone to change comments.
+    if ($field =~ /^longdesc/) {
+        return 1;
+    }
+
+    # Ignore the assigned_to field if the bug is not being reassigned
+    if ($field eq 'assigned_to'
+        && $data->{'knob'} ne 'reassignbycomponent'
+        && $data->{'knob'} ne 'reassign')
+    {
+        return 1;
+    }
+
+    # If the user isn't allowed to change a field, we must tell him who can.
+    # We store the required permission set into the $PrivilegesRequired
+    # variable which gets passed to the error template.
+    #
+    # $PrivilegesRequired = 0 : no privileges required;
+    # $PrivilegesRequired = 1 : the reporter, assignee or an empowered user;
+    # $PrivilegesRequired = 2 : the assignee or an empowered user;
+    # $PrivilegesRequired = 3 : an empowered user.
+
+    # Allow anyone with "editbugs" privs to change anything.
+    if ($user->in_group('editbugs')) {
+        return 1;
+    }
+
+    # *Only* users with "canconfirm" privs can confirm bugs.
+    if ($field eq 'canconfirm'
+        || ($field eq 'bug_status'
+            && $oldvalue eq 'UNCONFIRMED'
+            && is_open_state($newvalue)))
+    {
+        $PrivilegesRequired = 3;
+        return $user->in_group('canconfirm');
+    }
+
+    # Make sure that a valid bug ID has been given.
+    if (!$self->{'error'}) {
+        # Allow the assignee to change anything else.
+        if ($self->{'assigned_to_id'} == $user->id) {
+            return 1;
+        }
+
+        # Allow the QA contact to change anything else.
+        if (Bugzilla->params->{'useqacontact'}
+            && $self->{'qa_contact_id'}
+            && ($self->{'qa_contact_id'} == $user->id))
+        {
+            return 1;
+        }
+    }
+
+    # At this point, the user is either the reporter or an
+    # unprivileged user. We first check for fields the reporter
+    # is not allowed to change.
+
+    # The reporter may not:
+    # - reassign bugs, unless the bugs are assigned to him;
+    #   in that case we will have already returned 1 above
+    #   when checking for the assignee of the bug.
+    if ($field eq 'assigned_to') {
+        $PrivilegesRequired = 2;
+        return 0;
+    }
+    # - change the QA contact
+    if ($field eq 'qa_contact') {
+        $PrivilegesRequired = 2;
+        return 0;
+    }
+    # - change the target milestone
+    if ($field eq 'target_milestone') {
+        $PrivilegesRequired = 2;
+        return 0;
+    }
+    # - change the priority (unless he could have set it originally)
+    if ($field eq 'priority'
+        && !Bugzilla->params->{'letsubmitterchoosepriority'})
+    {
+        $PrivilegesRequired = 2;
+        return 0;
+    }
+
+    # The reporter is allowed to change anything else.
+    if (!$self->{'error'} && $self->{'reporter_id'} == $user->id) {
+        return 1;
+    }
+
+    # If we haven't returned by this point, then the user doesn't
+    # have the necessary permissions to change this field.
+    $PrivilegesRequired = 1;
+    return 0;
 }
 
 #

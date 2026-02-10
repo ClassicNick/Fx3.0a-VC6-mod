@@ -31,7 +31,6 @@ use lib ".";
 use Bugzilla;
 use Bugzilla::Bug;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Search;
 use Bugzilla::User;
 use Bugzilla::Util;
@@ -104,7 +103,7 @@ if ($userid) {
          undef, ($userid, DEFAULT_QUERY_NAME));
 }
 
-my %default;
+local our %default;
 
 # We pass the defaults as a hash of references to arrays. For those
 # Items which are single-valued, the template should only reference [0]
@@ -187,7 +186,7 @@ if (!PrefillForm($buffer)) {
     if ($userdefaultquery) {
         PrefillForm($userdefaultquery);
     } else {
-        PrefillForm(Param("defaultquery"));
+        PrefillForm(Bugzilla->params->{"defaultquery"});
     }
 }
 
@@ -218,7 +217,7 @@ my @milestones = sort(keys %milestones);
 $vars->{'product'} = \@selectable_products;
 
 # Create data structures representing each classification
-if (Param('useclassification')) {
+if (Bugzilla->params->{'useclassification'}) {
     $vars->{'classification'} = $user->get_selectable_classifications;
 }
 
@@ -227,7 +226,7 @@ $vars->{'component_'} = \@components;
 
 $vars->{'version'} = \@versions;
 
-if (Param('usetargetmilestone')) {
+if (Bugzilla->params->{'usetargetmilestone'}) {
     $vars->{'target_milestone'} = \@milestones;
 }
 
@@ -255,7 +254,7 @@ foreach my $val (editable_bug_fields()) {
     push @chfields, $val;
 }
 
-if (UserInGroup(Param('timetrackinggroup'))) {
+if (UserInGroup(Bugzilla->params->{'timetrackinggroup'})) {
     push @chfields, "work_time";
 } else {
     @chfields = grep($_ ne "estimated_time", @chfields);

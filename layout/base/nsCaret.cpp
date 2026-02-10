@@ -40,6 +40,7 @@
 
 /* the caret is the text cursor used, e.g., when editing */
 
+#include "nsISupportsUtils.h"
 #include "nsCOMPtr.h"
 
 #include "nsITimer.h"
@@ -166,9 +167,8 @@ NS_IMETHODIMP nsCaret::Init(nsIPresShell *inPresShell)
 #ifdef IBMBIDI
   PRBool isRTL = PR_FALSE;
   mBidiKeyboard = do_GetService("@mozilla.org/widget/bidikeyboard;1");
-  if (mBidiKeyboard)
-	mBidiKeyboard->IsLangRTL(&isRTL);
-  mKeyboardRTL = isRTL;
+  if (mBidiKeyboard && NS_SUCCEEDED(mBidiKeyboard->IsLangRTL(&isRTL)))
+    mKeyboardRTL = isRTL;
 #endif
   
   return NS_OK;
@@ -1084,8 +1084,11 @@ nsresult nsCaret::UpdateHookRect(nsPresContext* aPresContext)
   // Simon -- make a hook to draw to the left or right of the caret to show keyboard language direction
   PRBool bidiEnabled;
   PRBool isCaretRTL=PR_FALSE;
-  if (mBidiKeyboard)
-    mBidiKeyboard->IsLangRTL(&isCaretRTL);
+  if (!mBidiKeyboard || NS_FAILED(mBidiKeyboard->IsLangRTL(&isCaretRTL)))
+    // if mBidiKeyboard->IsLangRTL() failed, there is no way to tell the
+    // keyboard direction, or the user has no right-to-left keyboard
+    // installed, so we  never draw the hook.
+    return NS_OK;
   if (isCaretRTL)
   {
     bidiEnabled = PR_TRUE;

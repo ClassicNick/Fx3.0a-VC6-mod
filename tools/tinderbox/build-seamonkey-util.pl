@@ -24,7 +24,7 @@ use Config;         # for $Config{sig_name} and $Config{sig_num}
 use File::Find ();
 use File::Copy;
 
-$::UtilsVersion = '$Revision: 1.323 $ ';
+$::UtilsVersion = '$Revision: 1.327 $ ';
 
 package TinderUtils;
 
@@ -55,6 +55,7 @@ require "gettime.pl";
 
 my $co_time_str = 0;  # Global, let tests send cvs co time to graph server.
 my $co_default_timeout = 300;
+my $graph_time;
 
 sub Setup {
     InitVars();
@@ -828,7 +829,11 @@ sub BuildIt {
       die 'ASSERT: \$SubObjDir needs a trailing slash!';
 
     my $binary_dir;
-    $binary_dir = "$build_dir/$Settings::Topsrcdir/${Settings::ObjDir}/${Settings::SubObjDir}$Settings::DistBin";
+    if ($Settings::TestOnlyTinderbox){
+        $binary_dir = "$build_dir/$Settings::DownloadBuildDir/firefox";
+    } else {
+        $binary_dir = "$build_dir/$Settings::Topsrcdir/${Settings::ObjDir}/${Settings::SubObjDir}$Settings::DistBin";
+    }
 
     my $dist_dir = "$build_dir/$Settings::Topsrcdir/${Settings::ObjDir}/dist";
     my $full_binary_name = "$binary_dir/$binary_basename";
@@ -864,40 +869,7 @@ sub BuildIt {
             print "\n\nSleeping $sleep_time seconds ...\n";
             sleep $sleep_time;
         }
-        if ($Settings::TestOnlyTinderbox) {
-            print_log("Downloading $Settings::TinderboxServerURL\n"); 
-            my $tbox_server_info = `wget -qO - \'$Settings::TinderboxServerURL\'`;
-            if (0 != ($? >> 8)) {
-              die("FetchBuild failed: $?\n"); 
-            }
-            my $build_found = 0;
-            foreach my $line (split(/\n/,$tbox_server_info)) {
-                my @data = split('\|',$line);
-                my $buildname = $data[2];
-                my $status = $data[3];
-                if ($buildname eq $Settings::MatchBuildname){
-                    if ($status eq 'success') {
-                            $start_time = $data[4];
-                        if ($start_time =~ /\d+/) {
-                            $build_found = 1;
-                        }else{
-                            print_log("Error - downloaded start time is no good: $start_time \n");
-                        }
-                    }else{
-                        print_log("Found match: $buildname but status is not success: $status\n");
-                    }
-                }
-            }
-            unless ($start_time){
-                unless ($build_found) {
-                    print_log("Could not find $Settings::MatchBuildname at $Settings::TinderboxServerURL\n");
-                }
-                print_log("Fall back start_time to current time()\n");
-                $start_time = time();
-            }
-        } else {
-            $start_time = time();
-        }
+        $start_time = time();
 
         # Set this each time, since post-mozilla.pl can reset this.
         $ENV{MOZILLA_FIVE_HOME} = "$binary_dir";
@@ -1140,18 +1112,19 @@ sub BuildIt {
               }
             }
           } elsif ($build_status ne 'busted' and $Settings::TestOnlyTinderbox) {
+            my $graph_time = get_build_time_from_server($start_time);
             my $prebuilt = "$build_dir/$Settings::DownloadBuildDir";
             my $status = 0;
             if ( -f $prebuilt) {
               $status = run_shell_command("rm -rf $prebuilt");
-              $build_status = 'busted' if not ($status);
+              $build_status = 'busted' if ($status);
             }
             $status = run_shell_command("mkdir -p $prebuilt");
-            $build_status = 'busted' if not ($status);
-            $status = run_shell_command("wget -O $prebuilt/build.tgz $Settings::DownloadBuildURL");
-            $build_status = 'busted' if not ($status);
-            $status = run_shell_command("tar -C $prebuilt -xvf $prebuilt/build.tgz");
-            $build_status = 'busted' if not ($status);
+            $build_status = 'busted' if ($status);
+            $status = run_shell_command("wget -qO $prebuilt/build.tgz $Settings::DownloadBuildURL");
+            $build_status = 'busted' if ($status);
+            $status = run_shell_command("tar -C $prebuilt -xf $prebuilt/build.tgz");
+            $build_status = 'busted' if ($status);
           }
 
           if ($build_status ne 'busted' and BinaryExists($full_binary_name)) {
@@ -1692,12 +1665,43 @@ sub get_graph_tbox_name {
   return $name;
 }
 
+sub get_build_time_from_server {
+  my ($time) = @_;
+  if ($Settings::TestOnlyTinderbox) {
+    print_log("Downloading $Settings::TinderboxServerURL\n"); 
+    my $tbox_server_info = `wget -qO - '$Settings::TinderboxServerURL'`;
+    if (0 != ($? >> 8)) {
+      print_log("FetchBuild failed: $?\n"); 
+      return $time;
+    }
+    foreach my $line (split(/\n/, $tbox_server_info)) {
+      my @data = split('\|', $line);
+      my $buildname = $data[2];
+      my $status = $data[3];
+      my $grabbed_time;
+      if ($buildname eq $Settings::MatchBuildname){
+        if ($status eq 'success') {
+          $grabbed_time = $data[4];
+          if (not $grabbed_time =~ /\d+/) {
+            print_log("Error - downloaded start time is no good: $time \n");
+          }
+        }else{
+          print_log("Found match: $buildname but status is not success: $status\n");
+        }
+        $time = $grabbed_time;
+      }
+    }
+  }
+  return $time;
+}
+
 sub print_log_test_result {
   my ($test_name, $test_title, $num_result, $units, $print_name, $print_result) = @_;
 
   print_log "\nTinderboxPrint:";
   if ($Settings::TestsPhoneHome) {
-    my $time = POSIX::strftime "%Y:%m:%d:%H:%M:%S", localtime;
+
+    my $time = POSIX::strftime("%Y:%m:%d:%H:%M:%S", localtime($graph_time));
     print_log "<a title=\"$test_title\" href=\"http://$Settings::results_server/graph/query.cgi?testname=" . $test_name . "&units=$units&tbox=" . get_graph_tbox_name() . "&autoscale=1&days=7&avg=1&showpoint=$time,$num_result\">";
   } else {
     print_log "<abbr title=\"$test_title\">";
@@ -1778,7 +1782,7 @@ sub send_results_to_server {
         };
         if ($@) {
             warn "Failed to submit startup results: $@";
-            print_log "send_results_to_server() failed.\n";
+            print_log "send_results_to_server() failed: $@\n";
         } else {
             print_log "Results submitted to server: \n" .
               $res->status_line . "\n" . $res->content . "\n";

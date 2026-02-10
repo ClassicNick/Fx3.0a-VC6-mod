@@ -542,14 +542,16 @@ nsHandleSSLError(nsNSSSocketInfo *socketInfo, PRInt32 err)
 
   switch (err) {
   case SSL_ERROR_SSL_DISABLED:
-    params[0] = hostNameU.get();
-    nssComponent->PIPBundleFormatStringFromName("SSLDisabled",
-                                                params, 1, formattedString);
+    params[0] = brandShortName.get();
+    params[1] = hostNameU.get();
+    nssComponent->PIPBundleFormatStringFromName("SSL_Disabled",
+                                                params, 2, formattedString);
     break;
   case SSL_ERROR_SSL2_DISABLED:
-    params[0] = hostNameU.get();
-    nssComponent->PIPBundleFormatStringFromName("SSL2Disabled",
-                                                params, 1, formattedString);
+    params[0] = brandShortName.get();
+    params[1] = hostNameU.get();
+    nssComponent->PIPBundleFormatStringFromName("SSL2_Disabled",
+                                                params, 2, formattedString);
     break;
   case SSL_ERROR_EXPORT_ONLY_SERVER:
   case SSL_ERROR_US_ONLY_SERVER:
@@ -560,7 +562,7 @@ nsHandleSSLError(nsNSSSocketInfo *socketInfo, PRInt32 err)
   case SSL_ERROR_FORTEZZA_PQG:
     params[0] = brandShortName.get();
     params[1] = hostNameU.get();
-    nssComponent->PIPBundleFormatStringFromName("SSLNoMatchingCiphers",
+    nssComponent->PIPBundleFormatStringFromName("SSL_NoMatchingCiphers",
                                                 params, 2, formattedString);
                                                   
     break;
@@ -2494,9 +2496,20 @@ nsSSLIOLayerSetOptions(PRFileDesc *fd, PRBool forSTARTTLS,
   nsCAutoString key;
   key = nsDependentCString(host) + NS_LITERAL_CSTRING(":") + nsPrintfCString("%d", port);
 
-  if (nsSSLIOLayerHelpers::isKnownAsIntolerantSite(key) && 
-      SECSuccess != SSL_OptionSet(fd, SSL_ENABLE_TLS, PR_FALSE)) {
-    return NS_ERROR_FAILURE;
+  if (nsSSLIOLayerHelpers::isKnownAsIntolerantSite(key)) {
+    if (SECSuccess != SSL_OptionSet(fd, SSL_ENABLE_TLS, PR_FALSE))
+      return NS_ERROR_FAILURE;
+      
+    // We assume that protocols that use the STARTTLS mechanism should support
+    // modern hellos. For other protocols, if we suspect a site 
+    // does not support TLS, let's also use V2 hellos.
+    // One advantage of this approach, if a site only supports the older
+    // hellos, it is more likely that we will get a reasonable error code
+    // on our single retry attempt.
+    
+    if (!forSTARTTLS &&
+        SECSuccess != SSL_OptionSet(fd, SSL_V2_COMPATIBLE_HELLO, PR_TRUE))
+      return NS_ERROR_FAILURE;
   }
 
   if (SECSuccess != SSL_OptionSet(fd, SSL_HANDSHAKE_AS_CLIENT, PR_TRUE)) {

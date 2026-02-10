@@ -61,6 +61,19 @@ use constant SHUTDOWNHTML_EXIT_SILENTLY => [
 # Global Code
 #####################################################################
 
+# The following subroutine is for debugging purposes only.
+# Uncommenting this sub and the $::SIG{__DIE__} trap underneath it will
+# cause any fatal errors to result in a call stack trace to help track
+# down weird errors.
+#
+#sub die_with_dignity {
+#    use Carp ();
+#    my ($err_msg) = @_;
+#    print $err_msg;
+#    Carp::confess($err_msg);
+#}
+#$::SIG{__DIE__} = \&Bugzilla::die_with_dignity;
+
 # Some environment variables are not taint safe
 delete @::ENV{'PATH', 'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};
 
@@ -300,7 +313,21 @@ sub custom_field_names {
 sub request_cache {
     if ($ENV{MOD_PERL}) {
         require Apache2::RequestUtil;
-        return Apache2::RequestUtil->request->pnotes();
+        my $request = Apache2::RequestUtil->request;
+        my $cache = $request->pnotes();
+        # Sometimes mod_perl doesn't properly call DESTROY on all
+        # the objects in pnotes(), so we register a cleanup handler
+        # to make sure that this happens.
+        if (!$cache->{cleanup_registered}) {
+             $request->push_handlers(PerlCleanupHandler => sub {
+                 my $r = shift;
+                 foreach my $key (keys %{$r->pnotes}) {
+                     delete $r->pnotes->{$key};
+                 }
+             });
+             $cache->{cleanup_registered} = 1;
+        }
+        return $cache;
     }
     return $_request_cache;
 }

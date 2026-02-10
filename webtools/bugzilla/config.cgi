@@ -32,7 +32,6 @@ use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Error;
 use Bugzilla::Keyword;
 use Bugzilla::Bug;
@@ -42,7 +41,7 @@ my $user = Bugzilla->login(LOGIN_OPTIONAL);
 
 # If the 'requirelogin' parameter is on and the user is not
 # authenticated, return empty fields.
-if (Param('requirelogin') && !$user->id) {
+if (Bugzilla->params->{'requirelogin'} && !$user->id) {
     display_data();
 }
 

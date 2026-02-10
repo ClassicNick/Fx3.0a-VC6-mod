@@ -76,7 +76,7 @@ sub get_notifications {
 
     # On which branch is the current installation running?
     my @current_version =
-        ($Bugzilla::Config::VERSION =~ m/^(\d+)\.(\d+)(?:(rc|\.)(\d+))?\+?$/);
+        (BUGZILLA_VERSION =~ m/^(\d+)\.(\d+)(?:(rc|\.)(\d+))?\+?$/);
 
     my @release;
     if (Bugzilla->params->{'upgrade_notification'} eq 'development_snapshot') {
@@ -132,6 +132,7 @@ sub _synchronize_data {
     my $ua = LWP::UserAgent->new();
     $ua->timeout(TIMEOUT);
     $ua->protocols_allowed(['http', 'https']);
+    $ua->env_proxy;
     $ua->mirror(REMOTE_FILE, $local_file);
 
     # $ua->mirror() forces the modification time of the local XML file

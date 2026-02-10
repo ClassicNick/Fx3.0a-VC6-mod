@@ -11,14 +11,14 @@
 #-----------------------------------------------------------------------------
 #  Purpose: Controls whether a 7-Zip Self Extracting Full Installer is made.
 # Requires: Windows and a local 7-Zip installation.
-$ENV{MOZ_INSTALLER_USE_7ZIP} = '';
+$ENV{MOZ_INSTALLER_USE_7ZIP} = '1';
 
 # $ENV{MOZ_PACKAGE_NSIS}
 #-----------------------------------------------------------------------------
 #  Purpose: Controls whether the Nullsoft Installer System is used for
 #           creating an installer.
 # Requires: Windows and a local NSIS installation.
-$ENV{MOZ_PACKAGE_NSIS} = '';
+$ENV{MOZ_PACKAGE_NSIS} = '1';
 
 # $ENV{MOZ_PACKAGE_MSI}
 #-----------------------------------------------------------------------------
@@ -215,7 +215,7 @@ $url_path      = "http://ftp.mozilla.org/pub/mozilla.org/calendar/sunbird/nightl
 $milestone     = "trunk";
 $notify_list   = "build-announce\@mozilla.org";
 $stub_installer = 0;
-$sea_installer = 0;
+$sea_installer = 1;
 $archive       = 1;
 $push_raw_xpis = 0;
 
@@ -243,8 +243,3 @@ $push_raw_xpis = 0;
 # Prevent Extension Manager from spawning child processes during tests
 # - processes that tbox scripts cannot kill. 
 #$ENV{NO_EM_RESTART} = '1';
-
-# Windows only:
-# Path to Microsoft Visual C++ 8.0 redistributable runtime libraries
-$ENV{WIN32_REDIST_DIR} = 'C:\Program Files\Microsoft Visual Studio 8\VC\Redist\x86\Microsoft.VC80.CRT';
-

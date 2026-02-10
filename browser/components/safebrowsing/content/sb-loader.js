@@ -61,12 +61,18 @@ var safebrowsing = {
   startup: function() {
     setTimeout(safebrowsing.deferredStartup, 2000);
 
+    var helpMenu = document.getElementById("menu_HelpPopup");
+    if (helpMenu) {
+      helpMenu.addEventListener("popupshowing",
+                                safebrowsing.setReportPhishingMenu,
+                                false);
+    }
+    
     // clean up
     window.removeEventListener("load", safebrowsing.startup, false);
   },
   
   deferredStartup: function() {
-    var Cc = Components.classes;
     var appContext = Cc["@mozilla.org/safebrowsing/application;1"]
                      .getService().wrappedJSObject;
 
@@ -101,6 +107,7 @@ var safebrowsing = {
     // so we need to check all requests that fired before deferredStartup.
     if (!phishWarden.phishWardenEnabled_) {
       safebrowsing.progressListenerCallback.requests = null;
+      safebrowsing.progressListenerCallback.onDocNavStart = null;
       safebrowsing.progressListenerCallback = null;
       safebrowsing.progressListener = null;
       return;
@@ -115,6 +122,7 @@ var safebrowsing = {
     }
     // Cleanup
     safebrowsing.progressListenerCallback.requests = null;
+    safebrowsing.progressListenerCallback.onDocNavStart = null;
     safebrowsing.progressListenerCallback = null;
     safebrowsing.progressListener = null;
   },
@@ -130,8 +138,44 @@ var safebrowsing = {
     if (safebrowsing.phishWarden) {
       safebrowsing.phishWarden.shutdown();
     }
+    var helpMenu = document.getElementById("menu_HelpPopup");
+    if (helpMenu) {
+      helpMenu.removeEventListener("popupshowing",
+                                   safebrowsing.setReportPhishingMenu,
+                                   false);
+    }
     
     window.removeEventListener("unload", safebrowsing.shutdown, false);
+  },
+
+  setReportPhishingMenu: function() {
+    var uri = getBrowser().currentURI;
+    if (!uri)
+      return;
+
+    var broadcaster = document.getElementById("reportPhishingBroadcaster");
+    if (!broadcaster)
+      return;
+
+    var progressListener =
+      Cc["@mozilla.org/browser/safebrowsing/navstartlistener;1"]
+      .createInstance(Ci.nsIDocNavStartProgressListener);
+    broadcaster.setAttribute("disabled", progressListener.isSpurious(uri));
+  },
+  
+  /**
+   * Used to report phishing pages.
+   * @return String the report phishing URL.
+   */
+  getReportPhishingURL: function() {
+    var appContext = Cc["@mozilla.org/safebrowsing/application;1"]
+                     .getService().wrappedJSObject;
+    var reportUrl = appContext.getReportPhishingURL();
+    
+    var pageUrl = getBrowser().currentURI.asciiSpec;
+    reportUrl += "&url=" + encodeURIComponent(pageUrl);
+
+    return reportUrl;
   }
 }
 

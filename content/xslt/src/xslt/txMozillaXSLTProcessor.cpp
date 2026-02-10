@@ -300,8 +300,9 @@ NS_IMPL_RELEASE(txMozillaXSLTProcessor)
 NS_INTERFACE_MAP_BEGIN(txMozillaXSLTProcessor)
     NS_INTERFACE_MAP_ENTRY(nsIXSLTProcessor)
     NS_INTERFACE_MAP_ENTRY(nsIXSLTProcessorObsolete)
+    NS_INTERFACE_MAP_ENTRY(nsIXSLTProcessorPrivate)
     NS_INTERFACE_MAP_ENTRY(nsIDocumentTransformer)
-    NS_INTERFACE_MAP_ENTRY(nsIDocumentObserver)
+    NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
     NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIXSLTProcessor)
     NS_INTERFACE_MAP_ENTRY_CONTENT_CLASSINFO(XSLTProcessor)
 NS_INTERFACE_MAP_END
@@ -309,14 +310,15 @@ NS_INTERFACE_MAP_END
 txMozillaXSLTProcessor::txMozillaXSLTProcessor() : mStylesheetDocument(nsnull),
                                                    mTransformResult(NS_OK),
                                                    mCompileResult(NS_OK),
-                                                   mVariables(PR_TRUE)
+                                                   mVariables(PR_TRUE),
+                                                   mFlags(0)
 {
 }
 
 txMozillaXSLTProcessor::~txMozillaXSLTProcessor()
 {
     if (mStylesheetDocument) {
-        mStylesheetDocument->RemoveObserver(this);
+        mStylesheetDocument->RemoveMutationObserver(this);
     }
 }
 
@@ -343,7 +345,7 @@ txMozillaXSLTProcessor::TransformDocument(nsIDOMNode* aSourceDOM,
                    type == nsIDOMNode::DOCUMENT_NODE,
                    NS_ERROR_INVALID_ARG);
 
-    nsresult rv = TX_CompileStylesheet(aStyleDOM, getter_AddRefs(mStylesheet));
+    nsresult rv = TX_CompileStylesheet(aStyleDOM, this, getter_AddRefs(mStylesheet));
     NS_ENSURE_SUCCESS(rv, rv);
 
     mSource = aSourceDOM;
@@ -594,7 +596,7 @@ txMozillaXSLTProcessor::ImportStylesheet(nsIDOMNode *aStyle)
                    type == nsIDOMNode::DOCUMENT_NODE,
                    NS_ERROR_INVALID_ARG);
 
-    nsresult rv = TX_CompileStylesheet(aStyle, getter_AddRefs(mStylesheet));
+    nsresult rv = TX_CompileStylesheet(aStyle, this, getter_AddRefs(mStylesheet));
     // XXX set up exception context, bug 204658
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -612,7 +614,7 @@ txMozillaXSLTProcessor::ImportStylesheet(nsIDOMNode *aStyle)
         mStylesheetDocument = styleDoc;
     }
 
-    mStylesheetDocument->AddObserver(this);
+    mStylesheetDocument->AddMutationObserver(this);
 
     return NS_OK;
 }
@@ -652,7 +654,7 @@ txMozillaXSLTProcessor::TransformToDoc(nsIDOMDocument *aOutputDoc,
         sourceDOMDocument = do_QueryInterface(mSource);
     }
 
-    txExecutionState es(mStylesheet);
+    txExecutionState es(mStylesheet, DisableLoads());
 
     // XXX Need to add error observers
 
@@ -703,7 +705,7 @@ txMozillaXSLTProcessor::TransformToFragment(nsIDOMNode *aSource,
         return NS_ERROR_OUT_OF_MEMORY;
     }
 
-    txExecutionState es(mStylesheet);
+    txExecutionState es(mStylesheet, DisableLoads());
 
     // XXX Need to add error observers
 
@@ -973,13 +975,35 @@ NS_IMETHODIMP
 txMozillaXSLTProcessor::Reset()
 {
     if (mStylesheetDocument) {
-        mStylesheetDocument->RemoveObserver(this);
+        mStylesheetDocument->RemoveMutationObserver(this);
     }
     mStylesheet = nsnull;
     mStylesheetDocument = nsnull;
     mEmbeddedStylesheetRoot = nsnull;
     mCompileResult = NS_OK;
     mVariables.clear();
+
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+txMozillaXSLTProcessor::SetFlags(PRUint32 aFlags)
+{
+    NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(),
+                   NS_ERROR_DOM_SECURITY_ERR);
+
+    mFlags = aFlags;
+
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+txMozillaXSLTProcessor::GetFlags(PRUint32* aFlags)
+{
+    NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(),
+                   NS_ERROR_DOM_SECURITY_ERR);
+
+    *aFlags = mFlags;
 
     return NS_OK;
 }
@@ -1146,27 +1170,11 @@ txMozillaXSLTProcessor::ensureStylesheet()
     if (!style) {
         style = do_QueryInterface(mStylesheetDocument);
     }
-    return TX_CompileStylesheet(style, getter_AddRefs(mStylesheet));
-}
-
-NS_IMPL_NSIDOCUMENTOBSERVER_LOAD_STUB(txMozillaXSLTProcessor)
-NS_IMPL_NSIDOCUMENTOBSERVER_STYLE_STUB(txMozillaXSLTProcessor)
-NS_IMPL_NSIDOCUMENTOBSERVER_STATE_STUB(txMozillaXSLTProcessor)
-
-void
-txMozillaXSLTProcessor::BeginUpdate(nsIDocument* aDocument,
-                                    nsUpdateType aUpdateType)
-{
+    return TX_CompileStylesheet(style, this, getter_AddRefs(mStylesheet));
 }
 
 void
-txMozillaXSLTProcessor::EndUpdate(nsIDocument* aDocument,
-                                  nsUpdateType aUpdateType)
-{
-}
-
-void
-txMozillaXSLTProcessor::DocumentWillBeDestroyed(nsIDocument* aDocument)
+txMozillaXSLTProcessor::NodeWillBeDestroyed(const nsINode* aNode)
 {
     if (NS_FAILED(mCompileResult)) {
         return;
@@ -1175,11 +1183,6 @@ txMozillaXSLTProcessor::DocumentWillBeDestroyed(nsIDocument* aDocument)
     mCompileResult = ensureStylesheet();
     mStylesheetDocument = nsnull;
     mEmbeddedStylesheetRoot = nsnull;
-
-    // This might not be necessary, but just in case some element ends up
-    // causing a notification as the document goes away we don't want to
-    // invalidate the stylesheet.
-    aDocument->RemoveObserver(this);
 }
 
 void

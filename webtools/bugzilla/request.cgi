@@ -31,7 +31,6 @@ use strict;
 use lib qw(.);
 
 use Bugzilla;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::Flag;
@@ -42,11 +41,9 @@ use Bugzilla::Component;
 
 # Make sure the user is logged in.
 my $user = Bugzilla->login();
-my $userid = $user->id;
 
 my $cgi = Bugzilla->cgi;
-my $template = Bugzilla->template;
-my $vars = {};
+local our $vars = {};
 
 
 ################################################################################
@@ -75,12 +72,17 @@ exit;
 sub queue {
     my $cgi = Bugzilla->cgi;
     my $dbh = Bugzilla->dbh;
+    my $template = Bugzilla->template;
+    my $user = Bugzilla->user;
+    my $userid = $user->id;
 
     my $status = validateStatus($cgi->param('status'));
     my $form_group = validateGroup($cgi->param('group'));
 
     my $attach_join_clause = "flags.attach_id = attachments.attach_id";
-    if (Param("insidergroup") && !UserInGroup(Param("insidergroup"))) {
+    if (Bugzilla->params->{"insidergroup"} 
+        && !UserInGroup(Bugzilla->params->{"insidergroup"})) 
+    {
         $attach_join_clause .= " AND attachments.isprivate < 1";
     }
 
@@ -131,7 +133,7 @@ sub queue {
                  (ccmap.who IS NOT NULL AND cclist_accessible = 1) OR
                  (bugs.reporter = $userid AND bugs.reporter_accessible = 1) OR
                  (bugs.assigned_to = $userid) " .
-                 (Param('useqacontact') ? "OR
+                 (Bugzilla->params->{'useqacontact'} ? "OR
                  (bugs.qa_contact = $userid))" : ")");
     
     # Limit query to pending requests.

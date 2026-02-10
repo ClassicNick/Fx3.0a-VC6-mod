@@ -1,4 +1,4 @@
-/* -*- Mode: IDL; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -12,19 +12,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Mike Shaver <shaver@mozilla.org>
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,28 +34,19 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 343713;
+var summary = 'Do not JS_Assert with nested function evaluation';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
-#include "nsISupports.idl"
+printBugNumber (bug);
+printStatus (summary);
+  
+with (this) 
+with (this) {
+  eval("function outer() { function inner() { " +
+       "writeLineToLog('inner');} inner(); writeLineToLog('outer');} outer()");
+}
 
-/**
- * System information service.
- * 
- * At present, a thin wrapper around PR_GetSystemInfo.
- */
-
-[scriptable,uuid(4189b420-1dd2-11b2-bff7-daaf5c1f7b10)]
-interface nsISystemInfo : nsISupports
-{
-  /** The system hostname. */
-  readonly attribute string hostname;
-
-  /** The operating system name. */
-  readonly attribute string OSName;
-
-  /** The operating system version. */
-  readonly attribute string OSVersion;
-
-  /** The processor architecture of the machine. */
-  readonly attribute string architecture;
-};
-
+reportCompare(expect, actual, summary);

@@ -38,7 +38,6 @@ use Bugzilla;
 use Bugzilla::Constants;
 use Bugzilla::Error;
 use Bugzilla::Util;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Search;
 use Bugzilla::Search::Quicksearch;
 use Bugzilla::User;
@@ -187,7 +186,7 @@ foreach my $chart (@charts) {
 # Utilities
 ################################################################################
 
-my @weekday= qw( Sun Mon Tue Wed Thu Fri Sat );
+local our @weekday= qw( Sun Mon Tue Wed Thu Fri Sat );
 sub DiffDate {
     my ($datestr) = @_;
     my $date = str2time($datestr);
@@ -521,7 +520,7 @@ if (!$params->param('query_format')) {
 # Note: For column names using aliasing (SQL "<field> AS <alias>"), the column
 #       ID needs to be identical to the field ID for list ordering to work.
 
-my $columns = {};
+local our $columns = {};
 sub DefineColumn {
     my ($id, $name, $title) = @_;
     $columns->{$id} = { 'name' => $name , 'title' => $title };
@@ -632,7 +631,7 @@ if (trim($votes) && !grep($_ eq 'votes', @displaycolumns)) {
 
 # Remove the timetracking columns if they are not a part of the group
 # (happens if a user had access to time tracking and it was revoked/disabled)
-if (!UserInGroup(Param("timetrackinggroup"))) {
+if (!UserInGroup(Bugzilla->params->{"timetrackinggroup"})) {
    @displaycolumns = grep($_ ne 'estimated_time', @displaycolumns);
    @displaycolumns = grep($_ ne 'remaining_time', @displaycolumns);
    @displaycolumns = grep($_ ne 'actual_time', @displaycolumns);
@@ -659,7 +658,7 @@ my @selectcolumns = ("bug_id", "bug_severity", "priority", "bug_status",
                      "resolution");
 
 # if using classification, we also need to look in product.classification_id
-if (Param("useclassification")) {
+if (Bugzilla->params->{"useclassification"}) {
     push (@selectcolumns,"product");
 }
 
@@ -1020,7 +1019,7 @@ $vars->{'caneditbugs'} = UserInGroup('editbugs');
 
 my @bugowners = keys %$bugowners;
 if (scalar(@bugowners) > 1 && UserInGroup('editbugs')) {
-    my $suffix = Param('emailsuffix');
+    my $suffix = Bugzilla->params->{'emailsuffix'};
     map(s/$/$suffix/, @bugowners) if $suffix;
     my $bugowners = join(",", @bugowners);
     $vars->{'bugowners'} = $bugowners;
@@ -1063,7 +1062,7 @@ if ($dotweak) {
         $vars->{'versions'} = [map($_->name ,@{$product->versions})];
         $vars->{'components'} = [map($_->name, @{$product->components})];
         $vars->{'targetmilestones'} = [map($_->name, @{$product->milestones})]
-            if Param('usetargetmilestone');
+            if Bugzilla->params->{'usetargetmilestone'};
     }
 }
 
@@ -1118,7 +1117,7 @@ if ($serverpush) {
     # close the "please wait" page, then open the buglist page
     print $cgi->multipart_end();
     my @extra;
-    push @extra, (-charset => "utf8") if Param("utf8");
+    push @extra, (-charset => "utf8") if Bugzilla->params->{"utf8"};
     print $cgi->multipart_start(-type => $contenttype, 
                                 -content_disposition => $disposition, 
                                 @extra);

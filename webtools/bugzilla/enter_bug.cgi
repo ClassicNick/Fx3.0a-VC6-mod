@@ -39,7 +39,6 @@ use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::Bug;
@@ -70,7 +69,7 @@ if ($product_name eq '') {
     my @enterable_products = @{$user->get_enterable_products};
     ThrowUserError('no_products') unless scalar(@enterable_products);
 
-    my $classification = Param('useclassification') ?
+    my $classification = Bugzilla->params->{'useclassification'} ?
         scalar($cgi->param('classification')) : '__all';
 
     unless ($classification) {
@@ -146,7 +145,7 @@ $user->can_enter_product($product ? $product->name : $product_name, THROW_ERROR)
 ##############################################################################
 sub formvalue {
     my ($name, $default) = (@_);
-    return $cgi->param($name) || $default || "";
+    return Bugzilla->cgi->param($name) || $default || "";
 }
 
 # Takes the name of a field and a list of possible values for that 
@@ -170,8 +169,8 @@ sub pickplatform {
 
     my @platform;
 
-    if (Param('defaultplatform')) {
-        @platform = Param('defaultplatform');
+    if (Bugzilla->params->{'defaultplatform'}) {
+        @platform = Bugzilla->params->{'defaultplatform'};
     } else {
         # If @platform is a list, this function will return the first
         # item in the list that is a valid platform choice. If
@@ -228,8 +227,8 @@ sub pickos {
 
     my @os;
 
-    if (Param('defaultopsys')) {
-        @os = Param('defaultopsys');
+    if (Bugzilla->params->{'defaultopsys'}) {
+        @os = Bugzilla->params->{'defaultopsys'};
     } else {
         # This function will return the first
         # item in @os that is a valid platform choice. If
@@ -367,8 +366,8 @@ if ($cloned_bug_id) {
     $vars->{'commentprivacy'} = 0;
 
     if ( !($isprivate) ||
-         ( ( Param("insidergroup") ) && 
-           ( UserInGroup(Param("insidergroup")) ) ) 
+         ( ( Bugzilla->params->{"insidergroup"} ) && 
+           ( UserInGroup(Bugzilla->params->{"insidergroup"}) ) ) 
        ) {
         $vars->{'comment'}        = $cloned_bug->{'longdescs'}->[0]->{'body'};
         $vars->{'commentprivacy'} = $isprivate;
@@ -382,8 +381,8 @@ if ($cloned_bug_id) {
 else {
 
     $default{'component_'}    = formvalue('component');
-    $default{'priority'}      = formvalue('priority', Param('defaultpriority'));
-    $default{'bug_severity'}  = formvalue('bug_severity', Param('defaultseverity'));
+    $default{'priority'}      = formvalue('priority', Bugzilla->params->{'defaultpriority'});
+    $default{'bug_severity'}  = formvalue('bug_severity', Bugzilla->params->{'defaultseverity'});
     $default{'rep_platform'}  = pickplatform();
     $default{'op_sys'}        = pickos();
 
@@ -430,7 +429,7 @@ if ( ($cloned_bug_id) &&
 }
 
 # Get list of milestones.
-if ( Param('usetargetmilestone') ) {
+if ( Bugzilla->params->{'usetargetmilestone'} ) {
     $vars->{'target_milestone'} = [map($_->name, @{$product->milestones})];
     if (formvalue('target_milestone')) {
        $default{'target_milestone'} = formvalue('target_milestone');

@@ -31,7 +31,6 @@ use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::Search;
@@ -73,7 +72,7 @@ my %before;
 # Get params from URL
 sub formvalue {
     my ($name, $default) = (@_);
-    return $cgi->param($name) || $default || "";
+    return Bugzilla->cgi->param($name) || $default || "";
 }
 
 my $sortby = formvalue("sortby");
@@ -132,7 +131,7 @@ if (!tie(%dbmcount, 'AnyDBM_File', "$datadir/duplicates/dupes$today",
 
 # Remove all those dupes under the threshold parameter. 
 # We do this, before the sorting, for performance reasons.
-my $threshold = Param("mostfreqthreshold");
+my $threshold = Bugzilla->params->{"mostfreqthreshold"};
 
 while (my ($key, $value) = each %count) {
     delete $count{$key} if ($value < $threshold);

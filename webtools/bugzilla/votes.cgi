@@ -29,7 +29,6 @@ use lib ".";
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::Bug;
@@ -39,8 +38,7 @@ use Bugzilla::Product;
 use List::Util qw(min);
 
 my $cgi = Bugzilla->cgi;
-my $template = Bugzilla->template;
-my $vars = {};
+local our $vars = {};
 
 # If the action is show_bug, you need a bug_id.
 # If the action is show_user, you can supply a userid to show the votes for
@@ -82,7 +80,7 @@ elsif ($action eq "show_user") {
     show_user();
 }
 elsif ($action eq "vote") {
-    record_votes() if Param('usevotes');
+    record_votes() if Bugzilla->params->{'usevotes'};
     show_user();
 }
 else {
@@ -95,6 +93,8 @@ exit;
 sub show_bug {
     my $cgi = Bugzilla->cgi;
     my $dbh = Bugzilla->dbh;
+    my $template = Bugzilla->template;
+    my $bug_id = $cgi->param('bug_id');
 
     ThrowCodeError("missing_bug_id") unless defined $bug_id;
 
@@ -118,6 +118,8 @@ sub show_user {
     my $cgi = Bugzilla->cgi;
     my $dbh = Bugzilla->dbh;
     my $user = Bugzilla->user;
+    my $template = Bugzilla->template;
+    my $bug_id = $cgi->param('bug_id');
 
     # If a bug_id is given, and we're editing, we'll add it to the votes list.
     $bug_id ||= "";
@@ -126,7 +128,7 @@ sub show_user {
     my $who = login_to_id($name, THROW_ERROR);
     my $userid = $user->id;
 
-    my $canedit = (Param('usevotes') && $userid == $who) ? 1 : 0;
+    my $canedit = (Bugzilla->params->{'usevotes'} && $userid == $who) ? 1 : 0;
 
     $dbh->bz_lock_tables('bugs READ', 'products READ', 'votes WRITE',
              'cc READ', 'bug_group_map READ', 'user_group_map READ',
@@ -216,6 +218,7 @@ sub record_votes {
 
     my $cgi = Bugzilla->cgi;
     my $dbh = Bugzilla->dbh;
+    my $template = Bugzilla->template;
 
     # Build a list of bug IDs for which votes have been submitted.  Votes
     # are submitted in form fields in which the field names are the bug 
@@ -260,7 +263,7 @@ sub record_votes {
     # the ballot box.
     if (scalar(@buglist)) {
         my %prodcount;
-        my %products = {};
+        my %products;
         # XXX - We really need a $bug->product() method.
         foreach my $bug_id (@buglist) {
             my $bug = new Bugzilla::Bug($bug_id, $who);

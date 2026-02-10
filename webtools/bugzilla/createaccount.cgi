@@ -30,7 +30,6 @@ use lib qw(.);
 
 use Bugzilla;
 use Bugzilla::Constants;
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Error;
 use Bugzilla::User;
 use Bugzilla::BugMail;
@@ -53,7 +52,7 @@ unless (Bugzilla->user->authorizer->user_can_create_account) {
     ThrowUserError("auth_cant_create_account");
 }
 
-my $createexp = Param('createemailregexp');
+my $createexp = Bugzilla->params->{'createemailregexp'};
 unless ($createexp) {
     ThrowUserError("account_creation_disabled");
 }

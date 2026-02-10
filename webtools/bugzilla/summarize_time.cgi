@@ -25,7 +25,6 @@ use Date::Format;        # strftime
 
 use Bugzilla;
 use Bugzilla::Constants; # LOGIN_*
-use Bugzilla::Config qw(:DEFAULT);
 use Bugzilla::Bug;       # EmitDependList
 use Bugzilla::Util;      # trim
 use Bugzilla::Error;
@@ -405,7 +404,7 @@ my $cgi = Bugzilla->cgi;
 
 Bugzilla->switch_to_shadow_db();
 
-UserInGroup(Param("timetrackinggroup"))
+UserInGroup(Bugzilla->params->{"timetrackinggroup"})
     || ThrowUserError("auth_failure", {group  => "time-tracking",
                                        action => "access",
                                        object => "timetracking_summaries"});

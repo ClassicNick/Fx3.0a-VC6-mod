@@ -49,6 +49,7 @@
 #endif
 
 pref("startup.homepage_override_url","chrome://browser-region/locale/region.properties");
+pref("startup.homepage_welcome_url","chrome://browser-region/locale/region.properties");
 pref("general.startup.browser", true);
 
 pref("browser.chromeURL","chrome://browser/content/");
@@ -100,7 +101,7 @@ pref("app.update.mode", 1);
 pref("app.update.silent", false);
 
 // Update service URL:
-pref("app.update.url", "https://aus2.mozilla.org/update/1/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/update.xml");
+pref("app.update.url", "https://aus2.mozilla.org/update/2/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/update.xml");
 // URL user can browse to manually if for some reason all update installation
 // attempts fail.  TODO: Change this URL
 pref("app.update.url.manual", "http://www.mozilla.org/products/firefox/");
@@ -249,7 +250,8 @@ pref("browser.tabs.loadFolderAndReplace", true);
 pref("browser.tabs.opentabfor.middleclick", true);
 pref("browser.tabs.loadDivertedInBackground", false);
 pref("browser.tabs.loadBookmarksInBackground", false);
-pref("browser.tabs.tabClipWidth", 140);
+pref("browser.tabs.tabMinWidth", 125);
+pref("browser.tabs.tabClipWidth", 115);
 pref("browser.tabs.disableBackgroundClose", false);
 
 // When tabs opened by links in other tabs via a combination of 
