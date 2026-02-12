@@ -312,13 +312,17 @@ SessionStoreService.prototype = {
       this._uninit();
       break;
     case "browser:purge-session-history": // catch sanitization 
-      this._closedWindows = [];
       this._forEachBrowserWindow(function(aWindow) {
         Array.forEach(aWindow.getBrowser().browsers, function(aBrowser) {
           delete aBrowser.parentNode.__SS_data;
         });
       });
       this._clearDisk();
+      // also clear all data about closed windows and tabs
+      this._closedWindows = [];
+      for (ix in this._windows) {
+        this._windows[ix]._closedTabs = [];
+      }
       // give the tabbrowsers a chance to clear their histories first
       var win = this._getMostRecentBrowserWindow();
       if (win)
@@ -361,6 +365,42 @@ SessionStoreService.prototype = {
 /* ........ Window Event Handlers .............. */
 
   /**
+   * Implement nsIDOMEventListener for handling various window and tab events
+   */
+  handleEvent: function sss_handleEvent(aEvent) {
+    switch (aEvent.type) {
+      case "load":
+        this.onTabLoad(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget, aEvent);
+        break;
+      case "pageshow":
+        this.onTabLoad(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget, aEvent);
+        break;
+      case "input":
+        this.onTabInput(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget, aEvent);
+        break;
+      case "DOMAutoComplete":
+        this.onTabInput(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget, aEvent);
+        break;
+      case "TabOpen":
+      case "TabClose":
+        var panelID = aEvent.originalTarget.linkedPanel;
+        var tabpanel = aEvent.originalTarget.ownerDocument.getElementById(panelID);
+        if (aEvent.type == "TabOpen") {
+          this.onTabAdd(aEvent.currentTarget.ownerDocument.defaultView, tabpanel);
+        }
+        else {
+          this.onTabClose(aEvent.currentTarget.ownerDocument.defaultView, aEvent.originalTarget);
+          this.onTabRemove(aEvent.currentTarget.ownerDocument.defaultView, tabpanel);
+        }
+        break;
+      case "TabSelect":
+        var tabpanels = aEvent.currentTarget.mPanelContainer;
+        this.onTabSelect(aEvent.currentTarget.ownerDocument.defaultView, tabpanels);
+        break;
+    }
+  },
+
+  /**
    * If it's the first window load since app start...
    * - determine if we're reloading after a crash or a forced-restart
    * - restore window state
@@ -375,7 +415,7 @@ SessionStoreService.prototype = {
     // ignore non-browser windows
     if (aWindow.document.documentElement.getAttribute("windowtype") != "navigator:browser")
       return;
-    
+
     // assign it a unique identifier (timestamp)
     aWindow.__SSi = "window" + Date.now();
 
@@ -411,16 +451,9 @@ SessionStoreService.prototype = {
       this.onTabAdd(aWindow, tabpanels.childNodes[i], true);
     }
     // notification of tab add/remove/selection
-    tabbrowser.addEventListener("TabOpen", function(aEvent) {
-      _this.onTabAdd(aEvent.currentTarget.ownerDocument.defaultView, aEvent.target);
-      }, false);
-    tabbrowser.addEventListener("TabClose", function(aEvent) {
-      _this.onTabClose(aEvent.currentTarget.ownerDocument.defaultView, aEvent.originalTarget);
-      _this.onTabRemove(aEvent.currentTarget.ownerDocument.defaultView, aEvent.target);
-      }, false);
-    tabbrowser.addEventListener("TabSelect", function(aEvent) {
-      _this.onTabSelect(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget);
-      }, false);
+    tabbrowser.addEventListener("TabOpen", this, true);
+    tabbrowser.addEventListener("TabClose", this, true);
+    tabbrowser.addEventListener("TabSelect", this, true);
   },
 
   /**
@@ -437,6 +470,10 @@ SessionStoreService.prototype = {
     
     var tabbrowser = aWindow.getBrowser();
     var tabpanels = tabbrowser.mPanelContainer;
+
+    tabbrowser.removeEventListener("TabOpen", this, true);
+    tabbrowser.removeEventListener("TabClose", this, true);
+    tabbrowser.removeEventListener("TabSelect", this, true);
     
     for (var i = 0; i < tabpanels.childNodes.length; i++) {
       this.onTabRemove(aWindow, tabpanels.childNodes[i], true);
@@ -475,19 +512,10 @@ SessionStoreService.prototype = {
    *        bool Do not save state if we're updating an existing tab
    */
   onTabAdd: function sss_onTabAdd(aWindow, aPanel, aNoNotification) {
-    var _this = this;
-    aPanel.addEventListener("load", function(aEvent) {
-      _this.onTabLoad(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget, aEvent);
-      }, true);
-    aPanel.addEventListener("pageshow", function(aEvent) {
-      _this.onTabLoad(aEvent.currentTarget.ownerDocument.defaultView, aEvent.currentTarget, aEvent);
-      }, true);
-    aPanel.addEventListener("input", function(aEvent) {
-      _this.onTabInput(this.ownerDocument.defaultView, this, aEvent);
-      }, true);
-    aPanel.addEventListener("DOMAutoComplete", function(aEvent) {
-      _this.onTabInput(this.ownerDocument.defaultView, this, aEvent);
-      }, true);
+    aPanel.addEventListener("load", this, true);
+    aPanel.addEventListener("pageshow", this, true);
+    aPanel.addEventListener("input", this, true);
+    aPanel.addEventListener("DOMAutoComplete", this, true);
     
     if (!aNoNotification) {
       this.saveStateDelayed(aWindow);
@@ -504,10 +532,10 @@ SessionStoreService.prototype = {
    *        bool Do not save state if we're updating an existing tab
    */
   onTabRemove: function sss_onTabRemove(aWindow, aPanel, aNoNotification) {
-    aPanel.removeEventListener("load", this.onTabLoad_proxy, true);
-    aPanel.removeEventListener("pageshow", this.onTabLoad_proxy, true);
-    aPanel.removeEventListener("input", this.onTabInput_proxy, true);
-    aPanel.removeEventListener("DOMAutoComplete", this.onTabInput_proxy, true);
+    aPanel.removeEventListener("load", this, true);
+    aPanel.removeEventListener("pageshow", this, true);
+    aPanel.removeEventListener("input", this, true);
+    aPanel.removeEventListener("DOMAutoComplete", this, true);
     
     delete aPanel.__SS_data;
     delete aPanel.__SS_text;
@@ -1979,8 +2007,10 @@ SessionStoreService.prototype = {
 /* ........ QueryInterface .............. */
 
   QueryInterface: function(aIID) {
-    if (!aIID.equals(Ci.nsISupports) && !aIID.equals(Ci.nsIObserver) && 
+    if (!aIID.equals(Ci.nsISupports) && 
+      !aIID.equals(Ci.nsIObserver) && 
       !aIID.equals(Ci.nsISupportsWeakReference) && 
+      !aIID.equals(Ci.nsIDOMEventListener) &&
       !aIID.equals(Ci.nsISessionStore)) {
       Components.returnCode = Cr.NS_ERROR_NO_INTERFACE;
       return null;

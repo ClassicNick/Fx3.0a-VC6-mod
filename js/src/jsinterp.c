@@ -486,6 +486,24 @@ CloneBlockChain(JSContext *cx, JSStackFrame *fp, JSObject *obj)
     return js_CloneBlockObject(cx, obj, parent, fp);
 }
 
+static JSBool
+PutBlockObjects(JSContext *cx, JSStackFrame *fp)
+{
+    JSBool ok;
+    JSObject *obj;
+
+    /*
+     * Walk the scope chain looking for block scopes whose locals need to be
+     * copied from stack slots into object slots before fp goes away.
+     */
+    ok = JS_TRUE;
+    for (obj = fp->scopeChain; obj; obj = OBJ_GET_PARENT(cx, obj)) {
+        if (OBJ_GET_CLASS(cx, obj) == &js_BlockClass)
+            ok &= js_PutBlockObject(cx, obj);
+    }
+    return ok;
+}
+
 JSObject *
 js_GetScopeChain(JSContext *cx, JSStackFrame *fp)
 {
@@ -496,6 +514,7 @@ js_GetScopeChain(JSContext *cx, JSStackFrame *fp)
         obj = CloneBlockChain(cx, fp, obj);
         if (!obj)
             return NULL;
+        fp->flags |= JSFRAME_POP_BLOCKS;
         fp->scopeChain = obj;
         fp->blockChain = NULL;
         return obj;
@@ -1152,34 +1171,36 @@ have_fun:
             nslots += fun->u.n.extra;
         }
 
-        if (fun->flags & JSFUN_BOUND_METHOD) {
+        if (JSFUN_BOUND_METHOD_TEST(fun->flags)) {
             /* Handle bound method special case. */
             thisp = parent;
         } else if (JSVAL_IS_OBJECT(thisv)) {
             thisp = JSVAL_TO_OBJECT(thisv);
         } else {
+            uintN thispflags = JSFUN_THISP_FLAGS(fun->flags);
+
             JS_ASSERT(!(flags & JSINVOKE_CONSTRUCT));
             if (JSVAL_IS_STRING(thisv)) {
-                if (fun->flags & JSFUN_THISP_STRING) {
+                if (JSFUN_THISP_TEST(thispflags, JSFUN_THISP_STRING)) {
                     thisp = (JSObject *) thisv;
                     goto init_frame;
                 }
                 thisp = js_StringToObject(cx, JSVAL_TO_STRING(thisv));
             } else if (JSVAL_IS_INT(thisv)) {
-                if (fun->flags & JSFUN_THISP_NUMBER) {
+                if (JSFUN_THISP_TEST(thispflags, JSFUN_THISP_NUMBER)) {
                     thisp = (JSObject *) thisv;
                     goto init_frame;
                 }
                 thisp = js_NumberToObject(cx, (jsdouble)JSVAL_TO_INT(thisv));
             } else if (JSVAL_IS_DOUBLE(thisv)) {
-                if (fun->flags & JSFUN_THISP_NUMBER) {
+                if (JSFUN_THISP_TEST(thispflags, JSFUN_THISP_NUMBER)) {
                     thisp = (JSObject *) thisv;
                     goto init_frame;
                 }
                 thisp = js_NumberToObject(cx, *JSVAL_TO_DOUBLE(thisv));
             } else {
                 JS_ASSERT(JSVAL_IS_BOOLEAN(thisv));
-                if (fun->flags & JSFUN_THISP_BOOLEAN) {
+                if (JSFUN_THISP_TEST(thispflags, JSFUN_THISP_BOOLEAN)) {
                     thisp = (JSObject *) thisv;
                     goto init_frame;
                 }
@@ -1337,7 +1358,7 @@ have_fun:
 #endif
         /* Use parent scope so js_GetCallObject can find the right "Call". */
         frame.scopeChain = parent;
-        if (fun->flags & JSFUN_HEAVYWEIGHT) {
+        if (JSFUN_HEAVYWEIGHT_TEST(fun->flags)) {
             /* Scope with a call object parented by the callee's parent. */
             if (!js_GetCallObject(cx, &frame, parent)) {
                 ok = JS_FALSE;
@@ -1357,6 +1378,10 @@ out:
         if (hook)
             hook(cx, &frame, JS_FALSE, &ok, hookData);
     }
+
+    /* If frame has block objects on its scope chain, cut them loose. */
+    if (frame.flags & JSFRAME_POP_BLOCKS)
+        ok &= PutBlockObjects(cx, &frame);
 
     /* If frame has a call object, sync values and clear back-pointer. */
     if (frame.callobj)
@@ -2007,24 +2032,32 @@ js_Interpret(JSContext *cx, jsbytecode *pc, jsval *result)
 #endif
     int stackDummy;
 
+#ifdef __GNUC__
+# define JS_EXTENSION __extension__
+# define JS_EXTENSION_(s) __extension__ ({ s; })
+#else
+# define JS_EXTENSION
+# define JS_EXTENSION_(s) s
+#endif
+
 #ifdef JS_THREADED_INTERP
     static void *normalJumpTable[] = {
 # define OPDEF(op,val,name,token,length,nuses,ndefs,prec,format) \
-        &&L_##op,
+        JS_EXTENSION &&L_##op,
 # include "jsopcode.tbl"
 # undef OPDEF
     };
 
     static void *interruptJumpTable[] = {
 # define OPDEF(op,val,name,token,length,nuses,ndefs,prec,format) \
-        &&interrupt,
+        JS_EXTENSION &&interrupt,
 # include "jsopcode.tbl"
 # undef OPDEF
     };
 
     register void **jumpTable = normalJumpTable;
 
-# define DO_OP()            goto *jumpTable[op]
+# define DO_OP()            JS_EXTENSION_(goto *jumpTable[op])
 # define DO_NEXT_OP(n)      do { op = *(pc += (n)); DO_OP(); } while (0)
 # define BEGIN_CASE(OP)     L_##OP:
 # define END_CASE(OP)       DO_NEXT_OP(OP##_LENGTH);
@@ -2182,7 +2215,7 @@ interrupt:
     }
 
     op = (JSOp) *pc;
-    goto *normalJumpTable[op];
+    JS_EXTENSION_(goto *normalJumpTable[op]);
 
 #else  /* !JS_THREADED_INTERP */
 
@@ -2332,8 +2365,14 @@ interrupt:
                     }
                 }
 
+                /* If fp has blocks on its scope chain, cut them loose. */
+                if (fp->flags & JSFRAME_POP_BLOCKS) {
+                    SAVE_SP_AND_PC(fp);
+                    ok &= PutBlockObjects(cx, fp);
+                }
+
                 /*
-                 * If frame has a call object, sync values and clear the back-
+                 * If fp has a call object, sync values and clear the back-
                  * pointer. This can happen for a lightweight function if it
                  * calls eval unexpectedly (in a way that is hidden from the
                  * compiler). See bug 325540.
@@ -3975,7 +4014,7 @@ interrupt:
                 }
                 newifp->frame.thisp =
                     js_ComputeThis(cx,
-                                   (fun->flags & JSFUN_BOUND_METHOD)
+                                   JSFUN_BOUND_METHOD_TEST(fun->flags)
                                    ? parent
                                    : JSVAL_TO_OBJECT(vp[1]),
                                    newifp->frame.argv);
@@ -4007,7 +4046,7 @@ interrupt:
                 }
 
                 /* Scope with a call object parented by the callee's parent. */
-                if ((fun->flags & JSFUN_HEAVYWEIGHT) &&
+                if (JSFUN_HEAVYWEIGHT_TEST(fun->flags) &&
                     !js_GetCallObject(cx, &newifp->frame, parent)) {
                     ok = JS_FALSE;
                     goto out;
@@ -4937,7 +4976,7 @@ interrupt:
              * and setters do not need a slot, their value is stored elsewhere
              * in the property itself, not in obj->slots.
              */
-            flags = fun->flags & (JSFUN_GETTER | JSFUN_SETTER);
+            flags = JSFUN_GSFLAG2ATTR(fun->flags);
             if (flags) {
                 attrs |= flags | JSPROP_SHARED;
                 rval = JSVAL_VOID;
@@ -4954,11 +4993,11 @@ interrupt:
             ok = js_CheckRedeclaration(cx, parent, id, attrs, NULL, NULL);
             if (ok) {
                 ok = OBJ_DEFINE_PROPERTY(cx, parent, id, rval,
-                                         (flags & JSFUN_GETTER)
-                                         ? (JSPropertyOp) obj
+                                         (flags & JSPROP_GETTER)
+                                         ? JS_EXTENSION (JSPropertyOp) obj
                                          : NULL,
-                                         (flags & JSFUN_SETTER)
-                                         ? (JSPropertyOp) obj
+                                         (flags & JSPROP_SETTER)
+                                         ? JS_EXTENSION (JSPropertyOp) obj
                                          : NULL,
                                          attrs,
                                          &prop);
@@ -5092,17 +5131,17 @@ interrupt:
              * value is Result(3), and attributes are { DontDelete, ReadOnly }.
              */
             fun = (JSFunction *) JS_GetPrivate(cx, obj);
-            attrs = fun->flags & (JSFUN_GETTER | JSFUN_SETTER);
+            attrs = JSFUN_GSFLAG2ATTR(fun->flags);
             if (attrs) {
                 attrs |= JSPROP_SHARED;
                 rval = JSVAL_VOID;
             }
             ok = OBJ_DEFINE_PROPERTY(cx, parent, ATOM_TO_JSID(fun->atom), rval,
-                                     (attrs & JSFUN_GETTER)
-                                     ? (JSPropertyOp) obj
+                                     (attrs & JSPROP_GETTER)
+                                     ? JS_EXTENSION (JSPropertyOp) obj
                                      : NULL,
-                                     (attrs & JSFUN_SETTER)
-                                     ? (JSPropertyOp) obj
+                                     (attrs & JSPROP_SETTER)
+                                     ? JS_EXTENSION (JSPropertyOp) obj
                                      : NULL,
                                      attrs |
                                      JSPROP_ENUMERATE | JSPROP_PERMANENT |
@@ -5171,18 +5210,18 @@ interrupt:
              * a JSPropertyOp and passed accordingly).
              */
             fun = (JSFunction *) JS_GetPrivate(cx, obj);
-            attrs = fun->flags & (JSFUN_GETTER | JSFUN_SETTER);
+            attrs = JSFUN_GSFLAG2ATTR(fun->flags);
             if (attrs) {
                 attrs |= JSPROP_SHARED;
                 rval = JSVAL_VOID;
             }
             parent = fp->varobj;
             ok = OBJ_DEFINE_PROPERTY(cx, parent, ATOM_TO_JSID(fun->atom), rval,
-                                     (attrs & JSFUN_GETTER)
-                                     ? (JSPropertyOp) obj
+                                     (attrs & JSPROP_GETTER)
+                                     ? JS_EXTENSION (JSPropertyOp) obj
                                      : NULL,
-                                     (attrs & JSFUN_SETTER)
-                                     ? (JSPropertyOp) obj
+                                     (attrs & JSPROP_SETTER)
+                                     ? JS_EXTENSION (JSPropertyOp) obj
                                      : NULL,
                                      attrs | JSPROP_ENUMERATE
                                            | JSPROP_PERMANENT,
@@ -5276,12 +5315,12 @@ interrupt:
                 goto out;
 
             if (op == JSOP_GETTER) {
-                getter = (JSPropertyOp) JSVAL_TO_OBJECT(rval);
+                getter = JS_EXTENSION (JSPropertyOp) JSVAL_TO_OBJECT(rval);
                 setter = NULL;
                 attrs = JSPROP_GETTER;
             } else {
                 getter = NULL;
-                setter = (JSPropertyOp) JSVAL_TO_OBJECT(rval);
+                setter = JS_EXTENSION (JSPropertyOp) JSVAL_TO_OBJECT(rval);
                 attrs = JSPROP_SETTER;
             }
             attrs |= JSPROP_ENUMERATE | JSPROP_SHARED;
@@ -5418,23 +5457,33 @@ interrupt:
           BEGIN_CASE(JSOP_SETSP)
             i = (jsint) GET_ATOM_INDEX(pc);
             JS_ASSERT(i >= 0);
-            sp = fp->spbase + i;
 
             for (obj = fp->blockChain; obj; obj = OBJ_GET_PARENT(cx, obj)) {
                 JS_ASSERT(OBJ_GET_CLASS(cx, obj) == &js_BlockClass);
-                if (OBJ_BLOCK_DEPTH(cx, obj) <= i)
+                if (OBJ_BLOCK_DEPTH(cx, obj) < i)
                     break;
             }
             fp->blockChain = obj;
 
+            JS_ASSERT(ok);
             for (obj = fp->scopeChain;
                  (clasp = OBJ_GET_CLASS(cx, obj)) == &js_WithClass ||
                  clasp == &js_BlockClass;
                  obj = OBJ_GET_PARENT(cx, obj)) {
-                if (OBJ_BLOCK_DEPTH(cx, obj) <= i)
+                if (OBJ_BLOCK_DEPTH(cx, obj) < i)
                     break;
+                if (clasp == &js_BlockClass)
+                    ok &= js_PutBlockObject(cx, obj);
             }
+
             fp->scopeChain = obj;
+
+            /* Set sp after js_PutBlockObject to avoid potential GC hazards. */
+            sp = fp->spbase + i;
+
+            /* Don't fail until after we've updated all stacks. */
+            if (!ok)
+                goto out;
           END_CASE(JSOP_SETSP)
 
           BEGIN_CASE(JSOP_GOSUB)
@@ -5915,6 +5964,22 @@ interrupt:
             if (op == JSOP_LEAVEBLOCKEXPR)
                 rval = FETCH_OPND(-1);
 
+            chainp = &fp->blockChain;
+            obj = *chainp;
+            if (!obj) {
+                chainp = &fp->scopeChain;
+                obj = *chainp;
+
+                /*
+                 * This block was cloned, so clear its private data and sync
+                 * its locals to their property slots.
+                 */
+                SAVE_SP_AND_PC(fp);
+                ok = js_PutBlockObject(cx, obj);
+                if (!ok)
+                    goto out;
+            }
+
             sp -= GET_UINT16(pc);
             JS_ASSERT(op == JSOP_LEAVEBLOCKEXPR
                       ? fp->spbase < sp && sp <= fp->spbase + depth
@@ -5924,12 +5989,6 @@ interrupt:
             if (op == JSOP_LEAVEBLOCKEXPR)
                 STORE_OPND(-1, rval);
 
-            chainp = &fp->blockChain;
-            obj = *chainp;
-            if (!obj) {
-                chainp = &fp->scopeChain;
-                obj = *chainp;
-            }
             JS_ASSERT(OBJ_GET_CLASS(cx, obj) == &js_BlockClass);
             JS_ASSERT(op == JSOP_LEAVEBLOCKEXPR
                       ? fp->spbase + OBJ_BLOCK_DEPTH(cx, obj) == sp - 1

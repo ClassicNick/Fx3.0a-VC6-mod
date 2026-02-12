@@ -1467,19 +1467,26 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
               }
 
               case JSOP_LEAVEBLOCK:
+              case JSOP_LEAVEBLOCKEXPR:
               {
                 uintN top, depth;
 
                 sn = js_GetSrcNote(jp->script, pc);
                 todo = -2;
-                if (sn && SN_TYPE(sn) == SRC_HIDDEN)
+                if (sn && SN_TYPE(sn) == SRC_HIDDEN) {
+                    JS_ASSERT(op == JSOP_LEAVEBLOCK);
                     break;
+                }
+                if (op == JSOP_LEAVEBLOCKEXPR)
+                    rval = POP_STR();
                 top = ss->top;
                 depth = GET_UINT16(pc);
                 JS_ASSERT(top >= depth);
                 top -= depth;
                 ss->top = top;
                 ss->sprinter.offset = ss->offsets[top];
+                if (op == JSOP_LEAVEBLOCKEXPR)
+                    todo = SprintCString(&ss->sprinter, rval);
                 break;
               }
 
@@ -2810,7 +2817,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 xval = POP_STR();
                 lval = POP_STR();
                 sn = js_GetSrcNote(jp->script, pc);
-                if (sn && SN_TYPE(sn) == SRC_LABEL)
+                if (sn && SN_TYPE(sn) == SRC_INITPROP)
                     goto do_initprop;
                 todo = Sprint(&ss->sprinter, "%s%s%s",
                               lval,
@@ -3126,9 +3133,9 @@ js_DecompileFunction(JSPrinter *jp, JSFunction *fun)
         if (!jp->grouped && (fun->flags & JSFUN_LAMBDA))
             js_puts(jp, "(");
     }
-    if (fun->flags & JSFUN_GETTER)
+    if (JSFUN_GETTER_TEST(fun->flags))
         js_printf(jp, "%s ", js_getter_str);
-    else if (fun->flags & JSFUN_SETTER)
+    else if (JSFUN_SETTER_TEST(fun->flags))
         js_printf(jp, "%s ", js_setter_str);
 
     js_printf(jp, "%s ", js_function_str);

@@ -310,6 +310,9 @@ class Result extends AppModel {
         // Next determine our collection
         if (!empty($params['collection'])) {
             $_collection_id = $this->Choice->Collection->findByDescription($params['collection']);
+            // Check if the current app has a collection by that name.  If it doesn't
+            // fall back to max (this way they can jump between apps without having
+            // messages that say "no data found"
             $clear = true;
             foreach ($_collection_id['Application'] as $var => $val) {
                 if ($_application_id == $val['id']) {
@@ -321,6 +324,7 @@ class Result extends AppModel {
                 $_collection_id['Collection']['id'] = $_id[0][0]['max'];
             }
         } else {
+            // If collection isn't set, default to the highest (newest) one
             $_id = $this->Application->getMaxCollectionId($_application_id, 'issue');
             $_collection_id['Collection']['id'] = $_id[0][0]['max'];
         }

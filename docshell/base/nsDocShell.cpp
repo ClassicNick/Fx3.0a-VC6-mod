@@ -539,6 +539,15 @@ ConvertDocShellLoadInfoToLoadType(nsDocShellInfoLoadType aDocShellLoadType)
     case nsIDocShellLoadInfo::loadHistory:
         loadType = LOAD_HISTORY;
         break;
+    case nsIDocShellLoadInfo::loadNormalBypassCache:
+        loadType = LOAD_NORMAL_BYPASS_CACHE;
+        break;
+    case nsIDocShellLoadInfo::loadNormalBypassProxy:
+        loadType = LOAD_NORMAL_BYPASS_PROXY;
+        break;
+    case nsIDocShellLoadInfo::loadNormalBypassProxyAndCache:
+        loadType = LOAD_NORMAL_BYPASS_PROXY_AND_CACHE;
+        break;
     case nsIDocShellLoadInfo::loadReloadNormal:
         loadType = LOAD_RELOAD_NORMAL;
         break;
@@ -569,6 +578,8 @@ ConvertDocShellLoadInfoToLoadType(nsDocShellInfoLoadType aDocShellLoadType)
     case nsIDocShellLoadInfo::loadStopContentAndReplace:
         loadType = LOAD_STOP_CONTENT_AND_REPLACE;
         break;
+    default:
+        NS_NOTREACHED("Unexpected nsDocShellInfoLoadType value");
     }
 
     return loadType;
@@ -588,6 +599,15 @@ nsDocShell::ConvertLoadTypeToDocShellLoadInfo(PRUint32 aLoadType)
         break;
     case LOAD_NORMAL_EXTERNAL:
         docShellLoadType = nsIDocShellLoadInfo::loadNormalExternal;
+        break;
+    case LOAD_NORMAL_BYPASS_CACHE:
+        docShellLoadType = nsIDocShellLoadInfo::loadNormalBypassCache;
+        break;
+    case LOAD_NORMAL_BYPASS_PROXY:
+        docShellLoadType = nsIDocShellLoadInfo::loadNormalBypassProxy;
+        break;
+    case LOAD_NORMAL_BYPASS_PROXY_AND_CACHE:
+        docShellLoadType = nsIDocShellLoadInfo::loadNormalBypassProxyAndCache;
         break;
     case LOAD_HISTORY:
         docShellLoadType = nsIDocShellLoadInfo::loadHistory;
@@ -623,6 +643,8 @@ nsDocShell::ConvertLoadTypeToDocShellLoadInfo(PRUint32 aLoadType)
     case LOAD_STOP_CONTENT_AND_REPLACE:
         docShellLoadType = nsIDocShellLoadInfo::loadStopContentAndReplace;
         break;
+    default:
+        NS_NOTREACHED("Unexpected load type value");
     }
 
     return docShellLoadType;
@@ -2631,7 +2653,7 @@ nsDocShell::GetChildSHEntry(PRInt32 aChildOffset, nsISHEntry ** aResult)
         PRUint32 loadType = nsIDocShellLoadInfo::loadHistory;
         mLSHE->GetLoadType(&loadType);  
         // If the user did a shift-reload on this frameset page, 
-        // we don't want to load the subframes from history.         
+        // we don't want to load the subframes from history.
         if (loadType == nsIDocShellLoadInfo::loadReloadBypassCache ||
             loadType == nsIDocShellLoadInfo::loadReloadBypassProxy ||
             loadType == nsIDocShellLoadInfo::loadReloadBypassProxyAndCache ||
@@ -2941,7 +2963,7 @@ nsDocShell::LoadURI(const PRUnichar * aURI,
     rv = CreateLoadInfo(getter_AddRefs(loadInfo));
     if (NS_FAILED(rv)) return rv;
     
-    PRUint32 loadType = MAKE_LOAD_TYPE(LOAD_NORMAL, aLoadFlags); 
+    PRUint32 loadType = MAKE_LOAD_TYPE(LOAD_NORMAL, aLoadFlags);
     loadInfo->SetLoadType(ConvertLoadTypeToDocShellLoadInfo(loadType));
     loadInfo->SetPostDataStream(aPostStream);
     loadInfo->SetReferrer(aReferringURI);
@@ -3246,13 +3268,9 @@ nsDocShell::Reload(PRUint32 aReloadFlags)
     NS_ASSERTION(((aReloadFlags & 0xf) == 0),
                  "Reload command not updated to use load flags!");
 
-    // XXXTAB Convert reload type to our type
-    LoadType type = LOAD_RELOAD_NORMAL;
-    if (aReloadFlags & LOAD_FLAGS_BYPASS_CACHE &&
-        aReloadFlags & LOAD_FLAGS_BYPASS_PROXY)
-        type = LOAD_RELOAD_BYPASS_PROXY_AND_CACHE;
-    else if (aReloadFlags & LOAD_FLAGS_CHARSET_CHANGE)
-        type = LOAD_RELOAD_CHARSET_CHANGE;
+    PRUint32 loadType = MAKE_LOAD_TYPE(LOAD_RELOAD_NORMAL, aReloadFlags);
+    NS_ENSURE_TRUE(IsValidLoadType(loadType), NS_ERROR_INVALID_ARG);
+
     // Send notifications to the HistoryListener if any, about the impending reload
     nsCOMPtr<nsISHistory> rootSH;
     rv = GetRootSessionHistory(getter_AddRefs(rootSH));
@@ -3271,10 +3289,10 @@ nsDocShell::Reload(PRUint32 aReloadFlags)
     
     /* If you change this part of code, make sure bug 45297 does not re-occur */
     if (mOSHE) {
-        rv = LoadHistoryEntry(mOSHE, type);
+        rv = LoadHistoryEntry(mOSHE, loadType);
     }
     else if (mLSHE) { // In case a reload happened before the current load is done
-        rv = LoadHistoryEntry(mLSHE, type);
+        rv = LoadHistoryEntry(mLSHE, loadType);
     }
     else {
         nsAutoString contentTypeHint;
@@ -3296,7 +3314,7 @@ nsDocShell::Reload(PRUint32 aReloadFlags)
                           NS_LossyConvertUTF16toASCII(contentTypeHint).get(),
                           nsnull,         // No post data
                           nsnull,         // No headers data
-                          type,           // Load type
+                          loadType,       // Load type
                           nsnull,         // No SHEntry
                           PR_TRUE,
                           nsnull,         // No nsIDocShell
@@ -4693,9 +4711,9 @@ nsDocShell::Embed(nsIContentViewer * aContentViewer,
 
     PRBool updateHistory = PR_TRUE;
 
-    // Determine if this type of load should update history   
+    // Determine if this type of load should update history
     switch (mLoadType) {
-    case LOAD_RELOAD_CHARSET_CHANGE:  //don't perserve history in charset reload
+    case LOAD_RELOAD_CHARSET_CHANGE: // don't preserve history in charset reload
     case LOAD_NORMAL_REPLACE:
     case LOAD_STOP_CONTENT_AND_REPLACE:
     case LOAD_RELOAD_BYPASS_CACHE:
@@ -7085,6 +7103,11 @@ nsresult nsDocShell::DoChannelLoad(nsIChannel * aChannel,
         loadFlags |= nsIRequest::VALIDATE_ALWAYS;
         break;
 
+    case LOAD_NORMAL_BYPASS_CACHE:
+    case LOAD_NORMAL_BYPASS_PROXY:
+    case LOAD_NORMAL_BYPASS_PROXY_AND_CACHE:
+    case LOAD_RELOAD_BYPASS_CACHE:
+    case LOAD_RELOAD_BYPASS_PROXY:
     case LOAD_RELOAD_BYPASS_PROXY_AND_CACHE:
         loadFlags |= nsIRequest::LOAD_BYPASS_CACHE;
         break;
@@ -7442,9 +7465,10 @@ nsDocShell::OnNewURI(nsIURI * aURI, nsIChannel * aChannel,
      * for the page. Save the new cacheKey in Session History. 
      * see bug 90098
      */
-    if (aChannel && aLoadType == LOAD_RELOAD_BYPASS_CACHE ||
-        aLoadType == LOAD_RELOAD_BYPASS_PROXY ||
-        aLoadType == LOAD_RELOAD_BYPASS_PROXY_AND_CACHE) {                 
+    if (aChannel &&
+        (aLoadType == LOAD_RELOAD_BYPASS_CACHE ||
+         aLoadType == LOAD_RELOAD_BYPASS_PROXY ||
+         aLoadType == LOAD_RELOAD_BYPASS_PROXY_AND_CACHE)) {
         NS_ASSERTION(!updateHistory,
                      "We shouldn't be updating history for forced reloads!");
         

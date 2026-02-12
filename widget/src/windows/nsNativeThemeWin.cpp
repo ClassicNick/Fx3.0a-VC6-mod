@@ -848,7 +848,7 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
 #endif
 
   /* Set the device offsets as appropriate */
-  POINT origViewportOrigin;
+  POINT origViewportOrigin, origBrushOrigin;
   GetViewportOrgEx(hdc, &origViewportOrigin);
   SetViewportOrgEx(hdc, origViewportOrigin.x + (int) xoff, origViewportOrigin.y + (int) yoff, NULL);
 
@@ -951,7 +951,9 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
             
       if (contentState & NS_EVENT_STATE_FOCUS) {
         // setup DC to make DrawFocusRect draw correctly
-        ::SetBrushOrgEx(hdc, widgetRect.left, widgetRect.top, NULL);
+        POINT vpOrg;
+        ::GetViewportOrgEx(hdc, &vpOrg);
+        ::SetBrushOrgEx(hdc, vpOrg.x + widgetRect.left, vpOrg.y + widgetRect.top, NULL);
         PRInt32 oldColor;
         oldColor = ::SetTextColor(hdc, 0);
         // draw focus rectangle
@@ -1920,11 +1922,13 @@ void nsNativeThemeWin::DrawCheckedRect(HDC hdc, const RECT& rc, PRInt32 fore, PR
     if (brush) {        
       COLORREF oldForeColor = ::SetTextColor(hdc, ::GetSysColor(fore));
       COLORREF oldBackColor = ::SetBkColor(hdc, ::GetSysColor(back));
+      POINT vpOrg;
 
 #ifndef WINCE
       ::UnrealizeObject(brush);
 #endif
-      ::SetBrushOrgEx(hdc, rc.left, rc.top, NULL);
+      ::GetViewportOrgEx(hdc, &vpOrg);
+      ::SetBrushOrgEx(hdc, vpOrg.x + rc.left, vpOrg.y + rc.top, NULL);
       HBRUSH oldBrush = (HBRUSH) ::SelectObject(hdc, brush);
       ::FillRect(hdc, &rc, brush);
       ::SetTextColor(hdc, oldForeColor);
@@ -2042,7 +2046,9 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       // XXX it'd be nice to draw these outside of the frame
       if (focused && (aWidgetType == NS_THEME_CHECKBOX || aWidgetType == NS_THEME_RADIO)) {
         // setup DC to make DrawFocusRect draw correctly
-        ::SetBrushOrgEx(hdc, widgetRect.left, widgetRect.top, NULL);
+        POINT vpOrg;
+        ::GetViewportOrgEx(hdc, &vpOrg);
+        ::SetBrushOrgEx(hdc, vpOrg.x + widgetRect.left, vpOrg.y + widgetRect.top, NULL);
         PRInt32 oldColor;
         oldColor = ::SetTextColor(hdc, 0);
         // draw focus rectangle

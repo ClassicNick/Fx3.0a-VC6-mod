@@ -363,7 +363,7 @@
                           command="Browser:ShowHistory"/>
                 <menuseparator id="startTabHistorySeparator"/>
                 <menuseparator hidden="true" id="endTabHistorySeparator"/>
-                <menu label="&historyUndoMenu.label;" disabled="true">
+                <menu id="historyUndoMenu" label="&historyUndoMenu.label;" disabled="true">
                   <menupopup id="historyUndoPopup"/>
                 </menu>
                 <menuseparator id="endUndoSeparator"/>
@@ -378,7 +378,7 @@
                   oncommand="var url = event.target.getAttribute('statustext'); if (url) openUILink(url, event, false, true);"
                   onclick="checkForMiddleClick(this, event);">
 
-              <menupopup id="goPopup" onpopupshowing="updateGoMenu(this);" onpopuphiding="onGoMenuHidden();">
+              <menupopup id="goPopup" onpopupshowing="updateGoMenu(event, this);" onpopuphiding="onGoMenuHidden(event);">
                 <menuitem label="&backCmd.label;"
 #ifdef XP_MACOSX
                           key="goBackKb2"

@@ -1457,10 +1457,14 @@ JS_EXPORT_DATA(void *) js_LiveThingToFind;
 #endif
 
 static void
-GetObjSlotName(JSScope *scope, uint32 slot, char *buf, size_t bufsize)
+GetObjSlotName(JSScope *scope, JSObject *obj, uint32 slot, char *buf,
+               size_t bufsize)
 {
     jsval nval;
     JSScopeProperty *sprop;
+    JSClass *clasp;
+    uint32 key;
+    const char *slotname;
 
     if (!scope) {
         JS_snprintf(buf, bufsize, "**UNKNOWN OBJECT MAP ENTRY**");
@@ -1480,7 +1484,20 @@ GetObjSlotName(JSScope *scope, uint32 slot, char *buf, size_t bufsize)
             JS_snprintf(buf, bufsize, "__parent__");
             break;
           default:
-            JS_snprintf(buf, bufsize, "**UNKNOWN SLOT %ld**", (long)slot);
+            slotname = NULL;
+            clasp = LOCKED_OBJ_GET_CLASS(obj);
+            if (clasp->flags & JSCLASS_IS_GLOBAL) {
+                key = slot - JSSLOT_START(clasp);
+#define JS_PROTO(name,code,init) \
+    if ((code) == key) { slotname = js_##name##_str; goto found; }
+#include "jsproto.tbl"
+#undef JS_PROTO
+            }
+          found:
+            if (slotname)
+                JS_snprintf(buf, bufsize, "CLASS_OBJECT(%s)", slotname);
+            else
+                JS_snprintf(buf, bufsize, "**UNKNOWN SLOT %ld**", (long)slot);
             break;
         }
     } else {
@@ -1794,7 +1811,7 @@ MarkGCThingChildren(JSContext *cx, void *thing, uint8 *flagp,
                 }
             }
 #ifdef GC_MARK_DEBUG
-            GetObjSlotName(scope, vp - obj->slots, name, sizeof name);
+            GetObjSlotName(scope, obj, vp - obj->slots, name, sizeof name);
 #endif
             thing = next_thing;
             flagp = next_flagp;
@@ -2273,7 +2290,7 @@ js_MarkStackFrame(JSContext *cx, JSStackFrame *fp)
         }
     }
     JS_ASSERT(JSVAL_IS_OBJECT((jsval)fp->thisp) ||
-              (fp->fun && (fp->fun->flags & JSFUN_THISP_PRIMITIVE)));
+              (fp->fun && JSFUN_THISP_FLAGS(fp->fun->flags)));
     if (JSVAL_IS_GCTHING((jsval)fp->thisp))
         GC_MARK(cx, fp->thisp, "this");
     if (fp->argv) {

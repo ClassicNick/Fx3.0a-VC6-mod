@@ -1295,6 +1295,20 @@ JS_GetScriptTotalSize(JSContext *cx, JSScript *script)
 }
 
 JS_PUBLIC_API(uint32)
+JS_GetTopScriptFilenameFlags(JSContext *cx, JSStackFrame *fp)
+{
+    if (!fp)
+        fp = cx->fp;
+    while (fp) {
+        if (fp->script) {
+            return JS_GetScriptFilenameFlags(fp->script);
+        }
+        fp = fp->down;
+    }
+    return 0;
+ }
+
+JS_PUBLIC_API(uint32)
 JS_GetScriptFilenameFlags(JSScript *script)
 {
     JS_ASSERT(script);
