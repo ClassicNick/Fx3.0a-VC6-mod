@@ -88,9 +88,17 @@
 #include "nsIAccessibleHyperText.h"
 #endif
 
-NS_IMPL_ISUPPORTS_INHERITED1(nsRootAccessible, nsDocAccessible,
-                             nsIDOMEventListener)
+// Expanded version of NS_IMPL_ISUPPORTS_INHERITED2 
+// so we can QI directly to concrete nsRootAccessible
+NS_IMPL_QUERY_HEAD(nsRootAccessible)
+NS_IMPL_QUERY_BODY(nsIDOMEventListener)
+if (aIID.Equals(NS_GET_IID(nsRootAccessible)))
+  foundInterface = NS_REINTERPRET_CAST(nsISupports*, this);
+else
+NS_IMPL_QUERY_TAIL_INHERITING(nsDocAccessible)
 
+NS_IMPL_ADDREF_INHERITED(nsRootAccessible, nsDocAccessible) 
+NS_IMPL_RELEASE_INHERITED(nsRootAccessible, nsDocAccessible)
 
 //-----------------------------------------------------
 // construction 
@@ -201,6 +209,25 @@ NS_IMETHODIMP nsRootAccessible::GetState(PRUint32 *aState)
   return NS_OK;
 }
 
+NS_IMETHODIMP nsRootAccessible::GetExtState(PRUint32 *aExtState)
+{
+  nsDocAccessibleWrap::GetExtState(aExtState);
+
+  nsCOMPtr<nsIDOMWindow> domWin;
+  GetWindow(getter_AddRefs(domWin));
+  nsCOMPtr<nsPIDOMWindow> privateDOMWindow(do_QueryInterface(domWin));
+  if (privateDOMWindow) {
+    nsIFocusController *focusController =
+      privateDOMWindow->GetRootFocusController();
+    PRBool isActive = PR_FALSE;
+    focusController->GetActive(&isActive);
+    if (isActive) {
+      *aExtState |= EXT_STATE_ACTIVE;
+    }
+  }
+  return NS_OK;
+}
+
 void
 nsRootAccessible::GetChromeEventHandler(nsIDOMEventTarget **aChromeTarget)
 {
@@ -275,8 +302,13 @@ nsresult nsRootAccessible::AddEventListeners()
     }
   }
 
-  if (!mCaretAccessible)
+  if (!mCaretAccessible) {
     mCaretAccessible = new nsCaretAccessible(mDOMNode, mWeakShell, this);
+    nsCOMPtr<nsPIAccessNode> accessNode(do_QueryInterface(mCaretAccessible));
+    if (accessNode && NS_FAILED(accessNode->Init())) {
+      mCaretAccessible = nsnull;
+    }
+  }
 
   // Fire accessible focus event for pre-existing focus, but wait until all internal
   // focus events are finished for window initialization.
@@ -396,10 +428,25 @@ void nsRootAccessible::FireAccessibleFocusEvent(nsIAccessible *aAccessible,
 {
   NS_ASSERTION(aAccessible, "Attempted to fire focus event for no accessible");
 
-  // Fire focus only if it changes, but always fire focus events for menu items
-  // Also always fire for XUL tree items, because they always use the same node for
-  // the tree container itself
-  // XXX use optional aForceIt bool param
+  if (mCaretAccessible) {
+    nsCOMPtr<nsIDOMNSEvent> nsevent(do_QueryInterface(aFocusEvent));
+    if (nsevent) {
+      // Use the originally focused node where the selection lives.
+      // For example, use the anonymous HTML:input instead of the containing
+      // XUL:textbox. In this case, sometimes it is a later focus event
+      // which points to the actual anonymous child with focus, so to be safe 
+      // we need to reset the selection listener every time.
+      // This happens because when some bindings handle focus, they retarget
+      // focus to the appropriate child inside of themselves, but DOM focus
+      // stays outside on that binding parent.
+      nsCOMPtr<nsIDOMEventTarget> domEventTarget;
+      nsevent->GetOriginalTarget(getter_AddRefs(domEventTarget));
+      nsCOMPtr<nsIDOMNode> realFocusedNode = do_QueryInterface(domEventTarget);
+      mCaretAccessible->AttachNewSelectionListener(realFocusedNode);
+    }
+  }
+
+  // Fire focus only if it changes, but always fire focus events when aForceEvent == PR_TRUE
   if (gLastFocusedNode == aNode && !aForceEvent) {
     return;
   }
@@ -433,18 +480,6 @@ void nsRootAccessible::FireAccessibleFocusEvent(nsIAccessible *aAccessible,
 
   privateAccessible->FireToolkitEvent(nsIAccessibleEvent::EVENT_FOCUS,
                                       aAccessible, nsnull);
-  if (mCaretAccessible) {
-    nsCOMPtr<nsIDOMNSEvent> nsevent(do_QueryInterface(aFocusEvent));
-    if (nsevent) {
-      // Use the originally focused node where the selection lives.
-      // For example, use the anonymous HTML:input instead of the containing
-      // XUL:textbox.
-      nsCOMPtr<nsIDOMEventTarget> domEventTarget;
-      nsevent->GetOriginalTarget(getter_AddRefs(domEventTarget));
-      nsCOMPtr<nsIDOMNode> realFocusedNode = do_QueryInterface(domEventTarget);
-      mCaretAccessible->AttachNewSelectionListener(realFocusedNode);
-    }
-  }
 }
 
 void nsRootAccessible::FireCurrentFocusEvent()
@@ -510,14 +545,11 @@ NS_IMETHODIMP nsRootAccessible::HandleEvent(nsIDOMEvent* aEvent)
   targetNode->GetLocalName(localName);
 #ifdef DEBUG_aleventhal
   // Very useful for debugging, please leave this here.
-  if (eventType.LowerCaseEqualsLiteral("popupshown")) {
-    printf("\ndebugging dommenuitemactive events for %s", NS_ConvertUTF16toUTF8(localName).get());
+  if (eventType.LowerCaseEqualsLiteral("focus")) {
+    printf("\ndebugging %s events for %s", NS_ConvertUTF16toUTF8(eventType).get(), NS_ConvertUTF16toUTF8(localName).get());
   }
-  if (localName.EqualsIgnoreCase("popup")) {
-    printf("\ndebugging events in popup, event is %s", NS_ConvertUTF16toUTF8(eventType).get());
-  }
-  if (localName.EqualsIgnoreCase("select")) {
-    printf("\ndebugging events in select, event is %s", NS_ConvertUTF16toUTF8(eventType).get());
+  if (localName.LowerCaseEqualsLiteral("textbox")) {
+    printf("\ndebugging %s events for %s", NS_ConvertUTF16toUTF8(eventType).get(), NS_ConvertUTF16toUTF8(localName).get());
   }
 #endif
 

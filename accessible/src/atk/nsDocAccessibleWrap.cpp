@@ -24,6 +24,7 @@
  * Contributor(s):
  *   Bolian Yin (bolian.yin@sun.com)
  *   John Sun (john.sun@sun.com)
+ *   Ginn Chen (ginn.chen@sun.com)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -40,6 +41,8 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsMai.h"
+#include "nsAutoPtr.h"
+#include "nsRootAccessible.h"
 #include "nsDocAccessibleWrap.h"
 #include "nsAccessibleEventData.h"
 
@@ -76,7 +79,7 @@ NS_IMPL_ISUPPORTS_INHERITED2(nsDocAccessibleWrap, nsDocAccessible, nsIAccessible
 
 nsDocAccessibleWrap::nsDocAccessibleWrap(nsIDOMNode *aDOMNode,
                                          nsIWeakReference *aShell): 
-  nsDocAccessible(aDOMNode, aShell)
+  nsDocAccessible(aDOMNode, aShell), mActivated(PR_FALSE)
 {
 }
 
@@ -105,10 +108,14 @@ NS_IMETHODIMP nsDocAccessibleWrap::FireToolkitEvent(PRUint32 aEvent,
 
     switch (aEvent) {
     case nsIAccessibleEvent::EVENT_FOCUS:
+      {
         MAI_LOG_DEBUG(("\n\nReceived: EVENT_FOCUS\n"));
-        atk_focus_tracker_notify(accWrap->GetAtkObject());
+        nsRefPtr<nsRootAccessible> rootAccWrap = accWrap->GetRootAccessible();
+        if (rootAccWrap && rootAccWrap->mActivated) {
+          atk_focus_tracker_notify(accWrap->GetAtkObject());
+        }
         rv = NS_OK;
-        break;
+      } break;
 
     case nsIAccessibleEvent::EVENT_STATE_CHANGE:
         AtkStateChange *pAtkStateChange;
@@ -147,8 +154,9 @@ NS_IMETHODIMP nsDocAccessibleWrap::FireToolkitEvent(PRUint32 aEvent,
          * Need handle them separately.
          */
     case nsIAccessibleEvent::EVENT_ATK_PROPERTY_CHANGE :
+      {
         AtkPropertyChange *pAtkPropChange;
-        AtkPropertyValues values;
+        AtkPropertyValues values = { NULL };
 
         MAI_LOG_DEBUG(("\n\nReceived: EVENT_ATK_PROPERTY_CHANGE\n"));
         if (!aEventData)
@@ -196,11 +204,15 @@ NS_IMETHODIMP nsDocAccessibleWrap::FireToolkitEvent(PRUint32 aEvent,
         case PROP_VALUE:
             {
               // Old value not used for anything other than state change events
-              nsCOMPtr<nsIAccessibleValue> accValue(do_QueryInterface(aAccessible));
-              NS_ENSURE_TRUE(accValue, NS_ERROR_FAILURE);
+              nsCOMPtr<nsIAccessibleValue> accValue(do_QueryInterface(aAccessible, &rv));
+              if (!NS_SUCCEEDED(rv)) {
+                break;
+              }
               double newValue;
               rv = accValue->GetCurrentValue(&newValue);
-              NS_ENSURE_SUCCESS(rv, rv);
+              if (!NS_SUCCEEDED(rv)) {
+                break;
+              }
               g_value_init(&values.new_value, G_TYPE_DOUBLE);
               g_value_set_double(&values.new_value, newValue);
             }
@@ -221,7 +233,7 @@ NS_IMETHODIMP nsDocAccessibleWrap::FireToolkitEvent(PRUint32 aEvent,
                                   &values, NULL);
             g_free (signal_name);
         }
-
+      }
         break;
 
     case nsIAccessibleEvent::EVENT_ATK_SELECTION_CHANGE:
@@ -429,6 +441,9 @@ NS_IMETHODIMP nsDocAccessibleWrap::FireToolkitEvent(PRUint32 aEvent,
     case nsIAccessibleEvent::EVENT_ATK_WINDOW_ACTIVATE:
       {
         MAI_LOG_DEBUG(("\n\nReceived: EVENT_ATK_WINDOW_ACTIVATED\n"));
+        nsDocAccessibleWrap *accDocWrap =
+          NS_STATIC_CAST(nsDocAccessibleWrap *, aAccessible);
+        accDocWrap->mActivated = PR_TRUE;
         AtkObject *accessible = accWrap->GetAtkObject();
         guint id = g_signal_lookup ("activate", MAI_TYPE_ATK_OBJECT);
         g_signal_emit(accessible, id, 0);
@@ -438,6 +453,9 @@ NS_IMETHODIMP nsDocAccessibleWrap::FireToolkitEvent(PRUint32 aEvent,
     case nsIAccessibleEvent::EVENT_ATK_WINDOW_DEACTIVATE:
       {
         MAI_LOG_DEBUG(("\n\nReceived: EVENT_ATK_WINDOW_DEACTIVATED\n"));
+        nsDocAccessibleWrap *accDocWrap =
+          NS_STATIC_CAST(nsDocAccessibleWrap *, aAccessible);
+        accDocWrap->mActivated = PR_FALSE;
         AtkObject *accessible = accWrap->GetAtkObject();
         guint id = g_signal_lookup ("deactivate", MAI_TYPE_ATK_OBJECT);
         g_signal_emit(accessible, id, 0);

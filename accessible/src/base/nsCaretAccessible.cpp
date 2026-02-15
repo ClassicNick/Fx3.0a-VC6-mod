@@ -136,17 +136,22 @@ NS_IMETHODIMP nsCaretAccessible::NotifySelectionChanged(nsIDOMDocument *aDoc, ns
 
   nsRect caretRect;
   PRBool isCollapsed;
-  caret->GetCaretCoordinates(nsICaret::eTopLevelWindowCoordinates, domSel, &caretRect, &isCollapsed, nsnull);
-#ifndef MOZ_ACCESSIBILITY_ATK
-  PRBool visible = (caretRect.x >= 0 && caretRect.y >= 0 && caretRect.width >= 0 && caretRect.height >= 0);
+  caret->GetCaretCoordinates(nsICaret::eTopLevelWindowCoordinates, domSel,
+                             &caretRect, &isCollapsed, nsnull);
+  PRBool visible = !caretRect.IsEmpty();
   if (visible)  // Make sure it's visible both by looking at coordinates and visible flag
     caret->GetCaretVisible(&visible);
   if (visible != mVisible) {
     mVisible = visible;
+#ifndef MOZ_ACCESSIBILITY_ATK
     mRootAccessible->FireToolkitEvent(mVisible? nsIAccessibleEvent::EVENT_SHOW: 
                                       nsIAccessibleEvent::EVENT_HIDE, this, nsnull);
+#endif
   }
 
+#ifndef MOZ_ACCESSIBILITY_ATK
+  // Support old style MSAA caret move events, which utilize screen coodinates
+  // rather than position within the text
   nsPresContext *presContext = presShell->GetPresContext();
   nsIViewManager* viewManager = presShell->GetViewManager();
   if (!presContext || !viewManager)
@@ -159,9 +164,9 @@ NS_IMETHODIMP nsCaretAccessible::NotifySelectionChanged(nsIDOMDocument *aDoc, ns
   if (!widget)
     return NS_OK;
 
-  float t2p;
-  t2p = presContext->TwipsToPixels();
-    // Convert to pixels using that scale
+  float t2p = presContext->TwipsToPixels();
+  
+  // Convert to pixels using that scale
   caretRect.x      = NSTwipsToIntPixels(caretRect.x, t2p);
   caretRect.y      = NSTwipsToIntPixels(caretRect.y, t2p);
 
@@ -170,60 +175,47 @@ NS_IMETHODIMP nsCaretAccessible::NotifySelectionChanged(nsIDOMDocument *aDoc, ns
 
   widget->WidgetToScreen(caretRect, mCaretRect);
 
-  if (visible) {
-    mRootAccessible->FireToolkitEvent(nsIAccessibleEvent::EVENT_LOCATION_CHANGE, this, nsnull);
-  }
+  mRootAccessible->FireToolkitEvent(nsIAccessibleEvent::EVENT_LOCATION_CHANGE, this, nsnull);
 #endif
 
-#if 0
-  // XXX Needs to be rewritten to deal with NEW atk
-  // May want to grab some of the code Ginn Chen put in bug 312093 for it
+  // Get first nnsIAccessibleText in parent chain and fire caret-move, selection-change event for it
   nsCOMPtr<nsIAccessible> accessible;
   nsCOMPtr<nsIAccessibilityService> accService(do_GetService("@mozilla.org/accessibilityService;1"));
-  accService->GetAccessibleInShell(mCurrentDOMNode, presShell, getter_AddRefs(accessible));
-  if (accessible) {
-    PRUint32 extState;
-    accessible->GetExtState(&extState);
-    if (0 == (extState & EXT_STATE_EDITABLE)) {
-      // this is not a composer window, find out the text accessible object
-      nsCOMPtr<nsIDOMNode> focusNode;
-      domSel->GetFocusNode(getter_AddRefs(focusNode));
-      if (!focusNode) {
-        return NS_OK;
-      }
-      nsCOMPtr<nsIDOMHTMLAnchorElement> anchorElement(do_QueryInterface(focusNode));
-      if (anchorElement) {
-        // do not report caret-move event for link
-        return NS_OK;
-      }
-      nsCOMPtr<nsIDOMNode> blockNode;
-      if (NS_FAILED(nsAccessible::GetParentBlockNode(presShell, focusNode, getter_AddRefs(blockNode)))) {
-        return NS_OK;
-      }
-      accService->GetAccessibleInShell(blockNode, presShell, getter_AddRefs(accessible));
-      if (!accessible) {
-        return NS_OK;
+  // Get accessible from selection's focus node or its parent
+  nsCOMPtr<nsIDOMNode> focusNode;
+  domSel->GetFocusNode(getter_AddRefs(focusNode));
+  nsCOMPtr<nsINode> internalNode = do_QueryInterface(focusNode);
+  if (!internalNode) {
+    return NS_OK; // No selection
+  }
+  nsCOMPtr<nsIAccessibleText> textAcc;
+  while (internalNode) {
+    nsCOMPtr<nsIDOMNode> caretNode = do_QueryInterface(internalNode);
+    if (PR_FALSE == internalNode->IsNodeOfType(nsINode::eTEXT)) {
+      nsCOMPtr<nsIContent> content = do_QueryInterface(internalNode);
+      if (PR_FALSE == content->IsNativeAnonymous()) { // Don't want anonymous nodes inside a form control
+        accService->GetAccessibleInShell(caretNode, presShell,  getter_AddRefs(accessible));
+        textAcc = do_QueryInterface(accessible);
+        if (textAcc) {
+          break;
+        }
       }
     }
+    internalNode = internalNode->GetParent();
   }
+  NS_ASSERTION(textAcc, "No nsIAccessibleText for caret move event!"); // No nsIAccessibleText for caret move event!
+  NS_ENSURE_TRUE(textAcc, NS_ERROR_FAILURE);
 
-  if (!accessible) {
-    return NS_OK;
-  }
-
-  if (isCollapsed) {
-    nsCOMPtr<nsIAccessibleText> textAcc(do_QueryInterface(accessible));
-    if (textAcc) {
-      PRInt32 caretOffset;
-      textAcc->GetCaretOffset(&caretOffset);
-      mRootAccessible->FireToolkitEvent(nsIAccessibleEvent::EVENT_ATK_TEXT_CARET_MOVE, accessible, &caretOffset);
-    }
-  }
-  else {
-    //Current text interface doesn't support this event yet
-    //mListener->FireToolkitEvent(nsIAccessibleEventReceiver::EVENT_ATK_TEXT_SELECTION_CHANGE, accessible, nsnull);
-  }
+  PRInt32 caretOffset;
+  if (NS_SUCCEEDED(textAcc->GetCaretOffset(&caretOffset))) {
+    mRootAccessible->FireToolkitEvent(nsIAccessibleEvent::EVENT_ATK_TEXT_CARET_MOVE, accessible, &caretOffset);
+#ifdef DEBUG_aleventhal
+    printf("Caret move to offset %d\n", caretOffset);
 #endif
+  }
+  if (!isCollapsed) {
+    mRootAccessible->FireToolkitEvent(nsIAccessibleEvent::EVENT_ATK_TEXT_SELECTION_CHANGE, accessible, nsnull);
+  }
 
   return NS_OK;
 }
@@ -231,8 +223,9 @@ NS_IMETHODIMP nsCaretAccessible::NotifySelectionChanged(nsIDOMDocument *aDoc, ns
 /** Return the caret's bounds */
 NS_IMETHODIMP nsCaretAccessible::GetBounds(PRInt32 *x, PRInt32 *y, PRInt32 *width, PRInt32 *height)
 {
-  if (!mVisible)
-    return NS_ERROR_FAILURE;  // When root accessible hasn't yet called SetCaretBounds()
+  if (mCaretRect.IsEmpty()) {
+    return NS_ERROR_FAILURE;
+  }
   *x = mCaretRect.x;
   *y = mCaretRect.y;
   *width = mCaretRect.width;
@@ -252,9 +245,9 @@ NS_IMETHODIMP nsCaretAccessible::GetState(PRUint32 *_retval)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsCaretAccessible::GetParent(nsIAccessible **_retval)
+NS_IMETHODIMP nsCaretAccessible::GetParent(nsIAccessible **aParent)
 {   
-  *_retval = nsnull;
+  NS_ADDREF(*aParent = mRootAccessible);
   return NS_OK;
 }
 NS_IMETHODIMP nsCaretAccessible::GetPreviousSibling(nsIAccessible **_retval)

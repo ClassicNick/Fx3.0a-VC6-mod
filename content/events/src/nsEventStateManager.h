@@ -49,6 +49,7 @@
 #include "nsCOMPtr.h"
 #include "nsIDocument.h"
 #include "nsCOMArray.h"
+#include "nsIFrame.h"
 
 class nsIScrollableView;
 class nsIPresShell;
@@ -112,7 +113,6 @@ public:
 
   NS_IMETHOD GetEventTarget(nsIFrame **aFrame);
   NS_IMETHOD GetEventTargetContent(nsEvent* aEvent, nsIContent** aContent);
-  NS_IMETHOD GetEventRelatedContent(nsIContent** aContent);
 
   NS_IMETHOD GetContentState(nsIContent *aContent, PRInt32& aState);
   virtual PRBool SetContentState(nsIContent *aContent, PRInt32 aState);
@@ -216,7 +216,12 @@ protected:
     eAccessKeyProcessingUp,
     eAccessKeyProcessingDown
   } ProcessingAccessKeyState;
-  void HandleAccessKey(nsPresContext* aPresContext, nsKeyEvent* aEvent, nsEventStatus* aStatus, PRInt32 aChildOffset, ProcessingAccessKeyState aAccessKeyState);
+  void HandleAccessKey(nsPresContext* aPresContext,
+                       nsKeyEvent* aEvent,
+                       nsEventStatus* aStatus,
+                       PRInt32 aChildOffset,
+                       ProcessingAccessKeyState aAccessKeyState,
+                       PRInt32 aModifierMask);
 
   //---------------------------------------------
   // DocShell Focus Traversal Methods
@@ -283,13 +288,11 @@ protected:
 
   PRInt32     mLockCursor;
 
-  //Any frames here must be checked for validity in ClearFrameRefs
-  nsIFrame* mCurrentTarget;
+  nsWeakFrame mCurrentTarget;
   nsCOMPtr<nsIContent> mCurrentTargetContent;
-  nsCOMPtr<nsIContent> mCurrentRelatedContent;
-  nsIFrame* mLastMouseOverFrame;
+  nsWeakFrame mLastMouseOverFrame;
   nsCOMPtr<nsIContent> mLastMouseOverElement;
-  nsIFrame* mLastDragOverFrame;
+  nsWeakFrame mLastDragOverFrame;
 
   // member variables for the d&d gesture state machine
   nsPoint mGestureDownPoint; // screen coordinates
@@ -315,7 +318,7 @@ protected:
   nsCOMPtr<nsIContent> mURLTargetContent;
   nsCOMPtr<nsIContent> mCurrentFocus;
   nsCOMPtr<nsIContent> mLastFocus;
-  nsIFrame* mCurrentFocusFrame;
+  nsWeakFrame mCurrentFocusFrame;
   PRInt32 mCurrentTabIndex;
   EFocusedWithType mLastFocusedWith;
 

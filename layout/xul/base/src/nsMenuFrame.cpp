@@ -39,6 +39,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsCOMPtr.h"
 #include "nsXULAtoms.h"
 #include "nsHTMLAtoms.h"
 #include "nsHTMLParts.h"

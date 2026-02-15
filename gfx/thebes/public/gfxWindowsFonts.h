@@ -362,14 +362,15 @@ public:
 
     virtual const gfxFont::Metrics& GetMetrics();
 
+    HFONT GetHFONT();
     cairo_font_face_t *CairoFontFace();
     cairo_scaled_font_t *CairoScaledFont();
     SCRIPT_CACHE *ScriptCache() { return &mScriptCache; }
-    HFONT GetHFONT() { return mFont; }
     const gfxMatrix& CurrentMatrix() const { return mCTM; }
     void UpdateCTM(const gfxMatrix& aMatrix);
 
 protected:
+    HFONT MakeHFONT();
     cairo_font_face_t *MakeCairoFontFace();
     cairo_scaled_font_t *MakeCairoScaledFont();
     void FillLogFont(PRInt16 weight);
@@ -463,8 +464,8 @@ private:
 
 class THEBES_API gfxWindowsTextRun : public gfxTextRun {
 public:
-    gfxWindowsTextRun(const nsAString& aString, gfxWindowsFontGroup *aFontGroup);
-    gfxWindowsTextRun(const nsACString& aString, gfxWindowsFontGroup *aFontGroup);
+    gfxWindowsTextRun(const nsAString *aString, gfxWindowsFontGroup *aFontGroup);
+    gfxWindowsTextRun(const nsACString *aString, gfxWindowsFontGroup *aFontGroup);
     ~gfxWindowsTextRun();
 
     virtual void Draw(gfxContext *aContext, gfxPoint pt);
@@ -481,8 +482,8 @@ private:
     nsTArray<gfxFloat> mSpacing;
 
     // These should probably be in a union
-    const nsAString& mString;
-    const nsACString& mCString;
+    const nsAString *mString;
+    const nsACString *mCString;
 
     const PRBool mIsASCII;
 

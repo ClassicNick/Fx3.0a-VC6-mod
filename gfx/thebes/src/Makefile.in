@@ -59,9 +59,7 @@ CPPSRCS	+= 	gfxWindowsFonts.cpp \
 endif
 		
 ifdef MOZ_ENABLE_CAIRO_GFX
-_OS_LIBS	= usp10 ole32
-else
-_OS_LIBS	= ole32
+_OS_LIBS	= usp10
 endif
 
 ifdef GNU_CXX

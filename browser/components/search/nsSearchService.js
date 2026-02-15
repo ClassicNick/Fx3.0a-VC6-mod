@@ -21,7 +21,7 @@
 # Contributor(s):
 #   Ben Goodger <beng@google.com> (Original author)
 #   Gavin Sharp <gavin@gavinsharp.com>
-#   Joe Hughes  <joe@retrovirus.com
+#   Joe Hughes  <joe@retrovirus.com>
 #   Pamela Greene <pamg.bugs@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
@@ -89,11 +89,12 @@ const NEW_LINES = /(\r\n|\r|\n)/;
 // cause big delays when loading them at startup.
 const MAX_ICON_SIZE   = 10000;
 
-// Default charset to use for sending search parameters. This is used to match
-// previous nsInternetSearchService behavior.
+// Default charset to use for sending search parameters. ISO-8859-1 is used to
+// match previous nsInternetSearchService behavior.
 const DEFAULT_QUERY_CHARSET = "ISO-8859-1";
 
 const SEARCH_BUNDLE = "chrome://browser/locale/search.properties";
+const SIDEBAR_BUNDLE = "chrome://browser/locale/sidebar/sidebar.properties";
 const BRAND_BUNDLE = "chrome://branding/locale/brand.properties";
 
 const OPENSEARCH_NS_10  = "http://a9.com/-/spec/opensearch/1.0/";
@@ -102,9 +103,12 @@ const OPENSEARCH_NS_11  = "http://a9.com/-/spec/opensearch/1.1/";
 // Although the specification at http://opensearch.a9.com/spec/1.1/description/
 // gives the namespace names defined above, many existing OpenSearch engines
 // are using the following versions.  We therefore allow either.
-const OPENSEARCH_NAMESPACES = [ OPENSEARCH_NS_11, OPENSEARCH_NS_10,
-                                "http://a9.com/-/spec/opensearchdescription/1.1/",
-                                "http://a9.com/-/spec/opensearchdescription/1.0/"];
+const OPENSEARCH_NAMESPACES = [
+  OPENSEARCH_NS_11, OPENSEARCH_NS_10,
+  "http://a9.com/-/spec/opensearchdescription/1.1/",
+  "http://a9.com/-/spec/opensearchdescription/1.0/"
+];
+
 const OPENSEARCH_LOCALNAME = "OpenSearchDescription";
 
 const MOZSEARCH_NS_10     = "http://www.mozilla.org/2006/browser/search/";
@@ -122,33 +126,61 @@ const EMPTY_DOC = "<?xml version=\"1.0\"?>\n" +
 
 const BROWSER_SEARCH_PREF = "browser.search.";
 
-// Unsupported search parameters, which will be replaced with blanks.
-// XXX We do use inputEncoding - should consider having it available. This
-// would require doing multiple parameter substitution, so just having
-// searchTerms is sufficient for now.
-const kInvalidWords = /(\{count\})|(\{startIndex\})|(\{startPage\})|(\{language\})|(\{outputEncoding\})|(\{inputEncoding\})/;
+const USER_DEFINED = "{searchTerms}";
 
-// Supported search parameters.
-const kValidWords = /\{searchTerms\}/gi;
-const kUserDefined = "{searchTerms}";
+// Custom search parameters
+#ifdef OFFICIAL_BUILD
+const MOZ_OFFICIAL = "official";
+#else
+const MOZ_OFFICIAL = "unofficial";
+#endif
+#expand const MOZ_DISTRIBUTION_ID = __MOZ_DISTRIBUTION_ID__;
+
+const MOZ_PARAM_LOCALE         = /\{moz:locale\}/g;
+const MOZ_PARAM_DIST_ID        = /\{moz:distributionID\}/g;
+const MOZ_PARAM_OFFICIAL       = /\{moz:official\}/g;
+
+// Supported OpenSearch parameters
+// See http://opensearch.a9.com/spec/1.1/querysyntax/#core
+const OS_PARAM_USER_DEFINED    = /\{searchTerms\??\}/g;
+const OS_PARAM_INPUT_ENCODING  = /\{inputEncoding\??\}/g;
+const OS_PARAM_LANGUAGE        = /\{language\??\}/g;
+const OS_PARAM_OUTPUT_ENCODING = /\{outputEncoding\??\}/g;
+
+// Default values
+const OS_PARAM_LANGUAGE_DEF         = "*";
+const OS_PARAM_OUTPUT_ENCODING_DEF  = "UTF-8";
+
+// "Unsupported" OpenSearch parameters. For example, we don't support
+// page-based results, so if the engine requires that we send the "page index"
+// parameter, we'll always send "1".
+const OS_PARAM_COUNT        = /\{count\??\}/g;
+const OS_PARAM_START_INDEX  = /\{startIndex\??\}/g;
+const OS_PARAM_START_PAGE   = /\{startPage\??\}/g;
+
+// Default values
+const OS_PARAM_COUNT_DEF        = "20"; // 20 results
+const OS_PARAM_START_INDEX_DEF  = "1";  // start at 1st result
+const OS_PARAM_START_PAGE_DEF   = "1";  // 1st page
+
+// Optional parameter
+const OS_PARAM_OPTIONAL     = /\{\w+\?\}/g;
+
+// A array of arrays containing parameters that we don't fully support, and
+// their default values. We will only send values for these parameters if
+// required, since our values are just really arbitrary "guesses" that should
+// give us the output we want.
+var OS_UNSUPPORTED_PARAMS = [
+  [OS_PARAM_COUNT, OS_PARAM_COUNT_DEF],
+  [OS_PARAM_START_INDEX, OS_PARAM_START_INDEX_DEF],
+  [OS_PARAM_START_PAGE, OS_PARAM_START_PAGE_DEF],
+];
 
 // Returns false for whitespace-only or commented out lines in a
 // Sherlock file, true otherwise.
 function isUsefulLine(aLine) {
   return !(/^\s*($|#)/i.test(aLine));
 }
-
-/**
- * Used to determine whether an "input" line from a Sherlock file is a "user
- * defined" input. That is, check for the string "user", preceded by either
- * whitespace or a quote, followed by any of ">", "=", """, "'", whitespace,
- * a slash, "+", or EOL.
- */
-const kIsUserInput = /(\s|["'=])user(\s|[>="'\/\\+]|$)/i;
-
-#ifdef MOZ_STORAGE
-var MozStorageStatementWrapper = null;
-#endif
 
 /**
  * Prefixed to all search debug output.
@@ -539,6 +571,23 @@ function sherlockBytesToLines(aBytes, aCharsetCode) {
 }
 
 /**
+ * Gets the current value of the locale.  It's possible for this preference to
+ * be localized, so we have to do a little extra work here.  Similar code
+ * exists in nsHttpHandler.cpp when building the UA string.
+ */
+function getLocale() {
+  const localePref = "general.useragent.locale";
+  var locale = getLocalizedPref(localePref);
+  if (locale)
+    return locale;
+
+  // Not localized
+  var prefs = Cc["@mozilla.org/preferences-service;1"].
+              getService(Ci.nsIPrefBranch);
+  return prefs.getCharPref(localePref);
+}
+
+/**
  * Wrapper for nsIPrefBranch::getComplexValue.
  * @param aPrefName
  *        The name of the pref to get.
@@ -570,21 +619,6 @@ function setLocalizedPref(aPrefName, aValue) {
   pls.data = aValue;
   prefB.setComplexValue(aPrefName, Ci.nsIPrefLocalizedString, pls);
 }
-
-#ifndef MOZ_STORAGE
-/**
- * Wrapper for nsIPrefBranch::setBoolPref.
- * @param aPrefName
- *        The name of the pref to set.
- * @param aValue
- *        The value of the pref.
- */
-function setBoolPref(aName, aVal) {
-  var prefB = Cc["@mozilla.org/preferences-service;1"].
-              getService(Ci.nsIPrefBranch);
-  prefB.setBoolPref(aName, aVal);
-}
-#endif
 
 /**
  * Wrapper for nsIPrefBranch::getBoolPref.
@@ -664,22 +698,62 @@ function notifyAction(aEngine, aVerb) {
 
 /**
  * Simple object representing a name/value pair.
- * @throws NS_ERROR_NOT_IMPLEMENTED if the provided value includes unsupported
- *         parameters.
- * @see kInvalidWords.
  */
 function QueryParameter(aName, aValue) {
-  ENSURE_ARG(aName && (aValue != null), "missing name or value for QueryParameter!");
-
-  ENSURE(!kInvalidWords.test(aValue),
-         "Illegal value while creating a QueryParameter",
-         Cr.NS_ERROR_NOT_IMPLEMENTED);
+  ENSURE_ARG(aName && (aValue != null),
+             "missing name or value for QueryParameter!");
 
   this.name = aName;
   this.value = aValue;
 }
 
-#ifdef MOZ_STORAGE
+/**
+ * Perform OpenSearch parameter substitution on aParamValue.
+ * 
+ * @param aParamValue
+ *        A string containing OpenSearch search parameters.
+ * @param aSearchTerms
+ *        The user-provided search terms. This string will inserted into
+ *        aParamValue as the value of the OS_PARAM_USER_DEFINED parameter.
+ *        This value must already be escaped appropriately - it is inserted
+ *        as-is.
+ * @param aQueryEncoding
+ *        The value to use for the OS_PARAM_INPUT_ENCODING parameter. See
+ *        definition in the OpenSearch spec.
+ *
+ * @see http://opensearch.a9.com/spec/1.1/querysyntax/#core
+ */
+function ParamSubstitution(aParamValue, aSearchTerms, aEngine) {
+  var value = aParamValue;
+
+  // Custom search parameters. These are only available to app-shipped search
+  // engines.
+  if (aEngine._isInAppDir) {
+    value = value.replace(MOZ_PARAM_LOCALE, getLocale());
+    value = value.replace(MOZ_PARAM_DIST_ID, MOZ_DISTRIBUTION_ID);
+    value = value.replace(MOZ_PARAM_OFFICIAL, MOZ_OFFICIAL);
+  }
+
+  // Insert the OpenSearch parameters we're confident about
+  value = value.replace(OS_PARAM_USER_DEFINED, aSearchTerms);
+  value = value.replace(OS_PARAM_INPUT_ENCODING, aEngine.queryCharset);
+  value = value.replace(OS_PARAM_LANGUAGE,
+                        getLocale() || OS_PARAM_LANGUAGE_DEF);
+  value = value.replace(OS_PARAM_OUTPUT_ENCODING,
+                        OS_PARAM_OUTPUT_ENCODING_DEF);
+
+  // Replace any optional parameters
+  value = value.replace(OS_PARAM_OPTIONAL, "");
+
+  // Insert any remaining required params with our default values
+  for (var i = 0; i < OS_UNSUPPORTED_PARAMS.length; ++i) {
+    value = value.replace(OS_UNSUPPORTED_PARAMS[i][0],
+                          OS_UNSUPPORTED_PARAMS[i][1]);
+  }
+
+  return value;
+}
+
 /**
  * Creates a mozStorage statement that can be used to access the database we
  * use to hold metadata.
@@ -689,12 +763,12 @@ function QueryParameter(aName, aValue) {
  */
 function createStatement (dbconn, sql) {
   var stmt = dbconn.createStatement(sql);
-  var wrapper = new MozStorageStatementWrapper();
+  var wrapper = Cc["@mozilla.org/storage/statement-wrapper;1"].
+                createInstance(Ci.mozIStorageStatementWrapper);
 
   wrapper.initialize(stmt);
   return wrapper;
 }
-#endif
 
 /**
  * Creates an engineURL object, which holds the query URL and all parameters.
@@ -712,10 +786,7 @@ function createStatement (dbconn, sql) {
  *
  * @see http://opensearch.a9.com/spec/1.1/querysyntax/#urltag
  *
- * @throws NS_ERROR_NOT_IMPLEMENTED if aType is unsupported.  If invalid
- *         (unsupported) parameters are included in aTemplate, they will be
- *         replaced with blanks in the final query, so no error needs to be
- *         returned here.
+ * @throws NS_ERROR_NOT_IMPLEMENTED if aType is unsupported.
  */
 function EngineURL(aType, aMethod, aTemplate) {
   ENSURE_ARG(aType && aMethod && aTemplate,
@@ -741,7 +812,7 @@ function EngineURL(aType, aMethod, aTemplate) {
     // Disable these for now, see bug 295018
     // case "file":
     // case "resource":
-      this.template = templateURI.spec;
+      this.template = aTemplate;
       break;
     default:
       ENSURE(false, "new EngineURL: template uses invalid scheme!",
@@ -754,41 +825,23 @@ EngineURL.prototype = {
     this.params.push(new QueryParameter(aName, aValue));
   },
 
-  getSubmission: function SRCH_EURL_getSubmission(aData) {
-    /**
-     * From an array of QueryParameter objects, generates a string in the
-     * application/x-www-form-urlencoded format:
-     * name=value&name=value&name=value...
-     * Any invalid or unimplemented query fields will be replaced with empty
-     * strings.
-     * @param   aParams
-     *          An array of QueryParameter objects
-     * @param   aData
-     *          Data to be substituted into parameter values using the
-     *          |kValidWords| regexp
-     * @returns A string of encoded param names and values in
-     *          application/x-www-form-urlencoded format.
-     *
-     * @see kInvalidWords
-     */
-    function makeQueryString(aParams, aData) {
-      var str = "";
-      for (var i = 0; i < aParams.length; ++i) {
-        var param = aParams[i];
-        var value = param.value.replace(kValidWords, aData);
-        str += (i > 0 ? "&" : "") + param.name + "=" + value;
-      }
-      return str;
+  getSubmission: function SRCH_EURL_getSubmission(aSearchTerms, aEngine) {
+    var url = ParamSubstitution(this.template, aSearchTerms, aEngine);
+
+    // Create an application/x-www-form-urlencoded representation of our params
+    // (name=value&name=value&name=value)
+    var dataString = "";
+    for (var i = 0; i < this.params.length; ++i) {
+      var param = this.params[i];
+      var value = ParamSubstitution(param.value, aSearchTerms, aEngine);
+
+      dataString += (i > 0 ? "&" : "") + param.name + "=" + value;
     }
 
-    // Replace known fields with given parameters and clear unknown fields.
-    var url = this.template.replace(kValidWords, aData);
-    url = url.replace(kInvalidWords, "");
     var postData = null;
-    var dataString = makeQueryString(this.params, aData);
     if (this.method == "GET") {
       // GET method requests have no post data, and append the encoded
-      // text to the url...
+      // query string to the url...
       if (url.indexOf("?") == -1 && dataString)
         url += "?";
       url += dataString;
@@ -909,9 +962,16 @@ Engine.prototype = {
   // A URL string pointing to the engine's search form.
   _searchForm: null,
   // The URI object from which the engine was retrieved.
-  // This is null for local plugins, and is used for error messages, logging,
-  // and determining whether to start using a newly added engine right away.
+  // This is null for local plugins, and is used for error messages and logging.
   _uri: null,
+  // Whether to obtain user confirmation before adding the engine. This is only
+  // used when the engine is first added to the list.
+  _confirm: false,
+  // Whether to set this as the current engine as soon as it is loaded.  This
+  // is only used when the engine is first added to the list.
+  _useNow: false,
+  // Whether the search engine file is in the app dir.
+  __isInAppDir: null,
 
   /**
    * Retrieves the data from the engine's file. If the engine's dataType is
@@ -998,6 +1058,41 @@ Engine.prototype = {
     return null;
   },
 
+  _confirmAddEngine: function SRCH_SVC_confirmAddEngine() {
+    var sbs = Cc["@mozilla.org/intl/stringbundle;1"].
+              getService(Ci.nsIStringBundleService);
+    var stringBundle = sbs.createBundle(SIDEBAR_BUNDLE);
+    var titleMessage = stringBundle.GetStringFromName("addEngineConfirmTitle");
+
+    // Display only the hostname portion of the URL.
+    var dialogMessage =
+        stringBundle.formatStringFromName("addEngineConfirmText",
+                                          [this._name, this._uri.host], 2);
+    var checkboxMessage = stringBundle.GetStringFromName("addEngineUseNowText");
+    var addButtonLabel =
+        stringBundle.GetStringFromName("addEngineAddButtonLabel");
+
+    var ps = Cc["@mozilla.org/embedcomp/prompt-service;1"].
+             getService(Ci.nsIPromptService);
+    var buttonFlags = (ps.BUTTON_TITLE_IS_STRING * ps.BUTTON_POS_0) +
+                      (ps.BUTTON_TITLE_CANCEL    * ps.BUTTON_POS_1) +
+                       ps.BUTTON_POS_0_DEFAULT;
+
+    var checked = {value: false};
+    // confirmEx returns the index of the button that was pressed.  Since "Add"
+    // is button 0, we want to return the negation of that value.
+    var confirm = !ps.confirmEx(null,
+                                titleMessage,
+                                dialogMessage,
+                                buttonFlags,
+                                addButtonLabel,
+                                null, null, // button 1 & 2 names not used
+                                checkboxMessage,
+                                checked);
+
+    return {confirmed: confirm, useNow: checked.value};
+  },
+
   /**
    * Handle the successful download of an engine. Initializes the engine and
    * triggers parsing of the data. The engine is then flushed to disk. Notifies
@@ -1015,7 +1110,7 @@ Engine.prototype = {
       var brandBundle = sbs.createBundle(BRAND_BUNDLE);
       var brandName = brandBundle.GetStringFromName("brandShortName");
       var title = searchBundle.GetStringFromName("error_loading_engine_title");
-      var text = searchBundle.formatStringFromName("error_loading_engine_msg",
+      var text = searchBundle.formatStringFromName("error_loading_engine_msg2",
                                                    [brandName, aEngine._location],
                                                    2);
 
@@ -1056,6 +1151,19 @@ Engine.prototype = {
       onError();
       return;
     }
+
+    // If requested, confirm the addition now that we have the title.
+    if (aEngine._confirm) {
+      var confirmation = aEngine._confirmAddEngine();
+      LOG("_onLoad: confirm is " + confirmation.confirmed +
+          "; useNow is " + confirmation.useNow);
+      if (!confirmation.confirmed)
+        return;
+      aEngine._useNow = confirmation.useNow;
+    }
+
+    // Since we're coming from a URL, we don't yet have a file.
+    aEngine._file = getSanitizedFile(aEngine.name);
 
     // Write the engine to file
     aEngine._serializeToFile();
@@ -1181,18 +1289,6 @@ Engine.prototype = {
         this._type = SEARCH_TYPE_SHERLOCK;
         this._parseAsSherlock();
     }
-
-    // If we don't yet have a file (i.e. we instantiated an engine object from
-    // passed in URL), get one now
-    if (!this._file)
-      this._file = getSanitizedFile(this.name);
-      
-#ifndef MOZ_STORAGE
-	// Generate a unique ID for this engine. Use the name of the engine, URI
-    // encoded because pref names can only contain certain characters
-    this._pref = BROWSER_SEARCH_PREF + "engine." +
-                 encodeURIComponent(this.name) + ".";
-#endif
   },
 
   /**
@@ -1246,6 +1342,29 @@ Engine.prototype = {
         } catch (ex) {
           // Ignore failure
           LOG("_parseURL: Url element has an invalid param");
+        }
+      } else if (param.localName == "MozParam" &&
+                 // We only support MozParams for appdir-shipped search engines
+                 this._isInAppDir) {
+        var value;
+        // For now, we only support the "defaultEngine" condition.
+        if (param.getAttribute("condition") == "defaultEngine") {
+          const defPref = BROWSER_SEARCH_PREF + "defaultenginename";
+          var defaultPrefB = Cc["@mozilla.org/preferences-service;1"].
+                             getService(Ci.nsIPrefService).
+                             getDefaultBranch(null);
+          const nsIPLS = Ci.nsIPrefLocalizedString;
+          var defaultName;
+          try {
+            defaultName = defaultPrefB.getComplexValue(defPref, nsIPLS).data;
+          } catch (ex) {}
+
+          // If this engine was the default search engine, use the true value
+          if (this.name == defaultName)
+            value = param.getAttribute("trueValue");
+          else
+            value = param.getAttribute("falseValue");
+          url.addParam(param.getAttribute("name"), value);
         }
       }
     }
@@ -1405,9 +1524,9 @@ Engine.prototype = {
 
     /**
      * Returns an array of name-value pair arrays representing the Sherlock
-     * file's input elements. User defined inputs return kUserDefined as the
-     * value. Elements are returned in the order they appear in the source
-     * file.
+     * file's input elements. User defined inputs return USER_DEFINED
+     * as the value. Elements are returned in the order they appear in the
+     * source file.
      *
      *   Example:
      *      <input name="foo" value="bar">
@@ -1440,6 +1559,10 @@ Engine.prototype = {
        *          doesn't exist.
        */
       function getAttr(aAttr, aLine) {
+        // Used to determine whether an "input" line from a Sherlock file is a
+        // "user defined" input.
+        const userInput = /(\s|["'=])user(\s|[>="'\/\\+]|$)/i;
+
         LOG("_parseAsSherlock::getAttr: Getting attr: \"" +
             aAttr + "\" for line: \"" + aLine + "\"");
         // We're not case sensitive, but we want to return the attribute value
@@ -1449,12 +1572,13 @@ Engine.prototype = {
 
         var attrStart = lLine.search(new RegExp("\\s" + attr, "i"));
         if (attrStart == -1) {
+        
           // If this is the "user defined input" (i.e. contains the empty
           // "user" attribute), return our special keyword
-          if (kIsUserInput.test(lLine) && attr == "value") {
+          if (userInput.test(lLine) && attr == "value") {
             LOG("_parseAsSherlock::getAttr: Found user input!\nLine:\"" + lLine
                 + "\"");
-            return kUserDefined;
+            return USER_DEFINED;
           }
           // The attribute doesn't exist - ignore
           LOG("_parseAsSherlock::getAttr: Failed to find attribute:\nLine:\""
@@ -1595,7 +1719,7 @@ Engine.prototype = {
         var value = inputs[i][1];
         if (i==0) {
           if (name == "")
-            template += kUserDefined;
+            template += USER_DEFINED;
           else
             template += "?" + name + "=" + value;
         } else if (name != "")
@@ -1717,21 +1841,13 @@ Engine.prototype = {
   // nsISearchEngine
   get alias() {
     if (this._alias === null)
-#ifndef MOZ_STORAGE
-      this._alias = getLocalizedPref(this._pref + "alias", "");
-#else
       this._alias = engineMetadataService.getAttr(this, "alias");
-#endif
 
     return this._alias;
   },
   set alias(val) {
     this._alias = val;
-#ifndef MOZ_STORAGE
-    setLocalizedPref(this._pref + "alias", val);
-#else
-	engineMetadataService.setAttr(this, "alias", val);
-#endif
+    engineMetadataService.setAttr(this, "alias", val);
     notifyAction(this, SEARCH_ENGINE_CHANGED);
   },
 
@@ -1740,27 +1856,15 @@ Engine.prototype = {
   },
 
   get hidden() {
-#ifndef MOZ_STORAGE
-	if (this._hidden === null) {
-      // Initialize the hidden property from a pref
-      this._hidden = getBoolPref(this._pref + "hidden", false);
-    }
-#else
     if (this._hidden === null)
       this._hidden = engineMetadataService.getAttr(this, "hidden");
-#endif
     return this._hidden;
   },
   set hidden(val) {
     var value = !!val;
     if (value != this._hidden) {
-#ifndef MOZ_STORAGE
-	  setBoolPref(this._pref + "hidden", value);
-#endif
       this._hidden = value;
-#ifdef MOZ_STORAGE
       engineMetadataService.setAttr(this, "hidden", value);
-#endif
       notifyAction(this, SEARCH_ENGINE_CHANGED);
     }
   },
@@ -1788,7 +1892,6 @@ Engine.prototype = {
     return "";
   },
 
-#ifdef MOZ_STORAGE
   // The file that the plugin is loaded from is a unique identifier for it.  We
   // use this as the identifier to store data in the sqlite database
   get _id() {
@@ -1797,14 +1900,22 @@ Engine.prototype = {
     if (this._file.parent.equals(getDir(NS_APP_USER_SEARCH_DIR)))
       return "[profile]/" + this._file.leafName;
 
-    if (this._file.parent.equals(getDir(NS_APP_SEARCH_DIR)))
+    if (this._isInAppDir)
       return "[app]/" + this._file.leafName;
 
     // We're not in the profile or appdir, so this must be an extension-shipped
     // plugin. Use the full path.
     return this._file.path;
   },
-#endif
+
+  get _isInAppDir() {
+    ENSURE_WARN(this._file && this._file.exists(),
+                "_isInAppDir: engine has no file!",
+                Cr.NS_ERROR_FAILURE);
+    if (this.__isInAppDir === null)
+      this.__isInAppDir = this._file.parent.equals(getDir(NS_APP_SEARCH_DIR));
+    return this.__isInAppDir;
+  },
 
   get name() {
     return this._name;
@@ -1812,12 +1923,6 @@ Engine.prototype = {
 
   get type() {
     return this._type;
-  },
-
-  // This getter is used in SearchService.observer.  It is not intended to be
-  // used (or needed) by callers outside this file.
-  get uri() {
-    return this._uri;
   },
 
   get searchForm() {
@@ -1882,7 +1987,7 @@ Engine.prototype = {
       data = textToSubURI.ConvertAndEscape(DEFAULT_QUERY_CHARSET, aData);
     }
     LOG("getSubmission: Out data: \"" + data + "\"");
-    return url.getSubmission(data);
+    return url.getSubmission(data, this);
   },
 
   // from nsISearchEngine
@@ -1932,18 +2037,8 @@ SearchService.prototype = {
   _engines: { },
   _sortedEngines: [],
 
-  // If this is set to the URI of the description of a search engine being added
-  // to the list (typically by calling addEngine()), that engine will be
-  // selected as the current engine when it finishes loading.  If another
-  // engine is added with "start using this one now" before the first selected
-  // engine finishes loading, the second choice will override the first one.
-  // If the selected engine fails to load, this marker will be cleared.
-  _selectNewEngineURI: null,
-
   _init: function() {
-#ifdef MOZ_STORAGE
     engineMetadataService.init();
-#endif
     this._addObservers();
 
     var fileLocator = Cc["@mozilla.org/file/directory_service;1"].
@@ -1956,9 +2051,7 @@ SearchService.prototype = {
       this._loadEngines(location);
     }
 
-#ifdef MOZ_STORAGE
     this._convertOldPrefs();
-#endif
 
     // Now that all engines are loaded, build the sorted engine list
     this._buildSortedEngineList();
@@ -2058,29 +2151,7 @@ SearchService.prototype = {
   },
 
   _saveSortedEngineList: function SRCH_SVC_saveSortedEngineList() {
-#ifndef MOZ_STORAGE
-    var preferences = Cc["@mozilla.org/preferences-service;1"].
-                      getService(Ci.nsIPrefService);
-    var orderBranch = preferences.getBranch(BROWSER_SEARCH_PREF + "order.");
-
-    // First, reset the old branch
-    for (var i = 1; orderBranch.prefHasUserValue(i); ++i)
-      orderBranch.clearUserPref(i);
-
-    // Now, create the new branch
-    var pls = Cc["@mozilla.org/pref-localizedstring;1"].
-              createInstance(Ci.nsIPrefLocalizedString);
-#endif
     var engines = this._getSortedEngines(false);
-#ifndef MOZ_STORAGE
-	for (var i = 0; i < engines.length; ++i) {
-      pls.data = engines[i].name;
-      orderBranch.setComplexValue(i+1, Ci.nsIPrefLocalizedString, pls);
-    }
-
-    // Save the pref file explicitly, since we're called at XPCOM shutdown
-    preferences.savePrefFile(null);
-#else
     var values = []; 
     var names = [];
   
@@ -2090,29 +2161,10 @@ SearchService.prototype = {
     }
     
     engineMetadataService.setAttrs(engines, names, values);
-#endif
   },
 
   _buildSortedEngineList: function SRCH_SVC_buildSortedEngineList() {
     var addedEngines = { };
-#ifndef MOZ_STORAGE
-    this._sortedEngines = [];
-    var engineName, engine;
-    var i = 0;
-
-    // Get sorted engines first
-    while (true) {
-      engineName = getLocalizedPref(BROWSER_SEARCH_PREF + "order." + (++i));
-      if (!engineName)
-        break;
-
-      engine = this._engines[engineName];
-      if (!engine || (engineName in addedEngines))
-        continue;
-
-      this._sortedEngines.push(engine);
-      addedEngines[engineName] = engine;
-#else
     this._sortedEngines = [];
     var engine;
 
@@ -2122,22 +2174,17 @@ SearchService.prototype = {
         this._sortedEngines[orderNumber-1] = engine;
         addedEngines[engine.name] = engine;
       }
-#endif
     }
+
+    // Filter out any nulls for engines that may have been removed
+    this._sortedEngines = this._sortedEngines.filter(function(a) { return !!a; });
 
     // Array for the remaining engines, alphabetically sorted
     var alphaEngines = [];
-    
-#ifndef MOZ_STORAGE
-    for (engineName in this._engines) {
-      engine = this._engines[engineName];
-      if (!(engineName in addedEngines))
-        alphaEngines.push(this._engines[engineName]);
-#else
+
     for each (engine in this._engines) {
       if (!(engine.name in addedEngines))
         alphaEngines.push(this._engines[engine.name]);
-#endif
     }
     alphaEngines = alphaEngines.sort(function (a, b) {
                                        if (a.name < b.name)
@@ -2149,7 +2196,6 @@ SearchService.prototype = {
     this._sortedEngines = this._sortedEngines.concat(alphaEngines);
   },
 
-#ifdef MOZ_STORAGE
   /**
    *  On first startup, there are some default prefs that we need to migrate 
    *  into our sqlite database.  This function moves those values, along with
@@ -2188,7 +2234,6 @@ SearchService.prototype = {
       engineBranch.deleteBranch("");
     }
 },
-#endif
 
   /**
    * Converts a Sherlock file and its icon into the custom XML format used by
@@ -2358,22 +2403,19 @@ SearchService.prototype = {
     this._addEngineToStore(engine);
   },
 
-  // If aSelect is true, the newly added engine will be selected as the current
-  // engine when it finishes loading.
-  addEngine: function SRCH_SVC_addEngine(aEngineURL, aType, aIconURL, aSelect) {
+  addEngine: function SRCH_SVC_addEngine(aEngineURL, aType, aIconURL,
+                                         aConfirm) {
     LOG("addEngine: Adding \"" + aEngineURL + "\".");
     try {
       var uri = makeURI(aEngineURL);
       var engine = new Engine(uri, aType, false);
       engine._initFromURI();
-
-      if (aSelect)
-        this._selectNewEngineURI = uri;
     } catch (ex) {
       LOG("addEngine: Error adding engine:\n" + ex);
       throw Cr.NS_ERROR_FAILURE;
     }
     engine._setIcon(aIconURL, false);
+    engine._confirm = aConfirm;
   },
 
   removeEngine: function SRCH_SVC_removeEngine(aEngine) {
@@ -2429,6 +2471,14 @@ SearchService.prototype = {
     notifyAction(engine, SEARCH_ENGINE_CHANGED);
   },
 
+  restoreDefaultEngines: function SRCH_SVC_resetDefaultEngines() {
+    for each (var e in this._engines) {
+      // Unhide all appdir-installed engines
+      if (e.hidden && e._isInAppDir)
+        e.hidden = false;
+    }
+  },
+
   get defaultEngine() {
     const defPref = BROWSER_SEARCH_PREF + "defaultenginename";
     // Get the default engine - this pref should always exist, but the engine
@@ -2464,14 +2514,12 @@ SearchService.prototype = {
       case SEARCH_ENGINE_TOPIC:
         if (aVerb == SEARCH_ENGINE_LOADED) {
           var engine = aEngine.QueryInterface(Ci.nsISearchEngine);
-          LOG("nsISearchEngine::observe: Done installation of " + engine.name
+          LOG("nsSearchService::observe: Done installation of " + engine.name
               + ".");
           this._addEngineToStore(engine.wrappedJSObject);
-          // Optionally start using this engine now.
-          if (this._selectNewEngineURI &&
-              this._selectNewEngineURI == engine.wrappedJSObject.uri) {
+          if (engine.wrappedJSObject._useNow) {
+            LOG("nsSearchService::observe: setting current");
             this.currentEngine = aEngine;
-            this._selectNewEngineURI = null;
           }
         }
         break;
@@ -2505,21 +2553,17 @@ SearchService.prototype = {
   }
 };
 
-#ifdef MOZ_STORAGE
 var engineMetadataService = {
   // Keeps track of whether init() actually created a new table, or the table
   // already existed.
   newTable: false,
 
   init: function epsInit() {
-    MozStorageStatementWrapper = 
-      new Components.Constructor("@mozilla.org/storage/statement-wrapper;1",
-                                 Ci.mozIStorageStatementWrapper);
     var engineDataTable = "id INTEGER PRIMARY KEY, engineid STRING, name STRING, value STRING";
     var file = getDir(NS_APP_USER_PROFILE_50_DIR);
+    file.append("search.sqlite");
     var dbService = Cc["@mozilla.org/storage/service;1"].
                     getService(Ci.mozIStorageService);
-    file.append("search.sqlite");
     this.mDB = dbService.openDatabase(file);
 
     try {
@@ -2615,7 +2659,6 @@ var engineMetadataService = {
     this.mDeleteData.reset();
   }
 }
-#endif
 
 const kClassID    = Components.ID("{7319788a-fe93-4db3-9f39-818cf08f4256}");
 const kClassName  = "Browser Search Service";

@@ -68,6 +68,25 @@ __PACKAGE__->set_sql(EnabledBySubgroup => qq{
 					     ORDER BY tsg.sort_order ASC
 });
 
+__PACKAGE__->set_sql(BySubgroup => qq{
+SELECT t.* 
+FROM testcases t, testcase_subgroups tsg
+WHERE 
+  tsg.subgroup_id=? AND
+  tsg.testcase_id=t.testcase_id
+  ORDER BY tsg.sort_order ASC
+});
+
+__PACKAGE__->set_sql(ByTestgroup => qq{
+SELECT t.* 
+FROM testcases t, testcase_subgroups tsg, subgroup_testgroups sgtg
+WHERE 
+  tsg.testcase_id=t.testcase_id AND
+  tsg.subgroup_id=sgtg.subgroup_id AND
+  sgtg.testgroup_id = ?
+  ORDER BY tsg.sort_order ASC
+});
+
 __PACKAGE__->set_sql(CommunityEnabledBySubgroup => qq{
                                                       SELECT t.* 
                                                       FROM testcases t, testcase_subgroups tsg
@@ -76,6 +95,9 @@ __PACKAGE__->set_sql(CommunityEnabledBySubgroup => qq{
 });
 
 Litmus::DB::Testcase->has_many(test_results => "Litmus::DB::Testresult", {order_by => 'submission_time DESC'});
+
+Litmus::DB::Testcase->has_many(subgroups => 
+	["Litmus::DB::TestcaseSubgroup" => 'subgroup']);
 
 #########################################################################
 # is_completed($$$$$)
@@ -260,10 +282,24 @@ sub delete_from_subgroups() {
   
   my $dbh = __PACKAGE__->db_Main();
   my $sql = "DELETE from testcase_subgroups WHERE testcase_id=?";
-  my $rows = $dbh->do($sql,
-                      undef,
-                      $self->testcase_id
-                     );
+  return $dbh->do($sql,
+                  undef,
+                  $self->testcase_id
+                 );
+}
+
+#########################################################################
+sub delete_from_subgroup() {
+  my $self = shift;
+  my $subgroup_id = shift;  
+
+  my $dbh = __PACKAGE__->db_Main();
+  my $sql = "DELETE from testcase_subgroups WHERE testcase_id=? AND subgroup_id=?";
+  return $dbh->do($sql,
+                  undef,
+                  $self->testcase_id,
+                  $subgroup_id
+                 );
 }
 
 #########################################################################
@@ -272,11 +308,11 @@ sub delete_from_related() {
   
   my $dbh = __PACKAGE__->db_Main();
   my $sql = "DELETE from related_testcases WHERE testcase_id=? OR related_testcase_id=?";
-  my $rows = $dbh->do($sql,
-                      undef,
-                      $self->testcase_id,
-                      $self->testcase_id
-                     );
+  return $dbh->do($sql,
+                  undef,
+                  $self->testcase_id,
+                  $self->testcase_id
+                 );
 }
 
 #########################################################################
@@ -305,6 +341,28 @@ sub update_subgroups() {
 			 );
     }
   }
+}
+
+#########################################################################
+sub update_subgroup() {
+  my $self = shift;
+  my $subgroup_id = shift;
+  my $sort_order = shift;
+
+  # Sort order defaults to 1.
+  if (!$sort_order) {
+    $sort_order = 1;
+  }
+  
+  my $rv = $self->delete_from_subgroup($subgroup_id);
+  my $dbh = __PACKAGE__->db_Main();
+  my $sql = "INSERT INTO testcase_subgroups (testcase_id,subgroup_id,sort_order) VALUES (?,?,?)";
+  return $dbh->do($sql, 
+                  undef,
+                  $self->testcase_id,
+                  $subgroup_id,
+                  $sort_order
+                 );
 }
 
 1;

@@ -26,6 +26,7 @@
  *   Mats Palmgren <mats.palmgren@bredband.net>
  *   Masayuki Nakano <masayuki@d-toybox.com>
  *   Ginn Chen <ginn.chen@sun.com>
+ *   Simon Bünzli <zeniko@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -164,7 +165,7 @@ static PRInt8 sTextfieldSelectModel = eTextfieldSelect_unset;
 static PRBool sLeftClickOnly = PR_TRUE;
 static PRBool sKeyCausesActivation = PR_TRUE;
 static PRUint32 sESMInstanceCount = 0;
-static PRInt32 sGeneralAccesskeyModifier = -1; // magic value of -1 means uninitialized
+static PRInt32 sChromeAccessModifier = 0, sContentAccessModifier = 0;
 PRInt32 nsEventStateManager::sUserInputEventDepth = 0;
 
 enum {
@@ -173,6 +174,12 @@ enum {
  MOUSE_SCROLL_HISTORY,
  MOUSE_SCROLL_TEXTSIZE
 };
+
+// mask values for ui.key.chromeAccess and ui.key.contentAccess
+#define NS_MODIFIER_SHIFT    1
+#define NS_MODIFIER_CONTROL  2
+#define NS_MODIFIER_ALT      4
+#define NS_MODIFIER_META     8
 
 static nsIDocument *
 GetDocumentFromWindow(nsIDOMWindow *aWindow)
@@ -187,10 +194,27 @@ GetDocumentFromWindow(nsIDOMWindow *aWindow)
   return doc;
 }
 
-static void
-SetFrameExternalReference(nsIFrame* aFrame)
+static PRInt32
+GetAccessModifierMaskFromPref(PRInt32 aItemType)
 {
-  aFrame->AddStateBits(NS_FRAME_EXTERNAL_REFERENCE);
+  PRInt32 accessKey = nsContentUtils::GetIntPref("ui.key.generalAccessKey", -1);
+  switch (accessKey) {
+    case -1:                             break; // use the individual prefs
+    case nsIDOMKeyEvent::DOM_VK_SHIFT:   return NS_MODIFIER_SHIFT;
+    case nsIDOMKeyEvent::DOM_VK_CONTROL: return NS_MODIFIER_CONTROL;
+    case nsIDOMKeyEvent::DOM_VK_ALT:     return NS_MODIFIER_ALT;
+    case nsIDOMKeyEvent::DOM_VK_META:    return NS_MODIFIER_META;
+    default:                             return 0;
+  }
+
+  switch (aItemType) {
+  case nsIDocShellTreeItem::typeChrome:
+    return nsContentUtils::GetIntPref("ui.key.chromeAccess", 0);
+  case nsIDocShellTreeItem::typeContent:
+    return nsContentUtils::GetIntPref("ui.key.contentAccess", 0);
+  default:
+    return 0;
+  }
 }
 
 class nsMouseWheelTransaction {
@@ -205,19 +229,18 @@ protected:
   static void Init();
   static nsPoint GetScreenPoint(nsGUIEvent* aEvent);
 
-  static nsIFrame*            sTargetFrame; // weak reference
+  static nsWeakFrame          sTargetFrame;
   static PRUint32             sTime;        // in milliseconds
 };
 
-nsIFrame* nsMouseWheelTransaction::sTargetFrame = nsnull;
-PRUint32  nsMouseWheelTransaction::sTime        = 0;
+nsWeakFrame nsMouseWheelTransaction::sTargetFrame(nsnull);
+PRUint32    nsMouseWheelTransaction::sTime        = 0;
 
 void
 nsMouseWheelTransaction::BeginTransaction(nsIFrame* aTargetFrame,
                                           nsGUIEvent* aEvent)
 {
   NS_ASSERTION(!sTargetFrame, "previous transaction is not finished!");
-  SetFrameExternalReference(aTargetFrame);
   sTargetFrame = aTargetFrame;
   UpdateTransaction();
 }
@@ -363,9 +386,10 @@ nsEventStateManager::Init()
         nsContentUtils::GetBoolPref("nglayout.events.dispatchLeftClickOnly",
                                     sLeftClickOnly);
 
-      sGeneralAccesskeyModifier =
-        nsContentUtils::GetIntPref("ui.key.generalAccessKey",
-                                   sGeneralAccesskeyModifier);
+      sChromeAccessModifier =
+        GetAccessModifierMaskFromPref(nsIDocShellTreeItem::typeChrome);
+      sContentAccessModifier =
+        GetAccessModifierMaskFromPref(nsIDocShellTreeItem::typeContent);
 
       nsIContent::sTabFocusModelAppliesToXUL =
         nsContentUtils::GetBoolPref("accessibility.tabfocus_applies_to_xul",
@@ -376,6 +400,8 @@ nsEventStateManager::Init()
     prefBranch->AddObserver("accessibility.tabfocus_applies_to_xul", this, PR_TRUE);
     prefBranch->AddObserver("nglayout.events.dispatchLeftClickOnly", this, PR_TRUE);
     prefBranch->AddObserver("ui.key.generalAccessKey", this, PR_TRUE);
+    prefBranch->AddObserver("ui.key.chromeAccess", this, PR_TRUE);
+    prefBranch->AddObserver("ui.key.contentAccess", this, PR_TRUE);
 #if 0
     prefBranch->AddObserver("mousewheel.withaltkey.action", this, PR_TRUE);
     prefBranch->AddObserver("mousewheel.withaltkey.numlines", this, PR_TRUE);
@@ -450,6 +476,8 @@ nsEventStateManager::Shutdown()
     prefBranch->RemoveObserver("accessibility.tabfocus_applies_to_xul", this);
     prefBranch->RemoveObserver("nglayout.events.dispatchLeftClickOnly", this);
     prefBranch->RemoveObserver("ui.key.generalAccessKey", this);
+    prefBranch->RemoveObserver("ui.key.chromeAccess", this);
+    prefBranch->RemoveObserver("ui.key.contentAccess", this);
 #if 0
     prefBranch->RemoveObserver("mousewheel.withshiftkey.action", this);
     prefBranch->RemoveObserver("mousewheel.withshiftkey.numlines", this);
@@ -499,9 +527,16 @@ nsEventStateManager::Observe(nsISupports *aSubject,
         nsContentUtils::GetBoolPref("nglayout.events.dispatchLeftClickOnly",
                                     sLeftClickOnly);
     } else if (data.EqualsLiteral("ui.key.generalAccessKey")) {
-      sGeneralAccesskeyModifier =
-        nsContentUtils::GetIntPref("ui.key.generalAccessKey",
-                                   sGeneralAccesskeyModifier);
+      sChromeAccessModifier =
+        GetAccessModifierMaskFromPref(nsIDocShellTreeItem::typeChrome);
+      sContentAccessModifier =
+        GetAccessModifierMaskFromPref(nsIDocShellTreeItem::typeContent);
+    } else if (data.EqualsLiteral("ui.key.chromeAccess")) {
+      sChromeAccessModifier =
+        GetAccessModifierMaskFromPref(nsIDocShellTreeItem::typeChrome);
+    } else if (data.EqualsLiteral("ui.key.contentAccess")) {
+      sContentAccessModifier =
+        GetAccessModifierMaskFromPref(nsIDocShellTreeItem::typeContent);
 #if 0
     } else if (data.EqualsLiteral("mousewheel.withaltkey.action")) {
     } else if (data.EqualsLiteral("mousewheel.withaltkey.numlines")) {
@@ -549,9 +584,6 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
     NS_ASSERTION(mCurrentTarget, "mCurrentTarget is null.  this should not happen.  see bug #13007");
     if (!mCurrentTarget) return NS_ERROR_NULL_POINTER;
   }
-
-  if (mCurrentTarget)
-    SetFrameExternalReference(mCurrentTarget);
 
   *aStatus = nsEventStatus_eIgnore;
 
@@ -1057,16 +1089,21 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
 
       nsKeyEvent* keyEvent = (nsKeyEvent*)aEvent;
 
-      PRBool isSpecialAccessKeyDown = PR_FALSE;
-      switch (sGeneralAccesskeyModifier) {
-        case nsIDOMKeyEvent::DOM_VK_CONTROL: isSpecialAccessKeyDown = keyEvent->isControl; break;
-        case nsIDOMKeyEvent::DOM_VK_ALT: isSpecialAccessKeyDown = keyEvent->isAlt; break;
-        case nsIDOMKeyEvent::DOM_VK_META: isSpecialAccessKeyDown = keyEvent->isMeta; break;
-      }
+      PRInt32 modifierMask = 0;
+      if (keyEvent->isShift)
+        modifierMask |= NS_MODIFIER_SHIFT;
+      if (keyEvent->isControl)
+        modifierMask |= NS_MODIFIER_CONTROL;
+      if (keyEvent->isAlt)
+        modifierMask |= NS_MODIFIER_ALT;
+      if (keyEvent->isMeta)
+        modifierMask |= NS_MODIFIER_META;
 
-      //This is to prevent keyboard scrolling while alt or other accesskey modifier in use.
-      if (isSpecialAccessKeyDown)
-        HandleAccessKey(aPresContext, keyEvent, aStatus, -1, eAccessKeyProcessingNormal);
+      // Prevent keyboard scrolling while an accesskey modifier is in use.
+      if (modifierMask && (modifierMask == sChromeAccessModifier ||
+                           modifierMask == sContentAccessModifier))
+        HandleAccessKey(aPresContext, keyEvent, aStatus, -1,
+                        eAccessKeyProcessingNormal, modifierMask);
     }
   case NS_KEY_DOWN:
   case NS_KEY_UP:
@@ -1081,6 +1118,28 @@ nsEventStateManager::PreHandleEvent(nsPresContext* aPresContext,
   return NS_OK;
 }
 
+static PRInt32
+GetAccessModifierMask(nsISupports* aDocShell)
+{
+  nsCOMPtr<nsIDocShellTreeItem> treeItem(do_QueryInterface(aDocShell));
+  if (!treeItem)
+    return -1; // invalid modifier
+
+  PRInt32 itemType;
+  treeItem->GetItemType(&itemType);
+  switch (itemType) {
+
+  case nsIDocShellTreeItem::typeChrome:
+    return sChromeAccessModifier;
+
+  case nsIDocShellTreeItem::typeContent:
+    return sContentAccessModifier;
+
+  default:
+    return -1; // invalid modifier
+  }
+}
+
 // Note: for the in parameter aChildOffset,
 // -1 stands for not bubbling from the child docShell
 // 0 -- childCount - 1 stands for the child docShell's offset
@@ -1090,11 +1149,13 @@ nsEventStateManager::HandleAccessKey(nsPresContext* aPresContext,
                                      nsKeyEvent *aEvent,
                                      nsEventStatus* aStatus,
                                      PRInt32 aChildOffset,
-                                     ProcessingAccessKeyState aAccessKeyState)
+                                     ProcessingAccessKeyState aAccessKeyState,
+                                     PRInt32 aModifierMask)
 {
+  nsCOMPtr<nsISupports> pcContainer = aPresContext->GetContainer();
 
   // Alt or other accesskey modifier is down, we may need to do an accesskey
-  if (mAccessKeys) {
+  if (mAccessKeys && aModifierMask == GetAccessModifierMask(pcContainer)) {
     // Someone registered an accesskey.  Find and activate it.
     PRUint32 accKey = (IS_IN_BMP(aEvent->charCode)) ? 
       ToLowerCase((PRUnichar)aEvent->charCode) : aEvent->charCode;
@@ -1190,7 +1251,6 @@ nsEventStateManager::HandleAccessKey(nsPresContext* aPresContext,
   if (nsEventStatus_eConsumeNoDefault != *aStatus) {
     // checking all sub docshells
 
-    nsCOMPtr<nsISupports> pcContainer = aPresContext->GetContainer();
     nsCOMPtr<nsIDocShellTreeNode> docShell(do_QueryInterface(pcContainer));
     if (!docShell) {
       NS_WARNING("no docShellTreeNode for presContext");
@@ -1226,7 +1286,8 @@ nsEventStateManager::HandleAccessKey(nsPresContext* aPresContext,
           NS_STATIC_CAST(nsEventStateManager *, subPC->EventStateManager());
 
         if (esm)
-          esm->HandleAccessKey(subPC, aEvent, aStatus, -1, eAccessKeyProcessingDown);
+          esm->HandleAccessKey(subPC, aEvent, aStatus, -1,
+                               eAccessKeyProcessingDown, aModifierMask);
 
         if (nsEventStatus_eConsumeNoDefault == *aStatus)
           break;
@@ -1236,7 +1297,6 @@ nsEventStateManager::HandleAccessKey(nsPresContext* aPresContext,
 
   // bubble up the process to the parent docShell if necessary
   if (eAccessKeyProcessingDown != aAccessKeyState && nsEventStatus_eConsumeNoDefault != *aStatus) {
-    nsCOMPtr<nsISupports> pcContainer = aPresContext->GetContainer();
     nsCOMPtr<nsIDocShellTreeItem> docShell(do_QueryInterface(pcContainer));
     if (!docShell) {
       NS_WARNING("no docShellTreeNode for presContext");
@@ -1262,7 +1322,8 @@ nsEventStateManager::HandleAccessKey(nsPresContext* aPresContext,
         NS_STATIC_CAST(nsEventStateManager *, parentPC->EventStateManager());
 
       if (esm)
-        esm->HandleAccessKey(parentPC, aEvent, aStatus, myOffset, eAccessKeyProcessingUp);
+        esm->HandleAccessKey(parentPC, aEvent, aStatus, myOffset,
+                             eAccessKeyProcessingUp, aModifierMask);
     }
   }// if end. bubble up process
 }// end of HandleAccessKey
@@ -1387,8 +1448,6 @@ nsEventStateManager::FireContextClick()
     mCurrentTarget = shell->GetPrimaryFrameFor(mGestureDownFrameOwner);
 
     if ( mCurrentTarget ) {
-      SetFrameExternalReference(mCurrentTarget);
-      
       NS_ASSERTION(mPresContext == mCurrentTarget->GetPresContext(),
                    "a prescontext returned a primary frame that didn't belong to it?");
 
@@ -1582,8 +1641,6 @@ nsEventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
       StopTrackingDragGesture();
       return;
     }
-
-    SetFrameExternalReference(mCurrentTarget);
 
     // Check if selection is tracking drag gestures, if so
     // don't interfere!
@@ -2007,8 +2064,6 @@ nsEventStateManager::PostHandleEvent(nsPresContext* aPresContext,
 
   NS_ASSERTION(mCurrentTarget, "mCurrentTarget is null");
   if (!mCurrentTarget) return NS_ERROR_NULL_POINTER;
-
-  SetFrameExternalReference(mCurrentTarget);
 
   switch (aEvent->message) {
   case NS_MOUSE_LEFT_BUTTON_DOWN:
@@ -2441,23 +2496,12 @@ nsEventStateManager::SetPresContext(nsPresContext* aPresContext)
 NS_IMETHODIMP
 nsEventStateManager::ClearFrameRefs(nsIFrame* aFrame)
 {
-  if (aFrame == mLastMouseOverFrame)
-    mLastMouseOverFrame = nsnull;
-  if (aFrame == mLastDragOverFrame)
-    mLastDragOverFrame = nsnull;
-  if (aFrame == mCurrentTarget) {
-    if (aFrame) {
-      mCurrentTargetContent = aFrame->GetContent();
-    }
-    mCurrentTarget = nsnull;
+  if (aFrame && aFrame == mCurrentTarget) {
+    mCurrentTargetContent = aFrame->GetContent();
   }
-  if (aFrame == mCurrentFocusFrame)
-    mCurrentFocusFrame = nsnull;
   if (mDOMEventLevel > 0) {
     mClearedFrameRefsDuringEvent = PR_TRUE;
   }
-  if (aFrame == nsMouseWheelTransaction::GetTargetFrame())
-    nsMouseWheelTransaction::EndTransaction();
 
   return NS_OK;
 }
@@ -2735,9 +2779,9 @@ nsEventStateManager::DispatchMouseEvent(nsGUIEvent* aEvent, PRUint32 aMessage,
   event.isAlt = ((nsMouseEvent*)aEvent)->isAlt;
   event.isMeta = ((nsMouseEvent*)aEvent)->isMeta;
   event.nativeMsg = ((nsMouseEvent*)aEvent)->nativeMsg;
+  event.relatedTarget = aRelatedContent;
 
   mCurrentTargetContent = aTargetContent;
-  mCurrentRelatedContent = aRelatedContent;
 
   BeforeDispatchEvent();
   nsIFrame* targetFrame = nsnull;
@@ -2752,16 +2796,12 @@ nsEventStateManager::DispatchMouseEvent(nsGUIEvent* aEvent, PRUint32 aMessage,
       // it may not be the same object after event dispatching and handling.
       // So we need to refetch it.
       targetFrame = shell->GetPrimaryFrameFor(aTargetContent);
-      if (targetFrame) {
-        SetFrameExternalReference(targetFrame);
-      }
     }
   }
 
   AfterDispatchEvent();
 
   mCurrentTargetContent = nsnull;
-  mCurrentRelatedContent = nsnull;
 
   return targetFrame;
 }
@@ -2779,7 +2819,7 @@ nsEventStateManager::NotifyMouseOut(nsGUIEvent* aEvent, nsIContent* aMovingInto)
     // if the frame is associated with a subdocument,
     // tell the subdocument that we're moving out of it
     nsIFrameFrame* subdocFrame;
-    CallQueryInterface(mLastMouseOverFrame, &subdocFrame);
+    CallQueryInterface(mLastMouseOverFrame.GetFrame(), &subdocFrame);
     if (subdocFrame) {
       nsCOMPtr<nsIDocShell> docshell;
       subdocFrame->GetDocShell(getter_AddRefs(docshell));
@@ -2948,12 +2988,12 @@ nsEventStateManager::GenerateDragDropEnterExit(nsPresContext* aPresContext,
           event.isControl = ((nsMouseEvent*)aEvent)->isControl;
           event.isAlt = ((nsMouseEvent*)aEvent)->isAlt;
           event.isMeta = ((nsMouseEvent*)aEvent)->isMeta;
+          event.relatedTarget = targetContent;
 
           //The frame has change but the content may not have.  Check before dispatching to content
           mLastDragOverFrame->GetContentForEvent(aPresContext, aEvent, getter_AddRefs(lastContent));
 
           mCurrentTargetContent = lastContent;
-          mCurrentRelatedContent = targetContent;
 
           if ( lastContent != targetContent ) {
             //XXX This event should still go somewhere!!
@@ -2982,9 +3022,9 @@ nsEventStateManager::GenerateDragDropEnterExit(nsPresContext* aPresContext,
         event.isControl = ((nsMouseEvent*)aEvent)->isControl;
         event.isAlt = ((nsMouseEvent*)aEvent)->isAlt;
         event.isMeta = ((nsMouseEvent*)aEvent)->isMeta;
+        event.relatedTarget = lastContent;
 
         mCurrentTargetContent = targetContent;
-        mCurrentRelatedContent = lastContent;
 
         //The frame has change but the content may not have.  Check before dispatching to content
         if (lastContent != targetContent) {
@@ -3030,7 +3070,6 @@ nsEventStateManager::GenerateDragDropEnterExit(nsPresContext* aPresContext,
         mLastDragOverFrame->GetContentForEvent(aPresContext, aEvent, getter_AddRefs(lastContent));
 
         mCurrentTargetContent = lastContent;
-        mCurrentRelatedContent = nsnull;
 
         if (lastContent) {
           nsEventDispatcher::Dispatch(lastContent, aPresContext, &event, nsnull,
@@ -3468,11 +3507,6 @@ nsEventStateManager::ShiftFocusInternal(PRBool aForward, nsIContent* aStart)
 #endif
       mCurrentTarget = nextFocusFrame;
 
-      //This may be new frame that hasn't been through the ESM so we
-      //must set its NS_FRAME_EXTERNAL_REFERENCE bit.
-      if (mCurrentTarget)
-        SetFrameExternalReference(mCurrentTarget);
-
       nsCOMPtr<nsIContent> oldFocus(mCurrentFocus);
       ChangeFocusWith(nextFocus, eEventFocusedByKey);
       if (!mCurrentFocus && oldFocus) {
@@ -3493,9 +3527,9 @@ nsEventStateManager::ShiftFocusInternal(PRBool aForward, nsIContent* aStart)
 
           return NS_OK;
         }
-        GetFocusedFrame(&mCurrentTarget);
-        if (mCurrentTarget)
-          SetFrameExternalReference(mCurrentTarget);
+        nsIFrame* focusedFrame = nsnull;
+        GetFocusedFrame(&focusedFrame);
+        mCurrentTarget = focusedFrame;
       }
 
       // It's possible that the act of removing focus from our previously
@@ -3811,11 +3845,6 @@ nsEventStateManager::GetEventTarget(nsIFrame **aFrame)
       nsIPresShell *shell = mPresContext->GetPresShell();
       if (shell) {
         mCurrentTarget = shell->GetPrimaryFrameFor(mCurrentTargetContent);
-
-        //This may be new frame that hasn't been through the ESM so we
-        //must set its NS_FRAME_EXTERNAL_REFERENCE bit.
-        if (mCurrentTarget)
-          SetFrameExternalReference(mCurrentTarget);
       }
     }
   }
@@ -3823,12 +3852,9 @@ nsEventStateManager::GetEventTarget(nsIFrame **aFrame)
   if (!mCurrentTarget) {
     nsIPresShell *presShell = mPresContext->GetPresShell();
     if (presShell) {
-      presShell->GetEventTargetFrame(&mCurrentTarget);
-
-      //This may be new frame that hasn't been through the ESM so we
-      //must set its NS_FRAME_EXTERNAL_REFERENCE bit.
-      if (mCurrentTarget)
-        SetFrameExternalReference(mCurrentTarget);
+      nsIFrame* frame = nsnull;
+      presShell->GetEventTargetFrame(&frame);
+      mCurrentTarget = frame;
     }
   }
 
@@ -3867,14 +3893,6 @@ nsEventStateManager::GetEventTargetContent(nsEvent* aEvent,
     mCurrentTarget->GetContentForEvent(mPresContext, aEvent, aContent);
   }
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsEventStateManager::GetEventRelatedContent(nsIContent** aContent)
-{
-  *aContent = mCurrentRelatedContent;
-  NS_IF_ADDREF(*aContent);
   return NS_OK;
 }
 
@@ -4561,8 +4579,6 @@ nsEventStateManager::GetFocusedFrame(nsIFrame** aFrame)
       nsIPresShell *shell = doc->GetShellAt(0);
       if (shell) {
         mCurrentFocusFrame = shell->GetPrimaryFrameFor(mCurrentFocus);
-        if (mCurrentFocusFrame)
-          SetFrameExternalReference(mCurrentFocusFrame);
       }
     }
   }

@@ -108,10 +108,9 @@
 // Transformiix stuff
 #include "nsXPathEvaluator.h"
 #include "txMozillaXSLTProcessor.h"
+#include "txNodeSetAdaptor.h"
 #include "txXSLTProcessor.h"
 #include "nsXPath1Scheme.h"
-#include "nsXFormsXPathEvaluator.h"
-#include "txXSLTProcessor.h"
 
 #include "nsDOMParser.h"
 #include "nsDOMSerializer.h"
@@ -200,12 +199,19 @@ static void Shutdown();
 #define TRANSFORMIIX_XPATH1_SCHEME_CID \
 { 0xc351177, 0x159, 0x4500, { 0x86, 0xb0, 0xa2, 0x19, 0xdf, 0xde, 0x42, 0x58 } }
 
+/* 5d5d92cd-6bf8-11d9-bf4a-000a95dc234c */
+#define TRANSFORMIIX_NODESET_CID \
+{ 0x5d5d92cd, 0x6bf8, 0x11d9, { 0xbf, 0x4a, 0x0, 0x0a, 0x95, 0xdc, 0x23, 0x4c } }
+
+#define TRANSFORMIIX_NODESET_CONTRACTID \
+"@mozilla.org/transformiix-nodeset;1"
+
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsXPath1SchemeProcessor)
 
 // Factory Constructor
 NS_GENERIC_FACTORY_CONSTRUCTOR(txMozillaXSLTProcessor)
 NS_GENERIC_AGGREGATED_CONSTRUCTOR_INIT(nsXPathEvaluator, Init)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsXFormsXPathEvaluator)
+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(txNodeSetAdaptor, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDOMSerializer)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsXMLHttpRequest)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDOMParser)
@@ -310,10 +316,8 @@ nsresult NS_NewBoxObject(nsIBoxObject** aResult);
 nsresult NS_NewListBoxObject(nsIBoxObject** aResult);
 nsresult NS_NewScrollBoxObject(nsIBoxObject** aResult);
 nsresult NS_NewMenuBoxObject(nsIBoxObject** aResult);
-nsresult NS_NewEditorBoxObject(nsIBoxObject** aResult);
 nsresult NS_NewPopupBoxObject(nsIBoxObject** aResult);
-nsresult NS_NewBrowserBoxObject(nsIBoxObject** aResult);
-nsresult NS_NewIFrameBoxObject(nsIBoxObject** aResult);
+nsresult NS_NewContainerBoxObject(nsIBoxObject** aResult);
 nsresult NS_NewTreeBoxObject(nsIBoxObject** aResult);
 #endif
 
@@ -378,11 +382,9 @@ MAKE_CTOR(CreateNewBoxObject,           nsIBoxObject,           NS_NewBoxObject)
 MAKE_CTOR(CreateNewListBoxObject,       nsIBoxObject,           NS_NewListBoxObject)
 MAKE_CTOR(CreateNewMenuBoxObject,       nsIBoxObject,           NS_NewMenuBoxObject)
 MAKE_CTOR(CreateNewPopupBoxObject,      nsIBoxObject,           NS_NewPopupBoxObject)
-MAKE_CTOR(CreateNewBrowserBoxObject,    nsIBoxObject,           NS_NewBrowserBoxObject)
-MAKE_CTOR(CreateNewEditorBoxObject,     nsIBoxObject,           NS_NewEditorBoxObject)
-MAKE_CTOR(CreateNewIFrameBoxObject,     nsIBoxObject,           NS_NewIFrameBoxObject)
 MAKE_CTOR(CreateNewScrollBoxObject,     nsIBoxObject,           NS_NewScrollBoxObject)
 MAKE_CTOR(CreateNewTreeBoxObject,       nsIBoxObject,           NS_NewTreeBoxObject)
+MAKE_CTOR(CreateNewContainerBoxObject,  nsIBoxObject,           NS_NewContainerBoxObject)
 #endif // MOZ_XUL
 
 #ifndef MOZ_NO_INSPECTOR_APIS
@@ -787,20 +789,10 @@ static const nsModuleComponentInfo gComponents[] = {
     "@mozilla.org/layout/xul-boxobject-popup;1",
     CreateNewPopupBoxObject },
 
-  { "XUL Browser Box Object",
-    NS_BROWSERBOXOBJECT_CID,
-    "@mozilla.org/layout/xul-boxobject-browser;1",
-    CreateNewBrowserBoxObject },
-
-  { "XUL Editor Box Object",
-    NS_EDITORBOXOBJECT_CID,
-    "@mozilla.org/layout/xul-boxobject-editor;1",
-    CreateNewEditorBoxObject },
-
-  { "XUL Iframe Object",
-    NS_IFRAMEBOXOBJECT_CID,
-    "@mozilla.org/layout/xul-boxobject-iframe;1",
-    CreateNewIFrameBoxObject },
+  { "Container Box Object",
+    NS_CONTAINERBOXOBJECT_CID,
+    "@mozilla.org/layout/xul-boxobject-container;1",
+    CreateNewContainerBoxObject },
 
   { "XUL ScrollBox Object",
     NS_SCROLLBOXOBJECT_CID,
@@ -1267,15 +1259,15 @@ static const nsModuleComponentInfo gComponents[] = {
     NS_XPATH_EVALUATOR_CONTRACTID,
     nsXPathEvaluatorConstructor },
 
-  { "XFormsXPathEvaluator",
-    TRANSFORMIIX_XFORMS_XPATH_EVALUATOR_CID,
-    NS_XFORMS_XPATH_EVALUATOR_CONTRACTID,
-    nsXFormsXPathEvaluatorConstructor },
-
   { "XPath1 XPointer Scheme Processor",
     TRANSFORMIIX_XPATH1_SCHEME_CID,
     NS_XPOINTER_SCHEME_PROCESSOR_BASE "xpath1",
     nsXPath1SchemeProcessorConstructor },
+
+  { "Transformiix NodeSet",
+    TRANSFORMIIX_NODESET_CID,
+    TRANSFORMIIX_NODESET_CONTRACTID,
+    txNodeSetAdaptorConstructor },
 
   { "XML Serializer",
     NS_XMLSERIALIZER_CID,
