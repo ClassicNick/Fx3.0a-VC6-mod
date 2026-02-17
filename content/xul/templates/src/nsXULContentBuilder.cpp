@@ -46,7 +46,6 @@
 #include "nsIDOMXULDocument.h"
 #include "nsINodeInfo.h"
 #include "nsIServiceManager.h"
-#include "nsITextContent.h"
 #include "nsIXULDocument.h"
 
 #include "nsContentSupportMap.h"
@@ -746,7 +745,7 @@ nsXULContentBuilder::BuildContentFromTemplate(nsIContent *aTemplateNode,
                 rv = SubstituteText(aChild, attrValue, value);
                 if (NS_FAILED(rv)) return rv;
 
-                nsCOMPtr<nsITextContent> content;
+                nsCOMPtr<nsIContent> content;
                 rv = NS_NewTextNode(getter_AddRefs(content),
                                     mRoot->NodeInfo()->NodeInfoManager());
                 if (NS_FAILED(rv)) return rv;
@@ -1051,9 +1050,7 @@ nsXULContentBuilder::SynchronizeUsingTemplate(nsIContent* aTemplateNode,
                     nsAutoString value;
                     rv = SubstituteText(aResult, attrValue, value);
                     if (NS_FAILED(rv)) return rv;
-                    nsCOMPtr<nsITextContent> textcontent = do_QueryInterface(realKid);
-                    if (textcontent)
-                        textcontent->SetText(value, PR_TRUE);
+                    realKid->SetText(value, PR_TRUE);
                 }
             }
 
@@ -1280,11 +1277,15 @@ nsXULContentBuilder::CreateContainerContentsForQuerySet(nsIContent* aElement,
     rv = results->HasMoreElements(&hasMoreResults);
 
     for (; NS_SUCCEEDED(rv) && hasMoreResults;
-           rv = results->HasMoreElements(&hasMoreResults)){
-        nsCOMPtr<nsIXULTemplateResult> nextresult;
-        rv = results->GetNext(getter_AddRefs(nextresult));
+           rv = results->HasMoreElements(&hasMoreResults)) {
+        nsCOMPtr<nsISupports> nr;
+        rv = results->GetNext(getter_AddRefs(nr));
         if (NS_FAILED(rv))
             return rv;
+
+        nsCOMPtr<nsIXULTemplateResult> nextresult = do_QueryInterface(nr);
+        if (!nextresult)
+            return NS_ERROR_UNEXPECTED;
 
         nsCOMPtr<nsIRDFResource> resultid;
         rv = GetResultResource(nextresult, getter_AddRefs(resultid));

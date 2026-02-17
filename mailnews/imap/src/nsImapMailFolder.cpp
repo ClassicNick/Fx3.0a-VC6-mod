@@ -1041,8 +1041,9 @@ NS_IMETHODIMP nsImapMailFolder::RemoveSubFolder (nsIMsgFolder *which)
     nsCOMPtr<nsISupports> folderSupport = do_QueryInterface(which, &rv);
     if (NS_FAILED(rv)) return rv;
     folders->AppendElement(folderSupport);
+    rv = nsMsgDBFolder::DeleteSubFolders(folders, nsnull);
     which->Delete();
-    return nsMsgDBFolder::DeleteSubFolders(folders, nsnull);
+    return rv;
 }
 
 NS_IMETHODIMP nsImapMailFolder::CreateStorageIfMissing(nsIUrlListener* urlListener)
@@ -4858,7 +4859,8 @@ nsImapMailFolder::OnStopRunningUrl(nsIURI *aUrl, nsresult aExitCode)
                   // if we're showing preview text, update ourselves if we got a new unread
                   // message copied so that we can download the new headers and have a chance
                   // to preview the msg bodies.
-                  if (!folderOpen && showPreviewText && m_copyState->m_unreadCount > 0)
+                  if (!folderOpen && showPreviewText && m_copyState->m_unreadCount > 0
+                      && ! (mFlags & (MSG_FOLDER_FLAG_TRASH | MSG_FOLDER_FLAG_JUNK)))
                     UpdateFolder(msgWindow);
                 }
               }

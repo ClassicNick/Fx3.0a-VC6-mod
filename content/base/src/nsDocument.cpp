@@ -2584,7 +2584,7 @@ nsDocument::CreateTextNode(const nsAString& aData, nsIDOMText** aReturn)
 {
   *aReturn = nsnull;
 
-  nsCOMPtr<nsITextContent> text;
+  nsCOMPtr<nsIContent> text;
   nsresult rv = NS_NewTextNode(getter_AddRefs(text), mNodeInfoManager);
 
   if (NS_SUCCEEDED(rv)) {
@@ -4837,17 +4837,15 @@ nsDocument::Destroy()
   mIsGoingAway = PR_TRUE;
   DestroyLinkMap();
   for (PRInt32 indx = 0; indx < count; ++indx) {
-    nsIContent* content = mChildren.ChildAt(indx);
-    if (content == mRootContent) {
-      // Null out mRootContent first; this is similar to what RemoveChildAt()
-      // does.
-      mRootContent = nsnull;
-    }
-
-    // XXXbz what about document observer notifications?  We really need to get
-    // rid of this Destroy() method!
-    
-    content->UnbindFromTree();
+    // XXXbz what we _should_ do here is to clear mChildren and null out
+    // mRootContent.  If we did this (or at least the latter), we could remove
+    // the silly null-checks in nsHTMLDocument::MatchLinks.  Unfortunately,
+    // doing that introduces several problems:
+    // 1) Focus issues (see bug 341730).  The fix for bug 303260 may fix these.
+    // 2) Crashes in OnPageHide if it fires after Destroy.  See bug 303260
+    //    comments 9 and 10.
+    // So we're just creating an inconsistent DOM for now and hoping.  :(
+    mChildren.ChildAt(indx)->UnbindFromTree();
   }
 
   // Propagate the out-of-band notification to each PresShell's anonymous
@@ -5022,7 +5020,7 @@ nsDocument::OnPageShow(PRBool aPersisted)
   mVisible = PR_TRUE;
   UpdateLinkMap();
   
-  if (aPersisted) {
+  if (aPersisted && mRootContent) {
     // Send out notifications that our <link> elements are attached.
     nsRefPtr<nsContentList> links = NS_GetContentList(mRootContent,
                                                       nsHTMLAtoms::link,
@@ -5048,7 +5046,7 @@ nsDocument::OnPageHide(PRBool aPersisted)
 {
   // Send out notifications that our <link> elements are detached,
   // but only if this is not a full unload.
-  if (aPersisted) {
+  if (aPersisted && mRootContent) {
     nsRefPtr<nsContentList> links = NS_GetContentList(mRootContent,
                                                       nsHTMLAtoms::link,
                                                       kNameSpaceID_Unknown);

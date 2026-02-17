@@ -134,21 +134,25 @@
       <![CDATA[
         if (event.keyCode == KeyEvent.DOM_VK_UP ||
             (event.keyCode == KeyEvent.DOM_VK_LEFT &&
-              window.getComputedStyle(this.parentNode, "")
-                    .direction == "ltr") ||
+              document.defaultView.getComputedStyle(this.parentNode, "")
+                      .direction == "ltr") ||
             (event.keyCode == KeyEvent.DOM_VK_RIGHT &&
-              window.getComputedStyle(this.parentNode, "")
-                    .direction == "rtl"))
-          return window.document.commandDispatcher.rewindFocus();
+              document.defaultView.getComputedStyle(this.parentNode, "")
+                      .direction == "rtl")) {
+          window.document.commandDispatcher.rewindFocus();
+          return;
+        }
 
         if (event.keyCode == KeyEvent.DOM_VK_DOWN ||
             (event.keyCode == KeyEvent.DOM_VK_RIGHT &&
-              window.getComputedStyle(this.parentNode, "")
-                    .direction == "ltr") ||
+              document.defaultView.getComputedStyle(this.parentNode, "")
+                      .direction == "ltr") ||
             (event.keyCode == KeyEvent.DOM_VK_LEFT &&
-              window.getComputedStyle(this.parentNode, "")
-                    .direction == "rtl"))
-          return window.document.commandDispatcher.advanceFocus();
+              document.defaultView.getComputedStyle(this.parentNode, "")
+                      .direction == "rtl")) {
+          window.document.commandDispatcher.advanceFocus();
+          return;
+        }
 
         if (event.keyCode || event.charCode <= 32 || event.altKey || 
             event.ctrlKey || event.metaKey)
@@ -347,5 +351,8 @@
       <xul:image class="button-image-icon" xbl:inherits="src=image"/>
     </content>
   </binding>
+
+  <binding id="button-repeat" display="xul:autorepeatbutton"
+           extends="chrome://global/content/bindings/button.xml#button"/>
   
 </bindings>

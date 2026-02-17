@@ -172,10 +172,15 @@ if (!UserInGroup("editbugs") || $cgi->param('assigned_to') eq "") {
                 -value => login_to_id(trim($cgi->param('assigned_to')), THROW_ERROR));
 }
 
+
+my @enter_bug_field_names = map {$_->name} Bugzilla->get_fields({ custom => 1,
+    obsolete => 0, enter_bug => 1});
+
 my @bug_fields = ("version", "rep_platform",
                   "bug_severity", "priority", "op_sys", "assigned_to",
                   "bug_status", "everconfirmed", "bug_file_loc", "short_desc",
-                  "target_milestone", "status_whiteboard");
+                  "target_milestone", "status_whiteboard",
+                  @enter_bug_field_names);
 
 if (Bugzilla->params->{"usebugaliases"}) {
    my $alias = trim($cgi->param('alias') || "");
@@ -202,16 +207,23 @@ if (Bugzilla->params->{"useqacontact"}) {
     }
 }
 
+# Check the bug status.
+# This order is important, see below.
+my @valid_statuses = ('UNCONFIRMED', 'NEW', 'ASSIGNED');
+
 my $bug_status = 'UNCONFIRMED';
-if ($product->votes_to_confirm) {
+if ($user->in_group('editbugs') || $user->in_group('canconfirm')) {
     # Default to NEW if the user with privs hasn't selected another status.
-    if (UserInGroup('editbugs') || UserInGroup('canconfirm')) {
-        $bug_status = scalar($cgi->param('bug_status')) || 'NEW';
-    }
-} else {
+    $bug_status = scalar($cgi->param('bug_status')) || 'NEW';
+}
+elsif (!$product->votes_to_confirm) {
     $bug_status = 'NEW';
 }
 $cgi->param(-name => 'bug_status', -value => $bug_status);
+
+# Reject 'UNCONFIRMED' as a valid status if the product
+# doesn't require votes to confirm its bugs.
+shift @valid_statuses if !$product->votes_to_confirm;
 
 if (!defined $cgi->param('target_milestone')) {
     $cgi->param(-name => 'target_milestone', -value => $product->default_milestone);
@@ -226,7 +238,7 @@ check_field('rep_platform', scalar $cgi->param('rep_platform'));
 check_field('bug_severity', scalar $cgi->param('bug_severity'));
 check_field('priority',     scalar $cgi->param('priority'));
 check_field('op_sys',       scalar $cgi->param('op_sys'));
-check_field('bug_status',   scalar $cgi->param('bug_status'), ['UNCONFIRMED', 'NEW']);
+check_field('bug_status',   scalar $cgi->param('bug_status'), \@valid_statuses);
 check_field('version',      scalar $cgi->param('version'),
             [map($_->name, @{$product->versions})]);
 check_field('target_milestone', scalar $cgi->param('target_milestone'),

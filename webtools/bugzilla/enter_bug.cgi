@@ -79,7 +79,9 @@ if ($product_name eq '') {
             $class->{$product->classification_id} ||=
                 new Bugzilla::Classification($product->classification_id);
         }
-        my @classifications = sort {lc($a->name) cmp lc($b->name)} (values %$class);
+        my @classifications = sort {$a->sortkey <=> $b->sortkey
+                                    || lc($a->name) cmp lc($b->name)}
+                                   (values %$class);
 
         # We know there is at least one classification available,
         # else we would have stopped earlier.
@@ -334,6 +336,13 @@ $vars->{'cloned_bug_id'}         = $cloned_bug_id;
 
 $vars->{'token'}             = Bugzilla::Token::IssueSessionToken('createbug:');
 
+
+my @enter_bug_fields = Bugzilla->get_fields({ custom => 1, obsolete => 0, 
+                                              enter_bug => 1 });
+foreach my $field (@enter_bug_fields) {
+    $vars->{$field->name} = formvalue($field->name);
+}
+
 if ($cloned_bug_id) {
 
     $default{'component_'}    = $cloned_bug->{'component'};
@@ -353,6 +362,10 @@ if ($cloned_bug_id) {
         $vars->{'cc'}         = join (" ", @{$cloned_bug->cc});
     } else {
         $vars->{'cc'}         = formvalue('cc');
+    }
+
+    foreach my $field (@enter_bug_fields) {
+        $vars->{$field->name} = $cloned_bug->{$field->name};
     }
 
 # We need to ensure that we respect the 'insider' status of
@@ -438,24 +451,27 @@ if ( Bugzilla->params->{'usetargetmilestone'} ) {
     }
 }
 
+# Construct the list of allowable statuses.
+#
+# * If the product requires votes to confirm:
+#   users with privs   : NEW + ASSI + UNCO
+#   users with no privs: UNCO
+#
+# * If the product doesn't require votes to confirm:
+#   users with privs   : NEW + ASSI
+#   users with no privs: NEW (as these users cannot reassign
+#                             bugs to them, it doesn't make sense
+#                             to let them mark bugs as ASSIGNED)
 
-# List of status values for drop-down.
 my @status;
-
-# Construct the list of allowable values.  There are three cases:
-# 
-#  case                                 values
-#  product does not have confirmation   NEW
-#  confirmation, user cannot confirm    UNCONFIRMED
-#  confirmation, user can confirm       NEW, UNCONFIRMED.
-
+if ($user->in_group('editbugs') || $user->in_group('canconfirm')) {
+    @status = ('NEW', 'ASSIGNED');
+}
+elsif (!$product->votes_to_confirm) {
+    @status = ('NEW');
+}
 if ($product->votes_to_confirm) {
-    if (UserInGroup("editbugs") || UserInGroup("canconfirm")) {
-        push(@status, "NEW");
-    }
     push(@status, 'UNCONFIRMED');
-} else {
-    push(@status, "NEW");
 }
 
 $vars->{'bug_status'} = \@status; 

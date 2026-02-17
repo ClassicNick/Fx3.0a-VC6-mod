@@ -3066,9 +3066,16 @@ const BrowserSearch = {
         win.BrowserSearch.webSearch();
       } else {
         // If there are no open browser windows, open a new one
+
+        // This needs to be in a timeout so that we don't end up refocused
+        // in the url bar
+        function webSearchCallback() {
+          setTimeout(BrowserSearch.webSearch, 0);
+        }
+
         win = window.openDialog("chrome://browser/content/", "_blank",
                                 "chrome,all,dialog=no", "about:blank");
-        win.addEventListener("load", BrowserSearch.webSearch, false);
+        win.addEventListener("load", webSearchCallback, false);
       }
       return;
     }
@@ -6676,7 +6683,6 @@ var BrowserController = {
 window.controllers.appendController(BrowserController);
 
 #include browser-places.js
-#include ../../../toolkit/content/debug.js
 
 #endif
 
@@ -6784,7 +6790,6 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
   undoPopup.parentNode.removeAttribute("disabled");
 
   // populate menu
-  var urls = [];
   var undoItems = ss.getClosedTabData(window);
   var keys = undoItems.getKeys({});
   for (var i = 0; i < keys.length; i++) {
@@ -6796,7 +6801,6 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
     m.addEventListener("command", function(aEvent) { 
       undoCloseTab(aEvent.originalTarget.getAttribute("value"));
     }, false);
-    urls.push(tabData.state.entries[0].url);
   }
 
   // "open in tabs"
@@ -6805,7 +6809,10 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
   m = undoPopup.appendChild(document.createElement("menuitem"));
   m.setAttribute("label", strings.getString("menuOpenInTabs.label"));
   m.setAttribute("accesskey", strings.getString("menuOpenInTabs.accesskey"));
-  m.addEventListener("command", function() { loadOneOrMoreURIs(urls.join("|")); }, false);
+  m.addEventListener("command", function() {
+    for (var i = 0; i < keys.length; i++)
+      undoCloseTab();
+  }, false);
 }
 
 /**
@@ -6816,5 +6823,5 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
 function undoCloseTab(aIndex) {
   var ss = Cc["@mozilla.org/browser/sessionstore;1"].
            getService(Ci.nsISessionStore);
-  ss.undoCloseTab(window, aIndex);
+  ss.undoCloseTab(window, aIndex || 0);
 }

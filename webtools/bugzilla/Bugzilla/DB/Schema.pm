@@ -464,6 +464,8 @@ use constant ABSTRACT_SCHEMA => {
             sortkey     => {TYPE => 'INT2', NOTNULL => 1},
             obsolete    => {TYPE => 'BOOLEAN', NOTNULL => 1,
                             DEFAULT => 'FALSE'},
+            enter_bug   => {TYPE => 'BOOLEAN', NOTNULL => 1,
+                            DEFAULT => 'FALSE'},
         ],
         INDEXES => [
             fielddefs_name_idx    => {FIELDS => ['name'],
@@ -854,6 +856,7 @@ use constant ABSTRACT_SCHEMA => {
                             PRIMARYKEY => 1},
             name        => {TYPE => 'varchar(64)', NOTNULL => 1},
             description => {TYPE => 'MEDIUMTEXT'},
+            sortkey     => {TYPE => 'INT2', NOTNULL => 1, DEFAULT => '0'},
         ],
         INDEXES => [
             classifications_name_idx => {FIELDS => ['name'],

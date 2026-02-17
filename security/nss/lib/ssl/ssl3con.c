@@ -39,7 +39,7 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-/* $Id: ssl3con.c,v 1.92 2006/06/26 23:32:19 wtchang%redhat.com Exp $ */
+/* $Id: ssl3con.c,v 1.94 2006/07/19 01:40:17 nelson%bolyard.com Exp $ */
 
 #include "nssrenam.h"
 #include "cert.h"
@@ -3507,6 +3507,11 @@ ssl3_SendClientHello(sslSocket *ss)
 	if (total_exten_len > 0)
 	    total_exten_len += 2;
     }
+#ifndef NSS_ECC_MORE_THAN_SUITE_B
+    else { /* SSL3 only */
+    	ssl3_DisableECCSuites(ss, NULL); /* disable all ECC suites */
+    }
+#endif
 
     /* how many suites are permitted by policy and user preference? */
     num_suites = count_cipher_suites(ss, ss->ssl3.policy, PR_TRUE);
@@ -6783,23 +6788,25 @@ ssl3_SendCertificate(sslSocket *ss)
     if (rv != SECSuccess) {
 	return rv; 		/* err set by AppendHandshake. */
     }
-    for (i = 0; i < certChain->len; i++) {
+    if (certChain) {
+        for (i = 0; i < certChain->len; i++) {
 #ifdef NISCC_TEST
-	if (fakeCert.len > 0 && i == ndex) {
-	    rv = ssl3_AppendHandshakeVariable(ss, fakeCert.data, fakeCert.len, 
-	                                      3);
-	    SECITEM_FreeItem(&fakeCert, PR_FALSE);
-	} else {
-	    rv = ssl3_AppendHandshakeVariable(ss, certChain->certs[i].data,
-					      certChain->certs[i].len, 3);
-	}
+            if (fakeCert.len > 0 && i == ndex) {
+                rv = ssl3_AppendHandshakeVariable(ss, fakeCert.data,
+                                                  fakeCert.len, 3);
+                SECITEM_FreeItem(&fakeCert, PR_FALSE);
+            } else {
+                rv = ssl3_AppendHandshakeVariable(ss, certChain->certs[i].data,
+                                                  certChain->certs[i].len, 3);
+            }
 #else
-	rv = ssl3_AppendHandshakeVariable(ss, certChain->certs[i].data,
-					  certChain->certs[i].len, 3);
+            rv = ssl3_AppendHandshakeVariable(ss, certChain->certs[i].data,
+                                              certChain->certs[i].len, 3);
 #endif
-	if (rv != SECSuccess) {
-	    return rv; 		/* err set by AppendHandshake. */
-	}
+            if (rv != SECSuccess) {
+                return rv; 		/* err set by AppendHandshake. */
+            }
+        }
     }
 
     return SECSuccess;

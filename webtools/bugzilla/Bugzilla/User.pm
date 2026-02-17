@@ -557,7 +557,8 @@ sub get_selectable_classifications {
         $class->{$product->classification_id} ||= 
             new Bugzilla::Classification($product->classification_id);
     }
-    my @sorted_class = sort {lc($a->name) cmp lc($b->name)} (values %$class);
+    my @sorted_class = sort {$a->sortkey <=> $b->sortkey 
+                             || lc($a->name) cmp lc($b->name)} (values %$class);
     $self->{selectable_classifications} = \@sorted_class;
     return $self->{selectable_classifications};
 }
@@ -631,7 +632,7 @@ sub get_enterable_products {
     }
 
     my @products;
-    foreach my $product (Bugzilla::Product::get_all_products()) {
+    foreach my $product (Bugzilla::Product->get_all) {
         if ($self->can_enter_product($product->name)) {
             push(@products, $product);
         }

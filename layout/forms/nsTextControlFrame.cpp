@@ -107,7 +107,6 @@
 #include "nsIDOMNodeList.h" //for selection setting helper func
 #include "nsIDOMRange.h" //for selection setting helper func
 #include "nsPIDOMWindow.h" //needed for notify selection changed to update the menus ect.
-#include "nsITextContent.h" //needed to create initial text control content
 #ifdef ACCESSIBILITY
 #include "nsIAccessibilityService.h"
 #endif
@@ -610,6 +609,7 @@ public:
   NS_IMETHOD SetCaretVisibilityDuringSelection(PRBool aVisibility);
   NS_IMETHOD CharacterMove(PRBool aForward, PRBool aExtend);
   NS_IMETHOD WordMove(PRBool aForward, PRBool aExtend);
+  NS_IMETHOD WordExtendForDelete(PRBool aForward);
   NS_IMETHOD LineMove(PRBool aForward, PRBool aExtend);
   NS_IMETHOD IntraLineMove(PRBool aForward, PRBool aExtend);
   NS_IMETHOD PageMove(PRBool aForward, PRBool aExtend);
@@ -830,6 +830,13 @@ nsTextInputSelectionImpl::WordMove(PRBool aForward, PRBool aExtend)
   return NS_ERROR_NULL_POINTER;
 }
 
+NS_IMETHODIMP
+nsTextInputSelectionImpl::WordExtendForDelete(PRBool aForward)
+{
+  if (mFrameSelection)
+    return mFrameSelection->WordExtendForDelete(aForward);
+  return NS_ERROR_NULL_POINTER;
+}
 
 NS_IMETHODIMP
 nsTextInputSelectionImpl::LineMove(PRBool aForward, PRBool aExtend)

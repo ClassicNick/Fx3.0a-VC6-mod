@@ -43,7 +43,7 @@
 #include "nsIDOMNSXBLFormControl.h"
 #include "nsIDOMHTMLFormElement.h"
 #include "nsIDOMEventReceiver.h"
-#include "nsITextContent.h"
+#include "nsContentCreatorFunctions.h"
 #include "nsGenericHTMLElement.h"
 #include "nsHTMLAtoms.h"
 #include "nsStyleConsts.h"
@@ -250,7 +250,6 @@ public:
 
   // nsIContent
   virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor);
-  virtual nsresult PostHandleEvent(nsEventChainPostVisitor& aVisitor);
 
   virtual void SetFocus(nsPresContext* aPresContext);
   virtual PRBool IsFocusable(PRInt32 *aTabIndex = nsnull);
@@ -1127,7 +1126,7 @@ nsHTMLSelectElement::SetLength(PRUint32 aLength)
       return NS_ERROR_OUT_OF_MEMORY;
     }
 
-    nsCOMPtr<nsITextContent> text;
+    nsCOMPtr<nsIContent> text;
     rv = NS_NewTextNode(getter_AddRefs(text), mNodeInfo->NodeInfoManager());
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1841,24 +1840,17 @@ nsHTMLSelectElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
     }
   }
 
-  return nsGenericHTMLElement::PreHandleEvent(aVisitor);
-}
-
-nsresult
-nsHTMLSelectElement::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
-{
   // Must notify the frame that the blur event occurred
   // NOTE: At this point EventStateManager has not yet set the
   // new content as having focus so this content is still considered
   // the focused element. So the ComboboxControlFrame tracks the focus
   // at a class level (Bug 32920)
-  nsIFormControlFrame* formControlFrame = GetFormControlFrame(PR_FALSE);
   if (nsEventStatus_eIgnore == aVisitor.mEventStatus &&
       (aVisitor.mEvent->message == NS_BLUR_CONTENT) && formControlFrame) {
     formControlFrame->SetFocus(PR_FALSE, PR_TRUE);
   }
 
-  return NS_OK;
+  return nsGenericHTMLElement::PreHandleEvent(aVisitor);
 }
 
 // nsIFormControl

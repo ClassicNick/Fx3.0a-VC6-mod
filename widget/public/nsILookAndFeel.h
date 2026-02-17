@@ -139,6 +139,7 @@ public:
     eColor__moz_mac_focusring,				//ring around text fields and lists
     eColor__moz_mac_menuselect,				//colour used when mouse is over a menu item
     eColor__moz_mac_menushadow,				//colour used to do shadows on menu items
+    eColor__moz_mac_menutextdisable,                    // color used to display text for disabled menu items
     eColor__moz_mac_menutextselect,			//colour used to display text while mouse is over a menu item
 
   	//all of the accent colours
@@ -198,12 +199,33 @@ public:
     eMetric_ScrollArrowStyle,                             // position of scroll arrows in a scrollbar
     eMetric_ScrollSliderStyle,                            // is scroll thumb proportional or fixed?
 
+    eMetric_ScrollButtonLeftMouseButtonAction,            // each button can take one of four values:
+    eMetric_ScrollButtonMiddleMouseButtonAction,          // 0 - scrolls one  line, 1 - scrolls one page
+    eMetric_ScrollButtonRightMouseButtonAction,           // 2 - scrolls to end, 3 - button ignored
+ 
     eMetric_TreeOpenDelay,                                // delay for opening spring loaded folders
     eMetric_TreeCloseDelay,                               // delay for closing spring loaded folders
     eMetric_TreeLazyScrollDelay,                          // delay for triggering the tree scrolling
     eMetric_TreeScrollDelay,                              // delay for scrolling the tree
     eMetric_TreeScrollLinesMax,                           // the maximum number of lines to be scrolled at ones
-    eMetric_TabFocusModel                                 // What type of tab-order to use
+    eMetric_TabFocusModel,                                // What type of tab-order to use
+
+    /*
+     * eMetric_AlertNotificationOrigin indicates from which corner of the
+     * screen alerts slide in, and from which direction (horizontal/vertical).
+     * 0, the default, represents bottom right, sliding vertically.
+     * Use any bitwise combination of the following constants:
+     * NS_ALERT_HORIZONTAL (1), NS_ALERT_LEFT (2), NS_ALERT_TOP (4).
+     *
+     *       6       4
+     *     +-----------+
+     *    7|           |5
+     *     |           |
+     *    3|           |1
+     *     +-----------+
+     *       2       0
+     */
+    eMetric_AlertNotificationOrigin
   } nsMetricID;
 
   enum {
@@ -296,5 +318,13 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsILookAndFeel, NS_ILOOKANDFEEL_IID)
 #define NS_IS_IME_SPECIAL_COLOR(c) ((c) == NS_TRANSPARENT || \
                                     (c) == NS_SAME_AS_FOREGROUND_COLOR || \
                                     (c) == NS_40PERCENT_FOREGROUND_COLOR)
+
+// ------------------------------------------
+//  Bits for eMetric_AlertNotificationOrigin
+// ------------------------------------------
+
+#define NS_ALERT_HORIZONTAL 1
+#define NS_ALERT_LEFT       2
+#define NS_ALERT_TOP        4
 
 #endif /* __nsILookAndFeel */

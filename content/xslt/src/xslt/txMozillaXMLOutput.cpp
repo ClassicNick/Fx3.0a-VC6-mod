@@ -54,7 +54,6 @@
 #include "nsIParser.h"
 #include "nsIRefreshURI.h"
 #include "nsPIDOMWindow.h"
-#include "nsITextContent.h"
 #include "nsIXMLContent.h"
 #include "nsContentCID.h"
 #include "nsNetUtil.h"
@@ -829,6 +828,26 @@ txMozillaXMLOutput::createResultDocument(const nsAString& aName, PRInt32 aNsID,
     }
     else {
         doc->SetContentType(NS_LITERAL_STRING("application/xml"));
+    }
+
+    if (mOutputFormat.mMethod == eXMLOutput &&
+        mOutputFormat.mOmitXMLDeclaration != eTrue) {
+        PRInt32 standalone;
+        if (mOutputFormat.mStandalone == eNotSet) {
+          standalone = -1;
+        }
+        else if (mOutputFormat.mStandalone == eFalse) {
+          standalone = 0;
+        }
+        else {
+          standalone = 1;
+        }
+
+        // Could use mOutputFormat.mVersion.get() when we support
+        // versions > 1.0.
+        static const PRUnichar kOneDotZero[] = { '1', '.', '0', '\0' };
+        doc->SetXMLDeclaration(kOneDotZero, mOutputFormat.mEncoding.get(),
+                               standalone);
     }
 
     // Set up script loader of the result document.

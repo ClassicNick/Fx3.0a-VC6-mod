@@ -476,18 +476,18 @@ pref("browser.safebrowsing.enabled", true);
 pref("browser.safebrowsing.remoteLookups", false);
 
 // Non-enhanced mode (local url lists) URL list to check for updates
-pref("browser.safebrowsing.provider.0.updateURL", "http://sb.google.com/safebrowsing/update?");
+pref("browser.safebrowsing.provider.0.updateURL", "http://sb.google.com/safebrowsing/update?client=navclient-auto-ffox2&");
 
 pref("browser.safebrowsing.dataProvider", 0);
 
 // Does the provider name need to be localizable?
 pref("browser.safebrowsing.provider.0.name", "Google");
-pref("browser.safebrowsing.provider.0.lookupURL", "http://sb.google.com/safebrowsing/lookup?");
+pref("browser.safebrowsing.provider.0.lookupURL", "http://sb.google.com/safebrowsing/lookup?sourceid=firefox-antiphish&features=TrustRank&client=navclient-auto-ffox2&");
 pref("browser.safebrowsing.provider.0.keyURL", "https://www.google.com/safebrowsing/getkey?");
 pref("browser.safebrowsing.provider.0.reportURL", "http://sb.google.com/safebrowsing/report?");
 
 // HTML report pages
-pref("browser.safebrowsing.provider.0.reportGenericURL", "http://www.google.com/safebrowsing/report_general/?continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
-pref("browser.safebrowsing.provider.0.reportErrorURL", "http://www.google.com/safebrowsing/report_error/?continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
-pref("browser.safebrowsing.provider.0.reportPhishURL", "http://www.google.com/safebrowsing/report_phish/?continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
+pref("browser.safebrowsing.provider.0.reportGenericURL", "http://www.google.com/safebrowsing/report_general/?hl={moz:locale}&continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
+pref("browser.safebrowsing.provider.0.reportErrorURL", "http://www.google.com/safebrowsing/report_error/?hl={moz:locale}&continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
+pref("browser.safebrowsing.provider.0.reportPhishURL", "http://www.google.com/safebrowsing/report_phish/?hl={moz:locale}&continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
 #endif

@@ -21,6 +21,7 @@
 
 # Reading the log backwards saves time when we only want the tail.
 use Backwards;
+use Digest::MD5 qw(md5_hex);
 
 #
 # Global variabls and functions for tinderbox
@@ -75,6 +76,13 @@ $data_dir='data';
 $display_accurate_build_end_times = 1;
 
 1;
+
+sub trick_taint{
+    my $in = shift;
+    return undef if !defined($in);
+    $in =~ /(.*)/;
+    return $1;
+}
 
 sub lock{
 }
@@ -261,10 +269,14 @@ sub format_time_difference {
   return $formatted_diff;
 }
 
+# This should really adhere to:
+# http://www.blooberry.com/indexdot/html/topics/urlencoding.htm
 sub url_encode {
   my ($s) = @_;
 
+  # First change all percent signs since later encodings use them as escapes.
   $s =~ s/\%/\%25/g;
+
   $s =~ s/\=/\%3d/g;
   $s =~ s/\?/\%3f/g;
   $s =~ s/ /\%20/g;
@@ -418,10 +430,7 @@ sub tb_check_password {
   }
   $form{password} =~ s/\s+$//;      # Strip trailing whitespace.
   if ($form{password} ne '') {
-    open(TRAPDOOR, "../bonsai/data/trapdoor $form{'password'} |") 
-      or die "Can't run trapdoor func!";
-    my $encoded = <TRAPDOOR>;
-    close TRAPDOOR;
+    my $encoded = md5_hex($form{password});
     $encoded =~ s/\s+$//;   # Strip trailing whitespace.
     if ($encoded eq $correct) {
       if ($form{rememberpassword} ne '') {
@@ -492,13 +501,6 @@ sub tb_find_build_record {
     td          => undef
   };
   return $buildrec;
-}
-
-sub tb_build_static {
-  # Build tinderbox static pages
-  $ENV{QUERY_STRING}="tree=$tree&static=1";
-  $ENV{REQUEST_METHOD}="GET";
-  system("./showbuilds.cgi >/dev/null&");
 }
 
 # end of public functions

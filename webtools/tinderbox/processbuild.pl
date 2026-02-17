@@ -20,16 +20,36 @@
 #
 # Contributor(s): 
 
+use Compress::Zlib;
+use Compress::Bzip2;
 use Time::Local;
+use lib "@TINDERBOX_DIR@";
 require 'tbglobals.pl'; # for $gzip
 
 umask 002;
+
+$ENV{'PATH'} = "@SETUID_PATH@";
+
+$tinderboxdir = "@TINDERBOX_DIR@";
+
+chdir $tinderboxdir || die "Couldn't chdir to $tinderboxdir"; 
 
 if ($ARGV[0] eq '--check-mail') {
   $only_check_mail = 1;
   shift @ARGV;
 }
-$mail_file = $ARGV[0];
+
+# If datafile is given on the commandline, use it.  Otherwise, read from STDIN
+$mail_file = shift;
+if (!defined($mail_file)) {
+    $mail_file = "data/tbx.$$";
+
+    open(DF, ">$mail_file") || die "could not open $mail_file";
+    while(<STDIN>){
+        print DF $_;
+    }
+    close(DF);
+}
 
 %MAIL_HEADER = ();
 %tinderbox = ();
@@ -97,8 +117,10 @@ if ($scrape_builds->{$tinderbox{build}}
 
 # Static pages
 #   For Sidebar flash and tinderbox panels.
-$ENV{QUERY_STRING}="tree=$tinderbox{tree}&static=1";
-system("./showbuilds.cgi");
+my $rel_path = ''; 
+require 'showbuilds.pl';
+$tree = $tinderbox{tree};
+&tb_build_static();
 
 # end of main
 ######################################################################
@@ -116,7 +138,7 @@ sub parse_log_variables {
       last if /^tinderbox: END/;
       my ($key, $value) = (split /:\s*/, $_, 3)[1..2];
       $value =~ s/\s*$//;
-      $tbx->{$key} = $value;
+      $tbx->{$key} = &trick_taint($value);
     }
   }
 }
@@ -227,8 +249,8 @@ sub compress_log_file {
     last if /^$/;
   }
 
-  open ZIPLOG, "| $gzip -c > $tbx->{tree}/$tbx->{logfile}"
-    or die "can't open $! for writing";
+  my $gz = gzopen("$tbx->{tree}/$tbx->{logfile}","wb") or 
+      die "gzopen($tbx->{tree}/$tbx->{logfile}): $!\n";
 
   # If this log is compressed, we need to decode it and decompress
   # it before storing its contents into ZIPLOG.
@@ -237,7 +259,7 @@ sub compress_log_file {
     # tinderbox variables are not compressed
     # write them directly to the gzip'd log
     while(<LOG2>) {
-      print ZIPLOG $_;
+      $gz->gzwrite($_);
       last if(m/^tinderbox: END/);
     }
 
@@ -264,22 +286,23 @@ sub compress_log_file {
 
     # Decompress the log using the logcompression variable to determine
     # the type of compression used.
-    my $cmd = undef;
     if ($tbx->{logcompression} eq 'gzip') {
-      $cmd = $gzip;
-    }
-    elsif ($tbx->{logcompression} eq 'bzip2') {
-      $cmd = $bzip2;
-    }
-    if (defined $cmd) {
-      open UNCOMP, "$cmd -dc $decoded |"
-        or die "Can't open $! for reading";
-      while (<UNCOMP>) {
-        print ZIPLOG $_;
+      my $comp_gz = gzopen($decoded, "rb") or
+          die ("$decoded: $!\n");
+      my ($bytesread, $line);
+      while (($bytesread = $comp_gz->gzreadline($line)) > 0) {
+          $gz->gzwrite($line);
       }
-      close UNCOMP;
+      $comp_gz->gzclose();
+    } elsif ($tbx->{logcompression} eq 'bzip2') {
+      my $comp_bz = bzopen($decoded, "rb") or
+          die ("$decoded: $!\n");
+      my ($bytesread, $line);
+      while (($bytesread = $comp_bz->bzreadline($line)) > 0) {
+          $gz->gzwrite($line);
+      }
+      $comp_bz->bzclose();
     }
-
     # Remove our temporary decoded file
     unlink($decoded) if -f $decoded;
   }
@@ -287,9 +310,9 @@ sub compress_log_file {
   # it's contents to the gzip'd log file.
   else {
     while (<LOG2>) {
-      print ZIPLOG $_;
+      $gz->gzwrite($_);
     }
   }
-  close ZIPLOG;
+  $gz->gzclose();
   close LOG2;
 }

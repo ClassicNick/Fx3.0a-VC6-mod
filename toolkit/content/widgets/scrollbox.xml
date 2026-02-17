@@ -17,7 +17,7 @@
   </binding>
 
   <binding id="scrollbox" extends="chrome://global/content/bindings/scrollbox.xml#scrollbox-base">
-    <content>
+    <content repeat="hover">
       <xul:box class="box-inherit scrollbox-innerbox" xbl:inherits="orient,align,pack,dir" flex="1">
         <children/>
       </xul:box>
@@ -221,7 +221,7 @@
       ]]></constructor>
 
       <destructor><![CDATA[
-        // Release timers to avoid reference cycles.
+        // Release timer to avoid reference cycles.
         if (this._scrollTimer) {
           this._scrollTimer.cancel();
           this._scrollTimer = null;
@@ -239,8 +239,7 @@
           if (!document)
             aTimer.cancel();
           
-          if (aTimer == this._scrollTimer)
-            this.scrollByIndex(this._scrollLines);
+          this.scrollByIndex(this._scrollLines);
         ]]>
         </body>
       </method>

@@ -73,6 +73,9 @@ CRCCheck on
 !insertmacro WordFind
 !insertmacro WordReplace
 !insertmacro GetSize
+!insertmacro GetParameters
+!insertmacro un.GetParameters
+!insertmacro GetOptions
 
 ; Use the pre-processor where ever possible
 ; Remember that !define's create smaller packages than Var's!
@@ -84,6 +87,7 @@ Var AddQuickLaunchSC
 Var AddDesktopSC
 Var fhInstallLog
 Var fhUninstallLog
+Var ShortPathNameToExe
 
 !include branding.nsi
 !include defines.nsi
@@ -228,47 +232,12 @@ Function un.checkIfAppIsLoaded
   ${EndIf}
   ${If} ${Errors}
     ClearErrors
-    ${un.CloseApp} $(WARN_APP_RUNNING_UNINSTALL)
+    ${un.CloseApp} "true" $(WARN_APP_RUNNING_UNINSTALL)
     ; Try to delete it again to prevent launching the app while we are
     ; installing.
     ${DeleteFile} "$INSTDIR\${FileMainEXE}"
     ClearErrors
   ${EndIf}
-FunctionEnd
-
-Function un.GetParameters
-   Push $R0
-   Push $R1
-   Push $R2
-   Push $R3
-
-   StrCpy $R2 1
-   StrLen $R3 $CMDLINE
-
-   ;Check for quote or space
-   StrCpy $R0 $CMDLINE $R2
-   StrCmp $R0 '"' 0 +3
-     StrCpy $R1 '"'
-     Goto loop
-   StrCpy $R1 " "
-
-   loop:
-     IntOp $R2 $R2 + 1
-     StrCpy $R0 $CMDLINE 1 $R2
-     StrCmp $R0 $R1 get
-     StrCmp $R2 $R3 get
-     Goto loop
-
-   get:
-     IntOp $R2 $R2 + 1
-     StrCpy $R0 $CMDLINE 1 $R2
-     StrCmp $R0 " " get
-     StrCpy $R0 $CMDLINE "" $R2
-
-   Pop $R3
-   Pop $R2
-   Pop $R1
-   Exch $R0
 FunctionEnd
 
 ; Setup the survey controls, functions, etc. except when the application has
@@ -397,7 +366,7 @@ Section "-Application" Section1
   ${EndIf}
   ${If} ${Errors}
     ClearErrors
-    ${CloseApp} $(WARN_APP_RUNNING_INSTALL)
+    ${CloseApp} "true" $(WARN_APP_RUNNING_INSTALL)
     ; Try to delete it again to prevent launching the app while we are
     ; installing.
     ${DeleteFile} "$INSTDIR\${FileMainEXE}"
@@ -473,6 +442,19 @@ Section "-Application" Section1
     ${LogUninstall} "DLLReg: \AccessibleMarshal.dll"
     ${LogMsg} "Registered: $INSTDIR\AccessibleMarshal.dll"
   ${EndIf}
+  
+  ; MapiProxy.dll can be used by multiple applications but
+  ; is only registered for the last application installed. When the last
+  ; application installed is uninstalled MapiProxy.dll will no longer be
+  ; registered. 
+  ClearErrors
+  RegDLL "$INSTDIR\MapiProxy.dll"
+  ${If} ${Errors}
+    ${LogMsg} "** ERROR Registering: $INSTDIR\MapiProxy.dll **"
+  ${Else}
+    ${LogUninstall} "DLLReg: \MapiProxy.dll"
+    ${LogMsg} "Registered: $INSTDIR\MapiProxy.dll"
+  ${EndIf}    
 
   ; Write extra files created by the application to the uninstall.log so they
   ; will be removed when the application is uninstalled. To remove an empty
@@ -574,14 +556,17 @@ Section "-Application" Section1
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal}"
   ${WriteRegStr2} $TmpVal "$0" "" "${GREVersion}" 0
   ${WriteRegStr2} $TmpVal "$0" "CurrentVersion" "${AppVersion} (${AB_CD})" 0
-
+ 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ; Add the Mail registry keys
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  GetFullPathName /SHORT $ShortPathNameToExe "$INSTDIR\${FileMainEXE}"    
   
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}"
   ${WriteRegStr2} $TmpVal "$0" "" "${BrandFullNameInternal}" 0
-
+  GetFullPathName /SHORT $1 "$INSTDIR\mozMapi32.dll"
+  ${WriteRegStr2} $TmpVal "$0" "DLLPath" "$1" 0
+    
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\DefaultIcon"
   StrCpy $1 "$\"$INSTDIR\${FileMainEXE}$\",0"
   ${WriteRegStr2} $TmpVal "$0" "" "$1" 0
@@ -600,23 +585,23 @@ Section "-Application" Section1
 
   ; shell/open/command
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\shell\open\command"
-  ${WriteRegStr2} $TmpVal "$0" "" "$INSTDIR\${FileMainEXE}" 0
+  ${WriteRegStr2} $TmpVal "$0" "" "$ShortPathNameToExe" 0
   
   ; shell/properties/command
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\shell\properties"
   ${WriteRegStr2} $TmpVal "$0" "" "Thunderbird &Options" 0  
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\shell\properties\command"
-  ${WriteRegStr2} $TmpVal "$0" "" "$INSTDIR\${FileMainEXE} -options" 0
+  ${WriteRegStr2} $TmpVal "$0" "" "$ShortPathNameToExe -options" 0
   
   ; protocols/mailto
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\protocols\mailto"
   ${WriteRegStr2} $TmpVal "$0" "" "URL:MailTo Protocol" 0
   ${WriteRegStr2} $TmpVal "$0" "URL Protocol" "" 0
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\protocols\mailto\DefaultIcon"
-  StrCpy $1 "$\"$INSTDIR\${FileMainEXE}$\",0"
+  StrCpy $1 "$\"$ShortPathNameToExe$\",0"
   ${WriteRegStr2} $TmpVal "$0" "" "$1" 0
   StrCpy $0 "Software\Clients\Mail\${BrandFullNameInternal}\protocols\mailto\shell\open\command"
-  StrCpy $1 "$INSTDIR\${FileMainEXE} -compose $\"%1$\""
+  StrCpy $1 "$ShortPathNameToExe -compose $\"%1$\""
   ${WriteRegStr2} $TmpVal "$0" "" "$1" 0
        
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1180,11 +1165,116 @@ Function preComponents
 FunctionEnd
 
 Function LaunchApp
-  ${CloseApp} $(WARN_APP_RUNNING_INSTALL)
+  ${CloseApp} "true" $(WARN_APP_RUNNING_INSTALL)
   Exec "$INSTDIR\${FileMainEXE}"
 FunctionEnd
 
 Function .onInit
+  ${GetParameters} $R0
+  ${If} $R0 != ""
+    ; Command line argument found
+    ${GetOptions} "$R0" "-ms" $R1
+    ${If} ${Errors}
+      ; Default install type
+      StrCpy $InstallType "1"
+      ; Support for specifying an installation configuration file.
+      ClearErrors
+      ${GetOptions} "$R0" "/INI=" $R1
+      ${Unless} ${Errors}
+        ; The configuration file must also exist
+        ${If} ${FileExists} "$R1"
+          SetSilent silent
+          ReadINIStr $0 $R1 "Install" "InstallDirectoryName"
+          ${If} $0 != ""
+            StrCpy $INSTDIR "$PROGRAMFILES\$0"
+          ${Else}
+            ReadINIStr $0 $R1 "Install" "InstallDirectoryPath"
+            ${If} $$0 != ""
+              StrCpy $INSTDIR "$0"
+            ${EndIf}
+          ${EndIf}
+
+          ${If} $INSTDIR == ""
+            ; Check if there is an existing uninstall registry entry for this
+            ; version of the application and if present install into that location
+            ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${BrandFullNameInternal} (${AppVersion})" "InstallLocation"
+            ${If} $0 == ""
+              StrCpy $INSTDIR "$PROGRAMFILES\${BrandFullName}"
+            ${Else}
+              GetFullPathName $INSTDIR "$0"
+              ${Unless} ${FileExists} "$INSTDIR"
+                StrCpy $INSTDIR "$PROGRAMFILES\${BrandFullName}"
+              ${EndUnless}
+            ${EndIf}
+          ${EndIf}
+
+          ; Quit if we are unable to create the installation directory or we are
+          ; unable to write to a file in the installation directory.
+          ClearErrors
+          ${If} ${FileExists} "$INSTDIR"
+            GetTempFileName $R2 "$INSTDIR"
+            FileOpen $R3 $R2 w
+            FileWrite $R3 "Write Access Test"
+            FileClose $R3
+            Delete $R2
+            ${If} ${Errors}
+              Quit
+            ${EndIf}
+          ${Else}
+            CreateDirectory "$INSTDIR"
+            ${If} ${Errors}
+              Quit
+            ${EndIf}
+          ${EndIf}
+
+          ReadINIStr $0 $R1 "Install" "CloseAppNoPrompt"
+          ${If} $0 == "true"
+            ClearErrors
+            ${If} ${FileExists} "$INSTDIR\${FileMainEXE}"
+              ${DeleteFile} "$INSTDIR\${FileMainEXE}"
+            ${EndIf}
+            ${If} ${Errors}
+              ClearErrors
+              ${CloseApp} "false" ""
+              ${DeleteFile} "$INSTDIR\${FileMainEXE}"
+            ${EndIf}
+          ${EndIf}
+
+          ReadINIStr $0 $R1 "Install" "QuickLaunchShortcut"
+          ${If} $0 == "false"
+            StrCpy $AddQuickLaunchSC "0"
+          ${Else}
+            StrCpy $AddQuickLaunchSC "1"
+          ${EndIf}
+
+          ReadINIStr $0 $R1 "Install" "DesktopShortcut"
+          ${If} $0 == "false"
+            StrCpy $AddDesktopSC "0"
+          ${Else}
+            StrCpy $AddDesktopSC "1"
+          ${EndIf}
+
+          ReadINIStr $0 $R1 "Install" "StartMenuShortcuts"
+          ${If} $0 == "false"
+            StrCpy $AddStartMenuSC "0"
+          ${Else}
+            StrCpy $AddStartMenuSC "1"
+          ${EndIf}
+
+          ReadINIStr $0 $R1 "Install" "StartMenuDirectoryName"
+          ${If} $0 != ""
+            StrCpy $StartMenuDir "$0"
+          ${EndIf}
+        ${EndIf}
+      ${EndUnless}
+    ${Else}
+      ; Support for the deprecated -ms command line argument. The new command
+      ; line arguments are not supported when -ms is used.
+      SetSilent silent
+    ${EndIf}
+  ${EndIf}
+  ClearErrors
+
   StrCpy $LANGUAGE 0
   !insertmacro MUI_INSTALLOPTIONS_EXTRACT "options.ini"
   !insertmacro MUI_INSTALLOPTIONS_EXTRACT "shortcuts.ini"
