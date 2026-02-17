@@ -43,21 +43,11 @@ var gPrivacyPane = {
 
   /**
    * Sets up the UI for the number of days of history to keep, and updates the
-     label of the "Clear Now..." button.
+   * label of the "Clear Now..." button.
    */
   init: function ()
   {
-    this.historyDaysPrefChanged();
-
-    var self = this;
-    function checkboxChanged() {
-      self.onchangeHistoryDaysCheckbox();
-    }
-    var historyDaysCheckbox = document.getElementById("rememberHistoryDays");
-    historyDaysCheckbox.addEventListener("CheckboxStateChange",
-                                         checkboxChanged,
-                                         false);
-
+    this._updateHistoryDaysUI();
     this.updateClearNowButtonLabel();
   },
 
@@ -68,6 +58,9 @@ var gPrivacyPane = {
    *
    * browser.history_expire_days
    * - the number of days of history to remember
+   * browser.history_expire_days.mirror
+   * - a preference whose value mirrors that of browser.history_expire_days, to
+   *   make the "days of history" checkbox easier to code
    * browser.formfill.enable
    * - true if entries in forms and the search bar should be saved, false
    *   otherwise
@@ -80,58 +73,60 @@ var gPrivacyPane = {
    *     2 means never remove downloads
    */
 
-  // XXXjwalden the UI for days of history to remember is totally broken -- I blame beltzner
-
   /**
-   * Enables/disables the history days textbox based on the state of the
-   * associated checkbox.
+   * Initializes the days-of-history mirror preference and connects it to the
+   * days-of-history checkbox so that updates to the textbox are transmitted to
+   * the real days-of-history preference.
    */
-  historyDaysPrefChanged: function ()
+  _updateHistoryDaysUI: function ()
   {
     var pref = document.getElementById("browser.history_expire_days");
+    var mirror = document.getElementById("browser.history_expire_days.mirror");
     var textbox = document.getElementById("historyDays");
     var checkbox = document.getElementById("rememberHistoryDays");
 
-    var prefVal = pref.value;
-    textbox.disabled = (prefVal == 0);
-    textbox.value = prefVal;
-    checkbox.checked = (prefVal != 0);
-  },
+    // handle mirror non-existence or mirror/pref unsync
+    if (mirror.value === null || mirror.value != pref.value)
+      mirror.value = pref.value ? pref.value : pref.defaultValue;
 
-  /**
-   * Handles enabling/disabling the "days of history" textbox based on the state
-   * of the associated checkbox.
-   */
-  onchangeHistoryDaysCheckbox: function (event)
-  {
-    var textbox = document.getElementById("historyDays");
-    var checkbox = document.getElementById("rememberHistoryDays");
-
+    checkbox.checked = (pref.value > 0);
     textbox.disabled = !checkbox.checked;
-    if (!checkbox.checked) {
-      var pref = document.getElementById("browser.history_expire_days");
-      pref.value = 0;
-    }
+
+    // hook up textbox to mirror preference and force a preference read
+    textbox.setAttribute("onsynctopreference", "return gPrivacyPane._writeHistoryDaysMirror();");
+    textbox.setAttribute("preference", "browser.history_expire_days.mirror");
+    mirror.updateElements();
   },
 
   /**
-   * Sets the value of browser.history_expire_days appropriately based on the
-   * value displayed in UI.
+   * Stores the days of history to the actual days-of-history preference and
+   * returns that value, to be stored in the mirror preference.
    */
-  changeHistoryDays: function ()
+  _writeHistoryDaysMirror: function ()
   {
     var pref = document.getElementById("browser.history_expire_days");
-    var historyDays = document.getElementById("historyDays");
+    var textbox = document.getElementById("historyDays");
+    pref.value = textbox.value;
 
-    // allow deletion of everything before typing a new value
-    if (historyDays.value == "")
-      return;
-
-    var uiValue = parseInt(historyDays.value, 10);
-    pref.value = isNaN(uiValue) ? 0 : uiValue;
+    // don't override the value in the textbox
+    return undefined;
   },
 
+  /**
+   * Responds to the checking or unchecking of the days-of-history UI, storing
+   * the appropriate value to the days-of-history preference and enabling or
+   * disabling the number textbox as appropriate.
+   */
+  onchangeHistoryDaysCheck: function ()
+  {
+    var pref = document.getElementById("browser.history_expire_days");
+    var mirror = document.getElementById("browser.history_expire_days.mirror");
+    var textbox = document.getElementById("historyDays");
+    var checkbox = document.getElementById("rememberHistoryDays");
 
+    pref.value = checkbox.checked ? mirror.value : 0;
+    textbox.disabled = !checkbox.checked;
+  },
 
   /**
    * Converts the value of the browser.download.manager.retention preference
@@ -244,20 +239,20 @@ var gPrivacyPane = {
 
   /**
    * Sets the label of the "Clear Now..." button according to the
-   * privacy.sanitize.promptOnSanitize pref.
-  */
-   updateClearNowButtonLabel: function()
-   {
-     var prefBranch = Components.classes["@mozilla.org/preferences-service;1"]
-                                .getService(Components.interfaces.nsIPrefBranch);
-     var clearNowButton = document.getElementById("clearDataNow");
-     if (prefBranch.getBoolPref("privacy.sanitize.promptOnSanitize"))
-       clearNowButton.label = clearNowButton.getAttribute("label1"); // "Clear Now..."
-     else
-       clearNowButton.label = clearNowButton.getAttribute("label2"); // "Clear Now"
-   },
+   * privacy.sanitize.promptOnSanitize preference.
+   */
+  updateClearNowButtonLabel: function ()
+  {
+    var pref = document.getElementById("privacy.sanitize.promptOnSanitize");
+    var clearNowButton = document.getElementById("clearDataNow");
 
-   /**
+    if (pref.value)
+      clearNowButton.label = clearNowButton.getAttribute("label1"); // "Clear Now..."
+    else
+      clearNowButton.label = clearNowButton.getAttribute("label2"); // "Clear Now"
+  },
+
+  /**
    * Displays the Clear Private Data settings dialog.
    */
   showClearPrivateDataSettings: function ()

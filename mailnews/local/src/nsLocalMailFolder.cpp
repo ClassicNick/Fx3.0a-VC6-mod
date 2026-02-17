@@ -1241,6 +1241,8 @@ NS_IMETHODIMP nsMsgLocalMailFolder::Rename(const PRUnichar *aNewName, nsIMsgWind
       if (cnt > 0)
         newFolder->RenameSubFolders(msgWindow, this);
       
+      // the newFolder should have the same flags
+      newFolder->SetFlags(mFlags);
       if (parentFolder)
       {
         SetParent(nsnull);
@@ -1963,6 +1965,9 @@ nsMsgLocalMailFolder::CopyFolderLocal(nsIMsgFolder *srcFolder,
       ConfirmFolderDeletion(msgWindow, &okToDelete);
       if (!okToDelete)
         return NS_MSG_ERROR_COPY_FOLDER_ABORTED;
+      // if we are moving a favorite folder to trash, we should clear the favorites flag
+      // so it gets removed from the view.
+      srcFolder->ClearFlag(MSG_FOLDER_FLAG_FAVORITE);
     }
 
     PRBool match = PR_FALSE;

@@ -914,6 +914,7 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
 
     float x0 = 0.0, y0 = 0.0;
     float sx = 1.0, sy = 1.0;
+
     if (tx->GetType() & MG_2DTRANSLATION) {
         tx->Transform(&x0, &y0);
     }
@@ -1823,11 +1824,25 @@ nsCanvasRenderingContext2D::DrawImage()
 
     cairo_save(mCairo);
     cairo_translate(mCairo, dx, dy);
+    cairo_new_path(mCairo);
     cairo_rectangle(mCairo, 0, 0, dw, dh);
     cairo_set_source(mCairo, pat);
     cairo_clip(mCairo);
     cairo_paint_with_alpha(mCairo, CurrentState().globalAlpha);
     cairo_restore(mCairo);
+
+#if 1
+    // XXX cairo bug workaround; force a clip update on mCairo.
+    // Otherwise, a pixman clip gets left around somewhere, and pixman
+    // (Render) does source clipping as well -- so we end up
+    // compositing with an incorrect clip.  This only seems to affect
+    // fallback cases, which happen when we have CSS scaling going on.
+    // This will blow away the current path, but we already blew it
+    // away in this function earlier.
+    cairo_new_path(mCairo);
+    cairo_rectangle(mCairo, 0, 0, 0, 0);
+    cairo_fill(mCairo);
+#endif
 
     cairo_pattern_destroy(pat);
 

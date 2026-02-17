@@ -65,6 +65,100 @@ function getCalendarManager() {
            getService(Ci.calICalendarManager);
 }
 
+/**
+ * Normal get*Pref calls will throw if the pref is undefined.  This function
+ * will get a bool, int, or string pref.  If the pref is undefined, it will
+ * return aDefault.
+ *
+ * @param aPrefName   the (full) name of preference to get
+ * @param aDefault    (optional) the value to return if the pref is undefined
+ */
+function getPrefSafe(aPrefName, aDefault) {
+    const nsIPrefBranch = Components.interfaces.nsIPrefBranch;
+    const prefB = Components.classes["@mozilla.org/preferences-service;1"]
+                            .getService(nsIPrefBranch);
+    switch (prefB.getPrefType(aPrefName)) {
+        case nsIPrefBranch.PREF_BOOL:
+            return prefB.getBoolPref(aPrefName);
+        case nsIPrefBranch.PREF_INT:
+            return prefB.getIntPref(aPrefName);
+        case nsIPrefBranch.PREF_STRING:
+            return prefB.getCharPref(aPrefName);
+        default: // includes nsIPrefBranch.PREF_INVALID
+            return aDefault;
+    }
+}
+
+/**
+ * Wrapper for setting prefs of various types
+ *
+ * @param aPrefName   the (full) name of preference to set
+ * @param aPrefType   the type of preference to set.  Valid valuse are:
+                        BOOL, INT, and CHAR
+ * @param aPrefValue  the value to set the pref to
+ */
+function setPref(aPrefName, aPrefType, aPrefValue) {
+    const nsIPrefBranch = Components.interfaces.nsIPrefBranch;
+    const prefB = Components.classes["@mozilla.org/preferences-service;1"]
+                            .getService(nsIPrefBranch);
+    switch (aPrefType) {
+        case "BOOL":
+            prefB.setBoolPref(aPrefName, aPrefValue);
+            break;
+        case "INT":
+            prefB.setIntPref(aPrefName, aPrefValue);
+            break;
+        case "CHAR":
+            prefB.setCharPref(aPrefName, aPrefValue);
+            break;
+    }
+}
+
+/**
+ * Gets the value of a string in a .properties file
+ *
+ * @param aBundleName  the name of the properties file.  It is assumed that the
+ *                     file lives in chrome://calendar/locale/
+ * @param aStringName the name of the string within the properties file
+ */
+function calGetString(aBundleName, aStringName) {
+    var sbs = Components.classes["@mozilla.org/intl/stringbundle;1"]
+                        .getService(Components.interfaces.nsIStringBundleService);
+    var props = sbs.createBundle("chrome://calendar/locale/"+aBundleName+".properties");
+    return props.GetStringFromName(aStringName);
+}
+
+/** Returns a best effort at making a UUID.  If we have the UUIDGenerator
+ * service available, we'll use that.  If we're somewhere where it doesn't
+ * exist, like Lightning in TB 1.5, we'll just use the current time.
+ */
+function getUUID() {
+    if ("@mozilla.org/uuid-generator;1" in Components.classes) {
+        var uuidGen = Cc["@mozilla.org/uuid-generator;1"].
+                      getService(Ci.nsIUUIDGenerator);
+        return uuidGen.generateUUID().toString();
+    }
+    // No uuid service (we're on the 1.8.0 branch)
+    return "uuid" + (new Date()).getTime();
+}
+
+/** Due to a bug in js-wrapping, normal == comparison can fail when we
+ * have 2 calIItemBases.  Use this function to force them both to get wrapped
+ * the same way, allowing for normal comparison.
+ */
+function compareItems(aItem, aOtherItem) {
+    var sip1 = Cc["@mozilla.org/supports-interface-pointer;1"].
+               createInstance(Ci.nsISupportsInterfacePointer);
+    sip1.data = aItem;
+    sip1.dataIID = Ci.calIItemBase;
+
+    var sip2 = Cc["@mozilla.org/supports-interface-pointer;1"].
+               createInstance(Ci.nsISupportsInterfacePointer);
+    sip2.data = aItem;
+    sip2.dataIID = Ci.calIItemBase;
+    return sip1.data == sip2.data;
+}
+
 /****
  **** debug code
  ****/

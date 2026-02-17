@@ -119,7 +119,6 @@ NS_IMPL_RELEASE_INHERITED(nsSVGElement,nsGenericElement)
 
 NS_INTERFACE_MAP_BEGIN(nsSVGElement)
   NS_INTERFACE_MAP_ENTRY(nsIXMLContent)
-  NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOM3Node, new nsNode3Tearoff(this))
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
   NS_INTERFACE_MAP_ENTRY(nsISVGValueObserver)
   NS_INTERFACE_MAP_ENTRY(nsISVGContent)
@@ -231,11 +230,9 @@ nsSVGElement::ParseAttribute(PRInt32 aNamespaceID,
       aAttribute->ToString(attributeName);
       const nsAFlatString& attributeValue = PromiseFlatString(aValue);
       const PRUnichar *strings[] = { attributeName.get(), attributeValue.get() };
-#if 0
       nsSVGUtils::ReportToConsole(GetOwnerDoc(),
                                   "AttributeParseWarning",
                                   strings, NS_ARRAY_LENGTH(strings));
-#endif
       nsCOMPtr<nsISVGValue> proxy;
       nsresult rv =
         NS_CreateSVGStringProxyValue(svg_value, getter_AddRefs(proxy));

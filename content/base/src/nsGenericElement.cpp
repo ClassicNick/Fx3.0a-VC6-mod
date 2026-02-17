@@ -329,8 +329,10 @@ nsIContent::SetNativeAnonymous(PRBool aAnonymous)
 {
   if (aAnonymous) {
     SetFlags(NODE_IS_ANONYMOUS);
+    SetFlags(NODE_IS_ANONYMOUS_FOR_EVENTS);
   } else {
     UnsetFlags(NODE_IS_ANONYMOUS);
+    UnsetFlags(NODE_IS_ANONYMOUS_FOR_EVENTS);
   }
 }
 
@@ -2013,7 +2015,7 @@ nsGenericElement::doPreHandleEvent(nsIContent* aContent,
   //FIXME! Document how this event retargeting works, Bug 329124.
   aVisitor.mCanHandle = PR_TRUE;
   nsCOMPtr<nsIContent> parent = aContent->GetParent();
-  if (aContent->IsNativeAnonymous()) {
+  if (aContent->IsAnonymousForEvents()) {
     // Don't propagate mutation events which are dispatched somewhere inside
     // native anonymous content.
     if (aVisitor.mEvent->eventStructType == NS_MUTATION_EVENT) {
@@ -2433,17 +2435,6 @@ nsGenericElement::doInsertChildAt(nsIContent* aKid, PRUint32 aIndex,
   }
 
   return NS_OK;
-}
-
-nsresult
-nsGenericElement::AppendChildTo(nsIContent* aKid, PRBool aNotify)
-{
-  // Make sure to _not_ call the subclass InsertChildAt here.  If
-  // subclasses wanted to hook into this stuff, they would have
-  // overridden AppendChildTo.
-  // XXXbz maybe this should just be a non-virtual method on nsINode?
-  // Feels that way to me...
-  return nsGenericElement::InsertChildAt(aKid, GetChildCount(), aNotify);
 }
 
 nsresult

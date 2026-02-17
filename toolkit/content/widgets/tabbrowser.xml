@@ -1216,7 +1216,7 @@
 
             // |setTimeout| here to ensure we're post reflow
             var _delayedUpdate = function(aTabContainer) {
-              aTabContainer.adjustTabstrip(false);
+              aTabContainer.adjustTabstrip();
 
               if (aTabContainer.selectedItem != t)
                 aTabContainer._notifyBackgroundTab(t);
@@ -1352,7 +1352,7 @@
 
             // see notes in addTab
             var _delayedUpdate = function(aTabContainer) {
-              aTabContainer.adjustTabstrip(true);
+              aTabContainer.adjustTabstrip();
               aTabContainer.mTabstrip._updateScrollButtonsDisabledState();
             }
             setTimeout(_delayedUpdate, 0, this.mTabContainer);
@@ -1435,6 +1435,26 @@
             // invalidate cache, because mTabContainer is about to change
             this._browsers = null; 
             this.mPanelContainer.removeChild(oldBrowser.parentNode);
+
+            try {
+              // if we're at the right side (and not the logical end,
+              // which is why this works for both LTR and RTL)
+              // of the tabstrip, we need to ensure that we stay 
+              // completely scrolled to the right side
+              var tabStrip = this.mTabContainer.mTabstrip;
+              var scrollPos = {};
+              tabStrip.scrollBoxObject.getPosition(scrollPos, {});
+              var scrolledSize = {};
+              tabStrip.scrollBoxObject.getScrolledSize(scrolledSize, {});
+
+              if (scrollPos.value + tabStrip.boxObject.width >= 
+                  scrolledSize.value) {
+                tabStrip.scrollByPixels(-1 * this.mTabContainer.firstChild
+                                                 .boxObject.width);
+              }
+            }
+            catch (ex) {
+            }
 
             // Find the tab to select
             var newIndex = -1;
@@ -1686,7 +1706,9 @@
                 pixelsToScroll = tabStrip.scrollIncrement * -1;
                 tabStrip.scrollByPixels(pixelsToScroll);
               }
-              else if (targetAnonid == "scrollbutton-down") {
+              else if (targetAnonid == "scrollbutton-down" || 
+                       (targetAnonid == "alltabs-button" && 
+                        this.mTabContainer.getAttribute("overflow") == "true")) {
                 pixelsToScroll = tabStrip.scrollIncrement;
                 tabStrip.scrollByPixels(pixelsToScroll);
               }
@@ -2468,19 +2490,34 @@
       <xul:arrowscrollbox anonid="arrowscrollbox" orient="horizontal" flex="1" style="min-width: 1px;" clicktoscroll="true">
         <children includes="tab"/>
       </xul:arrowscrollbox>
-      <xul:hbox class="tabs-alltabs-box" align="center" pack="end" 
-                anonid="alltabs-box">
-        <xul:toolbarbutton class="tabs-alltabs-button" type="menu">
-          <xul:menupopup class="tabs-alltabs-popup"
-                         anonid="alltabs-popup" 
-                         position="after_end"/>
+      <xul:stack align="center" pack="end">
+        <!-- XXXsspitzer hack
+             this extra hbox with position: relative
+             is needed to work around two bugs.
+             see bugs #346307 and #346035 
+        -->
+        <xul:hbox style="position: relative;">
+          <xul:hbox flex="1" class="tabs-alltabs-box" anonid="alltabs-box"/>
+        </xul:hbox>
+        <!-- XXXsspitzer hack
+             this extra hbox with position: relative
+             is needed to work around two bugs.
+             see bugs #346307 and #346035 
+        -->
+        <xul:hbox style="position: relative;">
+          <xul:toolbarbutton class="tabs-alltabs-button" type="menu"
+                             anonid="alltabs-button">
+            <xul:menupopup class="tabs-alltabs-popup"
+                           anonid="alltabs-popup" 
+                           position="after_end"/>
         </xul:toolbarbutton>
-      </xul:hbox>
+        </xul:hbox>
+      </xul:stack>
       <xul:hbox class="tabs-closebutton-box" align="center" pack="end" anonid="tabstrip-closebutton">
         <xul:toolbarbutton class="close-button tabs-closebutton"/>
       </xul:hbox>
     </content>
-    <implementation implements="nsITimerCallback">
+    <implementation implements="nsITimerCallback, nsIDOMEventListener">
       <constructor>
         <![CDATA[
           var pb2 =
@@ -2497,7 +2534,7 @@
 
           this.firstChild.minWidth = this.mTabMinWidth;
           this._updateDisableBackgroundClose();
-          this.adjustTabstrip(false);
+          this.adjustTabstrip();
 
           pb2.addObserver("browser.tabs.disableBackgroundClose", 
                           this._prefObserver, true);
@@ -2508,7 +2545,7 @@
           function onResize() {
             var width = self.mTabstrip.boxObject.width;
             if (width != self.mTabstripWidth) {
-              self.adjustTabstrip(false);
+              self.adjustTabstrip();
               self.mTabstrip.scrollByIndex(1);
               self.mTabstrip.scrollBoxObject
                             .ensureElementIsVisible(self.selectedItem);
@@ -2516,16 +2553,27 @@
             }
           }
           window.addEventListener("resize", onResize, false);
+
+          // Listen to overflow/underflow events on the tabstrip,
+          // we cannot put these as xbl handlers on the entire binding because
+          // they would also get called for the all-tabs popup scrollbox.
+          // Also, we can't rely on event.target becuase these are all
+          // anonymous nodes.
+          this.mTabstrip.addEventListener("overflow", this, false);
+          this.mTabstrip.addEventListener("underflow", this, false);
         ]]>
       </constructor>
 
       <destructor>
         <![CDATA[
           // Release timer to avoid reference cycles.
-          if (this.mFlashTimer) {
-            this.mFlashTimer.cancel();
-            this.mFlashTimer = null;
+          if (this._animateTimer) {
+            this._animateTimer.cancel();
+            this._animateTimer = null;
           }
+
+          this.mTabstrip.removeEventListener("overflow", this, false);
+          this.mTabstrip.removeEventListener("underflow", this, false);
         ]]>
       </destructor>
 
@@ -2571,7 +2619,7 @@
                   Components.classes['@mozilla.org/preferences-service;1'].
                   getService(Components.interfaces.nsIPrefBranch2);
               this.tabbox.mCloseButtons = pb2.getIntPref("browser.tabs.closeButtons");
-              this.tabbox.adjustTabstrip(false);
+              this.tabbox.adjustTabstrip();
               break;
             }
           }
@@ -2592,7 +2640,6 @@
       <field name="mCloseButtons">1</field>
 
       <method name="adjustTabstrip">
-        <parameter name="aRemovingTab"/>
         <body><![CDATA[
           // modes for tabstrip
           // 0 - activetab  = close button on active tab only
@@ -2623,16 +2670,6 @@
             break;
           }
           this.mTabstripClosebutton.collapsed = this.mCloseButtons != 3;
-          if (aRemovingTab) {
-            // if we're at the end of the tabstrip, we need to ensure 
-            // that we stay completely scrolled to the end
-            // this is a hack to determine if that's where we are already
-            var tabWidth = this.firstChild.boxObject.width;
-            var scrollPos = {};
-            this.mTabstrip.scrollBoxObject.getPosition(scrollPos, {});
-            if (scrollPos.value + this.mTabstrip.boxObject.width > tabWidth * (this.childNodes.length - 1))
-              this.mTabstrip.scrollByPixels(-1 * this.firstChild.boxObject.width);
-          }
         ]]></body>
       </method>
         
@@ -2656,7 +2693,20 @@
                         .ensureElementIsVisible(this.selectedItem);
         ]]></body>
       </method>
-        
+
+      <method name="handleEvent">
+        <parameter name="aEvent"/>
+        <body><![CDATA[
+          switch (aEvent.type) {
+            case "overflow":
+              this.setAttribute("overflow", "true");
+              break;
+            case "underflow":
+              this.removeAttribute("overflow");
+          }
+        ]]></body>
+      </method>
+
       <field name="mAllTabsPopup">
         document.getAnonymousElementByAttribute(this, 
                                                 "anonid", "alltabs-popup");
@@ -2667,17 +2717,33 @@
                                                 "anonid", "alltabs-box");
       </field>
 
-      <field name="mFlashTimer">null</field>
-      <field name="mFlashStage">0</field>
-      <field name="mFlashStart">6</field>
-      <field name="mFlashDelay">150</field>
+      <field name="_animateTimer">null</field>
+      <field name="_animateStep">-1</field>
+      <field name="_animateDelay">25</field>
+      <field name="_animatePercents">
+       [1.00, 0.85, 0.80, 0.75, 0.71, 0.68, 0.65, 0.62, 0.59, 0.57,
+        0.54, 0.52, 0.50, 0.47, 0.45, 0.44, 0.42, 0.40, 0.38, 0.37,
+        0.35, 0.34, 0.32, 0.31, 0.30, 0.29, 0.28, 0.27, 0.26, 0.25,
+        0.24, 0.23, 0.23, 0.22, 0.22, 0.21, 0.21, 0.21, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.19, 0.19, 0.19, 0.18,
+        0.18, 0.17, 0.17, 0.16, 0.15, 0.14, 0.13, 0.11, 0.09, 0.06]
+      </field>
 
+      <method name="_stopAnimation">
+        <body><![CDATA[
+          if (this._animateStep != -1) {
+            if (this._animateTimer)
+              this._animateTimer.cancel();
+
+            this._animateStep = -1;
+            this.mAllTabsBox.style.opacity = 0.0;
+          }
+        ]]></body>
+      </method>
+      
       <method name="_notifyBackgroundTab">
         <parameter name="aTab"/>
         <body><![CDATA[
-          if (this.mFlashStage)
-            return;
-
           var tsbo = this.mTabstrip.scrollBoxObject;
           var tsboStart = tsbo.screenX;
           var tsboEnd = tsboStart + tsbo.width;
@@ -2689,17 +2755,17 @@
           // only start the flash timer if the new tab (which was loaded in
           // the background) is not completely visible
           if (tsboStart > ctboStart || ctboEnd > tsboEnd) {
-            this.mFlashStage = this.mFlashStart;
+            this._animateStep = 0;
 
-            if (!this.mFlashTimer) 
-              this.mFlashTimer =
+            if (!this._animateTimer) 
+              this._animateTimer =
                 Components.classes["@mozilla.org/timer;1"]
                           .createInstance(Components.interfaces.nsITimer);
             else
-               this.mFlashTimer.cancel();
+               this._animateTimer.cancel();
 
-            this.mFlashTimer.initWithCallback(this,
-                         this.mFlashDelay,
+            this._animateTimer.initWithCallback(this,
+                         this._animateDelay,
                          Components.interfaces.nsITimer.TYPE_REPEATING_SLACK);
           }
         ]]></body>
@@ -2711,13 +2777,13 @@
           if (!document)
             aTimer.cancel();
 
-          this.mFlashStage--;
+          var percent = this._animatePercents[this._animateStep];
+          this.mAllTabsBox.style.opacity = percent;
 
-          this.mAllTabsBox.setAttribute("flash",
-            (this.mFlashStage % 2) ? "true" : "false");
-
-          if (!this.mFlashStage)
-            aTimer.cancel();
+          if (this._animateStep < (this._animatePercents.length - 1))
+            this._animateStep++;
+          else
+            this._stopAnimation();
         ]]></body>
       </method>
     </implementation>
@@ -2801,6 +2867,10 @@
           // set up the menu popup
           var tabcontainer = document.getBindingParent(this);
           var tabs = tabcontainer.childNodes;
+
+          // if an animation is in progress and the user
+          // clicks on the "all tabs" button, stop the animation
+          tabcontainer._stopAnimation();
 
           for (var i = 0; i < tabs.length; i++) {
             var menuItem = document.createElementNS(

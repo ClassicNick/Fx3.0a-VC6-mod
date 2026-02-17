@@ -135,7 +135,7 @@ PRUint32 msaaRoleMap[] = {
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_FILE_CHOOSER
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_FILLER
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_FONT_CHOOSER
-    USE_ROLE_STRING,                 // nsIAccessible::ROLE_FRAME
+    ROLE_SYSTEM_APPLICATION,         // nsIAccessible::ROLE_CHROME_WINDOW
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_GLASS_PANE
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_HTML_CONTAINER
     ROLE_SYSTEM_PUSHBUTTON,          // nsIAccessible::ROLE_ICON
@@ -173,5 +173,7 @@ PRUint32 msaaRoleMap[] = {
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_REDUNDANT_OBJECT
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_FORM
     USE_ROLE_STRING,                 // nsIAccessible::ROLE_IME
-    ROLE_MSAA_LAST_ENTRY              // nsIAccessible::ROLE_LAST_ENTRY
+    ROLE_SYSTEM_APPLICATION,         // nsIAccessible::ROLE_APP_ROOT
+    ROLE_SYSTEM_MENUITEM,            // nsIAccessible::ROLE_PARENT_MENUITEM
+    ROLE_MSAA_LAST_ENTRY             // nsIAccessible::ROLE_LAST_ENTRY
 };

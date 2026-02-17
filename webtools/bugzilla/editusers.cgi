@@ -410,8 +410,6 @@ if ($action eq 'search') {
                  ($otherUserID, $userid,
                   get_field_id('bug_group'),
                   join(', ', @groupsRemovedFrom), join(', ', @groupsAddedTo)));
-        $dbh->do('UPDATE profiles SET refreshed_when=? WHERE userid = ?',
-                 undef, ('1900-01-01 00:00:00', $otherUserID));
     }
     # XXX: should create profiles_activity entries for blesser changes.
 
@@ -567,10 +565,8 @@ if ($action eq 'search') {
     Bugzilla->logout_user($otherUser);
 
     # Get the named query list so we can delete namedquery_group_map entries.
-    my $namedqueries_as_string = join(', ', $dbh->selectcol_arrayref(
-        'SELECT id FROM namedqueries WHERE userid = ?',
-        undef,
-        $otherUserID));
+    my $namedqueries_as_string = join(', ', @{$dbh->selectcol_arrayref(
+        'SELECT id FROM namedqueries WHERE userid = ?', undef, $otherUserID)});
 
     # Get the timestamp for LogActivityEntry.
     my $timestamp = $dbh->selectrow_array('SELECT NOW()');

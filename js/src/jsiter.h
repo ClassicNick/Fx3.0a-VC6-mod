@@ -45,10 +45,9 @@
 #include "jsprvtd.h"
 #include "jspubtd.h"
 
-#define JSITER_FOREACH  0x1     /* return [key, value] pair rather than key */
-#define JSITER_COMPAT   0x2     /* compatibility flag for old XDR'd bytecode */
-#define JSITER_HIDDEN   0x4     /* internal iterator hidden from user view */
-#define JSITER_KEYVALUE 0x8     /* destructuring for-in wants [key, value] */
+#define JSITER_ENUMERATE  0x1   /* for-in compatible hidden default iterator */
+#define JSITER_FOREACH    0x2   /* return [key, value] pair rather than key */
+#define JSITER_KEYVALUE   0x4   /* destructuring for-in wants [key, value] */
 
 extern JSBool
 js_NewNativeIterator(JSContext *cx, JSObject *obj, uintN flags, jsval *vp);
@@ -96,7 +95,10 @@ js_ThrowStopIteration(JSContext *cx, JSObject *obj);
 extern JSObject *
 js_NewGenerator(JSContext *cx, JSStackFrame *fp);
 
-extern JSExtendedClass  js_GeneratorClass;
+extern JSBool
+js_CloseGeneratorObject(JSContext *cx, JSObject *obj);
+
+extern JSClass          js_GeneratorClass;
 extern JSClass          js_IteratorClass;
 extern JSClass          js_StopIterationClass;
 extern JSClass          js_GeneratorExitClass;

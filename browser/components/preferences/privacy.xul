@@ -65,8 +65,10 @@
       <!-- History -->
       <preference id="browser.history_expire_days"
                   name="browser.history_expire_days"
-                  type="int"
-                  onchange="gPrivacyPane.historyDaysPrefChanged();"/>
+                  type="int"/>
+      <preference id="browser.history_expire_days.mirror"
+                  name="browser.history_expire_days.mirror"
+                  type="int"/>
       <preference id="browser.formfill.enable"
                   name="browser.formfill.enable"
                   type="bool"/>
@@ -80,7 +82,13 @@
       <preference id="network.cookie.blockFutureCookies"  name="network.cookie.blockFutureCookies"  type="bool"/>
 
       <!-- Clear Private Data -->
-      <preference id="privacy.sanitize.sanitizeOnShutdown" name="privacy.sanitize.sanitizeOnShutdown" type="bool"/>
+      <preference id="privacy.sanitize.sanitizeOnShutdown"
+                  name="privacy.sanitize.sanitizeOnShutdown"
+                  type="bool"/>
+      <preference id="privacy.sanitize.promptOnSanitize"
+                  name="privacy.sanitize.promptOnSanitize"
+                  type="bool"
+                  onchange="gPrivacyPane.updateClearNowButtonLabel();"/>
 
     </preferences>
     
@@ -89,16 +97,20 @@
     <script type="application/x-javascript" src="chrome://browser/content/preferences/privacy.js"/>
 
     <!-- History -->
-    <groupbox id="historyGroup">
+    <groupbox id="historyGroup"
+              xmlns:xhtml2="http://www.w3.org/TR/xhtml2"
+              xmlns:wairole="http://www.w3.org/2005/01/wai-rdf/GUIRoleTaxonomy#"
+              xmlns:aaa="http://www.w3.org/2005/07/aaa">
       <caption label="&history.label;"/>
 
-      <hbox id="historyBox" align="center">
+      <hbox id="historyBox" align="center" xhtml2:role="wairole:label">
         <checkbox id="rememberHistoryDays"
                   label="&rememberBefore.label;"
                   accesskey="&rememberBefore.accesskey;"
-                  onchange="gPrivacyPane.onchangeHistoryDaysCheckbox();"/>
-        <textbox id="historyDays" size="2"
-                 onkeyup="gPrivacyPane.changeHistoryDays();"/>
+                  oncommand="gPrivacyPane.onchangeHistoryDaysCheck();"/>
+        <textbox id="historyDays" size="3"
+                 xhtml2:role="wairole:textfield"
+                 aaa:labelledby="historyBox"/>
         <label>&rememberAfter.label;</label>
       </hbox>
       <checkbox id="rememberForms"
@@ -128,8 +140,8 @@
                 preference="pref.privacy.disable_button.cookie_exceptions"/>
       </hbox>
       <hbox id="keepRow">
-        <hbox id="keepBox" align="center">
-          <label id="keepUntil" class="indent"
+        <hbox id="keepBox" align="center" class="indent">
+          <label id="keepUntil"
                  control="keepCookiesUntil"
                  accesskey="&keepUntil.accesskey;">&keepUntil.label;</label>
           <menulist id="keepCookiesUntil"
@@ -162,7 +174,11 @@
                 accesskey="&clearDataSettings.accesskey;"
                 oncommand="gPrivacyPane.showClearPrivateDataSettings();"/>
       </hbox>
-      <hbox align="right">
+      <hbox id="askClearBox">
+        <checkbox id="askBeforeClear" flex="1"
+                  preference="privacy.sanitize.promptOnSanitize"
+                  label="&askBeforeClear.label;"
+                  accesskey="&askBeforeClear.accesskey;"/>
         <button id="clearDataNow"
                 label1="&clearDataNow.label;"
                 label2="&clearDataNow.label2;"

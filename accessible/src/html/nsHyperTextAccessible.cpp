@@ -222,52 +222,53 @@ nsIFrame* nsHyperTextAccessible::GetPosAndText(PRInt32& aStartOffset, PRInt32& a
   while (NextChild(accessible)) {
     nsCOMPtr<nsPIAccessNode> accessNode(do_QueryInterface(accessible));
     nsIFrame *frame = accessNode->GetFrame();
+    if (!frame) {
+      continue;
+    }
     if (Role(accessible) == ROLE_TEXT_LEAF) {
-      if (frame) {
-        // Avoid string copies
-        PRInt32 substringEndOffset = frame->GetContent()->TextLength();
-        if (startOffset < substringEndOffset) {
-          // Our start is within this substring
-          // XXX Can we somehow optimize further by getting the nsTextFragment
-          // and use CopyTo to a PRUnichar buffer to copy it directly to
-          // the string?
-          nsAutoString newText;
-          frame->GetContent()->AppendTextTo(newText);
-          if (startOffset > 0 || endOffset < substringEndOffset) {
-            // XXX the Substring operation is efficient, but does the 
-            // reassignment to the original nsAutoString cause a copy?
-            if (endOffset < substringEndOffset) {
-              // Don't take entire substring: stop before the end
-              substringEndOffset = endOffset;
-            }
-            if (aText) {
-              newText = Substring(newText, startOffset,
-                                  substringEndOffset - startOffset);
-            }
-            if (aEndFrame) {
-              *aEndFrame = frame; // We ended in the current frame
-            }
-            aEndOffset = endOffset;
+      // Avoid string copies
+      PRInt32 substringEndOffset = frame->GetContent()->TextLength();
+      if (startOffset < substringEndOffset) {
+        // Our start is within this substring
+        // XXX Can we somehow optimize further by getting the nsTextFragment
+        // and use CopyTo to a PRUnichar buffer to copy it directly to
+        // the string?
+        nsAutoString newText;
+        frame->GetContent()->AppendTextTo(newText);
+        if (startOffset > 0 || endOffset < substringEndOffset) {
+          // XXX the Substring operation is efficient, but does the 
+          // reassignment to the original nsAutoString cause a copy?
+          if (endOffset < substringEndOffset) {
+            // Don't take entire substring: stop before the end
+            substringEndOffset = endOffset;
           }
           if (aText) {
-            if (frame && !frame->GetStyleText()->WhiteSpaceIsSignificant()) {
-              // Replace \r\n\t in markup with space unless in this is
-              // preformatted text  where those characters are significant
-              newText.ReplaceChar("\r\n\t", ' ');
-            }
-            *aText += newText;
+            newText = Substring(newText, startOffset,
+                                substringEndOffset - startOffset);
           }
-          if (!startFrame) {
-            startFrame = frame;
-            aStartOffset = startOffset;
+          if (aEndFrame) {
+            *aEndFrame = frame; // We ended in the current frame
           }
-          startOffset = 0;
+          aEndOffset = endOffset;
         }
-        else {
-          startOffset -= substringEndOffset;
+        if (aText) {
+          if (!frame->GetStyleText()->WhiteSpaceIsSignificant()) {
+            // Replace \r\n\t in markup with space unless in this is
+            // preformatted text  where those characters are significant
+            newText.ReplaceChar("\r\n\t", ' ');
+          }
+          *aText += newText;
         }
-        endOffset -= substringEndOffset;
+        if (!startFrame) {
+          startFrame = frame;
+          aStartOffset = startOffset;
+        }
+        startOffset = 0;
       }
+      else {
+        startOffset -= substringEndOffset;
+      }
+      endOffset -= substringEndOffset;
     }
     else {
       // Embedded object, append marker
@@ -683,8 +684,12 @@ NS_IMETHODIMP nsHyperTextAccessible::GetCharacterExtents(PRInt32 aOffset, PRInt3
     //add the width of the string before current char
     nsPoint pt;
     rv = frame->GetPointFromOffset(context, rc, aOffset, &pt);
-    NS_ENSURE_TRUE(rv, rv);
+    NS_ENSURE_SUCCESS(rv, rv);
     frameScreenRect.x += NSTwipsToIntPixels(pt.x, t2p);
+  }
+  else {
+    *aWidth  = frameScreenRect.width;
+    *aHeight = frameScreenRect.height;
   }
 
   *aX = frameScreenRect.x;
@@ -845,15 +850,17 @@ NS_IMETHODIMP nsHyperTextAccessible::GetLink(PRInt32 aIndex, nsIAccessibleHyperL
 
 NS_IMETHODIMP nsHyperTextAccessible::GetLinkIndex(PRInt32 aCharIndex, PRInt32 *aLinkIndex)
 {
-  *aLinkIndex = -1;
+  *aLinkIndex = -1; // API says this magic value means 'not found'
+
   PRInt32 characterCount = 0;
+  PRInt32 linkIndex = 0;
   if (!mDOMNode) {
     return NS_ERROR_FAILURE;
   }
 
   nsCOMPtr<nsIAccessible> accessible;
 
-  while (NextChild(accessible)) {
+  while (NextChild(accessible) && characterCount < aCharIndex) {
     PRUint32 role = Role(accessible);
     if (role == ROLE_TEXT_LEAF) {
       nsCOMPtr<nsPIAccessNode> accessNode(do_QueryInterface(accessible));
@@ -863,54 +870,16 @@ NS_IMETHODIMP nsHyperTextAccessible::GetLinkIndex(PRInt32 aCharIndex, PRInt32 *a
       }
     }
     else {
-      if (characterCount == aCharIndex) {
-        return NS_OK;
+      if (characterCount ++ == aCharIndex) {
+        *aLinkIndex = linkIndex;
+        break;
       }
-      else if (characterCount > aCharIndex) {
-        return NS_ERROR_FAILURE;
-      }
-      ++ characterCount;
       if (role != ROLE_WHITESPACE) {
-        ++ *aLinkIndex;
+        ++ linkIndex;
       }
     }
   }
-  return NS_ERROR_FAILURE;
-}
-
-NS_IMETHODIMP nsHyperTextAccessible::GetSelectedLinkIndex(PRInt32 *aSelectedLinkIndex)
-{
-  *aSelectedLinkIndex = 0;
-  if (!mDOMNode && !nsAccessNode::gLastFocusedNode) {
-    return NS_ERROR_FAILURE;
-  }
-  nsCOMPtr<nsIAccessible> focusedAccessible;
-
-  nsCOMPtr<nsIAccessibilityService> accService(do_GetService("@mozilla.org/accessibilityService;1"));
-  if (NS_FAILED(accService->GetAccessibleInWeakShell(nsAccessNode::gLastFocusedNode, mWeakShell,
-                                                     getter_AddRefs(focusedAccessible)))) {
-    return NS_ERROR_FAILURE;
-  }
-
-  // Make sure focused accessible is a child of ours before doing a lot of work
-  nsCOMPtr<nsIAccessible> focusedParent;
-  focusedAccessible->GetParent(getter_AddRefs(focusedParent));
-  if (focusedParent != this) {
-    return NS_ERROR_FAILURE;
-  }
-
-  nsCOMPtr<nsIAccessible> accessible;
-
-  while (NextChild(accessible)) {
-    if (accessible == focusedAccessible) {
-      return NS_OK;
-    }
-    if (!IsEmbeddedObject(accessible)) {
-      ++ *aSelectedLinkIndex;
-    }
-  }
-  NS_NOTREACHED("Should not reach here, focus of parent was this accessible");
-  return NS_ERROR_FAILURE;
+  return NS_OK;
 }
 
 /**

@@ -243,7 +243,7 @@ pref("print.print_edge_bottom", 0); // 1/100 of an inch
 // Pref used by the spellchecker extension to control the 
 // maximum number of misspelled words that will be underlined
 // in a document.
-pref("extensions.spellcheck.inline.max-misspellings", 250);
+pref("extensions.spellcheck.inline.max-misspellings", 500);
 
 // Prefs used by libeditor. Prefs specific to seamonkey composer
 // belong in mozilla/editor/ui/composer.js
@@ -279,7 +279,6 @@ pref("capability.policy.default.History.next", "UniversalBrowserRead");
 pref("capability.policy.default.History.previous", "UniversalBrowserRead");
 pref("capability.policy.default.History.toString", "UniversalBrowserRead");
 
-pref("capability.policy.default.HTMLDocument.close.get", "allAccess");
 pref("capability.policy.default.HTMLDocument.open.get", "allAccess");
 
 pref("capability.policy.default.Location.hash.set", "allAccess");

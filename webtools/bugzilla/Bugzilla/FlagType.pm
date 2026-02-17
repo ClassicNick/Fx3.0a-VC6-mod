@@ -235,11 +235,12 @@ sub request_group {
 sub flag_count {
     my $self = shift;
 
-    if (!defined $self->{'bug_count'}) {
-        $self->{'bug_count'} =
+    if (!defined $self->{'flag_count'}) {
+        $self->{'flag_count'} =
             Bugzilla->dbh->selectrow_array('SELECT COUNT(*) FROM flags
                                             WHERE type_id = ?', undef, $self->{'id'});
     }
+    return $self->{'flag_count'};
 }
 
 sub inclusions {

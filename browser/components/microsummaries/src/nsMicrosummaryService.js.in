@@ -608,25 +608,6 @@ MicrosummaryService.prototype = {
                         true);
     }
 
-    // If we're setting the generator URI field, make sure the bookmark's
-    // RDF type is set to the microsummary bookmark type.
-    if (fieldName == FIELD_MICSUM_GEN_URI &&
-        this._getField(bookmarkID, FIELD_RDF_TYPE) != VALUE_MICSUM_BOOKMARK) {
-      if (this._hasField(bookmarkID, FIELD_RDF_TYPE)) {
-        oldValue = this._getField(bookmarkID, FIELD_RDF_TYPE);
-        this._bmds.Change(bookmarkResource,
-                          this._resource(FIELD_RDF_TYPE),
-                          this._resource(oldValue),
-                          this._resource(VALUE_MICSUM_BOOKMARK));
-      }
-      else {
-        this._bmds.Assert(bookmarkResource,
-                          this._resource(FIELD_RDF_TYPE),
-                          this._resource(VALUE_MICSUM_BOOKMARK),
-                          true);
-      }
-    }
-
     // If we're setting a field that could affect this bookmark's label,
     // then force all bookmark trees to rebuild from scratch.
     if (fieldName == FIELD_MICSUM_GEN_URI || fieldName == FIELD_GENERATED_TITLE)
@@ -644,15 +625,6 @@ MicrosummaryService.prototype = {
                           this._resource(fieldName),
                           node);
     }
-
-    // If we're clearing the generator URI field, set the bookmark's RDF type
-    // back to the normal bookmark type.
-    if (fieldName == FIELD_MICSUM_GEN_URI &&
-        this._getField(bookmarkID, FIELD_RDF_TYPE) == VALUE_MICSUM_BOOKMARK)
-      this._bmds.Change(bookmarkResource,
-                        this._resource(FIELD_RDF_TYPE),
-                        this._resource(VALUE_MICSUM_BOOKMARK),
-                        this._resource(VALUE_NORMAL_BOOKMARK));
 
     // If we're clearing a field that could affect this bookmark's label,
     // then force all bookmark trees to rebuild from scratch.
@@ -775,11 +747,39 @@ MicrosummaryService.prototype = {
    *
    */
   setMicrosummary: function MSS_setMicrosummary(bookmarkID, microsummary) {
+#ifndef MOZ_PLACES
+    // Make sure that the bookmark is of type MicsumBookmark
+    // because that's what the template rules are matching
+    if (this._getField(bookmarkID, FIELD_RDF_TYPE) != VALUE_MICSUM_BOOKMARK) {
+      var bookmarkResource = bookmarkID.QueryInterface(Ci.nsIRDFResource);
+      if (this._hasField(bookmarkID, FIELD_RDF_TYPE)) {
+        var oldValue = this._getField(bookmarkID, FIELD_RDF_TYPE);
+        this._bmds.Change(bookmarkResource,
+                          this._resource(FIELD_RDF_TYPE),
+                          this._resource(oldValue),
+                          this._resource(VALUE_MICSUM_BOOKMARK));
+      }
+      else {
+        this._bmds.Assert(bookmarkResource,
+                          this._resource(FIELD_RDF_TYPE),
+                          this._resource(VALUE_MICSUM_BOOKMARK),
+                          true);
+      }
+    }
+#endif
     this._setField(bookmarkID, FIELD_MICSUM_GEN_URI, microsummary.generator.uri.spec);
-    if (microsummary.content)
+
+    if (microsummary.content) {
       this._updateMicrosummary(bookmarkID, microsummary);
-    else
+    }
+    else {
+      // Display a static title initially (unless there's already one set)
+      if (!this._getField(bookmarkID, FIELD_GENERATED_TITLE))
+        this._setField(bookmarkID, FIELD_GENERATED_TITLE,
+                       microsummary.generator.name || microsummary.generator.uri.spec);
+
       this.refreshMicrosummary(bookmarkID);
+    }
   },
 
   /**
@@ -790,6 +790,17 @@ MicrosummaryService.prototype = {
    *
    */
   removeMicrosummary: function MSS_removeMicrosummary(bookmarkID) {
+#ifndef MOZ_PLACES
+    // Set the bookmark's RDF type back to the normal bookmark type
+    if (this._getField(bookmarkID, FIELD_RDF_TYPE) == VALUE_MICSUM_BOOKMARK) {
+      var bookmarkResource = bookmarkID.QueryInterface(Ci.nsIRDFResource);
+      this._bmds.Change(bookmarkResource,
+                        this._resource(FIELD_RDF_TYPE),
+                        this._resource(VALUE_MICSUM_BOOKMARK),
+                        this._resource(VALUE_NORMAL_BOOKMARK));
+    }
+#endif
+
     var fields = [FIELD_MICSUM_GEN_URI,
                   FIELD_MICSUM_EXPIRATION,
                   FIELD_GENERATED_TITLE,
@@ -1207,10 +1218,8 @@ MicrosummaryGenerator.prototype = {
     // in the microsummaries namespace, regardless of whether or not
     // it's the root element.  Should it matter?
     var generatorNode = xmlDocument.getElementsByTagNameNS(MICSUM_NS, "generator")[0];
-    // XXX We should throw instead of returning if the file doesn't contain
-    // a generator.
     if (!generatorNode)
-      return;
+      throw Components.results.NS_ERROR_FAILURE;
 
     this.name = generatorNode.getAttribute("name");
 
@@ -1223,11 +1232,21 @@ MicrosummaryGenerator.prototype = {
                  this.localURI; // locally created generator without sourceURI
     }
 
+    function getFirstChildByTagName(tagName, parentNode, namespace) {
+      var nodeList = parentNode.getElementsByTagNameNS(namespace, tagName);
+      for (var i = 0; i < nodeList.length; i++) {
+        // Make sure that the node is a direct descendent of the generator node
+        if (nodeList[i].parentNode == parentNode)
+          return nodeList[i];
+      }
+      return null;
+    }
+
     // Slurp the include/exclude rules that determine the pages to which
     // this generator applies.  Order is important, so we add the rules
     // in the order in which they appear in the XML.
     this._rules = [];
-    var pages = generatorNode.getElementsByTagNameNS(MICSUM_NS, "pages")[0];
+    var pages = getFirstChildByTagName("pages", generatorNode, MICSUM_NS);
     if (pages) {
       // XXX Make sure the pages tag exists.
       for ( var i = 0; i < pages.childNodes.length ; i++ ) {
@@ -1243,7 +1262,7 @@ MicrosummaryGenerator.prototype = {
 
     // allow the generators to set individual update values (even varying
     // depending on certain XPath expressions)
-    var update = generatorNode.getElementsByTagNameNS(MICSUM_NS, "update")[0] || null;
+    var update = getFirstChildByTagName("update", generatorNode, MICSUM_NS);
     if (update) {
       function _parseInterval(string) {
         // convert from minute fractions to milliseconds
@@ -1273,12 +1292,12 @@ MicrosummaryGenerator.prototype = {
       }
     }
 
-    var templateNode = generatorNode.getElementsByTagNameNS(MICSUM_NS, "template")[0];
+    var templateNode = getFirstChildByTagName("template", generatorNode, MICSUM_NS);
     if (templateNode) {
-      this.template = templateNode.getElementsByTagNameNS(XSLT_NS, "transform")[0]
-                      || templateNode.getElementsByTagNameNS(XSLT_NS, "stylesheet")[0];
+      this.template = getFirstChildByTagName("transform", templateNode, XSLT_NS) ||
+                      getFirstChildByTagName("stylesheet", templateNode, XSLT_NS);
     }
-      // XXX Make sure the template is a valid XSL transform sheet.
+    // XXX Make sure the template is a valid XSL transform sheet.
 
     this.loaded = true;
   },
@@ -1625,6 +1644,100 @@ MicrosummaryResource.prototype = {
   // A hidden iframe to parse HTML content.
   _iframe: null,
 
+  // Implement notification callback interfaces so we can suppress UI
+  // and abort loads for bad SSL certs and HTTP authorization requests.
+  
+  // Interfaces this component implements.
+  interfaces: [Ci.nsIBadCertListener,
+               Ci.nsIAuthPromptProvider,
+               Ci.nsIAuthPrompt,
+               Ci.nsIProgressEventSink,
+               Ci.nsIInterfaceRequestor,
+               Ci.nsISupports],
+
+  // nsISupports
+
+  QueryInterface: function MSR_QueryInterface(iid) {
+    if (!this.interfaces.some( function(v) { return iid.equals(v) } ))
+      throw Components.results.NS_ERROR_NO_INTERFACE;
+
+    return this;
+  },
+
+  // nsIInterfaceRequestor
+  
+  getInterface: function MSR_getInterface(iid) {
+    return this.QueryInterface(iid);
+  },
+
+  // nsIBadCertListener
+
+  // Suppress UI and abort secure loads from servers with bad SSL certificates.
+  
+  confirmUnknownIssuer: function MSR_confirmUnknownIssuer(socketInfo, cert, certAddType) {
+    return false;
+  },
+
+  confirmMismatchDomain: function MSR_confirmMismatchDomain(socketInfo, targetURL, cert) {
+    return false;
+  },
+
+  confirmCertExpired: function MSR_confirmCertExpired(socketInfo, cert) {
+    return false;
+  },
+
+  notifyCrlNextupdate: function MSR_notifyCrlNextupdate(socketInfo, targetURL, cert) {
+  },
+
+  // nsIAuthPromptProvider
+  
+  // Suppress UI and abort loads for files secured by HTTP authentication.
+
+  // HTTP auth requests appear to succeed when we cancel them (since the server
+  // redirects us to a "you're not authorized" page), so we have to set a flag
+  // to let the load handler know to treat the load as a failure.
+  __httpAuthFailed: false,
+  get _httpAuthFailed()         { return this.__httpAuthFailed },
+  set _httpAuthFailed(newValue) { this.__httpAuthFailed = newValue },
+
+  getAuthPrompt: function(aPromptReason) {
+    this._httpAuthFailed = true;
+    throw Components.results.NS_ERROR_NOT_AVAILABLE;
+  },
+
+  // nsIAuthPrompt
+
+  // XXX If necko always requests nsIAuthPromptProvider before requesting
+  // nsIAuthPrompt, then we probably only have to implement the provider.
+
+  prompt: function(dialogTitle, text, passwordRealm, savePassword, defaultText, result) {
+    this._httpAuthFailed = true;
+    return false;
+  },
+
+  promptUsernameAndPassword: function(dialogTitle, text, passwordRealm, savePassword, user, pwd) {
+    this._httpAuthFailed = true;
+    return false;
+  },
+
+  promptPassword: function(dialogTitle, text, passwordRealm, savePassword, pwd) {
+    this._httpAuthFailed = true;
+    return false;
+  },
+
+  // XXX We implement nsIProgressEventSink because otherwise bug 253127
+  // would cause too many extraneous errors to get reported to the console.
+  // Fortunately this doesn't screw up XMLHttpRequest, because it ensures
+  // that its implementation of nsIProgressEventSink will always get called
+  // in addition to whatever notification callbacks we set on the channel
+  // (this is not true for most other interfaces, so we should be conservative
+  // about what we implement/override, even in the face of bug 253127).
+
+  // nsIProgressEventSink
+
+  onProgress: function(aRequest, aContext, aProgress, aProgressMax) {},
+  onStatus: function(aRequest, aContext, aStatus, aStatusArg) {},
+
   /**
    * Initialize the resource from an existing DOM document object.
    * 
@@ -1654,6 +1767,8 @@ MicrosummaryResource.prototype = {
     this._uri = null;
     this._content = null;
     this._callback = null;
+    this._loadTimer = null;
+    this._httpAuthFailed = false;
     if (this._iframe) {
       if (this._iframe && this._iframe.parentNode)
         this._iframe.parentNode.removeChild(this._iframe);
@@ -1678,18 +1793,75 @@ MicrosummaryResource.prototype = {
     var loadHandler = {
       _self: this,
       handleEvent: function MSR_loadHandler_handleEvent(event) {
-        event.target.removeEventListener("load", this, false);
-        try     { this._self._handleLoad(event) }
+        if (this._self._loadTimer)
+          this._self._loadTimer.cancel();
+
+        if (this._self._httpAuthFailed) {
+          // Technically the request succeeded, but we treat it as a failure,
+          // since we aren't able to handle HTTP authentication.  So we abort
+          // just like errorHandler does for other kinds of load failures.
+          LOG(this._self.uri.spec + " load failed; HTTP auth required");
+          try     { this._self.destroy() }
+          finally { this._self = null }
+        }
+        else {
+          LOG(this._self.uri.spec + " load succeeded; invoking callback");
+          try     { this._self._handleLoad(event) }
+          finally { this._self = null }
+        }
+      }
+    };
+
+    // At the moment the only thing we do after a load error is destroy
+    // ourselves to prevent memory leaks, but we should ultimately notify
+    // the caller and let it handle the error if it wants to.
+    var errorHandler = {
+      _self: this,
+      handleEvent: function MSR_errorHandler_handleEvent(event) {
+        if (this._self._loadTimer)
+          this._self._loadTimer.cancel();
+
+        LOG(this._self.uri.spec + " load failed");
+        try     { this._self.destroy() }
         finally { this._self = null }
       }
     };
 
+    // cancel loads that take too long
+    // timeout specified in seconds at browser.microsummary.requestTimeout, or 10 seconds
+    var timeout = 10 * 1000;
+    try {
+      var pb = Cc["@mozilla.org/preferences-service;1"].
+               getService(Ci.nsIPrefBranch);
+      timeout = pb.getIntPref("browser.microsummary.requestTimeout") * 1000;
+    }
+    catch (ex) {}
+
+    var timerObserver = {
+      _self: this,
+      observe: function MSR_timerObserver_observe() {
+        LOG("timeout loading microsummary resource " + this._self.uri.spec + ", aborting request");
+        request.abort();
+        try     { this._self.destroy() }
+        finally { this._self = null }
+      }
+    };
+    this._loadTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+    this._loadTimer.init(timerObserver, timeout, Ci.nsITimer.TYPE_ONE_SHOT);
+
     request = request.QueryInterface(Ci.nsIDOMEventTarget);
     request.addEventListener("load", loadHandler, false);
+    request.addEventListener("error", errorHandler, false);
     
     request = request.QueryInterface(Ci.nsIXMLHttpRequest);
     request.open("GET", this.uri.spec, true);
     request.setRequestHeader("X-Moz", "microsummary");
+
+    // Register ourselves as a listener for notification callbacks so we
+    // can handle authorization requests and SSL issues like cert mismatches.
+    // XMLHttpRequest will handle the notifications we don't handle.
+    request.channel.notificationCallbacks = this;
+
     request.send(null);
   },
 

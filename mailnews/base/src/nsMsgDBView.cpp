@@ -1755,11 +1755,7 @@ NS_IMETHODIMP nsMsgDBView::Open(nsIMsgFolder *folder, nsMsgViewSortTypeValue sor
     m_folder = folder;
     m_viewFolder = folder;
 
-    PRUint32 seconds;
-    PRTime2Seconds(PR_Now(), &seconds);
-    nsCAutoString nowStr;
-    nowStr.AppendInt(seconds);
-    m_folder->SetStringProperty(MRU_TIME_PROPERTY, nowStr.get());
+    SetMRUTimeForFolder(m_folder);
 
     // determine if we are in a news folder or not.
     // if yes, we'll show lines instead of size, and special icons in the thread pane
@@ -2102,9 +2098,8 @@ NS_IMETHODIMP nsMsgDBView::DoCommand(nsMsgViewCommandTypeValue command)
 
 PRBool nsMsgDBView::ServerSupportsFilterAfterTheFact()
 {
-  NS_ASSERTION(m_folder, "no folder!");
-  if (!m_folder)
-    return PR_FALSE; // unexpected
+  if (!m_folder)  // cross folder virtual folders might not have a folder set.
+    return PR_FALSE; 
 
   // can't manually run news filters yet
   if (mIsNews)
@@ -4178,7 +4173,10 @@ nsMsgViewIndex nsMsgDBView::GetInsertIndexHelper(nsIMsgDBHdr *msgHdr, nsMsgKeyAr
     nsMsgViewIndex tryIndex = (lowIndex + highIndex - 1) / 2;
     EntryInfo2.id = keys->GetAt(tryIndex);
     nsCOMPtr <nsIMsgDBHdr> tryHdr;
-    rv = m_db->GetMsgHdrForKey(EntryInfo2.id, getter_AddRefs(tryHdr));
+    nsCOMPtr <nsIMsgDatabase> db;
+    GetDBForViewIndex(tryIndex, getter_AddRefs(db));
+    if (db)
+      rv = db->GetMsgHdrForKey(EntryInfo2.id, getter_AddRefs(tryHdr));
     if (!tryHdr)
       break;
     if (fieldType == kCollationKey)
@@ -4886,7 +4884,7 @@ nsresult nsMsgDBView::NavigateFromPos(nsMsgNavigationTypeValue motion, nsMsgView
                 PRUint32 flags = m_flags.GetAt(curIndex);
 
                 // don't return start index since navigate should move
-                if (!(flags & MSG_FLAG_READ) && (curIndex != startIndex)) 
+                if (!(flags & (MSG_FLAG_READ | MSG_VIEW_FLAG_DUMMY)) && (curIndex != startIndex)) 
                 {
                     *pResultIndex = curIndex;
                     *pResultKey = m_keys.GetAt(*pResultIndex);
@@ -5126,57 +5124,6 @@ nsresult nsMsgDBView::FindFirstNew(nsMsgViewIndex *pResultIndex)
   return NS_OK;
 }
 
-// Generic routine to find next unread id. It doesn't do an expand of a
-// thread with new messages, so it can't return a view index.
-nsresult nsMsgDBView::FindNextUnread(nsMsgKey startId, nsMsgKey *pResultKey,
-                                     nsMsgKey *resultThreadId)
-{
-    nsMsgViewIndex startIndex = FindViewIndex(startId);
-    nsMsgViewIndex curIndex = startIndex;
-    nsMsgViewIndex lastIndex = (nsMsgViewIndex) GetSize() - 1;
-    nsresult rv = NS_OK;
-
-    if (startIndex == nsMsgViewIndex_None)
-        return NS_MSG_MESSAGE_NOT_FOUND;
-
-    *pResultKey = nsMsgKey_None;
-    if (resultThreadId)
-        *resultThreadId = nsMsgKey_None;
-
-    for (; curIndex <= lastIndex && (*pResultKey == nsMsgKey_None); curIndex++) 
-    {
-        char    flags = m_flags.GetAt(curIndex);
-
-        if (!(flags & MSG_FLAG_READ) && (curIndex != startIndex)) 
-        {
-            *pResultKey = m_keys.GetAt(curIndex);
-            break;
-        }
-        // check for collapsed thread with unread children
-        if ((m_viewFlags & nsMsgViewFlagsType::kThreadedDisplay) && flags & MSG_VIEW_FLAG_ISTHREAD && flags & MSG_FLAG_ELIDED) 
-        {
-            nsCOMPtr<nsIMsgThread> thread;
-            //nsMsgKey threadId = m_keys.GetAt(curIndex);
-            rv = GetThreadFromMsgIndex(curIndex, getter_AddRefs(thread));
-            if (NS_SUCCEEDED(rv) && thread) 
-            {
-              nsCOMPtr <nsIMsgDBHdr> unreadChild;
-              rv = thread->GetFirstUnreadChild(getter_AddRefs(unreadChild));
-              if (NS_SUCCEEDED(rv) && unreadChild)
-                unreadChild->GetMessageKey(pResultKey);
-            }
-            //rv = m_db->GetUnreadKeyInThread(threadId, pResultKey, resultThreadId);
-            if (NS_SUCCEEDED(rv) && (*pResultKey != nsMsgKey_None))
-                break;
-        }
-    }
-    // found unread message but we don't know the thread
-    NS_ASSERTION(!(*pResultKey != nsMsgKey_None && resultThreadId && *resultThreadId == nsMsgKey_None),
-      "fix this");
-    return rv;
-}
-
-
 nsresult nsMsgDBView::FindPrevUnread(nsMsgKey startKey, nsMsgKey *pResultKey,
                                      nsMsgKey *resultThreadId)
 {
@@ -5203,7 +5150,7 @@ nsresult nsMsgDBView::FindPrevUnread(nsMsgKey startKey, nsMsgKey *pResultKey,
             if (NS_SUCCEEDED(rv) && (*pResultKey != nsMsgKey_None))
                 break;
         }
-        if (!(flags & MSG_FLAG_READ) && (curIndex != startIndex)) 
+        if (!(flags & (MSG_FLAG_READ | MSG_VIEW_FLAG_DUMMY)) && (curIndex != startIndex)) 
         {
             *pResultKey = m_keys.GetAt(curIndex);
             rv = NS_OK;
@@ -5865,4 +5812,13 @@ nsresult nsMsgDBView::InitDisplayFormats()
   getDateFormatPref( dateFormatPrefs, "thisweek", m_dateFormatThisWeek );
   getDateFormatPref( dateFormatPrefs, "today", m_dateFormatToday );
   return rv;
+}
+
+void nsMsgDBView::SetMRUTimeForFolder(nsIMsgFolder *folder)
+{
+  PRUint32 seconds;
+  PRTime2Seconds(PR_Now(), &seconds);
+  nsCAutoString nowStr;
+  nowStr.AppendInt(seconds);
+  folder->SetStringProperty(MRU_TIME_PROPERTY, nowStr.get());
 }

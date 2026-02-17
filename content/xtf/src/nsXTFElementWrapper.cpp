@@ -226,24 +226,6 @@ nsXTFElementWrapper::InsertChildAt(nsIContent* aKid, PRUint32 aIndex,
 }
 
 nsresult
-nsXTFElementWrapper::AppendChildTo(nsIContent* aKid, PRBool aNotify)
-{
-  nsresult rv;
-
-  nsCOMPtr<nsIDOMNode> domKid;
-  if (mNotificationMask & (nsIXTFElement::NOTIFY_WILL_APPEND_CHILD |
-                           nsIXTFElement::NOTIFY_CHILD_APPENDED))
-    domKid = do_QueryInterface(aKid);
-  
-  if (mNotificationMask & nsIXTFElement::NOTIFY_WILL_APPEND_CHILD)
-    GetXTFElement()->WillAppendChild(domKid);
-  rv = nsXTFElementWrapperBase::AppendChildTo(aKid, aNotify);
-  if (mNotificationMask & nsIXTFElement::NOTIFY_CHILD_APPENDED)
-    GetXTFElement()->ChildAppended(domKid);
-  return rv;
-}
-
-nsresult
 nsXTFElementWrapper::RemoveChildAt(PRUint32 aIndex, PRBool aNotify)
 {
   nsresult rv;
@@ -626,10 +608,14 @@ nsXTFElementWrapper::GetInterfaces(PRUint32 *count, nsIID * **array)
 
 /* nsISupports getHelperForLanguage (in PRUint32 language); */
 NS_IMETHODIMP 
-nsXTFElementWrapper::GetHelperForLanguage(PRUint32 language, nsISupports **_retval)
+nsXTFElementWrapper::GetHelperForLanguage(PRUint32 language,
+                                          nsISupports** aHelper)
 {
-  *_retval = nsnull;
-  return NS_OK;
+  *aHelper = nsnull;
+  nsCOMPtr<nsIClassInfo> ci = 
+    do_QueryInterface(nsContentUtils::GetClassInfoInstance(eDOMClassInfo_Element_id));
+  return
+    ci ? ci->GetHelperForLanguage(language, aHelper) : NS_ERROR_NOT_AVAILABLE;
 }
 
 /* readonly attribute string contractID; */

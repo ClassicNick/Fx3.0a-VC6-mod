@@ -39,6 +39,7 @@ use Litmus::Utils;
 use CGI;
 use Date::Manip;
 
+Litmus->init();
 my $c = Litmus->cgi(); 
 
 my $vars;
@@ -114,7 +115,6 @@ if ($c->param("delete_testcase_button")) {
 } elsif ($c->param("editform_mode")) {
   requireField('summary', $c->param('editform_summary'));
   requireField('product', $c->param('product'));
-  requireField('subgroup', $c->param('subgroup'));
   requireField('author', $c->param('editform_author_id'));
   my $enabled = $c->param('editform_enabled') ? 1 : 0;
   my $community_enabled = $c->param('editform_communityenabled') ? 1 : 0;
@@ -136,8 +136,6 @@ if ($c->param("delete_testcase_button")) {
       Litmus::DB::Testcase->create(\%hash);
 
     if ($new_testcase) {      
-      my @selected_subgroups = $c->param("subgroup");
-      $new_testcase->update_subgroups(\@selected_subgroups);
       $status = "success";
       $message = "Testcase added successfully. New testcase ID# is " . $new_testcase->testcase_id;
       $defaults->{'testcase_id'} = $new_testcase->testcase_id;
@@ -164,8 +162,6 @@ if ($c->param("delete_testcase_button")) {
       $testcase->version($testcase->version + 1);
       $rv = $testcase->update();
       if ($rv) {
-        my @selected_subgroups = $c->param("subgroup");
-        $testcase->update_subgroups(\@selected_subgroups);
         $status = "success";
 	$message = "Testcase ID# $testcase_id updated successfully.";
         $defaults->{'testcase_id'} = $testcase_id;

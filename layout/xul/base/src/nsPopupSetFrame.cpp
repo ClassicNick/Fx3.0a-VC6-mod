@@ -349,7 +349,6 @@ nsPopupSetFrame::ShowPopup(nsIContent* aElementContent, nsIContent* aPopupConten
   entry->mPopupFrame = GetPresContext()->PresShell()
     ->GetPrimaryFrameFor(aPopupContent);
 
-  nsWeakFrame weakPopupFrame(entry->mPopupFrame);
 #ifdef DEBUG_PINK
   printf("X Pos: %d\n", mXPos);
   printf("Y Pos: %d\n", mYPos);
@@ -358,19 +357,27 @@ nsPopupSetFrame::ShowPopup(nsIContent* aElementContent, nsIContent* aPopupConten
   // Generate the popup.
   entry->mCreateHandlerSucceeded = PR_TRUE;
   entry->mIsOpen = PR_TRUE;
-  // This may destroy entry->mPopupFrame
+  // This may destroy or change entry->mPopupFrame or remove the entry from
+  // mPopupList. |this| may also get deleted.
   MarkAsGenerated(aPopupContent);
-
-  // determine if this menu is a context menu and flag it
-  nsIMenuParent* childPopup = nsnull;
-  if (weakPopupFrame.IsAlive())
-    CallQueryInterface(weakPopupFrame.GetFrame(), &childPopup);
-  if ( childPopup && aPopupType.EqualsLiteral("context") )
-    childPopup->SetIsContextMenu(PR_TRUE);
 
   if (!weakFrame.IsAlive()) {
     return NS_OK;
   }
+
+  nsPopupFrameList* newEntry =
+    mPopupList ? mPopupList->GetEntry(aPopupContent) : nsnull;
+  if (!newEntry || newEntry != entry) {
+    NS_WARNING("The popup entry for aPopupContent has changed!");
+    return NS_OK;
+  }
+
+  // determine if this menu is a context menu and flag it
+  nsIMenuParent* childPopup = nsnull;
+  if (entry->mPopupFrame)
+    CallQueryInterface(entry->mPopupFrame, &childPopup);
+  if ( childPopup && aPopupType.EqualsLiteral("context") )
+    childPopup->SetIsContextMenu(PR_TRUE);
 
   // Now open the popup.
   OpenPopup(entry, PR_TRUE);
@@ -430,8 +437,6 @@ nsPopupSetFrame::DestroyPopup(nsIFrame* aPopup, PRBool aDestroyEntireChain)
     OpenPopup(entry, PR_FALSE);
     nsCOMPtr<nsIContent> popupContent = entry->mPopupContent;
     if (weakFrame.IsAlive()) {
-      entry->mPopupType.SetLength(0);
-    
       if (aDestroyEntireChain && entry->mElementContent && entry->mPopupType.EqualsLiteral("context")) {
         // If we are a context menu, and if we are attached to a
         // menupopup, then destroying us should also dismiss the parent
@@ -449,6 +454,7 @@ nsPopupSetFrame::DestroyPopup(nsIFrame* aPopup, PRBool aDestroyEntireChain)
       }
   
       // clear things out for next time
+      entry->mPopupType.Truncate();
       entry->mCreateHandlerSucceeded = PR_FALSE;
       entry->mElementContent = nsnull;
       entry->mXPos = entry->mYPos = 0;

@@ -1499,9 +1499,16 @@ function CCKWriteProperties(destdir)
     str = str.replace(/%startup.homepage_override_url%/g, document.getElementById("HomePageURL").value);
   }
 
-  str = str.replace(/%browser.search.defaultenginename%/g, document.getElementById("defaultSearchEngine").value);
-  str = str.replace(/%browser.search.order.1%/g, document.getElementById("defaultSearchEngine").value);
- 
+  var bundle = document.getElementById("bundle_cckwizard");
+
+  if (document.getElementById("defaultSearchEngine").value != bundle.getString("useBrowserDefault")) {
+    str = str.replace(/%browser.search.defaultenginename%/g, document.getElementById("defaultSearchEngine").value);
+    str = str.replace(/%browser.search.order.1%/g, document.getElementById("defaultSearchEngine").value);
+  } else {
+    str = str.replace(/%browser.search.defaultenginename%/g, "");
+    str = str.replace(/%browser.search.order.1%/g, "");
+  }
+
   str = str.replace(/%PopupAllowedSites%/g, document.getElementById("PopupAllowedSites").value);
   str = str.replace(/%InstallAllowedSites%/g, document.getElementById("InstallAllowedSites").value);
   cos.writeString(str);
@@ -1700,9 +1707,9 @@ function CCKWriteDefaultJS(destdir)
   } else if (overrideurl && overrideurl.length) {
     fos.write(homepage2, homepage2.length);
   }
+  var bundle = document.getElementById("bundle_cckwizard");
 
-  var defaultSearch = document.getElementById("defaultSearchEngine");
-  if (defaultSearch.value != "") {
+  if (document.getElementById("defaultSearchEngine").value != bundle.getString("useBrowserDefault")) {
     fos.write(searchengine1, searchengine1.length);
     fos.write(searchengine2, searchengine2.length);
   }
@@ -1786,6 +1793,17 @@ function CCKWriteDefaultJS(destdir)
         }
       }
       break;
+    case "4":
+      var proxyintegerlist = ["ProxyType"];
+
+      for (i = 0; i < proxyintegerlist.length; i++) {
+        var proxyitem = document.getElementById(proxyintegerlist[i]);
+        if (proxyitem.value.length > 0) {
+          var line = 'pref("' + proxyitem.getAttribute("preference") + '", ' + proxyitem.value + ');\n';
+          fos.write(line, line.length);
+        }
+      }
+      break;      
     case "5":
       var file = Components.classes["@mozilla.org/file/local;1"]
                            .createInstance(Components.interfaces.nsILocalFile);

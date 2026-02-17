@@ -161,18 +161,32 @@ nsTreeBoxObject::GetTreeBody()
 
 NS_IMETHODIMP nsTreeBoxObject::GetView(nsITreeView * *aView)
 {
-  if (!mView && GetTreeBody()) {
+  if (!mTreeBody) {
+    if (!GetTreeBody()) {
+      // Don't return an uninitialised view
+      *aView = nsnull;
+      return NS_OK;
+    }
+
+    if (mView)
+      // Our new frame needs to initialise itself
+      return mTreeBody->GetView(aView);
+  }
+  if (!mView) {
     nsCOMPtr<nsIDOMXULElement> xulele = do_QueryInterface(mContent);
     if (xulele) {
       // See if there is a XUL tree builder associated with the element
       nsCOMPtr<nsIXULTemplateBuilder> builder;
       xulele->GetBuilder(getter_AddRefs(builder));
-      if (builder)
-        mView = do_QueryInterface(builder);
-      else // No tree builder, create a tree content view.
-        NS_NewTreeContentView(getter_AddRefs(mView));
-      NS_ENSURE_TRUE(mView, NS_ERROR_UNEXPECTED);
+      mView = do_QueryInterface(builder);
 
+      if (!mView) {
+        // No tree builder, create a tree content view.
+        nsresult rv = NS_NewTreeContentView(getter_AddRefs(mView));
+        NS_ENSURE_TRUE(rv, rv);
+      }
+
+      // Initialise the frame and view
       mTreeBody->SetView(mView);
     }
   }

@@ -42,7 +42,7 @@
 [
   <!ENTITY % dtd1 SYSTEM "chrome://calendar/locale/global.dtd" >  %dtd1;
   <!ENTITY % dtd2 SYSTEM "chrome://calendar/locale/calendar.dtd" >  %dtd2;
-  <!ENTITY % dtd3 SYSTEM "chrome://calendar/content/sun-calendar-event-dialog.dtd" > %dtd3;
+  <!ENTITY % dtd3 SYSTEM "chrome://calendar/locale/sun-calendar-event-dialog.dtd" > %dtd3;
 ]>
 
 <bindings xmlns="http://www.mozilla.org/xbl"
@@ -54,7 +54,9 @@
     <content>
 
       <xul:box xbl:inherits="orient" flex="1">
-        
+
+        <xul:label id="task-repeat-warning" value="&newtodo.repeatstart.warning;" hidden="true"/>
+
         <!-- recurrence pattern -->
         <xul:groupbox>
           <xul:caption label="&event.recurrence.pattern.label;"/>
@@ -276,6 +278,7 @@
       <field name="mOrganizerID">null</field>
       <field name="mIsReadOnly">false</field>
       <field name="mIsOrganizer">false</field>
+      <field name="mStartDate">null</field>
 
       <constructor>
         <![CDATA[
@@ -296,46 +299,15 @@
             var calendar = item.calendar;
             var recinfo = item.recurrenceInfo;
 
-            // set 'mIsReadOnly' if the calendar is read-only
-            if (calendar && calendar.readOnly)
-              this.mIsReadOnly = true;
-
-            // assume we're the organizer [in case that the calendar
-            // does not support the concept of identities].
-            this.mIsOrganizer = true;
-            
-            try {
-              this.mUserID = "";
-              this.mCalID = "";
-              this.mOrganizerID = "";
-            
-              var provider = item.calendar.QueryInterface(Components.interfaces.calIWcapCalendar);
-              this.mCalID = provider.calId;
-              this.mUserID = provider.userId;
-              this.mOrganizerID = ((item.organizer == null || item.organizer.id == null)
-                              ? this.mCalID // sensible default
-                              : item.organizer.id);
-
-              // set 'mIsOrganizer' if the current calid originally scheduled this event.
-              this.mIsOrganizer = false;
-              if(this.mCalID == this.mOrganizerID)
-                this.mIsOrganizer = true;
-            }
-            catch(e) {}
-            
-            if(item.parentItem != item) {
-                item = item.parentItem;
-                recinfo = item.recurrenceInfo;
-                this.disableRecurrenceFields("disable-on-occurrence");
-            } else {
-              if(this.mIsReadOnly || !this.mIsOrganizer) {
-                this.disableRecurrenceFields("disable-on-readonly");
-              }
-            }
+            this.onChangeCalendar(calendar);
 
             // set starting value for 'repeat until' rule.
-            var date = item.startDate || item.entryDate || item.dueDate;
-            setElementValue("repeat-until-date", date);
+            this.mStartDate = item.startDate || item.entryDate || item.dueDate;
+            setElementValue("repeat-until-date", this.mStartDate);
+
+            if(item.parentItem != item) {
+              item = item.parentItem;
+            }
     
             if(recinfo) {
 
@@ -438,6 +410,23 @@
 
             // update controls
             this.updateRecurrenceDeck();
+          ]]>
+        </body>
+      </method>
+
+      <method name="disableOrEnable">
+        <parameter name="item"/>
+        <body>
+          <![CDATA[
+            if (item.parentItem != item) {
+              this.disableRecurrenceFields("disable-on-occurrence");
+            } else if (this.mIsReadOnly || !this.mIsOrganizer) {
+              this.disableRecurrenceFields("disable-on-readonly");
+            } else if (isToDo(item) && !this.mStartDate) {
+              this.disableRecurrenceFields("disable-on-readonly");
+            } else {
+              this.enableRecurrenceFields("disable-on-readonly");
+            }
           ]]>
         </body>
       </method>
@@ -564,7 +553,54 @@
           ]]>
         </body>
       </method>
-      
+
+      <method name="onChangeCalendar">
+        <parameter name="calendar"/>
+        <body>
+          <![CDATA[
+            var args = window.arguments[0];
+            var item = args.calendarEvent;
+
+            // set 'mIsReadOnly' if the calendar is read-only
+            this.mIsReadOnly = false;
+            if (calendar && calendar.readOnly)
+              this.mIsReadOnly = true;
+
+            // assume we're the organizer [in case that the calendar
+            // does not support the concept of identities].
+            this.mIsOrganizer = true;
+            
+            try {
+              this.mUserID = "";
+              this.mCalID = "";
+              this.mOrganizerID = "";
+            
+              var provider = calendar.QueryInterface(Components.interfaces.calIWcapCalendar);
+              this.mCalID = provider.calId;
+              this.mUserID = provider.session.userId;
+              this.mOrganizerID = ((item.organizer == null || item.organizer.id == null)
+                              ? this.mCalID // sensible default
+                              : item.organizer.id);
+
+              // set 'mIsOrganizer' if the current calid originally scheduled this event.
+              this.mIsOrganizer = false;
+              if(this.mCalID == this.mOrganizerID)
+                this.mIsOrganizer = true;
+            }
+            catch(e) {}
+
+            // disable or enable controls based on a set or rules
+            // - whether this item is a stand-alone item or an occurrence
+            // - whether or not this item is read-only
+            // - whether or not the state of the item allows recurrence rules
+            //     - tasks without an entrydate are invalid
+            this.disableOrEnable(item);
+            
+            this.updateRecurrenceControls();
+          ]]>
+        </body>
+      </method>
+
       <method name="disableRecurrenceFields">
         <parameter name="aAttributeName"/>
         <body>
@@ -573,6 +609,19 @@
             var disableElements = list.getElementsByAttribute(aAttributeName, "true");
             for (i=0;i<disableElements.length;i++) {
               disableElements[i].setAttribute('disabled', 'true');
+            }
+          ]]>
+        </body>
+      </method>
+
+      <method name="enableRecurrenceFields">
+        <parameter name="aAttributeName"/>
+        <body>
+          <![CDATA[
+            var list = document.getAnonymousNodes(this)[0];
+            var enableElements = list.getElementsByAttribute(aAttributeName, "true");
+            for (i=0;i<enableElements.length;i++) {
+              enableElements[i].removeAttribute('disabled');
             }
           ]]>
         </body>
@@ -677,7 +726,7 @@
       <method name="updateRecurrenceControls">
         <body>
           <![CDATA[
-            //this.updateAccept();
+            this.updateAccept();
             this.updateRecurrencePattern();
             this.updateRecurrenceRange();
             this.updatePreview();
@@ -685,24 +734,55 @@
         </body>
       </method>
 
-      <method name="updateRecurrenceAccept">
+      <method name="showWarning">
+        <parameter name="identifier"/>
         <body>
           <![CDATA[
+            var event = document.createEvent('Events'); 
+            event.initEvent('warning', true, false);
+            event.details = document.getElementById(identifier).value;
+            this.dispatchEvent(event);
+          ]]>
+        </body>
+      </method>
+
+      <method name="updateAccept">
+        <body>
+          <![CDATA[
+            var enableAccept = true;
+
+            var tab = document.getElementById("dialog-tab");
+            var index = tab.selectedIndex;
+            if (index == 1) {
+              var args = window.arguments[0];
+              var item = args.calendarEvent;
+              if (isToDo(item) && !this.mStartDate) {
+                this.showWarning("task-repeat-warning");
+              }
+            }
+            
             switch (Number(getElementValue("period-list"))) {
             case 1: // daily
                 var ndays = Number(getElementValue("daily-days"));
                 if (ndays == "" || ndays < 1) {
-                    return false;
+                  enableAccept = false;
                 }
                 break;
             }
             if (document.getElementById("recurrence-duration").selectedItem.value == "ntimes") {
-                var ntimes = getElementValue("repeat-ntimes-count");
-                if (ntimes == "" || ntimes < 1) {
-                    return false;
-                }
+              var ntimes = getElementValue("repeat-ntimes-count");
+              if (ntimes == "" || ntimes < 1) {
+                enableAccept = false;
+              }
             }
-            return true;
+            
+            var event = document.createEvent('Events'); 
+            event.initEvent('accept', true, false);
+            event.details = enableAccept;
+            event.tab = 1;
+            this.dispatchEvent(event);
+            
+            return enableAccept;
           ]]>
         </body>
       </method>

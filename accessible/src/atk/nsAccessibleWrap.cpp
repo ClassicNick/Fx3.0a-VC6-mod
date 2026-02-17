@@ -789,20 +789,10 @@ getRoleCB(AtkObject *aAtkObj)
         nsAccessibleWrap *accWrap =
             NS_REINTERPRET_CAST(MaiAtkObject*, aAtkObj)->accWrap;
 
-        PRUint32 accRole = 0, atkRole = 0;
+        PRUint32 accRole, atkRole;
         nsresult rv = accWrap->GetFinalRole(&accRole);
         NS_ENSURE_SUCCESS(rv, ATK_ROLE_INVALID);
 
-        //the cross-platform Accessible object returns the same value for
-        //both "ROLE_MENUITEM" and "ROLE_MENUPOPUP"
-        // XXX move this logic into nsXULMenuitem::GetRole()
-        if (accRole == nsIAccessible::ROLE_MENUITEM) {
-            PRInt32 childCount = 0;
-            accWrap->GetChildCount(&childCount);
-            if (childCount > 0) {
-                accRole = nsIAccessible::ROLE_MENUPOPUP;
-            }
-        }
         atkRole = atkRoleMap[accRole]; // map to the actual value
         NS_ASSERTION(atkRoleMap[nsIAccessible::ROLE_LAST_ENTRY] ==
                      ROLE_ATK_LAST_ENTRY, "ATK role map skewed");
@@ -957,6 +947,13 @@ refRelationSetCB(AtkObject *aAtkObj)
     PRUint32 relationType[] = {nsIAccessible::RELATION_LABELLED_BY,
                                nsIAccessible::RELATION_LABEL_FOR,
                                nsIAccessible::RELATION_NODE_CHILD_OF,
+                               nsIAccessible::RELATION_CONTROLLED_BY,
+                               nsIAccessible::RELATION_CONTROLLER_FOR,
+#ifdef USE_ATK_EMBED_RELATIONS
+                               nsIAccessible::RELATION_EMBEDS,
+#endif
+                               nsIAccessible::RELATION_FLOWS_TO,
+                               nsIAccessible::RELATION_FLOWS_FROM,
 #ifdef USE_ATK_DESCRIPTION_RELATIONS
                                nsIAccessible::RELATION_DESCRIBED_BY,
                                nsIAccessible::RELATION_DESCRIPTION_FOR,

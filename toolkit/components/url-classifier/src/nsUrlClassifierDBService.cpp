@@ -54,7 +54,9 @@
 #include "nsString.h"
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
+#include "nsXPCOMStrings.h"
 #include "prlog.h"
+#include "prprf.h"
 
 // NSPR_LOG_MODULES=UrlClassifierDbService:5
 #if defined(PR_LOGGING)
@@ -72,36 +74,7 @@ static nsUrlClassifierDBService* sUrlClassifierDBService;
 // Thread that we do the updates on.
 static nsIThread* gDbBackgroundThread = nsnull;
 
-// -------------------------------------------------------------------------
-// Wrapper for JS-implemented nsIUrlClassifierCallback that protects against
-// bug 337492.  We should be able to remove this code once that bug is fixed.
-
-#include "nsProxyRelease.h"
-
-class nsUrlClassifierCallbackWrapper : public nsIUrlClassifierCallback
-{
-public:
-  NS_DECL_ISUPPORTS
-  NS_FORWARD_NSIURLCLASSIFIERCALLBACK(mInner->)
-
-  nsUrlClassifierCallbackWrapper(nsIUrlClassifierCallback *inner)
-    : mInner(inner)
-  {
-    NS_ADDREF(mInner);
-  }
-
-  ~nsUrlClassifierCallbackWrapper()
-  {
-    nsCOMPtr<nsIThread> mainThread = do_GetMainThread();
-    NS_ProxyRelease(mainThread, mInner);
-  }
-
-private:
-  nsIUrlClassifierCallback *mInner;
-};
-
-NS_IMPL_THREADSAFE_ISUPPORTS1(nsUrlClassifierCallbackWrapper,
-                              nsIUrlClassifierCallback)
+static const char* kNEW_TABLE_SUFFIX = "_new";
 
 // -------------------------------------------------------------------------
 // Actual worker implemenatation
@@ -131,17 +104,31 @@ private:
   // Create a table in the db if it doesn't exist.
   nsresult MaybeCreateTable(const nsCString& aTableName);
 
+  // Drop a table if it exists.
+  nsresult MaybeDropTable(const nsCString& aTableName);
+
+  // If this is not an update request, swap the new table
+  // in for the old table.
+  nsresult MaybeSwapTables(const nsCString& aVersionLine);
+
+  // Parse a version string of the form [table-name #.###] or
+  // [table-name #.### update] and return the table name and
+  // whether or not it's an update.
+  nsresult ParseVersionString(const nsCSubstring& aLine,
+                              nsCString* aTableName,
+                              PRBool* aIsUpdate);
+
   // Handle a new table line of the form [table-name #.####].  We create the
   // table if it doesn't exist and set the aTableName, aUpdateStatement,
   // and aDeleteStatement.
-  nsresult ProcessNewTable(const nsDependentCSubstring& aLine,
+  nsresult ProcessNewTable(const nsCSubstring& aLine,
                            nsCString* aTableName,
                            mozIStorageStatement** aUpdateStatement,
                            mozIStorageStatement** aDeleteStatement);
 
   // Handle an add or remove line.  We execute additional update or delete
   // statements.
-  nsresult ProcessUpdateTable(const nsDependentCSubstring& aLine,
+  nsresult ProcessUpdateTable(const nsCSubstring& aLine,
                               const nsCString& aTableName,
                               mozIStorageStatement* aUpdateStatement,
                               mozIStorageStatement* aDeleteStatement);
@@ -224,6 +211,48 @@ nsUrlClassifierDBServiceWorker::Exists(const nsACString& tableName,
   return NS_OK;
 }
 
+// We get a comma separated list of table names.  For each table that doesn't
+// exist, we return it in a comma separated list via the callback.
+NS_IMETHODIMP
+nsUrlClassifierDBServiceWorker::CheckTables(const nsACString & tableNames,
+                                            nsIUrlClassifierCallback *c)
+{
+  nsresult rv = OpenDb();
+  if (NS_FAILED(rv)) {
+    NS_ERROR("Unable to open database");
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCAutoString changedTables;
+
+  // tablesNames is a comma separated list, so get each table name out for
+  // checking.
+  PRUint32 cur = 0;
+  PRInt32 next;
+  while (cur < tableNames.Length()) {
+    next = tableNames.FindChar(',', cur);
+    if (kNotFound == next) {
+      next = tableNames.Length();
+    }
+    const nsCSubstring &tableName = Substring(tableNames, cur, next - cur);
+    cur = next + 1;
+
+    nsCString dbTableName;
+    GetDbTableName(tableName, &dbTableName);
+    PRBool exists;
+    nsresult rv = mConnection->TableExists(dbTableName, &exists);
+    NS_ENSURE_SUCCESS(rv, rv);
+    if (!exists) {
+      if (changedTables.Length() > 0)
+        changedTables.Append(",");
+      changedTables.Append(tableName);
+    }
+  }
+  
+  c->HandleEvent(changedTables);
+  return NS_OK;
+}
+
 // Do a batch update of the database.  After we complete processing a table,
 // we call the callback with the table line.
 NS_IMETHODIMP
@@ -251,14 +280,14 @@ nsUrlClassifierDBServiceWorker::UpdateTables(const nsACString& updateString,
   nsCOMPtr<mozIStorageStatement> deleteStatement;
   while(cur < updateString.Length() &&
         (next = updateString.FindChar('\n', cur)) != kNotFound) {
-    count ++;
-    const nsDependentCSubstring &line = Substring(updateString,
-                                                  cur, next - cur);
+    const nsCSubstring &line = Substring(updateString, cur, next - cur);
     cur = next + 1; // prepare for next run
 
     // Skip blank lines
     if (line.Length() == 0)
       continue;
+
+    count++;
 
     if ('[' == line[0]) {
       rv = ProcessNewTable(line, &dbTableName,
@@ -269,9 +298,15 @@ nsUrlClassifierDBServiceWorker::UpdateTables(const nsACString& updateString,
         // If it's a new table, we may have completed a table.
         // Go ahead and post the completion to the UI thread and db.
         if (lastTableLine.Length() > 0) {
-          mConnection->CommitTransaction();
-          c->HandleEvent(lastTableLine);
-
+          // If it was a new table, we need to swap in the new table.
+          rv = MaybeSwapTables(lastTableLine);
+          if (NS_SUCCEEDED(rv)) {
+            mConnection->CommitTransaction();
+            c->HandleEvent(lastTableLine);
+          } else {
+            // failed to swap, rollback
+            mConnection->RollbackTransaction();
+          }
           mConnection->BeginTransaction();
         }
         lastTableLine.Assign(line);
@@ -284,12 +319,15 @@ nsUrlClassifierDBServiceWorker::UpdateTables(const nsACString& updateString,
   }
   LOG(("Num update lines: %d\n", count));
 
-  // Commit the transaction
-  rv = mConnection->CommitTransaction();
-  NS_ASSERTION(NS_SUCCEEDED(rv), "Unable to commit");
-
-  if (lastTableLine.Length() > 0)
+  rv = MaybeSwapTables(lastTableLine);
+  if (NS_SUCCEEDED(rv)) {
+    mConnection->CommitTransaction();
     c->HandleEvent(lastTableLine);
+  } else {
+    // failed to swap, rollback
+    mConnection->RollbackTransaction();
+  }
+
   LOG(("Finishing table update\n"));
   return NS_OK;
 }
@@ -319,7 +357,7 @@ nsUrlClassifierDBServiceWorker::Update(const nsACString& chunk)
   } else {
     PRUint32 numTables = mTableUpdateLines.Length();
     if (numTables > 0) {
-      const nsDependentCSubstring &line = Substring(
+      const nsCSubstring &line = Substring(
               mTableUpdateLines[numTables - 1], 0);
 
       rv = ProcessNewTable(line, &dbTableName,
@@ -333,8 +371,7 @@ nsUrlClassifierDBServiceWorker::Update(const nsACString& chunk)
   PRInt32 next;
   while(cur < updateString.Length() &&
         (next = updateString.FindChar('\n', cur)) != kNotFound) {
-    const nsDependentCSubstring &line = Substring(updateString,
-                                                  cur, next - cur);
+    const nsCSubstring &line = Substring(updateString, cur, next - cur);
     cur = next + 1; // prepare for next run
 
     // Skip blank lines
@@ -369,12 +406,27 @@ nsUrlClassifierDBServiceWorker::Finish(nsIUrlClassifierCallback *c)
   if (!mHasPendingUpdate)
     return NS_OK;
 
-  LOG(("Finish, committing transaction"));
-  mConnection->CommitTransaction();
-
+  nsresult rv = NS_OK;
   for (PRUint32 i = 0; i < mTableUpdateLines.Length(); ++i) {
-    c->HandleEvent(mTableUpdateLines[i]);
+    rv = MaybeSwapTables(mTableUpdateLines[i]);
+    if (NS_FAILED(rv)) {
+      break;
+    }
   }
+  
+  if (NS_SUCCEEDED(rv)) {
+    LOG(("Finish, committing transaction"));
+    mConnection->CommitTransaction();
+
+    // Send update information to main thread.
+    for (PRUint32 i = 0; i < mTableUpdateLines.Length(); ++i) {
+      c->HandleEvent(mTableUpdateLines[i]);
+    }
+  } else {
+    LOG(("Finish failed (swap table error?), rolling back transaction"));
+    mConnection->RollbackTransaction();
+  }
+
   mTableUpdateLines.Clear();
   mPendingStreamUpdate.Truncate();
   mHasPendingUpdate = PR_FALSE;
@@ -415,26 +467,30 @@ nsUrlClassifierDBServiceWorker::CloseDb()
 
 nsresult
 nsUrlClassifierDBServiceWorker::ProcessNewTable(
-                                    const nsDependentCSubstring& aLine,
+                                    const nsCSubstring& aLine,
                                     nsCString* aDbTableName,
                                     mozIStorageStatement** aUpdateStatement,
                                     mozIStorageStatement** aDeleteStatement)
 {
   // The line format is "[table-name #.####]" or "[table-name #.#### update]"
-  PRInt32 spacePos = aLine.FindChar(' ');
-  if (spacePos == kNotFound) {
-    // bad table header
-    return NS_ERROR_FAILURE;
-  }
+  // The additional "update" in the header means that this is a diff.
+  // Otherwise, we should blow away the old table and start afresh.
+  PRBool isUpdate = PR_FALSE;
 
-  const nsDependentCSubstring &tableName = Substring(aLine, 1, spacePos - 1);
-  GetDbTableName(tableName, aDbTableName);
+  // If the version string is bad, give up.
+  nsresult rv = ParseVersionString(aLine, aDbTableName, &isUpdate);
+  NS_ENSURE_SUCCESS(rv, rv);
+  
+  // If it's not an update, we dump the values into a new table.  Once we're
+  // done with the table, we drop the original table and copy over the values
+  // from the old table into the new table.
+  if (!isUpdate)
+    aDbTableName->Append(kNEW_TABLE_SUFFIX);
 
   // Create the table
-  nsresult rv = MaybeCreateTable(*aDbTableName);
+  rv = MaybeCreateTable(*aDbTableName);
   if (NS_FAILED(rv))
     return rv;
-  LOG(("Create table ok.\n"));
 
   // insert statement
   nsCAutoString statement;
@@ -456,7 +512,7 @@ nsUrlClassifierDBServiceWorker::ProcessNewTable(
 
 nsresult
 nsUrlClassifierDBServiceWorker::ProcessUpdateTable(
-                                   const nsDependentCSubstring& aLine,
+                                   const nsCSubstring& aLine,
                                    const nsCString& aTableName,
                                    mozIStorageStatement* aUpdateStatement,
                                    mozIStorageStatement* aDeleteStatement)
@@ -479,8 +535,8 @@ nsUrlClassifierDBServiceWorker::ProcessUpdateTable(
 
   if ('+' == op && spacePos != kNotFound) {
     // Insert operation of the form "+KEY\tVALUE"
-    const nsDependentCSubstring &key = Substring(aLine, 1, spacePos - 1);
-    const nsDependentCSubstring &value = Substring(aLine, spacePos + 1);
+    const nsCSubstring &key = Substring(aLine, 1, spacePos - 1);
+    const nsCSubstring &value = Substring(aLine, spacePos + 1);
     aUpdateStatement->BindUTF8StringParameter(0, key);
     aUpdateStatement->BindUTF8StringParameter(1, value);
 
@@ -490,11 +546,11 @@ nsUrlClassifierDBServiceWorker::ProcessUpdateTable(
     // Remove operation of the form "-KEY"
     if (spacePos == kNotFound) {
       // No trailing tab
-      const nsDependentCSubstring &key = Substring(aLine, 1);
+      const nsCSubstring &key = Substring(aLine, 1);
       aDeleteStatement->BindUTF8StringParameter(0, key);
     } else {
       // With trailing tab
-      const nsDependentCSubstring &key = Substring(aLine, 1, spacePos - 1);
+      const nsCSubstring &key = Substring(aLine, 1, spacePos - 1);
       aDeleteStatement->BindUTF8StringParameter(0, key);
     }
 
@@ -551,6 +607,93 @@ nsUrlClassifierDBServiceWorker::MaybeCreateTable(const nsCString& aTableName)
   NS_ENSURE_SUCCESS(rv, rv);
 
   return createStatement->Execute();
+}
+
+nsresult
+nsUrlClassifierDBServiceWorker::MaybeDropTable(const nsCString& aTableName)
+{
+  LOG(("MaybeDropTable %s\n", aTableName.get()));
+  nsCAutoString statement("DROP TABLE IF EXISTS ");
+  statement.Append(aTableName);
+  return mConnection->ExecuteSimpleSQL(statement);
+}
+
+nsresult
+nsUrlClassifierDBServiceWorker::MaybeSwapTables(const nsCString& aVersionLine)
+{
+  if (aVersionLine.Length() == 0)
+    return NS_ERROR_FAILURE;
+
+  // Check to see if this was a full table update or not.
+  nsCAutoString tableName;
+  PRBool isUpdate;
+  nsresult rv = ParseVersionString(aVersionLine, &tableName, &isUpdate);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Updates don't require any fancy logic.
+  if (isUpdate)
+    return NS_OK;
+
+  // Not an update, so we need to swap tables by dropping the original table
+  // and copying in the values from the new table.
+  rv = MaybeDropTable(tableName);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCAutoString newTableName(tableName);
+  newTableName.Append(kNEW_TABLE_SUFFIX);
+
+  // Bring over new table
+  nsCAutoString sql("ALTER TABLE ");
+  sql.Append(newTableName);
+  sql.Append(" RENAME TO ");
+  sql.Append(tableName);
+  rv = mConnection->ExecuteSimpleSQL(sql);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  LOG(("tables swapped (%s)\n", tableName.get()));
+
+  return NS_OK;
+}
+
+// The line format is "[table-name #.####]" or "[table-name #.#### update]".
+nsresult
+nsUrlClassifierDBServiceWorker::ParseVersionString(const nsCSubstring& aLine,
+                                                   nsCString* aTableName,
+                                                   PRBool* aIsUpdate)
+{
+  // Blank lines are not valid
+  if (aLine.Length() == 0)
+    return NS_ERROR_FAILURE;
+
+  // Max size for an update line (so we don't buffer overflow when sscanf'ing).
+  const PRUint32 MAX_LENGTH = 2048;
+  if (aLine.Length() > MAX_LENGTH)
+    return NS_ERROR_FAILURE;
+
+  nsCAutoString lineData(aLine);
+  char tableNameBuf[MAX_LENGTH], endChar = ' ';
+  PRInt32 majorVersion, minorVersion, numConverted;
+  // Use trailing endChar to make sure the update token gets parsed.
+  numConverted = PR_sscanf(lineData.get(), "[%s %d.%d update%c", tableNameBuf,
+                           &majorVersion, &minorVersion, &endChar);
+  if (numConverted != 4 || endChar != ']') {
+    // Check to see if it's not an update request
+    numConverted = PR_sscanf(lineData.get(), "[%s %d.%d%c", tableNameBuf,
+                             &majorVersion, &minorVersion, &endChar);
+    if (numConverted != 4 || endChar != ']')
+      return NS_ERROR_FAILURE;
+    *aIsUpdate = PR_FALSE;
+  } else {
+    // First sscanf worked, so it's an update string.
+    *aIsUpdate = PR_TRUE;
+  }
+
+  LOG(("Is update? %d\n", *aIsUpdate));
+
+  // Table header looks valid, go ahead and copy over the table name into the
+  // return variable.
+  GetDbTableName(nsCAutoString(tableNameBuf), aTableName);
+  return NS_OK;
 }
 
 void
@@ -640,16 +783,12 @@ nsUrlClassifierDBService::Exists(const nsACString& tableName,
 {
   NS_ENSURE_TRUE(gDbBackgroundThread, NS_ERROR_NOT_INITIALIZED);
 
-  nsCOMPtr<nsIUrlClassifierCallback> wrapper =
-      new nsUrlClassifierCallbackWrapper(c);
-  NS_ENSURE_TRUE(wrapper, NS_ERROR_OUT_OF_MEMORY);
-
   nsresult rv;
   // The proxy callback uses the current thread.
   nsCOMPtr<nsIUrlClassifierCallback> proxyCallback;
   rv = NS_GetProxyForObject(NS_PROXY_TO_CURRENT_THREAD,
                             NS_GET_IID(nsIUrlClassifierCallback),
-                            wrapper,
+                            c,
                             NS_PROXY_ASYNC,
                             getter_AddRefs(proxyCallback));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -667,21 +806,45 @@ nsUrlClassifierDBService::Exists(const nsACString& tableName,
 }
 
 NS_IMETHODIMP
-nsUrlClassifierDBService::UpdateTables(const nsACString& updateString,
-                                       nsIUrlClassifierCallback *c)
+nsUrlClassifierDBService::CheckTables(const nsACString & tableNames,
+                                      nsIUrlClassifierCallback *c)
 {
   NS_ENSURE_TRUE(gDbBackgroundThread, NS_ERROR_NOT_INITIALIZED);
-
-  nsCOMPtr<nsIUrlClassifierCallback> wrapper =
-      new nsUrlClassifierCallbackWrapper(c);
-  NS_ENSURE_TRUE(wrapper, NS_ERROR_OUT_OF_MEMORY);
 
   nsresult rv;
   // The proxy callback uses the current thread.
   nsCOMPtr<nsIUrlClassifierCallback> proxyCallback;
   rv = NS_GetProxyForObject(NS_PROXY_TO_CURRENT_THREAD,
                             NS_GET_IID(nsIUrlClassifierCallback),
-                            wrapper,
+                            c,
+                            NS_PROXY_ASYNC,
+                            getter_AddRefs(proxyCallback));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // The actual worker uses the background thread.
+  nsCOMPtr<nsIUrlClassifierDBServiceWorker> proxy;
+  rv = NS_GetProxyForObject(gDbBackgroundThread,
+                            NS_GET_IID(nsIUrlClassifierDBServiceWorker),
+                            mWorker,
+                            NS_PROXY_ASYNC,
+                            getter_AddRefs(proxy));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return proxy->CheckTables(tableNames, proxyCallback);
+}
+
+NS_IMETHODIMP
+nsUrlClassifierDBService::UpdateTables(const nsACString& updateString,
+                                       nsIUrlClassifierCallback *c)
+{
+  NS_ENSURE_TRUE(gDbBackgroundThread, NS_ERROR_NOT_INITIALIZED);
+
+  nsresult rv;
+  // The proxy callback uses the current thread.
+  nsCOMPtr<nsIUrlClassifierCallback> proxyCallback;
+  rv = NS_GetProxyForObject(NS_PROXY_TO_CURRENT_THREAD,
+                            NS_GET_IID(nsIUrlClassifierCallback),
+                            c,
                             NS_PROXY_ASYNC,
                             getter_AddRefs(proxyCallback));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -722,16 +885,12 @@ nsUrlClassifierDBService::Finish(nsIUrlClassifierCallback *c)
 {
   NS_ENSURE_TRUE(gDbBackgroundThread, NS_ERROR_NOT_INITIALIZED);
 
-  nsCOMPtr<nsIUrlClassifierCallback> wrapper =
-      new nsUrlClassifierCallbackWrapper(c);
-  NS_ENSURE_TRUE(wrapper, NS_ERROR_OUT_OF_MEMORY);
-
   nsresult rv;
   // The proxy callback uses the current thread.
   nsCOMPtr<nsIUrlClassifierCallback> proxyCallback;
   rv = NS_GetProxyForObject(NS_PROXY_TO_CURRENT_THREAD,
                             NS_GET_IID(nsIUrlClassifierCallback),
-                            wrapper,
+                            c,
                             NS_PROXY_ASYNC,
                             getter_AddRefs(proxyCallback));
   NS_ENSURE_SUCCESS(rv, rv);

@@ -77,16 +77,14 @@ var calendarViewController = {
             doTransaction('add', event, aCalendar, null, null);
         } else {
             // default pop up the dialog
-            //XXX unify these
-            if ("newEvent" in window) {
-                // Sunbird specific code
-                newEvent();
+            var date;
+            if (aStartTime) {
+                date = aStartTime;
             } else {
-                // Lightning specific code
-                var date = document.getElementById("calendar-view-box").selectedPanel.selectedDay.clone();
+                date = currentView().selectedDay.clone();
                 date.isDate = false;
-                createEventWithDialog(aCalendar, date, date);
             }
+            createEventWithDialog(aCalendar, date, null);
         }
     },
 
@@ -105,16 +103,30 @@ var calendarViewController = {
             // out how much the occurrence moved, and move the occurrence by
             // that amount.
             if (instance.parentItem.hasSameIds(instance)) {
-                //XXX bad! Don't modify in-params!
-                var startDiff = instance.startDate.subtractDate(aOccurrence.startDate);
+
+                // Figure out how much the start has moved, and adjust 
+                // aNewStartTime so that the parent moves the same amuount.
+                var instanceStart = instance.startDate || instance.entryDate;
+                var occStart = aOccurrence.startDate || aOccurrence.entryDate;
+                var startDiff = instanceStart.subtractDate(occStart);
+                aNewStartTime = aNewStartTime.clone();
                 aNewStartTime.addDuration(startDiff);
-                var endDiff = instance.endDate.subtractDate(aOccurrence.endDate);
+
+                // Now do the same for end
+                var instanceEnd = instance.endDate || instance.dueDate;
+                var occEnd = aOccurrence.endDate || aOccurrence.dueDate;
+                var endDiff = instanceEnd.subtractDate(occEnd);
+                aNewEndTime = aNewEndTime.clone();
                 aNewEndTime.addDuration(endDiff);
             }
-
-            instance.startDate = aNewStartTime;
-            instance.endDate = aNewEndTime;
-
+            // Yay for variable names that make this next line look silly
+            if (instance instanceof Components.interfaces.calIEvent) {
+                instance.startDate = aNewStartTime;
+                instance.endDate = aNewEndTime;
+            } else {
+                instance.entryDate = aNewStartTime;
+                instance.dueDate = aNewEndTime;
+            }
             doTransaction('modify', instance, instance.calendar, itemToEdit, null);
         } else {
             //XXX unify these
@@ -184,6 +196,28 @@ function currentView() {
     return getViewDeck().selectedPanel;
 }
 
+/** Creates a timer that will fire after midnight.  Pass in a function as 
+ * aRefreshCallback that should be called at that time.
+ */
+function scheduleMidnightUpdate(aRefreshCallback) {
+    var jsNow = new Date();
+    var tomorrow = new Date(jsNow.getFullYear(), jsNow.getMonth(), jsNow.getDate() + 1);
+    var msUntilTomorrow = tomorrow.getTime() - jsNow.getTime();
+
+    // Is an nsITimer/callback extreme overkill here? Yes, but it's necessary to
+    // workaround bug 291386.  If we don't, we stand a decent chance of getting
+    // stuck in an infinite loop.
+    var udCallback = {
+        notify: function(timer) {
+            aRefreshCallback();
+        }
+    };
+
+    var timer = Components.classes["@mozilla.org/timer;1"]
+                          .createInstance(Components.interfaces.nsITimer);
+    timer.initWithCallback(udCallback, msUntilTomorrow, timer.TYPE_ONE_SHOT);
+}
+
 // Returns the actual style sheet object with the specified path.  Callers are
 // responsible for any caching they may want to do.
 function getStyleSheet(aStyleSheetPath) {
@@ -198,53 +232,96 @@ function getStyleSheet(aStyleSheetPath) {
 // category (and hence doesn't have a uri), we set the border color.  If
 // it's a calendar, we set the background color
 function updateStyleSheetForObject(aObject, aSheet) {
-    var name;
-    if (aObject.uri)
+    var selectorPrefix, name, ruleUpdaterFunc;
+    if (aObject.uri) {
+        // This is a calendar, so we're going to set the background color
         name = aObject.uri.spec;
-    else
+        selectorPrefix = "item-calendar=";
+        ruleUpdaterFunc = function calendarRuleFunc(aRule) {
+            var color = getCalendarManager().getCalendarPref(aObject, 'color');
+            if (!color) {
+                color = "#A8C2E1";
+            }
+            aRule.style.backgroundColor = color;
+            aRule.style.color = getContrastingTextColor(color);
+        };
+    } else {
+        // This is a category, where we set the border.  Also note that we 
+        // use the ~= selector, since there could be multiple categories
         name = aObject.replace(' ','_');
+        selectorPrefix = "item-category~=";
+        ruleUpdaterFunc = function categoryRuleFunc(aRule) {
+            var color = getPrefSafe("calendar.category.color."+aObject, null);
+            if (color) {
+                aRule.style.border = color + " solid 2px";
+            }
+        };
+    }
 
-    // Returns an equality selector for calendars (which have a uri), since an
-    // event can only belong to one calendar.  For categories, however, returns
-    // the ~= selector which matches anything in a space-separated list.
-    function selectorForObject(name)
-    {
-        if (aObject.uri)
-            return '.calendar-item[item-calendar="' + name + '"]';
-        return '.calendar-item[item-category~="' + name + '"]';
-    }
-    
-    function getRuleForObject(name)
-    {
-        for (var i = 0; i < aSheet.cssRules.length; i++) {
-            var rule = aSheet.cssRules[i];
-            if (rule.selectorText && (rule.selectorText == selectorForObject(name)))
-                return rule;
+    var selector = '.calendar-item[' + selectorPrefix + '"' + name + '"]';
+
+    // Now go find our rule
+    var rule;
+    for (var i = 0; i < aSheet.cssRules.length; i++) {
+        var maybeRule = aSheet.cssRules[i];
+        if (maybeRule.selectorText && (maybeRule.selectorText == selector)) {
+            rule = maybeRule;
+            break;
         }
-        return null;
     }
-    
-    var rule = getRuleForObject(name);
+
     if (!rule) {
-        aSheet.insertRule(selectorForObject(name) + ' { }',
-                                 aSheet.cssRules.length);
+        aSheet.insertRule(selector + ' { }', aSheet.cssRules.length);
         rule = aSheet.cssRules[aSheet.cssRules.length-1];
     }
 
-    var color;
-    if (aObject.uri) {
-        color = getCalendarManager().getCalendarPref(aObject, 'color');
-        if (!color)
-            color = "#A8C2E1";
-        rule.style.backgroundColor = color;
-        rule.style.color = getContrastingTextColor(color);
-        return;
-    }
-    var categoryPrefBranch = prefService.getBranch("calendar.category.color.");
-    try {
-        color = categoryPrefBranch.getCharPref(aObject);
-    }
-    catch(ex) { return; }
+    ruleUpdaterFunc(rule);
+}
 
-    rule.style.border = color + " solid 2px";
+/** 
+ *  Sets the selected day in the minimonth to the currently selected day
+ *  in the embedded view.
+ */
+function observeViewDaySelect(event) {
+    var date = event.detail;
+    var jsDate = new Date(date.year, date.month, date.day);
+
+    // for the month and multiweek view find the main month,
+    // which is the month with the most visible days in the view;
+    // note, that the main date is the first day of the main month
+    var jsMainDate;
+    if (!event.originalTarget.supportsDisjointDates) {
+        var mainDate = null;
+        var maxVisibleDays = 0;
+        var startDay = currentView().startDay;
+        var endDay = currentView().endDay;
+        var firstMonth = startDay.startOfMonth;
+        var lastMonth = endDay.startOfMonth;
+        for (var month = firstMonth.clone(); month.compare(lastMonth) <= 0; month.month += 1, month.normalize()) {
+            var visibleDays = 0;
+            if (month.compare(firstMonth) == 0) {
+                visibleDays = startDay.endOfMonth.day - startDay.day + 1;
+            } else if (month.compare(lastMonth) == 0) {
+                visibleDays = endDay.day;
+            } else {
+                visibleDays = month.endOfMonth.day;
+            }
+            if (visibleDays > maxVisibleDays) {
+                mainDate = month.clone();
+                maxVisibleDays = visibleDays;
+            }
+        }
+        jsMainDate = new Date(mainDate.year, mainDate.month, mainDate.day);
+    }
+
+    getMinimonth().selectDate(jsDate, jsMainDate);
+    currentView().focus();
+}
+
+/** Provides a neutral way to get the minimonth, regardless of whether we're in
+ * Sunbird or Lightning.
+ */
+function getMinimonth() {
+    var sbMinimonth = document.getElementById("lefthandcalendar");
+    return sbMinimonth || document.getElementById("ltnMinimonth");
 }

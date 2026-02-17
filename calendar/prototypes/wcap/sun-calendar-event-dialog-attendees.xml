@@ -41,7 +41,7 @@
 [
   <!ENTITY % dtd1 SYSTEM "chrome://calendar/locale/global.dtd" >  %dtd1;
   <!ENTITY % dtd2 SYSTEM "chrome://calendar/locale/calendar.dtd" >  %dtd2;
-  <!ENTITY % dtd3 SYSTEM "chrome://calendar/content/sun-calendar-event-dialog.dtd" >  %dtd3;
+  <!ENTITY % dtd3 SYSTEM "chrome://calendar/locale/sun-calendar-event-dialog.dtd" >  %dtd3;
 ]>
 
 <bindings xmlns="http://www.mozilla.org/xbl"
@@ -168,7 +168,7 @@
             
               var provider = item.calendar.QueryInterface(Components.interfaces.calIWcapCalendar);
               this.mCalID = provider.calId;
-              this.mUserID = provider.userId;
+              this.mUserID = provider.session.userId;
               this.mOrganizerID = ((item.organizer == null || item.organizer.id == null)
                               ? this.mCalID // sensible default
                               : item.organizer.id);
@@ -199,14 +199,39 @@
             // this can only be set by each individual attendee.
             template.childNodes[1].childNodes[0].setAttribute("disabled","true");
 
+            // TODO: the organizer should show up in the attendee list, but this information
+            // should be based on the organizer contained in the appropriate field of calIItemBase.
+            // This is currently not supported, since we're still missing calendar identities.
+            if(this.mOrganizerID && this.mOrganizerID != "") {
+              var organizer = this.createAttendee();
+              organizer.id = this.mOrganizerID;
+              organizer.role = "CHAIR";
+              organizer.participationStatus = "ACCEPTED";
+              try {
+                var provider = item.calendar.QueryInterface(Components.interfaces.calIWcapCalendar);
+                var organizerCalendar = provider.session.getCalendarByCalId(this.mOrganizerID);
+                var props = organizerCalendar.getCalendarProperties("X-S1CS-CALPROPS-COMMON-NAME",{});
+                if(props.length > 0)
+                    organizer.commonName = props[0];
+              }
+              catch(e) {}
+              this.appendAttendee(organizer,listbox,template);
+            }
+
+            var numRowsAdded = 0;
             var attendees = item.getAttendees({});
             if(attendees.length > 0) {
                 for each(var attendee in attendees) {
+                  if(this.mOrganizerID && this.mOrganizerID != "") {
+                    if (attendee.id == this.mOrganizerID) {
+                      continue;
+                    }
+                  }
                   this.appendAttendee(attendee,listbox,template);
-                  template = document.getAnonymousElementByAttribute(this, "anonid", "item");
+                  numRowsAdded++;
                 }
             }
-            else {
+            if(numRowsAdded == 0) {
               this.appendAttendee(null,listbox,template);
             }
 
@@ -255,8 +280,22 @@
           var role = document.getAnonymousElementByAttribute(newNode, "anonid", "role");
           var status = document.getAnonymousElementByAttribute(newNode, "anonid", "status");
 
+          // the template could have its input-field disabled,
+          // that's why we need to reset this status.
+          input.removeAttribute("disabled");
+
           if(this.mIsReadOnly || !this.mIsOrganizer)
             input.setAttribute("disabled","true");
+
+          // disable the input-field [name <email>] if this attendee
+          // appears to be the organizer.
+          if (aAttendee) {
+            if (this.mOrganizerID && this.mOrganizerID != "") {
+              if (aAttendee.id == this.mOrganizerID) {
+                input.setAttribute("disabled","true");
+              }
+            }
+          }
 
           this.mMaxAttendees++;
           var rowNumber = this.mMaxAttendees;
@@ -325,6 +364,10 @@
               var role = document.getAnonymousElementByAttribute(newNode, "anonid", "role");
               var status = document.getAnonymousElementByAttribute(newNode, "anonid", "status");
 
+              // the template could have its input-field disabled,
+              // that's why we need to reset this status.
+              input.removeAttribute("disabled");
+              
               if(this.mIsReadOnly || !this.mIsOrganizer)
                 input.setAttribute("disabled","true");
 
@@ -337,6 +380,7 @@
                 status.setAttribute("id", "attendeeCol3#" + rowNumber);
               }
 
+              input.value = null;
               input.removeAttribute("value");
               input.attendee = newAttendee;
 
@@ -418,9 +462,17 @@
                 if(names.value.length > 0) {
                     attendee.commonName = names.value[0];
                 }
-                
+
+                var addAttendee = true;
+                if (this.mOrganizerID && this.mOrganizerID != "") {
+                  if (attendee.id == this.mOrganizerID) {
+                    addAttendee = false;
+                  }
+                }
+
                 // append the attendee object to the list of attendees.
-                attendees.push(attendee);
+                if (addAttendee)
+                  attendees.push(attendee);
               }
 
               i++;
@@ -1291,6 +1343,8 @@
 
       <field name="mStartDate">null</field>
       <field name="mEndDate">null</field>
+      <field name="mStartHour">0</field>
+      <field name="mEndHour">24</field>
 
       <field name="mCalID">null</field>
       <field name="mUserID">null</field>
@@ -1305,6 +1359,17 @@
 
           if (isToDo(item))
             return;
+
+          var pb2 = Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefBranch2);
+
+          // get default start/end times from prefs and set on the
+          // view.  if we hit an error (eg because sunbird's pref
+          // infrastructure hasn't created the pref yet), the
+          // defaults will do
+          try {
+            this.mStartHour = pb2.getIntPref("calendar.view.defaultstarthour");
+            this.mEndHour = pb2.getIntPref("calendar.view.defaultendhour");
+          } catch (ex) {}
 
           var self = this;
           var load = function loadHandler() { self.onLoad(); };
@@ -1337,6 +1402,7 @@
             var kDefaultTimezone = calendarDefaultTimezone();
             this.mStartDate = aStartDate.getInTimezone(kDefaultTimezone);
             this.mEndDate = aEndDate.getInTimezone(kDefaultTimezone);
+            var endDate = this.mEndDate.clone();
                 
             // Check if an all-day event has been passed in (to adapt endDate).
             if (this.mStartDate.isDate) {
@@ -1349,9 +1415,11 @@
                 // in local timezone.
                 this.mEndDate.normalize();
                 this.mStartDate.normalize();
+                endDate.normalize();
             }
             this.mStartDate.makeImmutable();
             this.mEndDate.makeImmutable();
+            endDate.makeImmutable();
 
             document.getAnonymousElementByAttribute(this, "anonid", "event-starttime").value = this.mStartDate.jsDate;
             document.getAnonymousElementByAttribute(this, "anonid", "event-endtime").value = this.mEndDate.jsDate;
@@ -1359,7 +1427,7 @@
             // tell the timebar about the new start/enddate
             var timebar = document.getAnonymousElementByAttribute(this, "anonid", "timebar");
             timebar.startDate = this.mStartDate;
-            timebar.endDate = this.mEndDate;
+            timebar.endDate = endDate;
             timebar.refresh();
           ]]>
         </body>
@@ -1396,7 +1464,7 @@
             var attendeesScrollbar = document.getAnonymousElementByAttribute(this, "anonid", "vertical-scrollbar");
             var box = document.getAnonymousElementByAttribute(this, "anonid", "vertical-scrollbar-box");
             attendees.fitDummyRows();
-            var ratio = attendees.boxObject.width / attendees.documentSize;
+            var ratio = attendees.boxObject.height / attendees.documentSize;
             if(ratio < 1) {
               box.removeAttribute("collapsed");
               var maxpos = attendeesScrollbar.getAttribute("maxpos");
@@ -1416,41 +1484,7 @@
             var item = args.calendarEvent;
             var calendar = item.calendar;
 
-            // set 'mIsReadOnly' if the calendar is read-only
-            if (calendar && calendar.readOnly)
-              this.mIsReadOnly = true;
-
-            // assume we're the organizer [in case that the calendar
-            // does not support the concept of identities].
-            this.mIsOrganizer = true;
-            
-            try {
-              this.mUserID = "";
-              this.mCalID = "";
-              this.mOrganizerID = "";
-            
-              var provider = item.calendar.QueryInterface(Components.interfaces.calIWcapCalendar);
-              this.mCalID = provider.calId;
-              this.mUserID = provider.userId;
-              this.mOrganizerID = ((item.organizer == null || item.organizer.id == null)
-                              ? this.mCalID // sensible default
-                              : item.organizer.id);
-
-              // set 'mIsOrganizer' if the current calid originally scheduled this event.
-              this.mIsOrganizer = false;
-              if(this.mCalID == this.mOrganizerID)
-                this.mIsOrganizer = true;
-
-              // display the organizer [try to get the common name from the calid]
-              var organizerRow = document.getAnonymousElementByAttribute(this, "anonid", "event-organizer-row");
-              organizerRow.removeAttribute("collapsed");
-              var organizer = document.getAnonymousElementByAttribute(this, "anonid", "event-organizer");
-              organizer.value = this.mOrganizerID;
-              var props = provider.getCalendarProperties("X-S1CS-CALPROPS-COMMON-NAME",this.mOrganizerID,{});
-              if(props.length > 0)
-                  organizer.value = props[0];
-            }
-            catch(e) {}
+            this.onChangeCalendar(calendar);
 
             // we need to enfore several layout constraints which can't be modelled
             // with plain xul and css, at least as far as i know.
@@ -1474,11 +1508,6 @@
                     break;
                 }
             }
-            
-            if(this.mIsReadOnly || !this.mIsOrganizer) {
-              document.getAnonymousElementByAttribute(this, "anonid", "next-slot").setAttribute('disabled', 'true');
-              document.getAnonymousElementByAttribute(this, "anonid", "previous-slot").setAttribute('disabled', 'true');
-            }            
 
             this.setTimeRange(item.startDate,item.endDate);
           ]]>
@@ -1498,37 +1527,114 @@
         </body>
       </method>
 
+      <method name="onChangeCalendar">
+        <parameter name="calendar"/>
+        <body>
+          <![CDATA[
+            var args = window.arguments[0];
+            var item = args.calendarEvent;
+          
+            // set 'mIsReadOnly' if the calendar is read-only
+            if (calendar && calendar.readOnly)
+              this.mIsReadOnly = true;
+
+            // assume we're the organizer [in case that the calendar
+            // does not support the concept of identities].
+            this.mIsOrganizer = true;
+
+            var organizerRow = document.getAnonymousElementByAttribute(this, "anonid", "event-organizer-row");
+            organizerRow.setAttribute("collapsed","true");
+
+            try {
+              this.mUserID = "";
+              this.mCalID = "";
+              this.mOrganizerID = "";
+            
+              var provider = calendar.QueryInterface(Components.interfaces.calIWcapCalendar);
+              this.mCalID = provider.calId;
+              this.mUserID = provider.session.userId;
+              this.mOrganizerID = ((item.organizer == null || item.organizer.id == null)
+                              ? this.mCalID // sensible default
+                              : item.organizer.id);
+
+              // set 'mIsOrganizer' if the current calid originally scheduled this event.
+              this.mIsOrganizer = false;
+              if(this.mCalID == this.mOrganizerID)
+                this.mIsOrganizer = true;
+
+              // display the organizer [try to get the common name from the calid]
+              organizerRow.removeAttribute("collapsed");
+              var organizer = document.getAnonymousElementByAttribute(this, "anonid", "event-organizer");
+              organizer.value = this.mOrganizerID;
+              var organizerCalendar = provider.session.getCalendarByCalId(this.mOrganizerID);
+              var props = organizerCalendar.getCalendarProperties("X-S1CS-CALPROPS-COMMON-NAME",{});
+              if(props.length > 0)
+                  organizer.value = props[0];
+            }
+            catch(e) {}
+            
+            if(this.mIsReadOnly || !this.mIsOrganizer) {
+              document.getAnonymousElementByAttribute(this, "anonid", "next-slot").setAttribute('disabled', 'true');
+              document.getAnonymousElementByAttribute(this, "anonid", "previous-slot").setAttribute('disabled', 'true');
+            }            
+            
+            var freebusy = document.getAnonymousElementByAttribute(this, "anonid", "freebusy-grid");
+            freebusy.onChangeCalendar(calendar);
+          ]]>
+        </body>
+      </method>
+
       <method name="onNextSlot">
         <body>
           <![CDATA[
-          // ask the grid for the next possible timeslot.
-          var grid = document.getAnonymousElementByAttribute(this, "anonid", "freebusy-grid");
-          var duration = this.mEndDate.subtractDate(this.mStartDate);
-          var start = grid.nextSlot();
-          var end = start.clone();
-          end.addDuration(duration);
-          var kDefaultTimezone = calendarDefaultTimezone();
-          this.mStartDate = start.getInTimezone(kDefaultTimezone).clone();
-          this.mEndDate = end.getInTimezone(kDefaultTimezone).clone();
-          this.mStartDate.makeImmutable();
-          this.mEndDate.makeImmutable();
+            // ask the grid for the next possible timeslot.
+            var grid = document.getAnonymousElementByAttribute(this, "anonid", "freebusy-grid");
+            var duration = this.mEndDate.subtractDate(this.mStartDate);
+            var start = grid.nextSlot();
+            var end = start.clone();
+            end.addDuration(duration);
+            if(start.isDate) {
+              end.day++;
+              end.normalize();
+            }
+            var kDefaultTimezone = calendarDefaultTimezone();
+            this.mStartDate = start.getInTimezone(kDefaultTimezone);
+            this.mEndDate = end.getInTimezone(kDefaultTimezone);
+            var endDate = this.mEndDate.clone();
+                
+            // Check if an all-day event has been passed in (to adapt endDate).
+            if (this.mStartDate.isDate) {
+                this.mEndDate.day -= 1;
 
-          // show the new start/enddate in the appropriate controls
-          document.getAnonymousElementByAttribute(this, "anonid", "event-starttime").value = this.mStartDate.jsDate;
-          document.getAnonymousElementByAttribute(this, "anonid", "event-endtime").value = this.mEndDate.jsDate;
+                // The date/timepicker uses jsDate internally. Because jsDate does
+                // not know the concept of dates we end up displaying times unequal
+                // to 00:00 for all-day events depending on local timezone setting. 
+                // Calling normalize() recalculates that times to represent 00:00
+                // in local timezone.
+                this.mEndDate.normalize();
+                this.mStartDate.normalize();
+                endDate.normalize();
+            }
+            this.mStartDate.makeImmutable();
+            this.mEndDate.makeImmutable();
+            endDate.makeImmutable();
 
-          // tell the grid about the new start/enddate
-          grid.startDate = this.mStartDate;
-          grid.endDate = this.mEndDate;
-          
-          // tell the timebar about the new start/enddate
-          var timebar = document.getAnonymousElementByAttribute(this, "anonid", "timebar");
-          timebar.startDate = this.mStartDate;
-          timebar.endDate = this.mEndDate;
-          timebar.refresh();
+            // show the new start/enddate in the appropriate controls
+            document.getAnonymousElementByAttribute(this, "anonid", "event-starttime").value = this.mStartDate.jsDate;
+            document.getAnonymousElementByAttribute(this, "anonid", "event-endtime").value = this.mEndDate.jsDate;
 
-          // scroll the grid/timebar such that the current time is visible
-          this.scrollToCurrentTime();
+            // tell the grid about the new start/enddate
+            grid.startDate = this.mStartDate;
+            grid.endDate = endDate;
+            
+            // tell the timebar about the new start/enddate
+            var timebar = document.getAnonymousElementByAttribute(this, "anonid", "timebar");
+            timebar.startDate = this.mStartDate;
+            timebar.endDate = endDate;
+            timebar.refresh();
+
+            // scroll the grid/timebar such that the current time is visible
+            this.scrollToCurrentTime();
           ]]>
         </body>
       </method>
@@ -1542,11 +1648,31 @@
             var start = grid.previousSlot();
             var end = start.clone();
             end.addDuration(duration);
+            if(start.isDate) {
+              end.day++;
+              end.normalize();
+            }
             var kDefaultTimezone = calendarDefaultTimezone();
-            this.mStartDate = start.getInTimezone(kDefaultTimezone).clone();
-            this.mEndDate = end.getInTimezone(kDefaultTimezone).clone();
+            this.mStartDate = start.getInTimezone(kDefaultTimezone);
+            this.mEndDate = end.getInTimezone(kDefaultTimezone);
+            var endDate = this.mEndDate.clone();
+                
+            // Check if an all-day event has been passed in (to adapt endDate).
+            if (this.mStartDate.isDate) {
+                this.mEndDate.day -= 1;
+
+                // The date/timepicker uses jsDate internally. Because jsDate does
+                // not know the concept of dates we end up displaying times unequal
+                // to 00:00 for all-day events depending on local timezone setting. 
+                // Calling normalize() recalculates that times to represent 00:00
+                // in local timezone.
+                this.mEndDate.normalize();
+                this.mStartDate.normalize();
+                endDate.normalize();
+            }
             this.mStartDate.makeImmutable();
             this.mEndDate.makeImmutable();
+            endDate.makeImmutable();
 
             // show the new start/enddate in the appropriate controls
             document.getAnonymousElementByAttribute(this, "anonid", "event-starttime").value = this.mStartDate.jsDate;
@@ -1554,12 +1680,12 @@
 
             // tell the grid about the new start/enddate
             grid.startDate = this.mStartDate;
-            grid.endDate = this.mEndDate;
+            grid.endDate = endDate;
             
             // tell the timebar about the new start/enddate
             var timebar = document.getAnonymousElementByAttribute(this, "anonid", "timebar");
             timebar.startDate = this.mStartDate;
-            timebar.endDate = this.mEndDate;
+            timebar.endDate = endDate;
             timebar.refresh();
             
             // scroll the grid/timebar such that the current time is visible
@@ -1602,7 +1728,7 @@
         <body>
           <![CDATA[
             var timebar = document.getAnonymousElementByAttribute(this, "anonid", "timebar");
-            var ratio = this.mStartDate.hour * timebar.step;
+            var ratio = (this.mStartDate.hour-this.mStartHour) * timebar.step;
             if(ratio <= 0.0)
               ratio = 0.0;
             if(ratio >= 1.0)

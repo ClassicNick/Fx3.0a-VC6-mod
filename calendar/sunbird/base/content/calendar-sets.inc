@@ -53,7 +53,7 @@
   <command id="modify_command" oncommand="editEvent()" disabled="true" disabledwhennoeventsselected="true"/>
   <command id="send_event_command" oncommand="sendEvent()" disabled="true" disabledwhennoeventsselected="true"/>
   <command id="cmd_pageSetup" oncommand="PrintUtils.showPageSetup();"/>
-  <command id="print_command" oncommand="print()"/>
+  <command id="print_command" oncommand="calPrint()"/>
   
   <command id="undo_command" oncommand="undo()" disabled="true"/>
   <command id="redo_command" oncommand="redo()" disabled="true"/>
@@ -102,7 +102,6 @@
   <command id="wizard_command" oncommand="launchWizard()" collapsed="true"/>
 
   <command id="cmd_CustomizeToolbars"   oncommand="CalendarCustomizeToolbar()"/>
-  <command id="cmd_showCalendarToolbar" oncommand="goToggleToolbar('calendar-bar', 'menu_showCalendarToolbar');"/>
   <command id="cmd_showSearchToolbar"   oncommand="goToggleToolbar('searchBox', 'menu_showSearchToolbar');"/>
   <command id="cmd_showStatusBar"       oncommand="goToggleToolbar('status-bar', 'menu_showStatusBar');"/>
   <command id="cmd_showTaskBox"         oncommand="goToggleToolbar('taskBox', 'menu_showTaskBox'); goToggleToolbar('calendar-todo-splitter');"/>

@@ -1368,7 +1368,7 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
 
   PRBool isComposited = disp->mOpacity != 1.0f;
   PRBool isPositioned = disp->IsPositioned();
-  if (isComposited || isPositioned) {
+  if (isComposited || isPositioned || (aFlags & DISPLAY_CHILD_FORCE_STACKING_CONTEXT)) {
     // If you change this, also change IsPseudoStackingContextFromStyle()
     pseudoStackingContext = PR_TRUE;
   }
@@ -1405,7 +1405,7 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   nsDisplayList extraPositionedDescendants;
   const nsStylePosition* pos = aChild->GetStylePosition();
   if ((isPositioned && pos->mZIndex.GetUnit() == eStyleUnit_Integer) ||
-      isComposited) {
+      isComposited || (aFlags & DISPLAY_CHILD_FORCE_STACKING_CONTEXT)) {
     // True stacking context
     rv = aChild->BuildDisplayListForStackingContext(aBuilder, dirty, &list);
     if (NS_SUCCEEDED(rv)) {
@@ -1453,7 +1453,8 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   }
   NS_ENSURE_SUCCESS(rv, rv);
     
-  if (isPositioned || isComposited) {
+  if (isPositioned || isComposited ||
+      (aFlags & DISPLAY_CHILD_FORCE_STACKING_CONTEXT)) {
     // Genuine stacking contexts, and positioned pseudo-stacking-contexts,
     // go in this level.
     rv = aLists.PositionedDescendants()->AppendNewToTop(new (aBuilder)
@@ -2132,8 +2133,8 @@ static nsresult
 HandleFrameSelection(nsFrameSelection*         aFrameSelection,
                      nsIFrame::ContentOffsets& aOffsets,
                      PRBool                    aHandleTableSel,
-                     PRUint32                  aContentOffsetForTableSel,
-                     PRUint32                  aTargetForTableSel,
+                     PRInt32                   aContentOffsetForTableSel,
+                     PRInt32                   aTargetForTableSel,
                      nsIContent*               aParentContentForTableSel,
                      nsGUIEvent*               aEvent,
                      nsEventStatus*            aEventStatus)
@@ -4364,17 +4365,35 @@ nsFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       nsIFrame *firstFrame;
       nsRect usedRect;
       PRUint32 lineFlags;
-      it->GetLine(thisLine, &firstFrame, &lineFrameCount, usedRect, &lineFlags);
-
-      PRBool endOfLine = (eSelectEndLine == aPos->mAmount);
       nsIFrame* baseFrame = nsnull;
-      nsIFrame* frame = firstFrame;
-      for (PRInt32 count = lineFrameCount; count;
-           --count, frame = frame->GetNextSibling()) {
-        if (!frame->IsGeneratedContentFrame()) {
-          baseFrame = frame;
-          if (!endOfLine)
-            break;
+      PRBool endOfLine = (eSelectEndLine == aPos->mAmount);
+      
+#ifdef IBMBIDI
+      if (aPos->mVisual && aPresContext->BidiEnabled()) {
+        PRBool lineIsRTL;
+        it->GetDirection(&lineIsRTL);
+        PRBool isReordered;
+        nsIFrame *lastFrame;
+        result = it->CheckLineOrder(thisLine, &isReordered, &firstFrame, &lastFrame);
+        baseFrame = endOfLine ? lastFrame : firstFrame;
+        nsBidiLevel embeddingLevel = nsBidiPresUtils::GetFrameEmbeddingLevel(baseFrame);
+        // If the direction of the frame on the edge is opposite to that of the line,
+        // we'll need to drill down to its opposite end, so reverse endOfLine.
+        if ((embeddingLevel & 1) == !lineIsRTL)
+          endOfLine = !endOfLine;
+      } else
+#endif
+      {
+        it->GetLine(thisLine, &firstFrame, &lineFrameCount, usedRect, &lineFlags);
+
+        nsIFrame* frame = firstFrame;
+        for (PRInt32 count = lineFrameCount; count;
+             --count, frame = frame->GetNextSibling()) {
+          if (!frame->IsGeneratedContentFrame()) {
+            baseFrame = frame;
+            if (!endOfLine)
+              break;
+          }
         }
       }
       if (!baseFrame)
@@ -4384,6 +4403,7 @@ nsFrame::PeekOffset(nsPresContext* aPresContext, nsPeekOffsetStruct *aPos)
       FrameContentRange range = GetRangeForFrame(targetFrame.frame);
       aPos->mResultContent = range.content;
       aPos->mContentOffset = endOfLine ? range.end : range.start;
+      aPos->mResultFrame = targetFrame.frame;
       aPos->mAttachForward = (aPos->mContentOffset == range.start);
       if (!range.content)
         return NS_ERROR_FAILURE;
@@ -4471,14 +4491,18 @@ nsFrame::GetFrameFromDirection(nsPresContext* aPresContext, nsPeekOffsetStruct *
       PRBool isReordered;
       result = it->CheckLineOrder(thisLine, &isReordered, &firstFrame, &lastFrame);
       nsIFrame** framePtr = aPos->mDirection == eDirPrevious ? &firstFrame : &lastFrame;
-      nsBidiLevel embeddingLevel = nsBidiPresUtils::GetFrameEmbeddingLevel(*framePtr);
-      if (((embeddingLevel & 1) && lineIsRTL || !(embeddingLevel & 1) && !lineIsRTL) ==
-          (aPos->mDirection == eDirPrevious)) {
-        GetFirstLeaf(aPresContext, framePtr);
+      if (*framePtr) {
+        nsBidiLevel embeddingLevel = nsBidiPresUtils::GetFrameEmbeddingLevel(*framePtr);
+        if (((embeddingLevel & 1) && lineIsRTL || !(embeddingLevel & 1) && !lineIsRTL) ==
+            (aPos->mDirection == eDirPrevious)) {
+          GetFirstLeaf(aPresContext, framePtr);
+        } else {
+          GetLastLeaf(aPresContext, framePtr);
+        }
+        atLineEdge = *framePtr == traversedFrame;
       } else {
-        GetLastLeaf(aPresContext, framePtr);
+        atLineEdge = PR_TRUE;
       }
-      atLineEdge = *framePtr == traversedFrame;
     } else
 #endif
     {

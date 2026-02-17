@@ -42,9 +42,9 @@ Bugzilla::Field - a particular piece of information about bugs
   # so both methods take the same arguments.
   print Dumper(Bugzilla::Field->match({ obsolete => 1, custom => 1 }));
 
-  # Create a custom field.
-  my $field = Bugzilla::Field::create("hilarity", "Hilarity");
-  print $field->description . " is a custom field\n";
+  # Create or update a custom field or field definition.
+  my $field = Bugzilla::Field::create_or_update(
+    {name => 'hilarity', desc => 'Hilarity', custom => 1});
 
   # Instantiate a Field object for an existing field.
   my $field = new Bugzilla::Field({name => 'qacontact_accessible'});
@@ -80,6 +80,10 @@ use Bugzilla::Util;
 use Bugzilla::Constants;
 use Bugzilla::Error;
 
+###############################
+####    Initialization     ####
+###############################
+
 use constant DB_TABLE   => 'fielddefs';
 use constant LIST_ORDER => 'sortkey, name';
 
@@ -91,6 +95,73 @@ use constant DB_COLUMNS => (
     'custom',
     'obsolete',
     'enter_bug',
+);
+
+# How various field types translate into SQL data definitions.
+use constant SQL_DEFINITIONS => {
+    # Using commas because these are constants and they shouldn't
+    # be auto-quoted by the "=>" operator.
+    FIELD_TYPE_FREETEXT, { TYPE => 'varchar(255)' },
+};
+
+# Field definitions for the fields that ship with Bugzilla.
+# These are used by populate_field_definitions to populate
+# the fielddefs table.
+use constant DEFAULT_FIELDS => (
+    {name => 'bug_id',       desc => 'Bug #',      in_new_bugmail => 1},
+    {name => 'short_desc',   desc => 'Summary',    in_new_bugmail => 1},
+    {name => 'classification', desc => 'Classification', in_new_bugmail => 1},
+    {name => 'product',      desc => 'Product',    in_new_bugmail => 1},
+    {name => 'version',      desc => 'Version',    in_new_bugmail => 1},
+    {name => 'rep_platform', desc => 'Platform',   in_new_bugmail => 1},
+    {name => 'bug_file_loc', desc => 'URL',        in_new_bugmail => 1},
+    {name => 'op_sys',       desc => 'OS/Version', in_new_bugmail => 1},
+    {name => 'bug_status',   desc => 'Status',     in_new_bugmail => 1},
+    {name => 'status_whiteboard', desc => 'Status Whiteboard',
+     in_new_bugmail => 1},
+    {name => 'keywords',     desc => 'Keywords',   in_new_bugmail => 1},
+    {name => 'resolution',   desc => 'Resolution'},
+    {name => 'bug_severity', desc => 'Severity',   in_new_bugmail => 1},
+    {name => 'priority',     desc => 'Priority',   in_new_bugmail => 1},
+    {name => 'component',    desc => 'Component',  in_new_bugmail => 1},
+    {name => 'assigned_to',  desc => 'AssignedTo', in_new_bugmail => 1},
+    {name => 'reporter',     desc => 'ReportedBy', in_new_bugmail => 1},
+    {name => 'votes',        desc => 'Votes'},
+    {name => 'qa_contact',   desc => 'QAContact',  in_new_bugmail => 1},
+    {name => 'cc',           desc => 'CC',         in_new_bugmail => 1},
+    {name => 'dependson',    desc => 'BugsThisDependsOn', in_new_bugmail => 1},
+    {name => 'blocked',      desc => 'OtherBugsDependingOnThis',
+     in_new_bugmail => 1},
+
+    {name => 'attachments.description', desc => 'Attachment description'},
+    {name => 'attachments.filename',    desc => 'Attachment filename'},
+    {name => 'attachments.mimetype',    desc => 'Attachment mime type'},
+    {name => 'attachments.ispatch',     desc => 'Attachment is patch'},
+    {name => 'attachments.isobsolete',  desc => 'Attachment is obsolete'},
+    {name => 'attachments.isprivate',   desc => 'Attachment is private'},
+
+    {name => 'target_milestone',      desc => 'Target Milestone'},
+    {name => 'creation_ts', desc => 'Creation date', in_new_bugmail => 1},
+    {name => 'delta_ts', desc => 'Last changed date', in_new_bugmail => 1},
+    {name => 'longdesc',              desc => 'Comment'},
+    {name => 'alias',                 desc => 'Alias'},
+    {name => 'everconfirmed',         desc => 'Ever Confirmed'},
+    {name => 'reporter_accessible',   desc => 'Reporter Accessible'},
+    {name => 'cclist_accessible',     desc => 'CC Accessible'},
+    {name => 'bug_group',             desc => 'Group'},
+    {name => 'estimated_time', desc => 'Estimated Hours', in_new_bugmail => 1},
+    {name => 'remaining_time',        desc => 'Remaining Hours'},
+    {name => 'deadline',              desc => 'Deadline', in_new_bugmail => 1},
+    {name => 'commenter',             desc => 'Commenter'},
+    {name => 'flagtypes.name',        desc => 'Flag'},
+    {name => 'requestees.login_name', desc => 'Flag Requestee'},
+    {name => 'setters.login_name',    desc => 'Flag Setter'},
+    {name => 'work_time',             desc => 'Hours Worked'},
+    {name => 'percentage_complete',   desc => 'Percentage Complete'},
+    {name => 'content',               desc => 'Content'},
+    {name => 'attach_data.thedata',   desc => 'Attachment data'},
+    {name => 'attachments.isurl',     desc => 'Attachment is a URL'},
+    {name => "owner_idle_time",       desc => "Time Since Assignee Touched"},
 );
 
 =pod
@@ -176,44 +247,61 @@ sub enter_bug { return $_[0]->{enter_bug} }
 
 =over
 
-=item C<create($name, $desc)>
+=item C<create_or_update({name => $name, desc => $desc, in_new_bugmail => 0, custom => 0})>
 
-Description: creates a new custom field.
+Description: Creates a new field, or updates one that
+             already exists with the same name.
 
-Params:      C<$name> - string - the name of the field;
-             C<$desc> - string - the field label to display in the UI.
+Params:      This function takes named parameters in a hashref: 
+             C<name> - string - The name of the field.
+             C<desc> - string - The field label to display in the UI.
+             C<in_new_bugmail> - boolean - Whether this field appears at the
+                 top of the bugmail for a newly-filed bug.
+             C<custom> - boolean - True if this is a Custom Field. The field
+                 will be added to the C<bugs> table if it does not exist.
 
-Returns:     a field object.
+Returns:     a C<Bugzilla::Field> object.
 
 =back
 
 =cut
 
-sub create {
-    my ($name, $desc, $custom) = @_;
+sub create_or_update {
+    my ($params) = @_;
     
-    # Convert the $custom argument into a DB-compatible value.
-    $custom = $custom ? 1 : 0;
+    my $custom         = $params->{custom} ? 1 : 0;
+    my $name           = $params->{name};
+    my $in_new_bugmail = $params->{in_new_bugmail} ? 1 : 0;
+
+    # Some day we'll allow invocants to specify the field type.
+    my $type = $custom ? FIELD_TYPE_FREETEXT : FIELD_TYPE_UNKNOWN;
+
+    my $field = new Bugzilla::Field({name => $name});
 
     my $dbh = Bugzilla->dbh;
+    if ($field) {
+        # Update the already-existing definition.
+        $dbh->do("UPDATE fielddefs SET description = ?, mailhead = ?
+                   WHERE id = ?",
+                 undef, $params->{desc}, $in_new_bugmail, $field->id);
+    }
+    else {
+        # Some day we'll allow invocants to specify the sort key.
+        my ($sortkey) = $dbh->selectrow_array(
+            "SELECT MAX(sortkey) + 100 FROM fielddefs") || 100;
 
-    # Some day we'll allow invocants to specify the sort key.
-    my ($sortkey) =
-      $dbh->selectrow_array("SELECT MAX(sortkey) + 1 FROM fielddefs");
+        # Add the field to the list of fields at this Bugzilla installation.
+        $dbh->do("INSERT INTO fielddefs (name, description, sortkey, type,
+                                         custom, mailhead)
+                       VALUES (?, ?, ?, ?, ?, ?)", undef,
+                 $name, $params->{desc}, $sortkey, $type, $custom, 
+                 $in_new_bugmail);
+    }
 
-    # Some day we'll require invocants to specify the field type.
-    my $type = FIELD_TYPE_FREETEXT;
-
-    # Create the database column that stores the data for this field.
-    $dbh->bz_add_column("bugs", $name, { TYPE => 'varchar(255)' });
-
-    # Add the field to the list of fields at this Bugzilla installation.
-    my $sth = $dbh->prepare(
-                  "INSERT INTO fielddefs (name, description, sortkey, type,
-                                          custom, mailhead)
-                   VALUES (?, ?, ?, ?, ?, 1)"
-              );
-    $sth->execute($name, $desc, $sortkey, $type, $custom);
+    if (!$dbh->bz_column_info('bugs', $name) && $custom) {
+        # Create the database column that stores the data for this field.
+        $dbh->bz_add_column('bugs', $name, SQL_DEFINITIONS->{$type});
+    }
 
     return new Bugzilla::Field({name => $name});
 }
@@ -294,8 +382,106 @@ sub get_legal_field_values {
     return $result_ref;
 }
 
+=over
 
-=pod
+=item C<populate_field_definitions()>
+
+Description: Populates the fielddefs table during an installation
+             or upgrade.
+
+Params:      none
+
+Returns:     nothing
+
+=back
+
+=cut
+
+sub populate_field_definitions {
+    my $dbh = Bugzilla->dbh;
+
+    # ADD and UPDATE field definitions
+    foreach my $definition (DEFAULT_FIELDS) {
+        create_or_update($definition);
+    }
+
+    # DELETE fields which were added only accidentally, or which
+    # were never tracked in bugs_activity. Note that you can never
+    # delete fields which are used by bugs_activity.
+
+    # Oops. Bug 163299
+    $dbh->do("DELETE FROM fielddefs WHERE name='cc_accessible'");
+    # Oops. Bug 215319
+    $dbh->do("DELETE FROM fielddefs WHERE name='requesters.login_name'");
+    # This field was never tracked in bugs_activity, so it's safe to delete.
+    $dbh->do("DELETE FROM fielddefs WHERE name='attachments.thedata'");
+
+    # MODIFY old field definitions
+
+    # 2005-11-13 LpSolit@gmail.com - Bug 302599
+    # One of the field names was a fragment of SQL code, which is DB dependent.
+    # We have to rename it to a real name, which is DB independent.
+    my $new_field_name = 'days_elapsed';
+    my $field_description = 'Days since bug changed';
+
+    my ($old_field_id, $old_field_name) =
+        $dbh->selectrow_array('SELECT id, name FROM fielddefs
+                                WHERE description = ?',
+                              undef, $field_description);
+
+    if ($old_field_id && ($old_field_name ne $new_field_name)) {
+        print "SQL fragment found in the 'fielddefs' table...\n";
+        print "Old field name: " . $old_field_name . "\n";
+        # We have to fix saved searches first. Queries have been escaped
+        # before being saved. We have to do the same here to find them.
+        $old_field_name = url_quote($old_field_name);
+        my $broken_named_queries =
+            $dbh->selectall_arrayref('SELECT userid, name, query
+                                        FROM namedqueries WHERE ' .
+                                      $dbh->sql_istrcmp('query', '?', 'LIKE'),
+                                      undef, "%=$old_field_name%");
+
+        my $sth_UpdateQueries = $dbh->prepare('UPDATE namedqueries SET query = ?
+                                                WHERE userid = ? AND name = ?');
+
+        print "Fixing saved searches...\n" if scalar(@$broken_named_queries);
+        foreach my $named_query (@$broken_named_queries) {
+            my ($userid, $name, $query) = @$named_query;
+            $query =~ s/=\Q$old_field_name\E(&|$)/=$new_field_name$1/gi;
+            $sth_UpdateQueries->execute($query, $userid, $name);
+        }
+
+        # We now do the same with saved chart series.
+        my $broken_series =
+            $dbh->selectall_arrayref('SELECT series_id, query
+                                        FROM series WHERE ' .
+                                      $dbh->sql_istrcmp('query', '?', 'LIKE'),
+                                      undef, "%=$old_field_name%");
+
+        my $sth_UpdateSeries = $dbh->prepare('UPDATE series SET query = ?
+                                               WHERE series_id = ?');
+
+        print "Fixing saved chart series...\n" if scalar(@$broken_series);
+        foreach my $series (@$broken_series) {
+            my ($series_id, $query) = @$series;
+            $query =~ s/=\Q$old_field_name\E(&|$)/=$new_field_name$1/gi;
+            $sth_UpdateSeries->execute($query, $series_id);
+        }
+        # Now that saved searches have been fixed, we can fix the field name.
+        print "Fixing the 'fielddefs' table...\n";
+        print "New field name: " . $new_field_name . "\n";
+        $dbh->do('UPDATE fielddefs SET name = ? WHERE id = ?',
+                  undef, ($new_field_name, $old_field_id));
+}
+
+    # This field has to be created separately, or the above upgrade code
+    # might not run properly.
+    Bugzilla::Field::create_or_update(
+        {name => $new_field_name, desc => $field_description});
+
+}
+
+
 
 =head2 Data Validation
 

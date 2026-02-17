@@ -31,6 +31,7 @@ our @EXPORT = qw(
     MOD_PERL_MODULES
 
     check_requirements
+    check_graphviz
     have_vers
     vers_cmp
     install_command
@@ -39,16 +40,8 @@ our @EXPORT = qw(
 use Bugzilla::Constants;
 use constant REQUIRED_MODULES => [
     {
-        name => 'AppConfig',
-        version => '1.52'
-    },
-    {
         name => 'CGI',
         version => '2.93'
-    },
-    {
-        name => 'Data::Dumper',
-        version => '0'
     },
     {
         name => 'Date::Format',
@@ -63,16 +56,8 @@ use constant REQUIRED_MODULES => [
         version => '0.84'
     },
     {
-        name => 'File::Temp',
-        version => '0'
-    },
-    {
         name => 'Template',
         version => '2.08'
-    },
-    {
-        name => 'Text::Wrap',
-        version => '2001.0131'
     },
     {
         name => 'Mail::Mailer',
@@ -86,10 +71,6 @@ use constant REQUIRED_MODULES => [
         # MIME::Parser is packaged as MIME::Tools on ActiveState Perl
         name => $^O =~ /MSWin32/i ? 'MIME::Tools' : 'MIME::Parser',
         version => '5.406'
-    },
-    {
-        name => 'Storable',
-        version => '0'
     },
 ];
 
@@ -367,6 +348,36 @@ sub check_requirements {
 
 }
 
+sub check_graphviz {
+    my ($output) = @_;
+
+    return 1 if (Bugzilla->params->{'webdotbase'} =~ /^https?:/);
+
+    printf("Checking for %15s %-9s ", "GraphViz", "(any)") if $output;
+
+    my $return = 0;
+    if(-x Bugzilla->params->{'webdotbase'}) {
+        print "ok: found\n" if $output;
+        $return = 1;
+    } else {
+        print "not a valid executable: " . Bugzilla->params->{'webdotbase'} . "\n";
+    }
+
+    my $webdotdir = bz_locations()->{'webdotdir'};
+    # Check .htaccess allows access to generated images
+    if (-e "$webdotdir/.htaccess") {
+        my $htaccess = new IO::File("$webdotdir/.htaccess", 'r') 
+            || die "$webdotdir/.htaccess: " . $!;
+        if (!grep(/png/, $htaccess->getlines)) {
+            print "Dependency graph images are not accessible.\n";
+            print "delete $webdotdir/.htaccess and re-run checksetup.pl to fix.\n";
+        }
+        $htaccess->close;
+    }
+
+    return $return;
+}
+
 
 # This was originally clipped from the libnet Makefile.PL, adapted here to
 # use the below vers_cmp routine for accurate version checking.
@@ -518,6 +529,16 @@ represent the name of the module and the version that we require.
                           and the value is the version we require.
              C<optional> - Which optional modules are installed and
                            up-to-date enough for Bugzilla.
+
+=item C<check_graphviz($output)>
+
+Description: Checks if the graphviz binary specified in the 
+  C<webdotbase> parameter is a valid binary, or a valid URL.
+
+Params:      C<$output> - C<$true> if you want the function to
+                 print out information about what it's doing.
+
+Returns:     C<1> if the check was successful, C<0> otherwise.
 
 =item C<vers_cmp($a, $b)>
 

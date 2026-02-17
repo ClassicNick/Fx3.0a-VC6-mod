@@ -33,11 +33,19 @@ $|++;
 use Litmus;
 use Litmus::Auth;
 
-use CGI;
-use diagnostics;
+Litmus->init();
 
 my $title = "Log in";
 
 Litmus::Auth::requireLogin("index.cgi");
 
+# if we end up here, it means the user was already logged in 
+# for some reason, so we should send a redirect to index.cgi:
+print Litmus->cgi()->start_html(-title=>'Please Wait', 
+								-head=>Litmus->cgi()->meta({-http_equiv=> 'refresh', -content=>'0;url=index.cgi'})
+							   );
+print Litmus->cgi()->end_html();	
+	
 exit;
+
+

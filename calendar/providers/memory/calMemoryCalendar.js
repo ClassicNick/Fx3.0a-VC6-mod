@@ -145,7 +145,7 @@ calMemoryCalendar.prototype = {
         if (this.readOnly) 
             throw Components.interfaces.calIErrors.CAL_IS_READONLY;
         if (aItem.id == null && aItem.isMutable)
-            aItem.id = "uuid" + (new Date()).getTime();
+            aItem.id = getUUID();
 
         if (aItem.id == null) {
             if (aListener)
@@ -218,8 +218,8 @@ calMemoryCalendar.prototype = {
             aNewItem = aNewItem.parentItem;
         }
         aOldItem = aOldItem.parentItem;
-        
-        if (aOldItem != this.mItems[aOldItem.id]) {
+
+        if (!compareItems(this.mItems[aOldItem.id], aOldItem)) {
             if (aListener)
                 aListener.onOperationComplete (this.calendarToReturn,
                                                Components.results.NS_ERROR_FAILURE,

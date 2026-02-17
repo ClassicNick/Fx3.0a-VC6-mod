@@ -39,6 +39,7 @@
 #   Joe Hughes <joe@retrovirus.com>
 #   Pamela Greene <pamg.bugs@gmail.com>
 #   Michael Ventnor <ventnors_dogs234@yahoo.com.au>
+#   Simon Bünzli <zeniko@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -93,6 +94,7 @@ var gCharsetMenu = null;
 var gLastBrowserCharset = null;
 var gPrevCharset = null;
 var gURLBar = null;
+var gURLBarContainer = null;
 var gProxyButton = null;
 var gProxyFavIcon = null;
 var gProxyDeck = null;
@@ -725,8 +727,8 @@ function xpinstallEditPermissions(aDocShell)
                    allowVisible   : true,
                    prefilledHost  : webNav.currentURI.host,
                    permissionType : "install",
-                   windowTitle    : bundlePreferences.getString("installpermissionstitle"),
-                   introText      : bundlePreferences.getString("installpermissionstext") };
+                   windowTitle    : bundlePreferences.getString("addonspermissionstitle"),
+                   introText      : bundlePreferences.getString("addonspermissionstext") };
     wm = Components.classes["@mozilla.org/appshell/window-mediator;1"]
                    .getService(Components.interfaces.nsIWindowMediator);
     var existingWindow = wm.getMostRecentWindow("Browser:Permissions");
@@ -865,6 +867,7 @@ function BrowserStartup()
 function prepareForStartup()
 {
   gURLBar = document.getElementById("urlbar");
+  gURLBarContainer = document.getElementById("urlbar-container");
   gNavigatorBundle = document.getElementById("bundle_browser");
   gProgressMeterPanel = document.getElementById("statusbar-progresspanel");
   gBrowser.addEventListener("DOMUpdatePageReport", gPopupBlockerObserver.onUpdatePageReport, false);
@@ -1005,7 +1008,8 @@ function delayedStartup()
   window.addEventListener("fullscreen", onFullScreen, true);
 
   var element;
-  if (gIsLoadingBlank && gURLBar && !gURLBar.hidden && !gURLBar.parentNode.parentNode.collapsed)
+  if (gIsLoadingBlank && gURLBar && !gURLBar.hidden &&
+      !gURLBarContainer.parentNode.collapsed)
     element = gURLBar;
   else
     element = content;
@@ -1062,7 +1066,14 @@ function delayedStartup()
   var shell = getShellService();
   if (shell) {
     var shouldCheck = shell.shouldCheckDefaultBrowser;
-    if (shouldCheck && !shell.isDefaultBrowser(true)) {
+    var willRestoreSession = false;
+    try {
+      var ss = Cc["@mozilla.org/browser/sessionstartup;1"].
+               getService(Ci.nsISessionStartup);
+      willRestoreSession = ss.doRestore();
+    }
+    catch (ex) { /* never mind; suppose SessionStore is broken */ }
+    if (shouldCheck && !shell.isDefaultBrowser(true) && !willRestoreSession) {
       var brandBundle = document.getElementById("bundle_brand");
       var shellBundle = document.getElementById("bundle_shell");
 
@@ -1807,8 +1818,9 @@ function addBookmarkForBrowser(aDocShell, aIsWebPanel)
 
 function openLocation()
 {
-  if (gURLBar && !gURLBar.parentNode.parentNode.collapsed &&
-      !(window.getComputedStyle(gURLBar.parentNode, null).display == "none")) {
+  if (gURLBar && !gURLBarContainer.parentNode.collapsed &&
+      (document.defaultView.getComputedStyle(gURLBarContainer, null).display
+       != "none")) {
     gURLBar.focus();
     gURLBar.select();
   }
@@ -3354,6 +3366,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   // Update global UI elements that may have been added or removed
   if (aToolboxChanged) {
     gURLBar = document.getElementById("urlbar");
+    gURLBarContainer = document.getElementById("urlbar-container");
     if (gURLBar)
       gURLBar.clickSelectsAll = gClickSelectsAll;
     gProxyButton = document.getElementById("page-proxy-button");
