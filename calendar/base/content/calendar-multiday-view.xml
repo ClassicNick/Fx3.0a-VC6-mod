@@ -1458,7 +1458,7 @@
 
               var eventbox = document.getAnonymousElementByAttribute(this, "anonid", "eventbox");
               eventbox.setAttribute("orient", val);
-              eventbox.setAttribute("class", "calendar-event-box-" + val);
+              eventbox.setAttribute("class", "calendar-item calendar-event-box-" + val);
               var gb1 = document.getAnonymousElementByAttribute(this, "anonid", "gripbar1");
               gb1.parentorient = val;
               var gb2 = document.getAnonymousElementByAttribute(this, "anonid", "gripbar2");
@@ -1730,6 +1730,10 @@
                     (!aItem.entryDate || !aItem.dueDate))
                     return;
 
+                if (aItem instanceof Components.interfaces.calITodo &&
+                    !this.calView.mTasksInView)
+                    return;
+
                 var occs = aItem.getOccurrencesBetween(this.calView.startDate,
                                                        this.calView.queryEndDate,
                                                        {});
@@ -1749,6 +1753,11 @@
                 if (this.mBatchCount) {
                     return;
                 }
+
+                if (aNewItem instanceof Components.interfaces.calITodo &&
+                    !this.calView.mTasksInView)
+                    return;
+
                 var occs;
 
 
@@ -1784,6 +1793,11 @@
                 if (this.mBatchCount) {
                     return;
                 }
+
+                if (aItem instanceof Components.interfaces.calITodo &&
+                    !this.calView.mTasksInView)
+                    return;
+
                 if (aItem instanceof Components.interfaces.calITodo && 
                     (!aItem.entryDate || !aItem.dueDate))
                     return;
@@ -2311,9 +2325,6 @@
               }
           }
           this.refresh();
-
-          // adjust scrollbar spacers
-          this.adjustScrollBarSpacers();
         ]]></body>
       </method>
 
@@ -2433,8 +2444,9 @@
               if (counter < headerboxkids.length) {
                   dayHeaderBox = headerboxkids[counter];
                   dayHeaderBox.removeAttribute("today");
-                  for each (item in dayHeaderBox.mItemBoxes) {
-                      dayHeaderBox.deleteEvent(item.occurrence);
+                  // Delete backwards to make sure we get them all
+                  for (var i = dayHeaderBox.mItemBoxes.length-1; i >= 0; i--) {
+                      dayHeaderBox.deleteEvent(dayHeaderBox.mItemBoxes[i].occurrence);
                   }
               } else {
                   dayHeaderBox = createXULElement("calendar-header-container");
@@ -2508,6 +2520,12 @@
           for each (col in this.mDateColumns) {
                col.column.endLayoutBatchChange();
           }
+
+          // adjust scrollbar spacers
+          // XXX For performance reasons this method call can be moved to the
+          // XXX constructor and the reorient method as soon as the views
+          // XXX are constructed statically (24 hrs).
+          this.adjustScrollBarSpacers();
         ]]></body>
       </method>
 

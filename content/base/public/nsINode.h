@@ -42,11 +42,8 @@
 #include "nsEvent.h"
 #include "nsPropertyTable.h"
 #include "nsTObserverArray.h"
-
-#ifdef MOZILLA_INTERNAL_API
 #include "nsINodeInfo.h"
 #include "nsCOMPtr.h"
-#endif
 
 class nsIContent;
 class nsIDocument;
@@ -113,18 +110,16 @@ public:
  */
 class nsINode : public nsINode_base {
 public:
-#ifdef MOZILLA_INTERNAL_API
-  // If you're using the external API, the only thing you can know about
-  // nsINode is that it exists with an IID, if that....
-    
   friend class nsNodeUtils;
 
+#ifdef MOZILLA_INTERNAL_API
   nsINode(nsINodeInfo* aNodeInfo)
     : mNodeInfo(aNodeInfo),
       mParentPtrBits(0),
       mFlagsOrSlots(NODE_DOESNT_HAVE_SLOTS)
   {
   }
+#endif
 
   virtual ~nsINode();
 
@@ -662,8 +657,6 @@ protected:
    * member.
    */
   PtrBits mFlagsOrSlots;
-
-#endif // MOZILLA_INTERNAL_API
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsINode_base, NS_INODE_IID)

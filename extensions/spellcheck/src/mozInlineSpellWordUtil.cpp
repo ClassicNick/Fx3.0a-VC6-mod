@@ -40,6 +40,7 @@
 #include "mozInlineSpellWordUtil.h"
 #include "nsDebug.h"
 #include "nsIAtom.h"
+#include "nsComponentManagerUtils.h"
 #include "nsIDOMCSSStyleDeclaration.h"
 #include "nsIDOMDocumentView.h"
 #include "nsIDOMElement.h"
@@ -49,6 +50,13 @@
 #include "nsIDOMNode.h"
 #include "nsIDOMHTMLBRElement.h"
 
+// some character categories we care about from GetCat()
+#define CHAR_CAT_NUMBER 2
+#define CHAR_CAT_SPACE 3
+#define CHAR_CAT_CONTROL 4
+#define CHAR_CAT_WORD 5
+#define CHAR_CAT_PUNCTUATION1 6
+#define CHAR_CAT_PUNCTUATION2 7
 
 // IsIgnorableCharacter
 //
@@ -59,6 +67,17 @@ inline PRBool IsIgnorableCharacter(PRUnichar ch)
   return (ch == 0x200D || // ZERO-WIDTH JOINER
           ch == 0xAD ||   // SOFT HYPHEN
           ch == 0x1806);  // MONGOLIAN TODO SOFT HYPHEN
+}
+
+// IsConditionalPunctuation
+//
+//    Some characters (like apostrophes) require characters on each side to be
+//    part of a word, and are otherwise punctuation.
+
+inline PRBool IsConditionalPunctuation(PRUnichar ch)
+{
+  return (ch == '\'' ||
+          ch == 0x2019); // RIGHT SINGLE QUOTATION MARK
 }
 
 // mozInlineSpellWordUtil::Init
@@ -791,14 +810,16 @@ enum CharClass {
 // Encapsulates DOM-word to real-word splitting
 struct WordSplitState
 {
+  mozInlineSpellWordUtil*    mWordUtil;
   const nsDependentSubstring mDOMWordText;
   PRInt32                    mDOMWordOffset;
   CharClass                  mCurCharClass;
-  
-  WordSplitState(const nsString& aString, PRInt32 aStart, PRInt32 aLen)
-    : mDOMWordText(aString, aStart, aLen), mDOMWordOffset(0),
-      mCurCharClass(CHAR_CLASS_END_OF_INPUT) {}
-  
+
+  WordSplitState(mozInlineSpellWordUtil* aWordUtil,
+                 const nsString& aString, PRInt32 aStart, PRInt32 aLen)
+    : mWordUtil(aWordUtil), mDOMWordText(aString, aStart, aLen),
+      mDOMWordOffset(0), mCurCharClass(CHAR_CLASS_END_OF_INPUT) {}
+
   CharClass ClassifyCharacter(PRInt32 aIndex, PRBool aRecurse) const;
   void Advance();
   void AdvanceThroughSeparators();
@@ -829,33 +850,18 @@ WordSplitState::ClassifyCharacter(PRInt32 aIndex, PRBool aRecurse) const
   // this will classify the character, we want to treat "ignorable" characters
   // such as soft hyphens as word characters.
   PRInt32 charCategory = GetCat(mDOMWordText[aIndex]);
-  if (charCategory == 5 || IsIgnorableCharacter(mDOMWordText[aIndex]))
+  if (charCategory == CHAR_CAT_WORD ||
+      IsIgnorableCharacter(mDOMWordText[aIndex]))
     return CHAR_CLASS_WORD;
 
-  if (mDOMWordText[aIndex] > 255) {
-    // Non-ASCII character so we can't use is* libc functions.
-    // XXX this function needs work to handle general Unicode characters!!!
-    return CHAR_CLASS_WORD;
-  }
-
-  // all other whitespace chars, control chars, and most punctuation (with
-  // several exceptions) are word separators. These exceptions are for
-  // characters that can be considered part of a word if it is surrounded by
-  // word characters
-  if ((isspace(mDOMWordText[aIndex]) || mDOMWordText[aIndex] < ' ' ||
-       ispunct(mDOMWordText[aIndex]))
-      && mDOMWordText[aIndex] != '\'')
-    return CHAR_CLASS_SEPARATOR;
-
-  // For punctuation excluded from the above:
-  // If punctuation is surrounded immediately on both sides by word characters
-  // it also counts as a word character.
-  if (ispunct(mDOMWordText[aIndex])) {
+  // If conditional punctuation is surrounded immediately on both sides by word
+  // characters it also counts as a word character.
+  if (IsConditionalPunctuation(mDOMWordText[aIndex])) {
     if (!aRecurse) {
       // not allowed to look around, this punctuation counts like a separator
       return CHAR_CLASS_SEPARATOR;
     }
-    
+
     // check the left-hand character
     if (aIndex == 0)
       return CHAR_CLASS_SEPARATOR;
@@ -871,6 +877,13 @@ WordSplitState::ClassifyCharacter(PRInt32 aIndex, PRBool aRecurse) const
     // char on either side is a word, this counts as a word
     return CHAR_CLASS_WORD;
   }
+
+  // all other punctuation
+  if (charCategory == CHAR_CAT_SPACE ||
+      charCategory == CHAR_CAT_CONTROL ||
+      charCategory == CHAR_CAT_PUNCTUATION1 ||
+      charCategory == CHAR_CAT_PUNCTUATION2)
+    return CHAR_CLASS_SEPARATOR;
 
   // any other character counts as a word
   return CHAR_CLASS_WORD;
@@ -926,6 +939,7 @@ WordSplitState::FindSpecialWord()
   //
   // Also look for periods, this tells us if we want to run the URL finder.
   PRBool foundDot = PR_FALSE;
+  PRInt32 firstColon = -1;
   for (i = mDOMWordOffset;
        i < PRInt32(mDOMWordText.Length()); i ++) {
     if (mDOMWordText[i] == '@') {
@@ -939,51 +953,46 @@ WordSplitState::FindSpecialWord()
       // symbol, but when you type another letter "fhsgfh@g" that first word
       // need to be unmarked misspelled. It doesn't do this. it only checks the
       // current position for potentially removing a spelling range.
-      //if (i > 0 && ClassifyCharacter(i - 1, PR_FALSE) == CHAR_CLASS_WORD &&
-      //    i < (PRInt32)mDOMWordText.Length() - 1 &&
-      //    ClassifyCharacter(i + 1, PR_FALSE) == CHAR_CLASS_WORD)
+      if (i > 0 && ClassifyCharacter(i - 1, PR_FALSE) == CHAR_CLASS_WORD &&
+          i < (PRInt32)mDOMWordText.Length() - 1 &&
+          ClassifyCharacter(i + 1, PR_FALSE) == CHAR_CLASS_WORD)
 
       return mDOMWordText.Length() - mDOMWordOffset;
-    } 
-    if (mDOMWordText[i] == '.' && ! foundDot &&
+    } else if (mDOMWordText[i] == '.' && ! foundDot &&
         i > 0 && i < (PRInt32)mDOMWordText.Length() - 1) {
       // we found a period not at the end, we should check harder for URLs
       foundDot = PR_TRUE;
+    } else if (mDOMWordText[i] == ':' && firstColon < 0) {
+      firstColon = i;
     }
   }
 
-  // Search for URLs
-  /*
-  THIS CODE DOES NOT WORK YET - crashes
+  // If the first colon is followed by a slash, consider it a URL
+  // This will catch things like asdf://foo.com
+  if (firstColon >= 0 && firstColon < (PRInt32)mDOMWordText.Length() - 1 &&
+      mDOMWordText[firstColon + 1] == '/') {
+    return mDOMWordText.Length() - mDOMWordOffset;
+  }
 
-  It also has the same problem as email addresses above.
-  FIXME: what we should do is always check the full DOM word. This will make
-  it work properly.
-
-  if (foundDot) {
-    printf("Checking for URL\n");
-    if (! mURLDetector) {
-      // lazily create the URL detector
-      nsresult rv;
-      mURLDetector = do_CreateInstance(MOZ_TXTTOHTMLCONV_CONTRACTID, &rv);
-      if (NS_FAILED(rv))
-        return -1;
-    }
-    PRInt32 urlStart = -1, urlEnd = -1;
-    printf("Checking string %s       = %s\n",
-           NS_ConvertUTF16toUTF8(mDOMWordText).get(),
-           NS_ConvertUTF16toUTF8(Substring(mDOMWordText, state.mDOMWordOffset)));
-    mURLDetector->FindURLInPlaintext(mDOMWordText.get(), state.mDOMWordOffset,
-                                     mDOMWordText.Length() - state.mDOMWordOffset,
-                                     &urlStart, &urlEnd);
-    if (urlStart == 0 && urlEnd > 0) {
-      NS_ASSERTION(state.mDOMWordOffset + urlEnd < (PRInt32)mDOMWordText.Length(),
-                   "URL out of bounds");
-      return urlEnd - state.mDOMWordOffset;
+  // Check the text before the first colon against some known protocols. It
+  // is impossible to check against all protocols, especially since you can
+  // plug in new protocols. We also don't want to waste time here checking
+  // against a lot of obscure protocols.
+  if (firstColon > mDOMWordOffset) {
+    nsString protocol(Substring(mDOMWordText, mDOMWordOffset,
+                      firstColon - mDOMWordOffset));
+    if (protocol.EqualsIgnoreCase("http") ||
+        protocol.EqualsIgnoreCase("https") ||
+        protocol.EqualsIgnoreCase("news") ||
+        protocol.EqualsIgnoreCase("ftp") ||
+        protocol.EqualsIgnoreCase("file") ||
+        protocol.EqualsIgnoreCase("javascript") ||
+        protocol.EqualsIgnoreCase("ftp")) {
+      return mDOMWordText.Length() - mDOMWordOffset;
     }
   }
-  */
 
+  // not anything special
   return -1;
 }
 
@@ -1011,7 +1020,7 @@ WordSplitState::ShouldSkipWord(PRInt32 aStart, PRInt32 aLength)
 void
 mozInlineSpellWordUtil::SplitDOMWord(PRInt32 aStart, PRInt32 aEnd)
 {
-  WordSplitState state(mSoftText, aStart, aEnd - aStart);
+  WordSplitState state(this, mSoftText, aStart, aEnd - aStart);
   state.mCurCharClass = state.ClassifyCharacter(0, PR_TRUE);
 
   while (state.mCurCharClass != CHAR_CLASS_END_OF_INPUT) {

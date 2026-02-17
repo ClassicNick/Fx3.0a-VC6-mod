@@ -35,375 +35,272 @@
 #                 Lance Larsh <lance.larsh@oracle.com>
 #                 A. Karl Kornel <karl@kornel.name>
 #                 Marc Schumann <wurblzap@gmail.com>
-#
-#
-#
-# Hey, what's this?
-#
-# 'checksetup.pl' is a script that is supposed to run during installation
-# time and also after every upgrade.
-#
-# The goal of this script is to make the installation even easier.
-# It does this by doing things for you as well as testing for problems
-# in advance.
-#
-# You can run the script whenever you like. You SHOULD run it after 
-# you update Bugzilla, because it may then update your SQL table
-# definitions to resync them with the code.
-#
-# Currently, this module does the following:
-#
-#     - check for required perl modules
-#     - set defaults for local configuration variables
-#     - create and populate the data directory after installation
-#     - set the proper rights for the *.cgi, *.html, etc. files
-#     - verify that the code can access the database server
-#     - creates the database 'bugs' if it does not exist
-#     - creates the tables inside the database if they don't exist
-#     - automatically changes the table definitions if they are from
-#       an older version of Bugzilla
-#     - populates the groups
-#     - put the first user into all groups so that the system can
-#       be administrated
-#     - changes preexisting SQL tables if you change your local
-#       settings, e.g. when you add a new platform
-#     - ... and a whole lot more.
-#
-# There should be no need for Bugzilla Administrators to modify
-# this script; all user-configurable stuff has been moved 
-# into a local configuration file called 'localconfig'. When that file
-# in changed and 'checkconfig.pl' is run, then the user's changes
-# will be reflected back into the database.
-#
-# Developers, however, have to modify this file at various places. To
-# make this easier, there are some special tags for which one
-# can search.
-#
-#     To                                               Search for
-#
-#     add/delete local configuration variables         --LOCAL--
-#     check for more required modules                  --MODULES--
-#     add more database-related checks                 --DATABASE--
-#     change the defaults for local configuration vars --DATA--
-#     update the assigned file permissions             --CHMOD--
-#     change table definitions                         --TABLE--
-#     add more groups                                  --GROUPS--
-#     add user-adjustable settings                     --SETTINGS--
-#     create initial administrator account             --ADMIN--
-#
-# Note: sometimes those special comments occur more than once. For
-# example, --LOCAL-- is used at least 3 times in this code!  --TABLE--
-# is also used more than once, so search for each and every occurrence!
-#
-# To operate checksetup non-interactively, run it with a single argument
-# specifying a filename that contains the information usually obtained by
-# prompting the user or by editing localconfig.
-#
-# The format of that file is as follows:
-#
-#
-# $answer{'db_host'} = q[
-# $db_host = 'localhost';
-# $db_driver = 'mydbdriver';
-# $db_port = 3306;
-# $db_name = 'mydbname';
-# $db_user = 'mydbuser';
-# ];
-#
-# $answer{'db_pass'} = q[$db_pass = 'mydbpass';];
-#
-# $answer{'ADMIN_OK'} = 'Y';
-# $answer{'ADMIN_EMAIL'} = 'myadmin@mydomain.net';
-# $answer{'ADMIN_PASSWORD'} = 'fooey';
-# $answer{'ADMIN_REALNAME'} = 'Joel Peshkin';
-#
-# $answer{'SMTP_SERVER'} = 'mail.mydomain.net';
-#
-#
-# Note: Only information that supersedes defaults from LocalVar()
-# function calls needs to be specified in this file.
-# 
+
+=head1 NAME
+
+checksetup.pl - A do-it-all upgrade and installation script for Bugzilla.
+
+=head1 SYNOPSIS
+
+ ./checksetup.pl [--help|--check-modules]
+ ./checksetup.pl [SCRIPT [--verbose]] [--no-templates|-t]
+
+=head1 OPTIONS
+
+=over
+
+=item F<SCRIPT>
+
+Name of script to drive non-interactive mode. This script should
+define an C<%answer> hash whose keys are variable names and the
+values answers to all the questions checksetup.pl asks. For details
+on the format of this script, do C<perldoc checksetup.pl> and look for
+the L</"RUNNING CHECKSETUP NON-INTERACTIVELY"> section.
+
+=item B<--help>
+
+Display this help text
+
+=item B<--check-modules>
+
+Only check for correct module dependencies and quit afterward.
+
+=item B<--no-templates> (B<-t>) 
+
+Don't compile the templates at all. Existing compiled templates will 
+remain; missing compiled templates will not be created. (Used primarily
+by developers to speed up checksetup.) Use this switch at your own risk.
+
+=item B<--verbose>
+
+Output results of SCRIPT being processed.
+
+=back
+
+=head1 DESCRIPTION
+
+Hey, what's this?
+
+F<checksetup.pl> is a script that is supposed to run during 
+installation time and also after every upgrade.
+
+The goal of this script is to make the installation even easier.
+It does this by doing things for you as well as testing for problems
+in advance.
+
+You can run the script whenever you like. You SHOULD run it after
+you update Bugzilla, because it may then update your SQL table
+definitions to resync them with the code.
+
+Currently, this script does the following:
+
+=over
+
+=item * 
+
+Check for required perl modules
+
+=item * 
+
+Set defaults for local configuration variables
+
+=item * 
+
+Create and populate the F<data> directory after installation
+
+=item * 
+
+Set the proper rights for the F<*.cgi>, F<*.html>, etc. files
+
+=item * 
+
+Verify that the code can access the database server
+
+=item * 
+
+Creates the database C<bugs> if it does not exist
+
+=item * 
+
+Creates the tables inside the database if they don't exist
+
+=item * 
+
+Automatically changes the table definitions if they are from
+an older version of Bugzilla
+
+=item * 
+
+Populates the groups
+
+=item * 
+
+Puts the first user into all groups so that the system can
+be administered
+
+=item * 
+
+...And a whole lot more.
+
+=back
+
+=head1 MODIFYING CHECKSETUP
+
+There should be no need for Bugzilla Administrators to modify
+this script; all user-configurable stuff has been moved 
+into a local configuration file called F<localconfig>. When that file
+in changed and F<checksetup.pl> is run, then the user's changes
+will be reflected back into the database.
+
+Developers, however, have to modify this file at various places. To
+make this easier, there are some special tags for which one
+can search.
+
+ To                                               Search for
+
+ add/delete local configuration variables         --LOCAL--
+ check for more required modules                  --MODULES--
+ add more database-related checks                 --DATABASE--
+ change the defaults for local configuration vars --DATA--
+ update the assigned file permissions             --CHMOD--
+ change table definitions                         --TABLE--
+ add more groups                                  --GROUPS--
+ add user-adjustable settings                     --SETTINGS--
+ create initial administrator account             --ADMIN--
+
+Note: sometimes those special comments occur more than once. For
+example, C<--LOCAL--> is used at least 3 times in this code!  C<--TABLE-->
+is also used more than once, so search for each and every occurrence!
+
+=head1 RUNNING CHECKSETUP NON-INTERACTIVELY
+
+To operate checksetup non-interactively, run it with a single argument
+specifying a filename that contains the information usually obtained by
+prompting the user or by editing localconfig.
+
+The format of that file is as follows:
+
+ $answer{'db_host'} = q[
+     $db_host = 'localhost';
+     $db_driver = 'mydbdriver';
+     $db_port = 3306;
+     $db_name = 'mydbname';
+     $db_user = 'mydbuser';
+ ];
+
+ $answer{'db_pass'} = q[$db_pass = 'mydbpass';];
+
+ $answer{'ADMIN_OK'} = 'Y';
+ $answer{'ADMIN_EMAIL'} = 'myadmin@mydomain.net';
+ $answer{'ADMIN_PASSWORD'} = 'fooey';
+ $answer{'ADMIN_REALNAME'} = 'Joel Peshkin';
+
+ $answer{'SMTP_SERVER'} = 'mail.mydomain.net';
+
+Note: Only information that supersedes defaults from C<LocalVar()>
+function calls needs to be specified in this file.
+
+=head1 SEE ALSO
+
+L<Bugzilla::Install::Requirements>
+
+=cut
+
+######################################################################
+# Initialization
+######################################################################
 
 use strict;
+use 5.008;
+use File::Basename;
+use File::Find;
+use Getopt::Long qw(:config bundling);
+use Pod::Usage;
+use Safe;
 
-BEGIN {
-    if ($^O =~ /MSWin32/i) {
-        require 5.008001; # for CGI 2.93 or higher
-    }
-    require 5.008;
-    use File::Basename;
-    chdir dirname($0);
-}
-
+BEGIN { chdir dirname($0); }
 use lib ".";
 use Bugzilla::Constants;
-
-our %answer;
-my ($silent, %switch);
-
-$switch{'no_templates'} = grep(/^--no-templates$/, @ARGV) 
-    || grep(/^-t$/, @ARGV);
-
-# The use of some Bugzilla modules brings in modules we need to test for
-# Check first, via BEGIN
-BEGIN {
-
-    # However, don't run under -c (because of tests)
-    if (!$^C) {
-
-###########################################################################
-# Check for help request. Display help page if --help/-h/-? was passed.
-###########################################################################
-my $help = grep(/^--help$/, @ARGV) || grep (/^-h$/, @ARGV) || grep (/^-\?$/, @ARGV) || 0;
-help_page() if $help;
-
-sub help_page {
-    my $programname = $0;
-    $programname =~ s#^\./##;
-    print "$programname - checks your setup and updates your Bugzilla installation\n";
-    printf "Version: " . BUGZILLA_VERSION . " on perl %vd\n", $^V; 
-    print "\nUsage: $programname [SCRIPT [--verbose]] [--check-modules|--help]\n";
-    print "                     [--no-templates]\n";
-    print "\n";
-    print "   --help           Display this help text.\n";
-    print "   --check-modules  Only check for correct module dependencies and quit thereafter;\n";
-    print "                    does not perform any changes.\n";
-    print "   --no-templates (-t)  Don't compile the templates at all. Existing\n"; 
-    print "                    compiled templates will remain; missing compiled\n";
-    print "                    templates will not be created. (Used primarily by\n";
-    print "                    developers to speed up checksetup.)  Use this\n";
-    print "                    switch at your own risk.\n";
-    print "    SCRIPT          Name of script to drive non-interactive mode.\n";
-    print "                    This script should define an \%answer hash whose\n"; 
-    print "                    keys are variable names and the values answers to\n";
-    print "                    all the questions checksetup.pl asks.\n";
-    print "                    (See comments at top of $programname for more info.)\n";
-    print "   --verbose        Output results of SCRIPT being processed.\n";
-    print "\n";
-
-    exit 1;
-}
-
-###########################################################################
-# Non-interactive override. Pass a filename on the command line which is
-# a Perl script. This script defines a %answer hash whose names are tags
-# and whose values are answers to all the questions checksetup.pl asks. 
-# Grep this file for references to that hash to see the tags to use for the 
-# possible answers. One example is ADMIN_EMAIL.
-###########################################################################
-if ($ARGV[0] && ($ARGV[0] !~ /^-/)) {
-    do $ARGV[0] 
-        or ($@ && die("Error $@ processing $ARGV[0]"))
-        or die("Error $! processing $ARGV[0]");
-    $silent = !grep(/^--no-silent$/, @ARGV) && !grep(/^--verbose$/, @ARGV);
-}
-
-###########################################################################
-# Display version information
-###########################################################################
-
-printf "\n*** This is Bugzilla " . BUGZILLA_VERSION . " on perl %vd ***\n", $^V unless $silent;
-
-###########################################################################
-# Check required module
-###########################################################################
-
 use Bugzilla::Install::Requirements;
 
-#
-# Here we check for --MODULES--
-#
+if ($^O =~ /MSWin32/i) {
+    require 5.008001; # for CGI 2.93 or higher
+}
 
-print "\nChecking perl modules ...\n" unless $silent;
+######################################################################
+# Subroutines
+######################################################################
 
-my $modules = REQUIRED_MODULES;
+sub read_answers_file {
+    my %hash;
+    if ($ARGV[0]) {
+        my $s = new Safe;
+        $s->rdo($ARGV[0]);
 
-$::root = ($^O =~ /MSWin32/i ? 'Administrator' : 'root');
+        die "Error reading $ARGV[0]: $!" if $!;
+        die "Error evaluating $ARGV[0]: $@" if $@;
 
-my %missing = ();
-
-foreach my $module (@{$modules}) {
-    unless (have_vers($module->{name}, $module->{version}, $silent)) { 
-        $missing{$module->{name}} = $module->{version};
+        # Now read the param back out from the sandbox
+        %hash = %{$s->varglob('answer')};
     }
+    return \%hash;
 }
 
-print "\nYou need one of the following DBD modules installed, depending on\n"
-      . "which database you are using with Bugzilla:\n" unless $silent;
+######################################################################
+# Live Code
+######################################################################
 
-my $have_one_dbd = 0;
-my $db_modules = DB_MODULE;
-foreach my $db (keys %$db_modules) {
-    if (have_vers($db_modules->{$db}->{dbd}, 
-                  $db_modules->{$db}->{dbd_version}, $silent)) 
-    {
-        $have_one_dbd = 1;
-    }
-}
+my %switch;
+GetOptions(\%switch, 'help|h|?', 'check-modules', 'no-templates|t',
+                     'verbose|v|no-silent');
 
-print "\nThe following Perl modules are optional:\n" unless $silent;
-my $opt_modules = OPTIONAL_MODULES;
-my %have_mod;
-foreach my $module (@$opt_modules) {
-    $have_mod{$module->{name}} = 
-        have_vers($module->{name}, $module->{version}, $silent);
-}
+# Print the help message if that switch was selected.
+pod2usage({-verbose => 1, -exitval => 1}) if $switch{'help'};
 
-print "\nThe following modules are required for mod_perl support:\n" 
-    unless $silent;
-my $mp_modules = MOD_PERL_MODULES;
-foreach my $module (@$mp_modules) {
-    $have_mod{$module->{name}} =
-       have_vers($module->{name}, $module->{version}, $silent);
-}
+# Read in the "answers" file if it exists, for running in 
+# non-interactive mode.
+our %answer = %{read_answers_file()};
+my $silent = scalar(keys %answer) && !$switch{'verbose'};
 
-print "\n" unless $silent;
+# Display version information
+printf "\n*** This is Bugzilla " . BUGZILLA_VERSION . " on perl %vd ***\n", 
+    $^V unless $silent;
 
-if ($^O =~ /MSWin32/i && !$silent) {
-    print "All the required modules are available at:\n";
-    print "    http://landfill.bugzilla.org/ppm/\n";
-    print "You can add the repository with the following command:\n";
-    print "    ppm rep add bugzilla http://landfill.bugzilla.org/ppm/\n\n";
-}
-
-if ((!$have_mod{'GD'} || !$have_mod{'Chart::Base'}) && !$silent) {
-    print "If you you want to see graphical bug charts (plotting historical ";
-    print "data over \ntime), you should install libgd and the following Perl ";
-    print "modules:\n\n";
-    print "GD:          " . install_command("GD") ."\n" if !$have_mod{'GD'};
-    print "Chart:       " . install_command("Chart::Base") . "\n" 
-        if !$have_mod{'Chart::Base'};
-    print "\n";
-}
-if (!$have_mod{'XML::Twig'} && !$silent) {
-    print "If you want to use the bug import/export feature to move bugs to\n",
-          "or from other bugzilla installations, you will need to install\n",
-          "the XML::Twig module by running (as $::root):\n\n",
-    "   " . install_command("XML::Twig") . "\n\n";
-}
-if (!$have_mod{'LWP::UserAgent'} && !$silent) {
-    print "If you want to use the automatic update notification feature\n",
-          "you will need to install the LWP::UserAgent module by running\n",
-          "(as $::root):\n\n",
-    "   " . install_command("LWP::UserAgent") . "\n\n";
-}
-if (!$have_mod{'Image::Magick'} && !$silent) {
-    print "If you want to convert BMP image attachments to PNG to conserve\n",
-          "disk space, you will need to install the ImageMagick application\n",
-          "Available from http://www.imagemagick.org, and the Image::Magick\n",
-          "Perl module by running (as $::root):\n\n",
-    "   " . install_command("Image::Magick") . "\n\n";
-
-}
-if ( (!$have_mod{'GD'} || !$have_mod{'GD::Graph'} 
-      || !$have_mod{'GD::Text::Align'}) && !$silent)
-{
-    print "If you want to see graphical bug reports (bar, pie and line ";
-    print "charts of \ncurrent data), you should install libgd and the ";
-    print "following Perl modules:\n\n";
-    print "GD:              " . install_command("GD") . "\n" if !$have_mod{'GD'};
-    print "GD::Graph:       " . install_command("GD::Graph") . "\n" 
-        if !$have_mod{'GD::Graph'};
-    print "GD::Text::Align: " . install_command("GD::Text::Align") . "\n"
-        if !$have_mod{'GD::Text::Align'};
-    print "\n";
-}
-if (!$have_mod{'PatchReader'} && !$silent) {
-    print "If you want to see pretty HTML views of patches, you should ";
-    print "install the \nPatchReader module:\n";
-    print "PatchReader: " . install_command("PatchReader") . "\n\n";
-}
-if (!$have_mod{'Net::LDAP'} && !$silent) {
-    print "If you wish to use LDAP authentication, then you must",
-          " install Net::LDAP:\n",
-          "Net::LDAP: " . install_command('Net::LDAP') . "\n\n";
-}
-
-if (!$have_mod{'mod_perl2'} && !$silent) {
-    print "If you would like mod_perl support, you must install at least\n",
-          "the minimum required version of mod_perl. You can download",
-          " mod_perl from:\n",
-          "    http://perl.apache.org/download/binaries.html\n",
-          "Make sure that you get the 2.0 version, not the 1.0 version.\n\n";
-}
-
-if ((!$have_mod{'Apache::DBI'} || !$have_mod{'CGI'}) && !$silent) {
-    print "For mod_perl support, you must install the following perl",
-          " module(s):\n";
-    print "    Apache::DBI: " . install_command('Apache::DBI') . "\n" 
-        if !$have_mod{'Apache::DBI'};
-    print "    CGI:         " . install_command('CGI') . "\n" 
-        if !$have_mod{'CGI'};
-    print "\n";
-}
-
-if (!$have_one_dbd) {
-    print "\n";
-    print "Bugzilla requires that at least one DBD module be installed in\n",
-          "order to access a database. You can install the correct one by\n",
-          "picking the command listed below for your database:\n";
-
-    foreach my $db (keys %$db_modules) {
-        print "   " . $db_modules->{$db}->{name} . ": "
-              . install_command($db_modules->{$db}->{dbd}) . "\n";
-        print "   Minimum version required: " 
-              . $db_modules->{$db}->{dbd_version} . "\n";
-    }
-    print "\n";
-}
-
-if (%missing) {
-    print "\n";
-    print "Bugzilla requires some Perl modules which are either missing from\n",
-          "your system, or the version on your system is too old.\n",
-          "They can be installed by running (as $::root) the following:\n";
-    foreach my $module (keys %missing) {
-        print "   " . install_command("$module") . "\n";
-        if ($missing{$module} > 0) {
-            print "   Minimum version required: $missing{$module}\n";
-        }
-    }
-    print "\n";
-}
-
-exit if (%missing || !$have_one_dbd);
-
-}
-}
-
+# Check required --MODULES--
+my $module_results = check_requirements(!$silent);
+exit if !$module_results->{pass};
 # Break out if checking the modules is all we have been asked to do.
-exit if grep(/^--check-modules$/, @ARGV);
-
-# If we're running on Windows, reset the input line terminator so that 
-# console input works properly - loading CGI tends to mess it up
-
-if ($^O =~ /MSWin/i) {
-    $/ = "\015\012";
-}
+exit if $switch{'check-modules'};
 
 ###########################################################################
-# Global definitions
+# Load Bugzilla Modules
 ###########################################################################
 
-# These don't work as a "use," and they don't work as a "require" outside
-# of a BEGIN block. However, we're safe to them in a BEGIN block here since 
-# we've already checked all of the pre-requisites above in the previous 
-# BEGIN block.
-BEGIN {
-    # We need $::ENV{'PATH'} to remain defined.
-    my $env = $::ENV{'PATH'};
-    require Bugzilla;
-    $::ENV{'PATH'} = $env;
+# It's never safe to "use" a Bugzilla module in checksetup. If a module
+# prerequisite is missing, and you "use" a module that requires it,
+# then instead of our nice normal checksetup message, the user would
+# get a cryptic perl error about the missing module.
 
-    require Bugzilla::Config;
-    import Bugzilla::Config qw(:admin);
-}
+# We need $::ENV{'PATH'} to remain defined.
+my $env = $::ENV{'PATH'};
+require Bugzilla;
+$::ENV{'PATH'} = $env;
 
-# 12/17/00 justdave@syndicomm.com - removed declarations of the localconfig
-# variables from this location.  We don't want these declared here.  They'll
-# automatically get declared in the process of reading in localconfig, and
-# this way we can look in the symbol table to see if they've been declared
-# yet or not.
+require Bugzilla::Config;
+import Bugzilla::Config qw(:admin);
+
+require Bugzilla::User::Setting;
+import Bugzilla::User::Setting qw(add_setting);
+
+require Bugzilla::Util;
+import Bugzilla::Util qw(bz_crypt trim html_quote is_7bit_clean
+                         clean_text url_quote);
+
+require Bugzilla::User;
+import Bugzilla::User qw(insert_new_user);
+
+require Bugzilla::Bug;
+import Bugzilla::Bug qw(is_open_state);
 
 ###########################################################################
 # Check and update local configuration
@@ -433,6 +330,8 @@ BEGIN {
 #
 # Cute, ey?
 #
+
+my $root = ROOT_USER;
 
 print "Checking user setup ...\n" unless $silent;
 $@ = undef;
@@ -613,7 +512,7 @@ LocalVar('webservergroup', <<"END");
 # want. You should only have this set to "" if this is a testing installation
 # and you cannot set this up any other way. YOU HAVE BEEN WARNED!
 # If you set this to anything other than "", you will need to run checksetup.pl
-# as $::root, or as a user who is a member of the specified group.
+# as $root, or as a user who is a member of the specified group.
 \$webservergroup = "$webservergroup_default";
 END
 
@@ -721,10 +620,10 @@ if ($my_webservergroup && !$silent) {
             print <<EOF;
 
 Warning: you have entered a value for the "webservergroup" parameter in 
-localconfig, but you are not either a) running this script as $::root; or b) a 
+localconfig, but you are not either a) running this script as $root; or b) a 
 member of this group. This can cause permissions problems and decreased 
 security.  If you experience problems running Bugzilla scripts, log in as 
-$::root and re-run this script, become a member of the group, or remove the 
+$root and re-run this script, become a member of the group, or remove the 
 value of the "webservergroup" parameter. Note that any warnings about 
 "uninitialized values" that you may see below are caused by this.
 
@@ -794,7 +693,7 @@ if ($my_db_check) {
     my $actual_dbd_ver = DB_MODULE->{lc($my_db_driver)}->{dbd_version};
     my $sql_server     = DB_MODULE->{lc($my_db_driver)}->{name};
     my $sql_want       = DB_MODULE->{lc($my_db_driver)}->{db_version};
-    unless (have_vers($actual_dbd, $actual_dbd_ver, $silent)) {
+    unless (have_vers($actual_dbd, $actual_dbd_ver, !$silent)) {
         print "For $sql_server, Bugzilla requires that perl's"
               . " $actual_dbd be installed.\nTo install this module,"
               . " you can do:\n   " . install_command($actual_dbd) . "\n";
@@ -1294,7 +1193,7 @@ if ($newinstall) {
 WriteParams();
 
 my $templatedir = bz_locations()->{'templatedir'};
-unless ($switch{'no_templates'}) {
+unless ($switch{'no-templates'}) {
     if (-e "$datadir/template") {
         print "Removing existing compiled templates ...\n" unless $silent;
 
@@ -1330,13 +1229,12 @@ unless ($switch{'no_templates'}) {
     {
         print "Precompiling templates ...\n" unless $silent;
 
-        use File::Find;
         require Bugzilla::Template;
         
         # Don't hang on templates which use the CGI library
         eval("use CGI qw(-no_debug)");
         
-        use File::Spec; 
+        require File::Spec; 
         opendir(DIR, $templatedir) || die "Can't open '$templatedir': $!";
         my @files = grep { /^[a-z-]+$/i } readdir(DIR);
         closedir DIR;
@@ -1520,32 +1418,6 @@ if ($^O !~ /MSWin32/i) {
 }
 
 ###########################################################################
-# Global Utility Library
-###########################################################################
-
-# This is done here, because some modules require params to be set up, which
-# won't have happened earlier.
-
-# It's never safe to "use" a Bugzilla module in checksetup. If a module
-# prerequisite is missing, and you "use" a module that requires it,
-# then instead of our nice normal checksetup message the user would
-# get a cryptic perl error about the missing module.
-
-# This is done so we can add new settings as developers need them.
-require Bugzilla::User::Setting;
-import Bugzilla::User::Setting qw(add_setting);
-
-require Bugzilla::Util;
-import Bugzilla::Util qw(bz_crypt trim html_quote is_7bit_clean
-                         clean_text url_quote);
-
-require Bugzilla::User;
-import Bugzilla::User qw(insert_new_user);
-
-require Bugzilla::Bug;
-import Bugzilla::Bug qw(is_open_state);
-
-###########################################################################
 # Check GraphViz setup
 ###########################################################################
 
@@ -1623,7 +1495,7 @@ my $headernum = 1;
 sub AddFDef {
     my ($name, $description, $mailhead) = (@_);
 
-    my $sth = $dbh->prepare("SELECT fieldid FROM fielddefs " .
+    my $sth = $dbh->prepare("SELECT id FROM fielddefs " .
                             "WHERE name = ?");
     $sth->execute($name);
     my ($fieldid) = ($sth->fetchrow_array());
@@ -1636,12 +1508,16 @@ sub AddFDef {
         $dbh->do(q{UPDATE fielddefs
                       SET name = ?, description = ?,
                           mailhead = ?, sortkey = ?
-                    WHERE fieldid = ?}, undef,
+                    WHERE id = ?}, undef,
                  $name, $description, $mailhead, $headernum, $fieldid);
     }
     $headernum++;
 }
 
+# Change the name of the fieldid column to id, so that fielddefs
+# can use Bugzilla::Object easily. We have to do this up here, because
+# otherwise adding these field definitions will fail.
+$dbh->bz_rename_column('fielddefs', 'fieldid', 'id');
 
 # Note that all of these entries are unconditional, from when get_field_id
 # used to create an entry if it wasn't found. New fielddef columns should
@@ -1714,7 +1590,7 @@ my $new_field_name = 'days_elapsed';
 my $field_description = 'Days since bug changed';
 
 my ($old_field_id, $old_field_name) =
-    $dbh->selectrow_array('SELECT fieldid, name
+    $dbh->selectrow_array('SELECT id, name
                            FROM fielddefs
                            WHERE description = ?',
                            undef, $field_description);
@@ -1761,7 +1637,7 @@ if ($old_field_id && ($old_field_name ne $new_field_name)) {
     # Now that saved searches have been fixed, we can fix the field name.
     print "Fixing the 'fielddefs' table...\n";
     print "New field name: " . $new_field_name . "\n";
-    $dbh->do('UPDATE fielddefs SET name = ? WHERE fieldid = ?',
+    $dbh->do('UPDATE fielddefs SET name = ? WHERE id = ?',
               undef, ($new_field_name, $old_field_id));
 }
 AddFDef($new_field_name, $field_description, 0);
@@ -2103,13 +1979,13 @@ if ($dbh->bz_column_info('bugs_activity', 'field')) {
     while (my ($f) = ($sth->fetchrow_array())) {
         my $q = $dbh->quote($f);
         my $s2 =
-            $dbh->prepare("SELECT fieldid FROM fielddefs WHERE name = $q");
+            $dbh->prepare("SELECT id FROM fielddefs WHERE name = $q");
         $s2->execute();
         my ($id) = ($s2->fetchrow_array());
         if (!$id) {
             $dbh->do("INSERT INTO fielddefs (name, description) VALUES " .
                      "($q, $q)");
-            $id = $dbh->bz_last_key('fielddefs', 'fieldid');
+            $id = $dbh->bz_last_key('fielddefs', 'id');
         }
         $dbh->do("UPDATE bugs_activity SET fieldid = $id WHERE field = $q");
     }
@@ -2542,10 +2418,10 @@ if ($dbh->bz_column_info('bugs_activity', 'oldvalue')) {
     $dbh->bz_add_column("bugs_activity", "removed", {TYPE => "TINYTEXT"});
     $dbh->bz_add_column("bugs_activity", "added", {TYPE => "TINYTEXT"});
 
-    # Need to get fieldid's for the fields that have multiple values
+    # Need to get field id's for the fields that have multiple values
     my @multi = ();
     foreach my $f ("cc", "dependson", "blocked", "keywords") {
-        my $sth = $dbh->prepare("SELECT fieldid " .
+        my $sth = $dbh->prepare("SELECT id " .
                                 "FROM fielddefs " .
                                 "WHERE name = '$f'");
         $sth->execute();
@@ -2956,13 +2832,13 @@ if ($dbh->bz_column_info("profiles", "groupset")) {
     # Replace old activity log groupset records with lists of names of groups.
     # Start by defining the bug_group field and getting its id.
     AddFDef("bug_group", "Group", 0);
-    $sth = $dbh->prepare("SELECT fieldid " .
+    $sth = $dbh->prepare("SELECT id " .
                            "FROM fielddefs " .
                           "WHERE name = " . $dbh->quote('bug_group'));
     $sth->execute();
     my ($bgfid) = $sth->fetchrow_array;
     # Get the field id for the old groupset field
-    $sth = $dbh->prepare("SELECT fieldid " .
+    $sth = $dbh->prepare("SELECT id " .
                            "FROM fielddefs " .
                           "WHERE name = " . $dbh->quote('groupset'));
     $sth->execute();
@@ -3104,10 +2980,10 @@ if ($dbh->bz_table_info("attachstatuses")
     
     # Get IDs for the old attachment status and new flag fields.
     my ($old_field_id) = $dbh->selectrow_array(
-        "SELECT fieldid FROM fielddefs WHERE name='attachstatusdefs.name'")
+        "SELECT id FROM fielddefs WHERE name='attachstatusdefs.name'")
         || 0;
     
-    $sth = $dbh->prepare("SELECT fieldid FROM fielddefs " . 
+    $sth = $dbh->prepare("SELECT id FROM fielddefs " . 
                          "WHERE name='flagtypes.name'");
     $sth->execute();
     my $new_field_id = $sth->fetchrow_arrayref()->[0];

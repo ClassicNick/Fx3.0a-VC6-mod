@@ -71,22 +71,20 @@ class UsersController extends AppController {
                         'message' => "
 <p>Thanks for volunteering to be a part of the Firefox User Panel!</p>
 
-<p>Please start by taking this initial survey by August 1st.  
+<p>Please start by taking this short initial survey.  
 We're anxious to get your feedback on a variety of areas, so we'll send out a few
 more surveys in the following weeks to the user panel to help us define the next
 generation of Firefox.  Thanks again for making the browser a better place!</p>
 
 <p><a href=\"https://is4.instantsurvey.com/take?i=105913&h=0yU72vyhajHZpq6bAu_RGQ&email={$this->params['data']['User']['email']}&first={$this->params['data']['User']['firstname']}&last={$this->params['data']['User']['lastname']}\">Join the User Panel</a></p>
 
-<p><small>Survey conducted by Mozilla and hosted by <a href=\"http://www.instantsurvey.com/\">Instant Survey</a></small></p>
+<p><small>Mozilla continues to take security and privacy issues seriously.  Mozilla
+will never rent or sell the information you provide in connection with the Firefox
+User Panel to any other third party for use in marketing or solicitation.</small></p>
 
-<p><small>Mozilla continues to take security and privacy issues seriously.  Any data or
-information provided will never be given or sold to any other outside company for its
-use in marketing or solicitation.</small></p>
+<p><small>If you choose not to take this survey, you will be automatically unsubscribed from the Firefox User Panel or you can <a href=\"mailto:firefoxsurvey@mozilla.com?subject=Unsubscribe - Firefox User Panel\">let us know</a></small></p>
 
-<p><small>If you choose not to take this survey, you will be automatically unsubscribed from the Firefox User Panel.</small></p>
-
-<p><small>If you think you received this in error, please <a href=\"mailto:firefoxsurvey@mozilla.com\">let us know</a>.</small></p>
+<p><small>If you think you received this in error, please <a href=\"mailto:firefoxsurvey@mozilla.com?subject=Firefox User Panel - Received in Error\">let us know</a></small></p>
 "
                     );
 
@@ -100,7 +98,7 @@ use in marketing or solicitation.</small></p>
 
                         <p>If you don\'t receive an email with a link to the survey within 24 hours, please check
                         your junk mail.  If you still haven\'t received an email with a link to the survey
-                        please <a href="mailto:firefoxsurvey@mozilla.com?subject=invalid email - firefox user panel">let us know</a> 
+                        please <a href="mailto:firefoxsurvey@mozilla.com?subject=Firefox User Panel - Email not received">let us know</a> 
                         and we\'ll send another copy.</p>
 
                         <p>Continue to <a href="http://www.mozilla.com/firefox/central/">Firefox Central</a>.</p> 
@@ -119,22 +117,20 @@ use in marketing or solicitation.</small></p>
                         'message' => "
 <p>Thanks for volunteering to be a part of the Firefox User Panel!</p>
 
-<p>Please start by taking this initial survey by August 1st.  
+<p>Please start by taking this short initial survey.  
 We're anxious to get your feedback on a variety of areas, so we'll send out a few
 more surveys in the following weeks to the user panel to help us define the next
 generation of Firefox.  Thanks again for making the browser a better place!</p>
 
 <p><a href=\"https://is4.instantsurvey.com/take?i=105913&h=0yU72vyhajHZpq6bAu_RGQ&email={$this->params['data']['User']['email']}&first={$this->params['data']['User']['firstname']}&last={$this->params['data']['User']['lastname']}\">Join the User Panel</a></p>
 
-<p><small>Survey conducted by Mozilla and hosted by <a href=\"http://www.instantsurvey.com/\">Instant Survey</a></small></p>
+<p><small>Mozilla continues to take security and privacy issues seriously.  Mozilla
+will never rent or sell the information you provide in connection with the Firefox
+User Panel to any other third party for use in marketing or solicitation.</small></p>
 
-<p><small>Mozilla continues to take security and privacy issues seriously.  Any data or
-information provided will never be given or sold to any other outside company for its
-use in marketing or solicitation.</small></p>
+<p><small>If you choose not to take this survey, you will be automatically unsubscribed from the Firefox User Panel or you can <a href=\"mailto:firefoxsurvey@mozilla.com?subject=Unsubscribe - Firefox User Panel\">let us know</a></small></p>
 
-<p><small>If you choose not to take this survey, you will be automatically unsubscribed from the Firefox User Panel.</small></p>
-
-<p><small>If you think you received this in error, please <a href=\"mailto:firefoxsurvey@mozilla.com\">let us know</a>.</small></p>
+<p><small>If you think you received this in error, please <a href=\"mailto:firefoxsurvey@mozilla.com?subject=Firefox User Panel - Received in Error\">let us know</a></small></p>
 "
                     );
 
@@ -151,8 +147,9 @@ use in marketing or solicitation.</small></p>
                         Continue to <a href="http://www.mozilla.com/firefox/central/">Firefox Central</a>.</p>
 
                         <p class="subtext">If you don\'t receive an email with a link to
-                        the survey within 24 hours, please check your junk mail or let us
-                        know and we\'ll send another copy.</p>
+                        the survey within 24 hours, please check your junk mail or <a
+                        href="mailto:firefoxsurvey@mozilla.com?subject=Firefox User Panel - Email not received.">let us know</a> 
+                        and we\'ll send another copy.</p>
                     ');
                     $this->set('tracking_image','userpanel2-response.gif');
                     $this->render();

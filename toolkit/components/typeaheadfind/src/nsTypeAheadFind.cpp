@@ -390,7 +390,7 @@ nsTypeAheadFind::FindItNow(nsIPresShell *aPresShell, PRBool aIsLinksOnly,
   if (NS_FAILED(GetSearchContainers(currentContainer,
                                     (!aIsFirstVisiblePreferred ||
                                      mStartFindRange) ?
-                                    selectionController : nsnull,
+                                    selectionController.get() : nsnull,
                                     aIsFirstVisiblePreferred,  aFindPrev,
                                     getter_AddRefs(presShell),
                                     getter_AddRefs(presContext)))) {
@@ -852,7 +852,7 @@ nsTypeAheadFind::RangeStartsInsideLink(nsIDOMRange *aRange,
     nsIContent *parentsFirstChild = parent->GetChildAt(0);
 
     // We don't want to look at a whitespace-only first child
-    if (parentsFirstChild->TextIsOnlyWhitespace()) {
+    if (parentsFirstChild && parentsFirstChild->TextIsOnlyWhitespace()) {
       parentsFirstChild = parent->GetChildAt(1);
     }
 

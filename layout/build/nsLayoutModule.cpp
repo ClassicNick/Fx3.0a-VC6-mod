@@ -36,6 +36,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsCOMPtr.h"
 #include "nsLayoutStatics.h"
 #include "nsContentCID.h"
 #include "nsContentHTTPStartup.h"

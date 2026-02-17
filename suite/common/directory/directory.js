@@ -1,190 +1,323 @@
-/* -*- Mode: Java; tab-width: 4; c-basic-offset: 4; -*-
- * 
- * The contents of this file are subject to the Netscape Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/NPL/
+/* -*- Mode: Java; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; -*- */
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
  *
  * The Original Code is mozilla.org code.
  *
- * The Initial Developer of the Original Code is Netscape
- * Communications Corporation.  Portions created by Netscape are
- * Copyright (C) 1998 Netscape Communications Corporation. All
- * Rights Reserved.
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
+ * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): 
- */
+ * Contributor(s):
+ *   Bradley Baetz <bbaetz@student.usyd.edu.au>
+ *   Joe Hewitt <hewitt@netscape.com>
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
 /*
-
    Script for the directory window
-
 */
+
+const RDFSERVICE_CONTRACTID     = "@mozilla.org/rdf/rdf-service;1";
+const DRAGSERVICE_CONTRACTID    = "@mozilla.org/widget/dragservice;1";
+const TRANSFERABLE_CONTRACTID   = "@mozilla.org/widget/transferable;1";
+const XULSORTSERVICE_CONTRACTID = "@mozilla.org/xul/xul-sort-service;1";
+const ARRAY_CONTRACTID          = "@mozilla.org/supports-array;1";
+const WSTRING_CONTRACTID        = "@mozilla.org/supports-string;1";
+
+const NC_NS                 = "http://home.netscape.com/NC-rdf#";
+const NC_NAME               = NC_NS + "Name";
+const NC_URL                = NC_NS + "URL";
+const NC_LOADING            = NC_NS + "loading";
+
+const nsIHTTPIndex          = Components.interfaces.nsIHTTPIndex;
+const nsIDragService        = Components.interfaces.nsIDragService;
+const nsITransferable       = Components.interfaces.nsITransferable;
+const nsIXULSortService     = Components.interfaces.nsIXULSortService;
+const nsIRDFService         = Components.interfaces.nsIRDFService;
+const nsIRDFLiteral         = Components.interfaces.nsIRDFLiteral;
+const nsISupportsArray      = Components.interfaces.nsISupportsArray;
+const nsISupportsString    = Components.interfaces.nsISupportsString;
 
 // By the time this runs, The 'HTTPIndex' variable will have been
 // magically set on the global object by the native code.
 
 function debug(msg)
 {
-    // Uncomment to print out debug info.
-    //dump(msg);
+  // Uncomment to print out debug info.
+  //dump(msg);
 }
 
-function Init()
+var loadingArc = null;
+var loadingLevel = 0;
+
+var	RDF_observer =
 {
-    debug("directory.js: Init()\n");
+	onAssert: function(ds, src, prop, target)
+	{
+		if (prop == loadingArc) {
+		  if (loadingLevel++ == 0)
+        SetBusyCursor(window, true); 
+      debug("Directory: assert: loading level is " + loadingLevel + " for " + src.Value + "\n");
+		}
+	},
+		
+	onUnassert: function(ds, src, prop, target)
+	{
+		if (prop == loadingArc) {
+		  if (loadingLevel > 0)
+    	  if (--loadingLevel == 0)
+          SetBusyCursor(window, false); 
+      debug("Directory: unassert: loading level is " + loadingLevel + " for " + src.Value + "\n");
+		}
+	},
 
-    // Add the HTTPIndex datasource into the tree
-    var tree = document.getElementById('tree');
-    tree.database.AddDataSource(HTTPIndex.DataSource);
+	onChange: function(ds, src, prop, old_target, new_target) { },
+	onMove: function(ds, old_src, new_src, prop, target) { },
+	onBeginUpdateBatch: function(ds) { },
+	onEndUpdateBatch: function(ds) { }
+};
 
-    // Initialize the tree's base URL to whatever the HTTPIndex is rooted at
-    debug("base URL = " + HTTPIndex.BaseURL + "\n");
-    tree.setAttribute('ref', HTTPIndex.BaseURL);
-}
-
-
-function OnClick(event)
+function
+SetBusyCursor(window, enable)
 {
-    debug('OnClick()\n');
-
-    // This'll be set to 'twisty' on the twisty icon, and 'filename'
-    // if they're over the filename link.
-    var targetclass = event.target.getAttribute('class');
-    debug('targetclass = ' + targetclass + '\n');
-
-    if (targetclass == 'twisty') {
-        // The twisty is nested three below the treeitem:
-        // <treeitem>
-        //   <treerow>
-        //     <treecell>
-        //       <box> <!-- anonymous -->
-        //         <titledbutton class="twisty"> <!-- anonymous -->
-        var treeitem = event.target.parentNode.parentNode.parentNode.parentNode;
-        ToggleOpenState(treeitem);
+  // Defensive check: setCursor() is only available for
+  // chrome windows. Since one of our frame might be a
+  // non-chrome window, make sure the window we treat has
+  // a setCursor method.
+  if("setCursor" in window) {
+    if(enable == true) {
+      window.setCursor("wait");
+      debug("Directory: cursor=busy\n");
+    } else {
+      window.setCursor("auto");
+      debug("Directory: cursor=notbusy\n");
     }
-    else {
-        // The click'll have hit a cell, which is nested two below the
-        // treeitem.
-        var treeitem = event.target.parentNode.parentNode;
+  }
 
-        // This'll be set to 'FILE' for files and 'DIRECTORY' for
-        // directories.
-        var type = treeitem.getAttribute('type');
-
-        if (targetclass == 'filename' && (type == 'FILE' || type == 'SYM-LINK') ) {
-            var url = treeitem.getAttribute('id');
-
-            debug('navigating to ' + url + '\n');
-            window.content.location.href = url;
-        }
-    }
+  var numFrames = window.frames.length;
+  for (var i = 0; i < numFrames; i++)
+    SetBusyCursor(window.frames[i], enable);
 }
-
-
-function OnDblClick(event)
-{
-    debug('OnDblClick()\n');
-
-    // This'll be set to 'filename' if they're over the filename link.
-    var targetclass = event.target.getAttribute('class');
-
-    // This'll be the treeitem that got the event
-    var treeitem = event.target.parentNode.parentNode;
-
-    // This'll be set to 'FILE' for files and 'DIRECTORY' for
-    // directories.
-    var type = treeitem.getAttribute('type');
-
-    if (targetclass == 'filename' && type == 'DIRECTORY') {
-        ToggleOpenState(treeitem);
-    }
-}
-
-
-function ToggleOpenState(treeitem)
-{
-    debug('ToggleOpenState(' + treeitem.tagName + ')');
-
-    if (treeitem.getAttribute('open') == 'true') {
-        var url = treeitem.getAttribute('id');
-        if (!Read[url]) {
-            treeitem.setAttribute('loading', 'true');
-            ReadDirectory(url);
-            Read[url] = true;
-        }
-    }
-}
-
-// This array contains the URL of each directory we've read, so that
-// we don't load a directory into the datasource >1 time.
-var Read = new Array();
-
-function ReadDirectory(url)
-{
-    debug('ReadDirectory(' + url + ')\n');
-
-    var ios = Components.classes['component://netscape/network/io-service'].getService();
-    ios = ios.QueryInterface(Components.interfaces.nsIIOService);
-
-    var uri = ios.newURI(url, null);
-
-    // Create a channel...
-    var channel = ios.newChannelFromURI('load', uri, null, null,
-                                        Components.interfaces.nsIChannel.LOAD_NORMAL,
-                                        null, 0, 0);
-
-    // ...so that we can pipe it into a new HTTPIndex listener to
-    // parse the directory's contents.
-    channel.asyncRead(0, -1, null, HTTPIndex.CreateListener());
-}
-
-
 
 // We need this hack because we've completely circumvented the onload() logic.
 function Boot()
 {
-    if (document.getElementById('tree')) {
-        Init();
-    }
-    else {
-        setTimeout("Boot()", 500);
-    }
+  if (document.getElementById('tree'))
+    Init();
+  else
+    setTimeout("Boot()", 500);
 }
 
 setTimeout("Boot()", 0);
 
-
-function doSort(sortColName)
+function Init()
 {
-	var node = document.getElementById(sortColName);
-	if (!node) return(false);
+  debug("directory.js: Init()\n");
 
+  var tree = document.getElementById('tree');
+
+  // Initialize the tree's base URL to whatever the HTTPIndex is rooted at
+  var baseURI = HTTPIndex.BaseURL;
+
+  if (baseURI && (baseURI.indexOf("ftp://") == 0)) {
+    // fix bug # 37102: if its a FTP directory
+    // ensure it ends with a trailing slash
+    if (baseURI.substr(baseURI.length - 1) != "/") {
+      debug("append traiing slash to FTP directory URL\n");
+      baseURI += "/";
+    }
+
+	  // Lets also enable the loggin window.
+
+	  var node = document.getElementById("main-splitter");
+	  node.setAttribute("hidden", false);
+
+	  node = document.getElementById("logbox");
+	  node.setAttribute("hidden", false);
+  }
+
+  if (baseURI && (baseURI.indexOf("file://") != 0)) {
+    // Note: DON'T add the HTTPIndex datasource into the tree
+    // for file URLs, only do it for FTP/Gopher/etc URLs; the "rdf:files"
+    // datasources handles file URLs
+    tree.database.AddDataSource(HTTPIndex);
+  }
+
+  // Note: set encoding BEFORE setting "ref" (important!)
+  var RDF = Components.classes[RDFSERVICE_CONTRACTID].getService();
+  if (RDF) RDF = RDF.QueryInterface(nsIRDFService);
+  if (RDF) {
+    loadingArc = RDF.GetResource(NC_LOADING, true);
+
+    var httpDS = HTTPIndex.DataSource;
+    if (httpDS) httpDS = httpDS.QueryInterface(nsIHTTPIndex);
+    if (httpDS) {
+      httpDS.encoding = "ISO-8859-1";
+
+      // Use a default character set.
+      if (window.content.defaultCharacterset)
+        httpDS.encoding = window.content.defaultCharacterset;
+    }
+  }
+
+  // set window title
+  document.title = baseURI;
+
+  tree.database.AddObserver(RDF_observer);
+  debug("Directory: added observer\n");
+
+  // root the tree (do this last)
+  tree.setAttribute("ref", baseURI);
+}
+
+function DoUnload()
+{
+	var tree = document.getElementById("tree");
+	if (tree) {
+		tree.database.RemoveDataSource(HTTPIndex);
+		tree.database.RemoveObserver(RDF_observer);
+    debug("Directory: removed observer\n");
+	}
+}
+
+function OnClick(event)
+{
+  if (event.target.localName != "treechildren")
+    return false;
+  if( event.type == "click" && (event.button != 0 || event.detail != 2))
+    return false;
+  if( event.type == "keypress" && event.keyCode != 13)
+    return false;
+
+  var tree = document.getElementById("tree");
+  if (tree.currentIndex >= 0) {
+    var item = tree.contentView.getItemAtIndex(tree.currentIndex);
+    window.content.location.href = item.getAttributeNS(NC_NS, "url");
+  }
+}
+
+function doSort(aTarget)
+{
+  if (aTarget.localName != "treecol")
+    return;
+    
 	// determine column resource to sort on
-	var sortResource = node.getAttribute('resource');
+	var sortResource = aTarget.getAttribute('resource');
 
 	// switch between ascending & descending sort (no natural order support)
-	var sortDirection="ascending";
-	var isSortActive = node.getAttribute('sortActive');
-	if (isSortActive == "true")
-	{
-		var currentDirection = node.getAttribute('sortDirection');
-		if (currentDirection == "ascending")
-		{
-			sortDirection = "descending";
-		}
-	}
+  var sortDirection = aTarget.getAttribute("sortDirection") == "ascending" ? "descending" : "ascending";
 
-	var isupports = Components.classes["component://netscape/rdf/xul-sort-service"].getService();
-	if (!isupports)    return(false);
-	var xulSortService = isupports.QueryInterface(Components.interfaces.nsIXULSortService);
-	if (!xulSortService)    return(false);
-	xulSortService.Sort(node, sortResource, sortDirection);
-
-	return(false);
+	try {
+	  var sortService = Components.classes[XULSORTSERVICE_CONTRACTID].getService(nsIXULSortService);
+		sortService.sort(aTarget, sortResource, sortDirection);
+	} catch(ex) { }
 }
+
+function BeginDragTree (event)
+{
+  if (event.target.localName != "treechildren")
+    return true;
+    
+  var dragStarted = false;
+
+  try {
+    // determine which treeitem was dragged
+    var tree = document.getElementById("tree");
+    var row = tree.treeBoxObject.getRowAt(event.clientX, event.clientY);
+    var item = tree.contentView.getItemAtIndex(row);
+
+    // get information from treeitem for drag
+    var url = item.getAttributeNS(NC_NS, "url");
+    var desc = item.getAttributeNS(NC_NS, "desc");
+    
+    var RDF = Components.classes[RDFSERVICE_CONTRACTID].getService(nsIRDFService);
+    var transferable = 
+      Components.classes[TRANSFERABLE_CONTRACTID].createInstance(nsITransferable);
+    var genDataURL = 
+      Components.classes[WSTRING_CONTRACTID].createInstance(nsISupportsString);
+    var genDataHTML = 
+      Components.classes[WSTRING_CONTRACTID].createInstance(nsISupportsString);
+    var genData = 
+      Components.classes[WSTRING_CONTRACTID].createInstance(nsISupportsString);
+    var genDataURL = 
+      Components.classes[WSTRING_CONTRACTID].createInstance(nsISupportsString);
+
+    transferable.addDataFlavor("text/x-moz-url");
+    transferable.addDataFlavor("text/html");
+    transferable.addDataFlavor("text/unicode");
+    
+    genDataURL.data = url + "\n" + desc;
+    genDataHTML.data = "<a href=\"" + url + "\">" + desc + "</a>";
+    genData.data = url;
+
+    transferable.setTransferData("text/x-moz-url", genDataURL, genDataURL.data.length * 2);
+    transferable.setTransferData("text/html", genDataHTML, genDataHTML.data.length * 2);
+    transferable.setTransferData("text/unicode", genData, genData.data.length * 2);
+
+    var transArray = 
+      Components.classes[ARRAY_CONTRACTID].createInstance(nsISupportsArray);
+
+    // put it into the transferable as an |nsISupports|
+    var genTrans = transferable.QueryInterface(Components.interfaces.nsISupports);
+    transArray.AppendElement(genTrans);
+    
+    var dragService = 
+      Components.classes[DRAGSERVICE_CONTRACTID].getService(nsIDragService);
+
+    dragService.invokeDragSession(event.target, transArray, null, nsIDragService.DRAGDROP_ACTION_COPY + 
+                                  nsIDragService.DRAGDROP_ACTION_MOVE);
+  
+    dragStarted = true;
+  } catch (ex) { }
+  
+  return !dragStarted;
+}
+
+function scrollDown()
+{
+  window.frames[0].scrollTo(0, window.frames[0].document.height);
+}
+
+function OnFTPControlLog( server, msg )
+{
+	var logdoc = frames[0].document;
+	var logdocDiv = logdoc.getElementById("logboxDiv");
+	var div = document.createElementNS("http://www.w3.org/1999/xhtml", 
+                                       "html:div");
+
+	if (server)
+		div.setAttribute("class", "server");
+	else
+		div.setAttribute("class", "client");
+
+	div.appendChild (document.createTextNode(msg));
+	
+	logdocDiv.appendChild(div);
+
+	scrollDown();
+}
+

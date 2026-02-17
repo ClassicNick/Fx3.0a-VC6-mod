@@ -102,7 +102,7 @@ protected:
    * Get the select content element that contains this option
    * @param aSelectElement the select element [OUT]
    */
-  void GetSelect(nsISelectElement **aSelectElement);
+  nsIContent* GetSelect();
  
   /**
    * Called when an attribute has just been changed
@@ -168,16 +168,21 @@ nsHTMLOptGroupElement::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
   return nsGenericHTMLElement::PreHandleEvent(aVisitor);
 }
 
-void
-nsHTMLOptGroupElement::GetSelect(nsISelectElement **aSelectElement)
+nsIContent*
+nsHTMLOptGroupElement::GetSelect()
 {
-  *aSelectElement = nsnull;
-  for (nsIContent* parent = GetParent(); parent; parent = parent->GetParent()) {
-    CallQueryInterface(parent, aSelectElement);
-    if (*aSelectElement) {
+  nsIContent* parent = this;
+  while ((parent = parent->GetParent()) &&
+         parent->IsNodeOfType(eHTML)) {
+    if (parent->Tag() == nsHTMLAtoms::select) {
+      return parent;
+    }
+    if (parent->Tag() != nsHTMLAtoms::optgroup) {
       break;
     }
   }
+  
+  return nsnull;
 }
 
 nsresult
@@ -203,8 +208,7 @@ nsHTMLOptGroupElement::InsertChildAt(nsIContent* aKid,
                                      PRUint32 aIndex,
                                      PRBool aNotify)
 {
-  nsCOMPtr<nsISelectElement> sel;
-  GetSelect(getter_AddRefs(sel));
+  nsCOMPtr<nsISelectElement> sel = do_QueryInterface(GetSelect());
   if (sel) {
     sel->WillAddOptions(aKid, this, aIndex);
   }
@@ -221,8 +225,7 @@ nsHTMLOptGroupElement::AppendChildTo(nsIContent* aKid, PRBool aNotify)
 nsresult
 nsHTMLOptGroupElement::RemoveChildAt(PRUint32 aIndex, PRBool aNotify)
 {
-  nsCOMPtr<nsISelectElement> sel;
-  GetSelect(getter_AddRefs(sel));
+  nsCOMPtr<nsISelectElement> sel = do_QueryInterface(GetSelect());
   if (sel) {
     sel->WillRemoveOptions(this, aIndex);
   }

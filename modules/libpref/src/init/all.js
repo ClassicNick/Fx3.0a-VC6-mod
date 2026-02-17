@@ -167,7 +167,7 @@ pref("browser.tabs.maxOpenBeforeWarn", 15);
 pref("browser.tabs.loadGroup", 1);
 
 pref("toolkit.scrollbox.scrollIncrement", 20);
-pref("toolkit.scrollbox.clickToScroll.scrollDelay", 200);
+pref("toolkit.scrollbox.clickToScroll.scrollDelay", 150);
 
 // lets new tab/window load something different than first window
 // -1 - use navigator startup preference
@@ -1051,7 +1051,8 @@ pref("config.use_system_prefs.accessibility", false);
 pref("editor.resizing.preserve_ratio",       true);
 pref("editor.positioning.offset",            0);
 
-pref("dom.max_script_run_time", 5);
+pref("dom.max_chrome_script_run_time", 20);
+pref("dom.max_script_run_time", 10);
 
 pref("svg.enabled", true);
 

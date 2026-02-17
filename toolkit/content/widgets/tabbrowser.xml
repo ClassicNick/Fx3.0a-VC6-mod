@@ -27,6 +27,7 @@
    -   Giorgio Maone <g.maone@informaction.com>
    -   Asaf Romano <mozilla.mano@sent.com>
    -   Seth Spitzer <sspitzer@mozilla.org>
+   -   Simon Bünzli <zeniko@gmail.com>
    -
    - Alternatively, the contents of this file may be used under the terms of
    - either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -108,7 +109,7 @@
             <xul:tab selected="true" validate="never"
                      onerror="this.parentNode.parentNode.parentNode.parentNode.addToMissedIconCache(this.getAttribute('image'));
                               this.removeAttribute('image');"
-                     maxwidth="250" width="0" minwidth="125" flex="100"
+                     maxwidth="250" width="0" minwidth="100" flex="100"
                      class="tabbrowser-tab" label="&untitledTab;" crop="end"/>
           </xul:tabs>
         </xul:hbox>
@@ -1019,11 +1020,11 @@
         <parameter name="aAllowThirdPartyFixup"/>
         <body>
           <![CDATA[
-            var owner = aLoadInBackground ? null : this.selectedTab;
-            var tab = this.addTab(aURI, aReferrerURI, aCharset, aPostData, owner,
-                                  aAllowThirdPartyFixup);
             var bgLoad = (aLoadInBackground != null) ? aLoadInBackground :
                          this.mPrefs.getBoolPref("browser.tabs.loadInBackground");
+            var owner = bgLoad ? null : this.selectedTab;
+            var tab = this.addTab(aURI, aReferrerURI, aCharset, aPostData, owner,
+                                  aAllowThirdPartyFixup);
             // Set newly selected tab after quick timeout, otherwise hideous focus problems
             // can occur when "browser.tabs.loadInBackground" is false and presshell is not ready
             if (!bgLoad) {
@@ -1034,8 +1035,6 @@
             }
             if (!bgLoad)
               this.selectedTab = tab;
-            else
-              this.mTabContainer._notifyBackgroundTab(tab);
             
             return tab;
          ]]>
@@ -1120,8 +1119,21 @@
             t.setAttribute("validate", "never");
             t.setAttribute("onerror", "this.parentNode.parentNode.parentNode.parentNode.addToMissedIconCache(this.getAttribute('image')); this.removeAttribute('image');");
             t.className = "tabbrowser-tab";
-            
+
             this.mTabContainer.appendChild(t);
+
+            if (document.defaultView
+                        .getComputedStyle(this.mTabContainer, "")
+                        .direction == "rtl") {
+              /* In RTL UI, the tab is visually added to the left side of the
+               * tabstrip. This means the tabstip has to be scrolled back in
+               * order to make sure the same set of tabs is visible before and
+               * after the new tab is added */
+
+              this.mTabContainer.mTabstrip.scrollBoxObject
+                  .scrollBy(this.mTabContainer.firstChild.boxObject.width, 0);
+            }
+
             // invalidate cache, because mTabContainer is about to change
             this._browsers = null; 
 
@@ -1206,6 +1218,9 @@
             var _delayedUpdate = function(aTabContainer) {
               aTabContainer.adjustTabstrip(false);
 
+              if (aTabContainer.selectedItem != t)
+                aTabContainer._notifyBackgroundTab(t);
+
               // XXXmano: this is a temporary workaround to bug 343585
               // We need to manually update the scroll buttons disabled state
               // if a tab was inserted to the overflow area or removed from it
@@ -1221,6 +1236,7 @@
             var evt = document.createEvent("Events");
             evt.initEvent("TabOpen", true, false);
             t.dispatchEvent(evt);
+
             return t;
           ]]>
         </body>
@@ -1341,16 +1357,8 @@
             }
             setTimeout(_delayedUpdate, 0, this.mTabContainer);
 
-            // We're committed to closing the tab now.  
-            // Dispatch a notification.
-            // We dispatch it before any teardown so that event listeners can
-            // inspect the tab that's about to close.
-            var evt = document.createEvent("Events");
-            evt.initEvent("TabClose", true, false);
-            aTab.dispatchEvent(evt);
-
             if (l == 1) {
-              // add a new blank tab to replace the one being closed
+              // add a new blank tab to replace the one we're about to close
               // (this ensures that the remaining tab is as good as new)
               this.addTab("about:blank");
               l++;
@@ -1361,6 +1369,14 @@
               if (autohide || tabStripHide)
                 this.setStripVisibilityTo(false);
             }
+
+            // We're committed to closing the tab now.  
+            // Dispatch a notification.
+            // We dispatch it before any teardown so that event listeners can
+            // inspect the tab that's about to close.
+            var evt = document.createEvent("Events");
+            evt.initEvent("TabClose", true, false);
+            aTab.dispatchEvent(evt);
 
             var index = -1;
             if (this.mCurrentTab == aTab)
@@ -1640,7 +1656,8 @@
         <parameter name="aDragSession"/>
         <body>
           <![CDATA[
-            if (aDragSession.sourceNode.parentNode == this.mTabContainer &&
+            if (aDragSession.sourceNode &&
+                aDragSession.sourceNode.parentNode == this.mTabContainer &&
                 (aEvent.screenX >= aDragSession.sourceNode.boxObject.screenX &&
                  aEvent.screenX <= (aDragSession.sourceNode.boxObject.screenX +
                                     aDragSession.sourceNode.boxObject.width)))
@@ -2457,8 +2474,7 @@
       </xul:arrowscrollbox>
       <xul:hbox class="tabs-alltabs-box" align="center" pack="end" 
                 anonid="alltabs-box">
-        <xul:toolbarbutton class="tabs-alltabs-button" type="menu" tooltip="_child">
-          <xul:tooltip anonid="alltabs-tooltip" label="&listAllTabs.label;"/>
+        <xul:toolbarbutton class="tabs-alltabs-button" type="menu">
           <xul:menupopup class="tabs-alltabs-popup"
                          anonid="alltabs-popup" 
                          position="after_end"/>
@@ -2575,7 +2591,7 @@
         }
         });
       </field>
-      <field name="mTabMinWidth">60</field>
+      <field name="mTabMinWidth">100</field>
       <field name="mTabClipWidth">140</field>
       <field name="mCloseButtons">1</field>
 
@@ -2654,11 +2670,6 @@
         document.getAnonymousElementByAttribute(this, 
                                                 "anonid", "alltabs-box");
       </field>
-      
-      <field name="mAllTabsTooltip">
-        document.getAnonymousElementByAttribute(this, 
-                                                "anonid", "alltabs-tooltip");
-      </field>
 
       <field name="mFlashTimer">null</field>
       <field name="mFlashStage">0</field>
@@ -2716,11 +2727,6 @@
     </implementation>
     <handlers>
       <handler event="TabSelect" action="this._handleTabSelect();"/>
-      <handler event="popupshowing"><![CDATA[
-        if (event.originalTarget == this.mAllTabsTooltip &&
-            document.tooltipNode.parentNode == this.mAllTabsPopup)
-          event.preventDefault();
-      ]]></handler>
     </handlers>
   </binding>
 

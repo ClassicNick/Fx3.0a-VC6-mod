@@ -1784,6 +1784,7 @@ nsPasswordManager::FillDocument(nsIDOMDocument* aDomDoc)
       }
 
       nsAutoString oldUserValue;
+      PRBool userFieldFound = PR_FALSE;
 
       if (temp) {
         temp->GetType(fieldType);
@@ -1792,6 +1793,7 @@ nsPasswordManager::FillDocument(nsIDOMDocument* aDomDoc)
 
         temp->GetValue(oldUserValue);
         userField = temp;
+        userFieldFound = PR_TRUE;
       } else if ((e->passField).IsEmpty()) {
         // Happens sometimes when we import passwords from IE since
         // their form name match is case insensitive. In this case,
@@ -1814,11 +1816,16 @@ nsPasswordManager::FillDocument(nsIDOMDocument* aDomDoc)
               userField = inputField;
               foundNode = inputField;
               e->userField.Assign(name);
+              userFieldFound = PR_TRUE;
               break;
             }
           }
         }
       }
+
+      // Bail out if we should be seeing a userField but we're not
+      if (!userFieldFound && !(e->userField).IsEmpty())
+        continue;
 
       if (!(e->passField).IsEmpty()) {
         form->ResolveName(e->passField, getter_AddRefs(foundNode));

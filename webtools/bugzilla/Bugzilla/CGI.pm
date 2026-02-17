@@ -36,7 +36,6 @@ BEGIN {
 use CGI qw(-no_xhtml -oldstyle_urls :private_tempfiles :unique_headers SERVER_PUSH);
 
 use base qw(CGI);
-use CGI::Carp qw(fatalsToBrowser);
 
 use Bugzilla::Error;
 use Bugzilla::Util;
@@ -62,6 +61,11 @@ sub new {
 
     my $self = $class->SUPER::new(@args);
 
+    # This happens here so that command-line scripts don't spit out
+    # their errors in HTML format.
+    require CGI::Carp;
+    import CGI::Carp qw(fatalsToBrowser);
+
     # Make sure our outgoing cookie list is empty on each invocation
     $self->{Bugzilla_cookie_list} = [];
 
@@ -83,13 +87,6 @@ sub new {
     my $err = $self->cgi_error;
 
     if ($err) {
-        # XXX - under mod_perl we can use the request object to
-        # enable the apache ErrorDocument stuff, which is localisable
-        # (and localised by default under apache2).
-        # This doesn't appear to be possible under mod_cgi.
-        # Under mod_perl v2, though, this happens automatically, and the
-        # message body is ignored.
-
         # Note that this error block is only triggered by CGI.pm for malformed
         # multipart requests, and so should never happen unless there is a
         # browser bug.

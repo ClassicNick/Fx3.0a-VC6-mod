@@ -58,9 +58,11 @@
 #include "nsIDOMNode.h"
 #include "nsIDOMNSUIEvent.h"
 #include "nsIDOMElement.h"
+#include "nsCOMArray.h"
 #include "nsIDOMText.h"
 #include "nsIDOMNodeList.h"
 #include "nsISelection.h"
+#include "nsISelection2.h"
 #include "nsISelectionController.h"
 #include "nsITextServicesDocument.h"
 #include "nsITextServicesFilter.h"
@@ -886,6 +888,9 @@ nsresult mozInlineSpellChecker::DoSpellCheck(mozInlineSpellWordUtil& aWordUtil,
   if (iscollapsed)
     return NS_OK;
 
+  nsCOMPtr<nsISelection2> sel2 = do_QueryInterface(aSpellCheckSelection, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   // see if the selection has any ranges, if not, then we can optimize checking
   // range inclusion later (we have no ranges when we are initially checking or
   // when there are no misspelled words yet).
@@ -938,14 +943,13 @@ nsresult mozInlineSpellChecker::DoSpellCheck(mozInlineSpellWordUtil& aWordUtil,
       if (createdRange)
         createdRange->IsPointInRange(beginNode, beginOffset, &inCreatedRange);
       if (! inCreatedRange) {
-        nsCOMPtr<nsIDOMRange> currentRange;
-        IsPointInSelection(aSpellCheckSelection, beginNode, beginOffset,
-                           getter_AddRefs(currentRange));
-        if (!currentRange)
-          IsPointInSelection(aSpellCheckSelection, endNode, endOffset - 1,
-                             getter_AddRefs(currentRange));
-        if (currentRange)
-          RemoveRange(aSpellCheckSelection, currentRange);
+        nsCOMArray<nsIDOMRange> ranges;
+        rv = sel2->GetRangesForIntervalCOMArray(beginNode, beginOffset,
+                                                endNode, endOffset,
+                                                PR_TRUE, &ranges);
+        NS_ENSURE_SUCCESS(rv, rv);
+        for (PRInt32 i = 0; i < ranges.Count(); i ++)
+          RemoveRange(aSpellCheckSelection, ranges[i]);
       }
     }
 
@@ -1000,34 +1004,23 @@ mozInlineSpellChecker::IsPointInSelection(nsISelection *aSelection,
                                           PRInt32 aOffset,
                                           nsIDOMRange **aRange)
 {
-  *aRange = NULL;
-  NS_ENSURE_ARG_POINTER(aNode);
-  NS_ENSURE_ARG_POINTER(aSelection);
+  *aRange = nsnull;
 
-  PRInt32 count;
-  aSelection->GetRangeCount(&count);
+  nsresult rv;
+  nsCOMPtr<nsISelection2> sel2 = do_QueryInterface(aSelection, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  PRInt32 t;
-  for (t=0; t<count; t++)
-  {
-    nsCOMPtr<nsIDOMRange> checkRange;
-    aSelection->GetRangeAt(t,getter_AddRefs(checkRange));
-    nsCOMPtr<nsIDOMNSRange> nsCheckRange = do_QueryInterface(checkRange);
+  nsCOMArray<nsIDOMRange> ranges;
+  rv = sel2->GetRangesForIntervalCOMArray(aNode, aOffset, aNode, aOffset,
+                                          PR_TRUE, &ranges);
+  NS_ENSURE_SUCCESS(rv, rv);
 
-    PRInt32 start, end;
-    checkRange->GetStartOffset(&start);
-    checkRange->GetEndOffset(&end);
+  if (ranges.Count() == 0)
+    return NS_OK; // no matches
 
-    PRBool isInRange;
-    nsCheckRange->IsPointInRange(aNode,aOffset,&isInRange);
-    if (isInRange)
-    {
-      *aRange = checkRange;
-      NS_ADDREF(*aRange);
-      break;
-    }
-  }
-
+  // there may be more than one range returned, and we don't know what do
+  // do with that, so just get the first one
+  NS_ADDREF(*aRange = ranges[0]);
   return NS_OK;
 }
 

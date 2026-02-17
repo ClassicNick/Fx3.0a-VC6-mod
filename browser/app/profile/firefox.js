@@ -76,6 +76,9 @@ pref("extensions.blocklist.interval", 86400);
 pref("extensions.blocklist.url", "https://addons.mozilla.org/blocklist/1/%APP_ID%/%APP_VERSION%/");
 pref("extensions.blocklist.detailsURL", "http://www.mozilla.com/blocklist/");
 
+// Dictionary download preference
+pref("browser.dictionaries.download.url", "https://addons.mozilla.org/%LOCALE%/firefox/%VERSION%/dictionaries/");
+
 // App-specific update preferences
 
 // Whether or not app updates are enabled
@@ -161,7 +164,7 @@ pref("xpinstall.whitelist.add", "update.mozilla.org");
 pref("xpinstall.whitelist.add.103", "addons.mozilla.org");
 
 pref("keyword.enabled", true);
-pref("keyword.URL", "http://www.google.com/search?btnI=I%27m+Feeling+Lucky&ie=UTF-8&oe=UTF-8&q=");
+pref("keyword.URL", "chrome://browser-region/locale/region.properties");
 
 pref("general.useragent.locale", "@AB_CD@");
 pref("general.skins.selectedSkin", "classic/1.0");
@@ -259,7 +262,7 @@ pref("browser.tabs.loadFolderAndReplace", true);
 pref("browser.tabs.opentabfor.middleclick", true);
 pref("browser.tabs.loadDivertedInBackground", false);
 pref("browser.tabs.loadBookmarksInBackground", false);
-pref("browser.tabs.tabMinWidth", 60);
+pref("browser.tabs.tabMinWidth", 100);
 pref("browser.tabs.tabClipWidth", 140);
 pref("browser.tabs.disableBackgroundClose", false);
 
@@ -466,16 +469,14 @@ pref("view_source.editor.external", false);
 pref("browser.send_pings", true);
 
 #ifdef MOZ_FEEDS
-// XXXben This is just here for demo purposes until web registration works!
-// XXXben Needs Localization!
-pref("browser.contentHandlers.types.0.title", "Bloglines");
-pref("browser.contentHandlers.types.0.uri", "http://www.bloglines.com/login?r=/sub/%s");
+pref("browser.contentHandlers.types.0.title", "chrome://browser-region/locale/region.properties");
+pref("browser.contentHandlers.types.0.uri", "chrome://browser-region/locale/region.properties");
 pref("browser.contentHandlers.types.0.type", "application/vnd.mozilla.maybe.feed");
-pref("browser.contentHandlers.types.1.title", "iGoogle/Google Reader");
-pref("browser.contentHandlers.types.1.uri", "http://fusion.google.com/add?feedurl=%s");
+pref("browser.contentHandlers.types.1.title", "chrome://browser-region/locale/region.properties");
+pref("browser.contentHandlers.types.1.uri", "chrome://browser-region/locale/region.properties");
 pref("browser.contentHandlers.types.1.type", "application/vnd.mozilla.maybe.feed");
-pref("browser.contentHandlers.types.2.title", "My Yahoo");
-pref("browser.contentHandlers.types.2.uri", "http://add.my.yahoo.com/rss?url=%s");
+pref("browser.contentHandlers.types.2.title", "chrome://browser-region/locale/region.properties");
+pref("browser.contentHandlers.types.2.uri", "chrome://browser-region/locale/region.properties");
 pref("browser.contentHandlers.types.2.type", "application/vnd.mozilla.maybe.feed");
 
 pref("browser.feeds.handler", "ask");
@@ -498,7 +499,7 @@ pref("browser.safebrowsing.provider.0.keyURL", "https://www.google.com/safebrows
 pref("browser.safebrowsing.provider.0.reportURL", "http://sb.google.com/safebrowsing/report?");
 
 // HTML report pages
-pref("browser.safebrowsing.provider.0.reportGenericURL", "http://www.google.com/safebrowsing/report_general/?hl={moz:locale}&continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
-pref("browser.safebrowsing.provider.0.reportErrorURL", "http://www.google.com/safebrowsing/report_error/?hl={moz:locale}&continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
-pref("browser.safebrowsing.provider.0.reportPhishURL", "http://www.google.com/safebrowsing/report_phish/?hl={moz:locale}&continue=http%3A%2F%2Fwww.google.com%2Ftools%2Ffirefox%2Fsafebrowsing%2Fsubmit_success.html");
+pref("browser.safebrowsing.provider.0.reportGenericURL", "http://www.mozilla.org/projects/bonecho/anti-phishing/report_general/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportErrorURL", "http://www.mozilla.org/projects/bonecho/anti-phishing/report_error/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportPhishURL", "http://www.mozilla.org/projects/bonecho/anti-phishing/report_phish/?hl={moz:locale}");
 #endif

@@ -1802,7 +1802,7 @@ FindPropertyValue(JSParseNode *pn, JSParseNode *pnid, FindPropValData *data)
             }
         }
     }
-    return pnprop->pn_right;
+    return pnhit->pn_right;
 }
 
 /*
@@ -2953,10 +2953,14 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
             obj = js_NewBlockObject(cx);
             if (!obj)
                 return NULL;
-            JS_ASSERT(stmt->downScope == NULL);
+            JS_ASSERT(!(stmt->flags & SIF_SCOPE));
             stmt->flags |= SIF_SCOPE;
-            stmt->downScope = tc->topScopeStmt;
-            tc->topScopeStmt = stmt;
+            if (!stmt->downScope) {
+                stmt->downScope = tc->topScopeStmt;
+                tc->topScopeStmt = stmt;
+            } else {
+                JS_ASSERT(stmt == tc->topScopeStmt);
+            }
             obj->slots[JSSLOT_PARENT] = OBJECT_TO_JSVAL(tc->blockChain);
             tc->blockChain = stmt->blockObj = obj;
 
@@ -4132,7 +4136,9 @@ AttributeIdentifier(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
     if (!pn)
         return NULL;
     pn->pn_op = JSOP_TOATTRNAME;
+    ts->flags |= TSF_KEYWORD_IS_NAME;
     tt = js_GetToken(cx, ts);
+    ts->flags &= ~TSF_KEYWORD_IS_NAME;
     if (tt == TOK_STAR || tt == TOK_NAME) {
         pn2 = QualifiedIdentifier(cx, ts, tc);
     } else if (tt == TOK_LB) {

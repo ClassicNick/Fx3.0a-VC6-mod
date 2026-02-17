@@ -1,127 +1,101 @@
-/* 
- * The contents of this file are subject to the Mozilla Public
- * License Version 1.1 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of
- * the License at http://www.mozilla.org/MPL/
- * 
- * Software distributed under the License is distributed on an "AS
- * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * rights and limitations under the License.
- * 
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+ *
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
+ *
  * The Original Code is Mozilla Communicator.
- * 
- * The Initial Developer of the Original Code is Netscape
- * Communications Corp. Portions created by Netscape Communications
- * Corp. are Copyright (C) 1999 Netscape Communications Corp. All
- * Rights Reserved.
- * 
- * Contributor(s): Stephen Lamm <slamm@netscape.com>
- */ 
+ *
+ * The Initial Developer of the Original Code is
+ * Netscape Communications Corp.
+ * Portions created by the Initial Developer are Copyright (C) 1999
+ * the Initial Developer. All Rights Reserved.
+ *
+ * Contributor(s):
+ *   Stephen Lamm <slamm@netscape.com>
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
 
-splitter#sidebar-splitter {
-	margin-right: 2px;
-	margin-top: 2px;
-	min-width: 8px;
-	max-width: 8px;
-	padding: 0px;
-	border: none;
-	background-color: #003366;
+/** sidebarOverlay.css [CONTENT]
+ *   This file is for style rules essential for correct sidebar operation.
+ *   These rules will not change on a skin-by-skin basis. 
+ **/ 
+ 
+#sidebar-box {
+    width: 162px;
+    min-height: 10px;
+    min-width: 30px;
+    max-width: 400px;
 }
 
-splitter#sidebar-splitter #bottomright-cap {
-	min-height: 8px; 
-	background-image: url("chrome://sidebar/skin/sidebar-bottomright-cap.gif"); 
-	background-repeat: no-repeat;
-	background-position: 100% 100%;
+#sidebar-panels {
+    min-width: 1px;
+    min-height: 10px;
 }
 
-splitter#sidebar-splitter #topright-cap {
-	min-height: 8px; 
-	background-image: url("chrome://sidebar/skin/sidebar-topright-cap.gif"); 
-	background-repeat: no-repeat;
-	background-position: 100% 0%;
+.iframe-panel { 
+    min-width: 1px;
+    min-height: 1px;
 }
 
-splitter#sidebar-splitter grippy {
-	margin: 0px;
-	border: 2px solid #003366;
-	padding: 0px;
-	background-color: #6699CC;
-	list-style-image: none;
+#sidebar-iframe-no-panels {
+    min-width: 1px;
+    min-height: 1px;
+    overflow: auto;
 }
 
-splitter#sidebar-splitter grippy:hover {
-	background-color: #99CCFF;
-}
-
-splitter#sidebar-splitter grippy:active {
-	background-color: #99CCFF;
-}
-
-
-/**/
-
-box#sidebar-box {
-  margin-top: 2px;
-  width: 162px;
-  min-height: 1px;
-  min-width: 10px;
-  max-width: 400px;
-  border: none;
-  border-bottom: 8px solid #003366;
-}
-
-box#sidebar-panels {
-  min-height: 1px;
-}
-
-box#sidebar-box[hidden="true"] {
-  display: none;
-}
-
-splitter#sidebar-splitter[hidden="true"] {
-  display: none;
-}
-
-iframe.panel-frame[collapsed="true"] {
-  display: none;
-}
-iframe.panel-frame {
-  min-width: 1px;
+.browser-sidebar {
+    min-width: 1px;  
+    min-height: 1px;
 }
 
 /*
- *  Sidebar and Panel title buttons
+ *    Sidebar and Panel title buttons
  */
-splitter.sidebar-main-header {
-  color: #CCFFFF;
-  background-color: #003366;
-  padding: 0px;
-  padding-left: 5px;
-  padding-right: 5px;
+sidebarheader[type="box"] {
+    -moz-binding: url(chrome://communicator/content/sidebar/sidebarBindings.xml#sidebar-header-box);
+}
+sidebarheader[type="splitter"] {
+    -moz-binding: url(chrome://communicator/content/sidebar/sidebarBindings.xml#sidebar-header-splitter);
+    /* a vertical splitter */
+    cursor: n-resize;
 }
 
-splitter.sidebar-main-header div {
-  font-weight: bold;
-  margin: 2px;
+.sidebarheader-main {
+    min-width: 1px;
+    min-height: 1px;
 }
 
-splitter.sidebar-main-header titledbutton {
-  padding: 0px;
-}
+/**
+ * texttab folder lookalike e.g. for sidebar panel headers
+ */
+  .box-texttab
+    {
+      min-height          : 10px;
+      min-width           : 10px;
+    }
 
-splitter.sidebar-main-header titledbutton:hover {
-  color: white;
-}
+  .box-texttab-right-space 
+    {
+      min-width           : 1px;
+    }
 
-titledbutton.panel-bar {
-  padding: 0px;
-  margin: 0px;
-  border-top: 1px solid white;
-  background-color: #CCCCCC;
-  padding: 0px;
-  padding-left: 5px;
-  padding-right: 5px;
-  font-size: smaller;
-}

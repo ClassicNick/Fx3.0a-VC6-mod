@@ -132,6 +132,14 @@ _cairo_win32_surface_create_dib (cairo_format_t format,
 #endif
 #endif
 
+#ifdef XP_OS2
+#define INCL_WINWINDOWMGR
+#define INCL_GPIBITMAPS
+#include <os2.h>
+#include "nsDrawingSurfaceOS2.h"
+#include "cairo-os2.h"
+#endif
+
 #ifdef MOZ_WIDGET_GTK2
 #include "cairo-xlib.h"
 #include "cairo-xlib-xrender.h"
@@ -810,7 +818,6 @@ nsCanvasRenderingContext2D::SetDimensions(PRInt32 width, PRInt32 height)
     cairo_set_line_join(mCairo, CAIRO_LINE_JOIN_MITER);
 
     cairo_new_path(mCairo);
-    cairo_move_to(mCairo, 0.0, 0.0);
 
     return NS_OK;
 }
@@ -850,6 +857,28 @@ nsCanvasRenderingContext2D::Render(nsIRenderingContext *rc)
 
     dest = cairo_win32_surface_create (dc);
     dest_cr = cairo_create (dest);
+#endif
+
+#ifdef XP_OS2
+    void *ptr = nsnull;
+#ifdef MOZILLA_1_8_BRANCH
+    rv = rc->RetrieveCurrentNativeGraphicData(&ptr);
+    if (NS_FAILED(rv) || !ptr)
+        return NS_ERROR_FAILURE;
+#else
+    /* OS/2 also uses NATIVE_WINDOWS_DC to get a native OS/2 PS */
+    ptr = rc->GetNativeGraphicData(nsIRenderingContext::NATIVE_WINDOWS_DC);
+#endif
+
+    HPS hps = (HPS)ptr;
+    nsDrawingSurfaceOS2 *surface; /* to get the dimensions from this */
+    PRUint32 width, height;
+    rc->GetDrawingSurface((nsIDrawingSurface**)&surface);
+    surface->GetDimensions(&width, &height);
+
+    dest = cairo_os2_surface_create(hps, width, height);
+    cairo_surface_mark_dirty(dest); // needed on OS/2 for initialization
+    dest_cr = cairo_create(dest);
 #endif
 
 #ifdef MOZ_WIDGET_GTK2
@@ -1388,7 +1417,6 @@ NS_IMETHODIMP
 nsCanvasRenderingContext2D::BeginPath()
 {
     cairo_new_path(mCairo);
-    cairo_move_to(mCairo, 0.0, 0.0);
     return NS_OK;
 }
 

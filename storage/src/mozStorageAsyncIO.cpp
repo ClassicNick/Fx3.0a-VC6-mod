@@ -232,11 +232,16 @@
 
 #include "mozStorageService.h"
 #include "nsAutoLock.h"
-#include "nsThreadUtils.h"
+#include "nsIConsoleService.h"
+#include "nsIPrompt.h"
 #include "nsIRunnable.h"
+#include "nsIStringBundle.h"
 #include "nsIThread.h"
 #include "nsMemory.h"
+#include "nsNetCID.h"
 #include "nsProxyRelease.h"
+#include "nsThreadUtils.h"
+#include "nsXPCOMCIDInternal.h"
 #include "plstr.h"
 #include "prlock.h"
 #include "prcvar.h"
@@ -267,9 +272,19 @@
 // AsyncOsFile
 //
 //    This is a wrapper around the sqlite interal OsFile.
+//
+//    ======
+//    DANGER
+//    ======
+//
+//    This function is allocated on my Alloc(), and NOT by new. This means that
+//    any C++ objects in here will not get their constructor called.
 
 struct AsyncOsFile : public OsFile
 {
+  // This is the filename of the file when it was opened.
+  nsCString* mFilename;
+
   // This keeps track of the current file offset. Seek operations change this
   // offset instead of actually changing the file because we will do stuff to
   // the file in the background. We store this offset for each operation such
@@ -351,6 +366,12 @@ struct AsyncMessage
   AsyncMessage* mNext;
 };
 
+struct AsyncMessageBarrierData
+{
+  PRLock *mLock;
+  PRCondVar *mCondVar;
+};
+
 // Possible values of AsyncMessage.mOp
 #define ASYNC_WRITE         1
 #define ASYNC_SYNC          2
@@ -361,6 +382,7 @@ struct AsyncMessage
 #define ASYNC_DELETE        7
 #define ASYNC_OPENEXCLUSIVE 8
 #define ASYNC_SYNCDIRECTORY 9
+#define ASYNC_BARRIER       10
 
 // replacements for the sqlite OS routines
 static int AsyncOpenReadWrite(const char *aName, OsFile **aFile, int *aReadOnly);
@@ -384,6 +406,8 @@ static int AsyncUnlock(OsFile* aFile, int aLockType);
 static int AsyncCheckReservedLock(OsFile* aFile);
 static int AsyncLockState(OsFile* aFile);
 
+static int AsyncBarrier(PRLock* aLock, PRCondVar* aCondVar);
+
 // backend for all the open functions
 static int AsyncOpenFile(const char *aName, AsyncOsFile **aFile,
                      OsFile *aBaseRead, PRBool aOpenForWriting);
@@ -405,6 +429,7 @@ static int AppendNewAsyncMessage(AsyncOsFile* aFile, PRUint32 aOp,
                                  sqlite_int64 aOffset, PRInt32 aDataSize,
                                  const char *aData);
 static int AsyncWriteError = SQLITE_OK; // set on write error
+static void DisplayAsyncWriteError();
 
 // threading
 // serializes access to the queue, AsyncWriteThreadInstance = nsnull means
@@ -521,6 +546,56 @@ mozStorageService::InitStorageAsyncIO()
   }
 #endif
 
+  return NS_OK;
+}
+
+// mozstorageService::FlushAsyncIO
+//
+//    This function will grab the async lock and process all
+//    remaining async operations that are in the queue on the current
+//    thread.  Call this when you need to make sure that an operation
+//    has taken place, e.g. that a file has been closed.
+
+nsresult
+mozStorageService::FlushAsyncIO()
+{
+  AsyncMessage *message = 0;
+  int rc;
+
+  // single threaded? nothing to do.
+  if (!AsyncWriteThreadInstance)
+    return NS_OK;
+
+  PRLock *flushLock = PR_NewLock();
+  if (!flushLock)
+    return NS_ERROR_OUT_OF_MEMORY;
+
+  PRCondVar *flushCond = PR_NewCondVar(flushLock);
+  if (!flushCond) {
+    PR_DestroyLock(flushLock);
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  PR_Lock(flushLock);
+
+  rc = AsyncBarrier(flushLock, flushCond);
+  if (rc == SQLITE_OK) {
+    // the async thread will notify us once it reaches
+    // the ASYNC_BARRIER operation; only wait if
+    // adding the barrier worked, otherwise just unlock
+    // and return the error
+    PR_WaitCondVar(flushCond, PR_INTERVAL_NO_TIMEOUT);
+  }
+
+  PR_Unlock(flushLock);
+
+  PR_DestroyCondVar(flushCond);
+  PR_DestroyLock(flushLock);
+
+  if (rc == SQLITE_NOMEM)
+    return NS_ERROR_OUT_OF_MEMORY;
+  else if (rc != SQLITE_OK)
+    return NS_ERROR_FAILURE;
   return NS_OK;
 }
 
@@ -644,6 +719,7 @@ AsyncOpenFile(const char* aName, AsyncOsFile** aFile,
   }
   memset(*aFile, 0, sizeof(AsyncOsFile));
 
+  (*aFile)->mFilename = new nsCString(aName);
   (*aFile)->pMethod = &iomethod;
   (*aFile)->mOpen = PR_TRUE;
   (*aFile)->mBaseRead = aBaseRead;
@@ -1261,6 +1337,23 @@ AsyncLockState(OsFile* aFile)
   return SQLITE_OK;
 }
 
+// AsyncBarrier
+//
+//    This is used to notify a waiting thread that this point in the async
+//    queue has been reached.  Note that this is not a sqlite redirected IO
+//    function
+
+int // static
+AsyncBarrier(PRLock* aLock, PRCondVar* aCondVar)
+{
+  AsyncMessageBarrierData bd;
+
+  bd.mLock = aLock;
+  bd.mCondVar = aCondVar;
+
+  return AppendNewAsyncMessage(nsnull, ASYNC_BARRIER, 0,
+                               sizeof(AsyncMessageBarrierData), (const char*) &bd);
+}
 
 // ProcessOneMessage
 //
@@ -1326,7 +1419,10 @@ ProcessOneMessage(AsyncMessage* aMessage)
       // two handles matters here)
       sqliteOrigClose(&aMessage->mFile->mBaseWrite);
       sqliteOrigClose(&aMessage->mFile->mBaseRead);
+      if (aMessage->mFile->mFilename)
+        delete aMessage->mFile->mFilename;
       nsMemory::Free(aMessage->mFile);
+      aMessage->mFile = nsnull;
       break;
 
     case ASYNC_OPENDIRECTORY:
@@ -1365,6 +1461,14 @@ ProcessOneMessage(AsyncMessage* aMessage)
       regainMutex = PR_FALSE;
       if (rc == SQLITE_OK)
         pFile->mBaseRead = pBase;
+      break;
+    }
+
+    case ASYNC_BARRIER: {
+      AsyncMessageBarrierData *bd = (AsyncMessageBarrierData*) aMessage->mBuf;
+      PR_Lock(bd->mLock);
+      PR_NotifyCondVar(bd->mCondVar);
+      PR_Unlock(bd->mLock);
       break;
     }
 
@@ -1426,9 +1530,30 @@ ProcessAsyncMessages()
       // put it back when it's done
       rc = ProcessOneMessage(message);
 
+      // check for error
       if (rc != SQLITE_OK) {
         AsyncWriteError = rc;
         NS_NOTREACHED("FILE ERROR");
+
+        // log error to console
+        nsresult rv;
+        nsCOMPtr<nsIConsoleService> consoleSvc =
+            do_GetService("@mozilla.org/consoleservice;1", &rv);
+        if (NS_FAILED(rv)) {
+          NS_WARNING("Couldn't get the console service for logging file error");
+        } else {
+          nsAutoString logMessage;
+          logMessage.AssignLiteral("mozStorage: error code ");
+          logMessage.AppendInt(rc);
+          logMessage.AppendLiteral(" for database ");
+          if (message->mFile && message->mFile->mFilename)
+            logMessage.Append(NS_ConvertUTF8toUTF16(*message->mFile->mFilename));
+          rv = consoleSvc->LogStringMessage(logMessage.get());
+          NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "Couldn't log message on async error");
+        }
+
+        // tell user to restart
+        DisplayAsyncWriteError();
         return;
       }
 
@@ -1453,4 +1578,57 @@ ProcessAsyncMessages()
       PR_Sleep(PR_INTERVAL_NO_WAIT);
     #endif
   }
+}
+
+
+// nsAsyncWriteErrorDisplayer
+//
+//    This gets dispatched to the main thread so that we can do all the UI
+//    calls there. The prompt service must be called from the main thread.
+
+class nsAsyncWriteErrorDisplayer : public nsRunnable
+{
+public:
+  NS_IMETHOD Run()
+  {
+    nsresult rv;
+    nsCOMPtr<nsIPrompt> prompt = do_CreateInstance(
+        NS_DEFAULTPROMPT_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    nsCOMPtr<nsIStringBundleService> bundleService = do_GetService(
+        "@mozilla.org/intl/stringbundle;1", &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    nsCOMPtr<nsIStringBundle> bundle;
+    rv = bundleService->CreateBundle(
+        "chrome://global/locale/storage.properties", getter_AddRefs(bundle));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    nsXPIDLString message;
+    rv = bundle->GetStringFromName(NS_LITERAL_STRING("storageWriteError").get(),
+                                   getter_Copies(message));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    return prompt->Alert(nsnull, message.get());
+  }
+};
+
+
+// DisplayAsyncWriteError
+//
+//    Displays a general message box informing the user of the I/O error. The
+//    problem is that this is called from the I/O thread, which can't display
+//    UI. Therefore, we proxy to the UI thread.
+
+void
+DisplayAsyncWriteError()
+{
+  nsCOMPtr<nsIRunnable> displayer(new nsAsyncWriteErrorDisplayer);
+  if (! displayer) {
+    NS_WARNING("Unable to create displayer");
+    return;
+  }
+  nsresult rv = NS_DispatchToMainThread(displayer);
+  NS_ASSERTION(NS_SUCCEEDED(rv), "Can't call main thread");
 }
