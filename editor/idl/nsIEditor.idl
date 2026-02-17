@@ -63,7 +63,7 @@ typedef short EDirection;
 [ptr] native nsIPresShellPtr(nsIPresShell);
 [ptr] native nsIContentPtr(nsIContent);
 
-[scriptable, uuid(e7cb6526-0809-47ee-b484-a6f297e536c0)]
+[scriptable, uuid(36fc45c1-c4ea-4fbe-a305-9e463b134449)]
 
 interface nsIEditor  : nsISupports
 {
@@ -294,6 +294,19 @@ interface nsIEditor  : nsISupports
     *                     WILL RETURN NULL.
     */
   nsIInlineSpellChecker getInlineSpellChecker(in boolean autoCreate);
+
+  /** Resyncs spellchecking state (enabled/disabled).  This should be called
+    * when anything that affects spellchecking state changes, such as the
+    * spellcheck attribute value.
+    */
+  void syncRealTimeSpell();
+
+  /** Called when the user manually overrides the spellchecking state for this
+    * editor.
+    * @param  enable  The new state of spellchecking in this editor, as
+    *                 requested by the user.
+    */
+  void setSpellcheckUserOverride(in boolean enable);
 
   /* ------------ Clipboard methods -------------- */
 

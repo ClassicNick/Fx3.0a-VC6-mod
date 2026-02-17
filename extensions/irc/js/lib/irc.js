@@ -130,6 +130,9 @@ CIRCNetwork.prototype.MAX_CONNECT_ATTEMPTS = 5;
 CIRCNetwork.prototype.getReconnectDelayMs = function() { return 15000; }
 CIRCNetwork.prototype.stayingPower = false;
 
+// "http" = use HTTP proxy, "none" = none, anything else = auto.
+CIRCNetwork.prototype.PROXY_TYPE_OVERRIDE = "";
+
 CIRCNetwork.prototype.TYPE = "IRCNetwork";
 
 CIRCNetwork.prototype.getURL =
@@ -211,6 +214,19 @@ function net_delayedConnect(eventProperties)
     {
         network.immediateConnect(eventProperties);
     };
+
+    if ((-1 != this.MAX_CONNECT_ATTEMPTS) &&
+        (this.connectAttempt >= this.MAX_CONNECT_ATTEMPTS))
+    {
+        this.state = NET_OFFLINE;
+
+        var ev = new CEvent("network", "error", this, "onError");
+        ev.debug = "Connection attempts exhausted, giving up.";
+        ev.errorCode = JSIRC_ERR_EXHAUSTED;
+        this.eventPump.addEvent(ev);
+
+        return;
+    }
 
     this.state = NET_WAITING;
     this.reconnectTimer = setTimeout(reconnectFn,
@@ -343,20 +359,6 @@ function net_doconnect(e)
 
     this.connectAttempt++;
     this.connectCandidate++;
-
-    if ((-1 != this.MAX_CONNECT_ATTEMPTS) &&
-        (this.connectAttempt > this.MAX_CONNECT_ATTEMPTS))
-    {
-        this.state = NET_OFFLINE;
-
-        ev = new CEvent ("network", "error", this, "onError");
-        ev.server = this;
-        ev.debug = "Connection attempts exhausted, giving up.";
-        ev.errorCode = JSIRC_ERR_EXHAUSTED;
-        this.eventPump.addEvent(ev);
-
-        return false;
-    }
 
     this.state = NET_CONNECTING; /* connection is considered "made" when server
                                   * sends a 001 message (see server.on001) */
@@ -674,7 +676,11 @@ function serv_connect (password)
         return false;
     }
 
-    if (this.connection.connect(this.hostname, this.port, null, true, this.isSecure, null))
+    var config = { isSecure: this.isSecure };
+    if (this.parent.PROXY_TYPE_OVERRIDE)
+        config.proxy = this.parent.PROXY_TYPE_OVERRIDE;
+
+    if (this.connection.connect(this.hostname, this.port, config))
     {
         var ev = new CEvent("server", "connect", this, "onConnect");
 

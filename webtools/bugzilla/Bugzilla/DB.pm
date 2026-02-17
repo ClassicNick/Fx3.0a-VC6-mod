@@ -37,15 +37,40 @@ use base qw(DBI::db);
 
 use Bugzilla::Config qw(:db);
 use Bugzilla::Constants;
+use Bugzilla::Install::Requirements;
+use Bugzilla::Install::Localconfig;
 use Bugzilla::Util;
 use Bugzilla::Error;
 use Bugzilla::DB::Schema;
+
+use List::Util qw(max);
 
 #####################################################################
 # Constants
 #####################################################################
 
 use constant BLOB_TYPE => DBI::SQL_BLOB;
+
+# Set default values for what used to be the enum types.  These values
+# are no longer stored in localconfig.  If we are upgrading from a
+# Bugzilla with enums to a Bugzilla without enums, we use the
+# enum values.
+#
+# The values that you see here are ONLY DEFAULTS. They are only used
+# the FIRST time you run checksetup.pl, IF you are NOT upgrading from a
+# Bugzilla with enums. After that, they are either controlled through
+# the Bugzilla UI or through the DB.
+use constant ENUM_DEFAULTS => {
+    bug_severity  => ['blocker', 'critical', 'major', 'normal',
+                      'minor', 'trivial', 'enhancement'],
+    priority     => ["P1","P2","P3","P4","P5"],
+    op_sys       => ["All","Windows","Mac OS","Linux","Other"],
+    rep_platform => ["All","PC","Macintosh","Other"],
+    bug_status   => ["UNCONFIRMED","NEW","ASSIGNED","REOPENED","RESOLVED",
+                     "VERIFIED","CLOSED"],
+    resolution   => ["","FIXED","INVALID","WONTFIX","LATER","REMIND",
+                     "DUPLICATE","WORKSFORME","MOVED"],
+};
 
 #####################################################################
 # Connection Methods
@@ -62,10 +87,7 @@ sub connect_shadow {
 }
 
 sub connect_main {
-    my ($no_db_name) = @_;
-    my $connect_to_db = $db_name;
-    $connect_to_db = "" if $no_db_name;
-    return _connect($db_driver, $db_host, $connect_to_db, $db_port,
+    return _connect($db_driver, $db_host, $db_name, $db_port,
                     $db_sock, $db_user, $db_pass);
 }
 
@@ -93,6 +115,139 @@ sub _handle_error {
         if length($_[0]) > 4000;
     $_[0] = Carp::longmess($_[0]);
     return 0; # Now let DBI handle raising the error
+}
+
+sub bz_check_requirements {
+    my ($output) = @_;
+
+    my $db = DB_MODULE->{lc($db_driver)};
+    # Only certain values are allowed for $db_driver.
+    if (!defined $db) {
+        die "$db_driver is not a valid choice for \$db_driver in"
+            . bz_locations()->{'localconfig'};
+    }
+
+    # Check the existence and version of the DBD that we need.
+    my $dbd        = $db->{dbd};
+    my $dbd_ver    = $db->{dbd_version};
+    my $sql_server = $db->{name};
+    my $sql_want   = $db->{db_version};
+    unless (have_vers($dbd, $dbd_ver, $output)) {
+        my $command = install_command($dbd);
+        my $root    = ROOT_USER;
+        my $version = $dbd_ver ? " $dbd_ver or higher" : '';
+        print <<EOT;
+
+For $sql_server, Bugzilla requires that perl's ${dbd}${version} be 
+installed. To install this module, run the following command (as $root):
+
+    $command
+
+EOT
+        exit;
+    }
+
+    # We don't try to connect to the actual database if $db_check is
+    # disabled.
+    unless ($db_check) {
+        print "\n" if $output;
+        return;
+    }
+
+    # And now check the version of the database server itself.
+    my $dbh = _get_no_db_connection();
+
+    printf("Checking for %15s %-9s ", $sql_server, "(v$sql_want)")
+        if $output;
+    my $sql_vers = $dbh->bz_server_version;
+    $dbh->disconnect;
+
+    # Check what version of the database server is installed and let
+    # the user know if the version is too old to be used with Bugzilla.
+    if ( vers_cmp($sql_vers,$sql_want) > -1 ) {
+        print "ok: found v$sql_vers\n" if $output;
+    } else {
+        print <<EOT;
+
+Your $sql_server v$sql_vers is too old. Bugzilla requires version
+$sql_want or later of $sql_server. Please download and install a
+newer version.
+
+EOT
+        exit;
+    }
+
+    print "\n" if $output;
+}
+
+# Note that this function requires that localconfig exist and
+# be valid.
+sub bz_create_database {
+    my $dbh;
+    # See if we can connect to the actual Bugzilla database.
+    my $conn_success = eval { $dbh = connect_main(); };
+
+    if (!$conn_success) {
+        $dbh = _get_no_db_connection();
+        print "Creating database $db_name...\n";
+
+        # Try to create the DB, and if we fail print a friendly error.
+        if (!eval { $dbh->do("CREATE DATABASE $db_name") }) {
+            my $error = $dbh->errstr;
+            chomp($error);
+            print STDERR  "The '$db_name' database could not be created.",
+                          " The error returned was:\n\n    $error\n\n",
+                          _bz_connect_error_reasons();
+            exit;
+        }
+    }
+
+    $dbh->disconnect;
+}
+
+# A helper for bz_create_database and bz_check_requirements.
+sub _get_no_db_connection {
+    my ($sql_server) = @_;
+    my $dbh;
+    my $conn_success = eval {
+        $dbh = _connect($db_driver, $db_host, '', $db_port,
+                        $db_sock, $db_user, $db_pass);
+    };
+    if (!$conn_success) {
+        my $sql_server = DB_MODULE->{lc($db_driver)}->{name};
+        # Can't use $dbh->errstr because $dbh is undef.
+        my $error = $DBI::errstr;
+        chomp($error);
+        print STDERR "There was an error connecting to $sql_server:\n\n",
+                     "    $error\n\n", _bz_connect_error_reasons();
+        exit;
+    }
+    return $dbh;    
+}
+
+# Just a helper because we have to re-use this text.
+# We don't use this in db_new because it gives away the database
+# username, and db_new errors can show up on CGIs.
+sub _bz_connect_error_reasons {
+    my $lc_file = bz_locations()->{'localconfig'};
+    my $db      = DB_MODULE->{lc($db_driver)};
+    my $server  = $db->{name};
+
+return <<EOT;
+This might have several reasons:
+
+* $server is not running.
+* $server is running, but there is a problem either in the
+  server configuration or the database access rights. Read the Bugzilla
+  Guide in the doc directory. The section about database configuration
+  should help.
+* Your password for the '$db_user' user, specified in \$db_pass, is 
+  incorrect, in '$lc_file'.
+* There is a subtle problem with Perl, DBI, or $server. Make
+  sure all settings in '$lc_file' are correct. If all else fails, set
+  '\$db_check' to 0.
+
+EOT
 }
 
 # List of abstract methods we are checking the derived class implements
@@ -241,11 +396,18 @@ sub bz_setup_database {
     }
 }
 
-# The default implementation just returns what you passed-in. This function
-# really exists just to be overridden in Bugzilla::DB::Mysql.
+# This really just exists to get overridden in Bugzilla::DB::Mysql.
 sub bz_enum_initial_values {
-    my ($self, $enum_defaults) = @_;
-    return $enum_defaults;
+    return ENUM_DEFAULTS;
+}
+
+sub bz_populate_enum_tables {
+    my ($self) = @_;
+
+    my $enum_values = $self->bz_enum_initial_values();
+    while (my ($table, $values) = each %$enum_values) {
+        $self->_bz_populate_enum_table($table, $values);
+    }
 }
 
 #####################################################################
@@ -825,6 +987,30 @@ sub _bz_store_real_schema {
     $sth->execute();
 }
 
+# For bz_populate_enum_tables
+sub _bz_populate_enum_table {
+    my ($self, $table, $valuelist) = @_;
+
+    my $sql_table = $self->quote_identifier($table);
+
+    # Check if there are any table entries
+    my $table_size = $self->selectrow_array("SELECT COUNT(*) FROM $sql_table");
+
+    # If the table is empty...
+    if (!$table_size) {
+        my $insert = $self->prepare(
+            "INSERT INTO $sql_table (value,sortkey) VALUES (?,?)");
+        print "Inserting values into the '$table' table:\n";
+        my $sortorder = 0;
+        my $maxlen    = max(map(length($_), @$valuelist)) + 2;
+        foreach my $value (@$valuelist) {
+            $sortorder += 100;
+            printf "%-${maxlen}s sortkey: $sortorder\n", "'$value'";
+            $insert->execute($value, $sortorder);
+        }
+    }
+}
+
 1;
 
 __END__
@@ -922,6 +1108,33 @@ should not be called from anywhere else.
               This routine C<die>s if no shadow database is configured.
  Params:      none
  Returns:     new instance of the DB class
+
+=item C<bz_check_requirements($output)>
+
+Description: Checks to make sure that you have the correct
+             DBD and database version installed for the
+             database that Bugzilla will be using.
+             Prints a message and exits if you don't
+             pass the requirements.
+             If C<$db_check> is true (from F<localconfig>), we won't
+             check the database version.
+
+Params:      C<$output> - C<true> if the function should display
+                 informational output about what it's doing, such
+                 as versions found.
+
+Returns:     nothing
+
+=item C<bz_create_database()>
+
+Description: Creates an empty database with the name
+             C<$db_name>, if that database doesn't
+             already exist. Prints an error message and
+             exits if we can't create the database.
+
+Params:      none
+
+Returns:     nothing
 
 =item C<_connect>
 
@@ -1177,15 +1390,17 @@ the database.
 
 =over 4
 
-=item C<bz_enum_initial_values(\%enum_defaults)>
+=item C<bz_populate_enum_tables()>
 
- Description: For an upgrade or an initial installation, provides
-              what the values should be for the "enum"-type fields,
-              such as version, op_sys, rep_platform, etc.
- Params:      \%enum_defaults - The default initial list of values for
-                                each enum field. A hash, with the field
-                                names pointing to an arrayref of values.
- Returns:     A hashref with the correct initial values for the enum fields.
+Description: For an upgrade or an initial installation, populates
+             the tables that hold the legal values for the old
+             "enum" fields: C<bug_severity>, C<resolution>, etc.
+             Prints out information if it inserts anything into the
+             DB.
+
+Params:      none
+
+Returns:     nothing
 
 =back
 

@@ -180,15 +180,14 @@ prompting the user or by editing localconfig.
 
 The format of that file is as follows:
 
- $answer{'db_host'} = q[
-     $db_host = 'localhost';
-     $db_driver = 'mydbdriver';
-     $db_port = 3306;
-     $db_name = 'mydbname';
-     $db_user = 'mydbuser';
- ];
+ $answer{'db_host'}   = 'localhost';
+ $answer{'db_driver'} = 'mydbdriver';
+ $answer{'db_port'}   = 0;
+ $answer{'db_name'}   = 'mydbname';
+ $answer{'db_user'}   = 'mydbuser';
+ $answer{'db_pass'}   = 'mydbpass';
 
- $answer{'db_pass'} = q[$db_pass = 'mydbpass';];
+ (Any localconfig variable can be specified as above.)
 
  $answer{'ADMIN_OK'} = 'Y';
  $answer{'ADMIN_EMAIL'} = 'myadmin@mydomain.net';
@@ -302,838 +301,60 @@ import Bugzilla::User qw(insert_new_user);
 require Bugzilla::Bug;
 import Bugzilla::Bug qw(is_open_state);
 
-###########################################################################
-# Check and update local configuration
-###########################################################################
+require Bugzilla::Install::Localconfig;
+import Bugzilla::Install::Localconfig qw(read_localconfig update_localconfig);
 
-#
-# This is quite tricky. But fun!
-#
-# First we read the file 'localconfig'. Then we check if the variables we
-# need are defined. If not, we will append the new settings to
-# localconfig, instruct the user to check them, and stop.
-#
-# Why do it this way?
-#
-# Assume we will enhance Bugzilla and eventually more local configuration
-# stuff arises on the horizon.
-#
-# But the file 'localconfig' is not in the Bugzilla CVS or tarfile. You
-# know, we never want to overwrite your own version of 'localconfig', so
-# we can't put it into the CVS/tarfile, can we?
-#
-# Now, when we need a new variable, we simply add the necessary stuff to
-# checksetup. When the user gets the new version of Bugzilla from CVS and
-# runs checksetup, it finds out "Oh, there is something new". Then it adds
-# some default value to the user's local setup and informs the user to
-# check that to see if it is what the user wants.
-#
-# Cute, ey?
-#
+require Bugzilla::Install::Filesystem;
+import Bugzilla::Install::Filesystem qw(update_filesystem create_htaccess);
 
-my $root = ROOT_USER;
-
-print "Checking user setup ...\n" unless $silent;
-$@ = undef;
-my $localconfig = bz_locations()->{'localconfig'};
-do $localconfig;
-if ($@) { # capture errors in localconfig, bug 97290
-   print STDERR <<EOT;
-An error has occurred while reading your 
-'localconfig' file.  The text of the error message is:
-
-$@
-
-Please fix the error in your 'localconfig' file.  
-Alternately rename your 'localconfig' file, rerun 
-checksetup.pl, and re-enter your answers.
-
-  \$ mv -f localconfig localconfig.old
-  \$ ./checksetup.pl
-
-
-EOT
-    die "Syntax error in localconfig";
-}
-
-sub LocalVarExists
-{
-    my ($name) = @_;
-    return $main::{$name}; # if localconfig declared it, we're done.
-}
-
-my $newstuff = "";
-sub LocalVar
-{
-    my ($name, $definition) = @_;
-    return if LocalVarExists($name); # if localconfig declared it, we're done.
-    $newstuff .= " " . $name;
-    open FILE, '>>', bz_locations()->{'localconfig'};
-    print FILE ($answer{$name} or $definition), "\n\n";
-    close FILE;
-}
-
-
-#
-# Set up the defaults for the --LOCAL-- variables below:
-#
-
-LocalVar('index_html', <<'END');
-#
-# With the introduction of a configurable index page using the
-# template toolkit, Bugzilla's main index page is now index.cgi.
-# Most web servers will allow you to use index.cgi as a directory
-# index, and many come preconfigured that way, but if yours doesn't
-# then you'll need an index.html file that provides redirection
-# to index.cgi. Setting $index_html to 1 below will allow
-# checksetup.pl to create one for you if it doesn't exist.
-# NOTE: checksetup.pl will not replace an existing file, so if you
-#       wish to have checksetup.pl create one for you, you must
-#       make sure that index.html doesn't already exist
-$index_html = 0;
-END
-
-
-if (!LocalVarExists('cvsbin')) {
-    my $cvs_executable;
-    if ($^O !~ /MSWin32/i) {
-        $cvs_executable = `which cvs`;
-        if ($cvs_executable =~ /no cvs/ || $cvs_executable eq '') {
-            # If which didn't find it, just set to blank
-            $cvs_executable = "";
-        } else {
-            chomp $cvs_executable;
-        }
-    } else {
-        $cvs_executable = "";
-    }
-
-    LocalVar('cvsbin', <<"END");
-#
-# For some optional functions of Bugzilla (such as the pretty-print patch
-# viewer), we need the cvs binary to access files and revisions.
-# Because it's possible that this program is not in your path, you can specify
-# its location here.  Please specify the full path to the executable.
-\$cvsbin = "$cvs_executable";
-END
-}
-
-
-if (!LocalVarExists('interdiffbin')) {
-    my $interdiff_executable;
-    if ($^O !~ /MSWin32/i) {
-        $interdiff_executable = `which interdiff`;
-        if ($interdiff_executable =~ /no interdiff/ ||
-            $interdiff_executable eq '') {
-            if (!$silent) {
-                print "\nOPTIONAL NOTE: If you want to be able to ";
-                print "use the\n 'difference between two patches' feature";
-                print "of Bugzilla (requires\n the PatchReader Perl module ";
-                print "as well), you should install\n patchutils from ";
-                print "http://cyberelk.net/tim/patchutils/\n\n";
-            }
-
-            # If which didn't find it, set to blank
-            $interdiff_executable = "";
-        } else {
-            chomp $interdiff_executable;
-        }
-    } else {
-        $interdiff_executable = "";
-    }
-
-    LocalVar('interdiffbin', <<"END");
-
-#
-# For some optional functions of Bugzilla (such as the pretty-print patch
-# viewer), we need the interdiff binary to make diffs between two patches.
-# Because it's possible that this program is not in your path, you can specify
-# its location here.  Please specify the full path to the executable.
-\$interdiffbin = "$interdiff_executable";
-END
-}
-
-
-if (!LocalVarExists('diffpath')) {
-    my $diff_binaries;
-    if ($^O !~ /MSWin32/i) {
-        $diff_binaries = `which diff`;
-        if ($diff_binaries =~ /no diff/ || $diff_binaries eq '') {
-            # If which didn't find it, set to blank
-            $diff_binaries = "";
-        } else {
-            $diff_binaries =~ s:/diff\n$::;
-        }
-    } else {
-        $diff_binaries = "";
-    }
-
-    LocalVar('diffpath', <<"END");
-
-#
-# The interdiff feature needs diff, so we have to have that path.
-# Please specify the directory name only; do not use trailing slash.
-\$diffpath = "$diff_binaries";
-END
-}
-
-
-LocalVar('create_htaccess', <<'END');
-#
-# If you are using Apache as your web server, Bugzilla can create .htaccess
-# files for you that will instruct Apache not to serve files that shouldn't
-# be accessed from the web (like your local configuration data and non-cgi
-# executable files).  For this to work, the directory your Bugzilla
-# installation is in must be within the jurisdiction of a <Directory> block
-# in the httpd.conf file that has 'AllowOverride Limit' in it.  If it has
-# 'AllowOverride All' or other options with Limit, that's fine.
-# (Older Apache installations may use an access.conf file to store these
-# <Directory> blocks.)
-# If this is set to 1, Bugzilla will create these files if they don't exist.
-# If this is set to 0, Bugzilla will not create these files.
-$create_htaccess = 1;
-END
-
-my $webservergroup_default;
-if ($^O !~ /MSWin32/i) {
-    $webservergroup_default = 'apache';
-} else {
-    $webservergroup_default = '';
-}
-
-LocalVar('webservergroup', <<"END");
-#
-# This is the group your web server runs as.
-# If you have a windows box, ignore this setting.
-# If you do not have access to the group your web server runs under,
-# set this to "". If you do set this to "", then your Bugzilla installation
-# will be _VERY_ insecure, because some files will be world readable/writable,
-# and so anyone who can get local access to your machine can do whatever they
-# want. You should only have this set to "" if this is a testing installation
-# and you cannot set this up any other way. YOU HAVE BEEN WARNED!
-# If you set this to anything other than "", you will need to run checksetup.pl
-# as $root, or as a user who is a member of the specified group.
-\$webservergroup = "$webservergroup_default";
-END
-
-
-
-LocalVar('db_driver', '
-#
-# What SQL database to use. Default is mysql. List of supported databases
-# can be obtained by listing Bugzilla/DB directory - every module corresponds
-# to one supported database and the name corresponds to a driver name.
-#
-$db_driver = "mysql";
-');
-LocalVar('db_host', q[
-#
-# How to access the SQL database:
-#
-$db_host = 'localhost';         # where is the database?
-$db_name = 'bugs';              # name of the SQL database
-$db_user = 'bugs';              # user to attach to the SQL database
-
-# Sometimes the database server is running on a non-standard
-# port. If that's the case for your database server, set this
-# to the port number that your database server is running on.
-# Setting this to 0 means "use the default port for my database
-# server."
-$db_port = 0;
-]);
-LocalVar('db_pass', q[
-#
-# Enter your database password here. It's normally advisable to specify
-# a password for your bugzilla database user.
-# If you use apostrophe (') or a backslash (\) in your password, you'll
-# need to escape it by preceding it with a '\' character. (\') or (\\)
-# (Far simpler just not to use those characters.)
-#
-$db_pass = '';
-]);
-
-LocalVar('db_sock', q[
-# MySQL Only: Enter a path to the unix socket for MySQL. If this is 
-# blank, then MySQL's compiled-in default will be used. You probably 
-# want that.
-$db_sock = '';
-]);
-
-LocalVar('db_check', q[
-#
-# Should checksetup.pl try to verify that your database setup is correct?
-# (with some combinations of database servers/Perl modules/moonphase this 
-# doesn't work)
-#
-$db_check = 1;
-]);
-
-my @deprecatedvars;
-push(@deprecatedvars, '@severities') if (LocalVarExists('severities'));
-push(@deprecatedvars, '@priorities') if (LocalVarExists('priorities'));
-push(@deprecatedvars, '@opsys') if (LocalVarExists('opsys'));
-push(@deprecatedvars, '@platforms') if (LocalVarExists('platforms'));
-
-if (@deprecatedvars) {
-    print "\nThe following settings in your localconfig file",
-          " are no longer used:\n  " . join(", ", @deprecatedvars) .
-          "\nThis data is now controlled through the Bugzilla",
-          " administrative interface.\nWe recommend you remove these",
-          " settings from localconfig after checksetup\nruns successfully.\n";
-}
-if (LocalVarExists('mysqlpath')) {
-    print "\nThe \$mysqlpath setting in your localconfig file ",
-          "is no longer required.\nWe recommend you remove it.\n";
-}
-
-if ($newstuff ne "") {
-    print "\nThis version of Bugzilla contains some variables that you may \n",
-          "want to change and adapt to your local settings. Please edit the\n",
-          "file " . bz_locations()->{'localconfig'} ." and rerun ",
-          "checksetup.pl\n\n",
-          "The following variables are new to localconfig since you last ran\n",
-          "checksetup.pl:  $newstuff\n\n";
-    exit;
-}
-
-# 2000-Dec-18 - justdave@syndicomm.com - see Bug 52921
-# This is a hack to read in the values defined in localconfig without getting
-# them defined at compile time if they're missing from localconfig.
-# Ideas swiped from pp. 281-282, O'Reilly's "Programming Perl 2nd Edition"
-# Note that we won't need to do this in Bugzilla::Config because 
-# Bugzilla::Config couldn't care less whether they were defined ahead 
-# of time or not. 
-my $my_db_check = ${*{$main::{'db_check'}}{SCALAR}};
-my $my_db_driver = ${*{$main::{'db_driver'}}{SCALAR}};
-my $my_db_name = ${*{$main::{'db_name'}}{SCALAR}};
-my $my_index_html = ${*{$main::{'index_html'}}{SCALAR}};
-my $my_create_htaccess = ${*{$main::{'create_htaccess'}}{SCALAR}};
-my $my_webservergroup = ${*{$main::{'webservergroup'}}{SCALAR}};
-
-if ($my_webservergroup && !$silent) {
-    if ($^O !~ /MSWin32/i) {
-        # if on unix, see if we need to print a warning about a webservergroup
-        # that we can't chgrp to
-        my $webservergid = (getgrnam($my_webservergroup))[2]
-                           or die("no such group: $my_webservergroup");
-        if ($< != 0 && !grep($_ eq $webservergid, split(" ", $)))) {
-            print <<EOF;
-
-Warning: you have entered a value for the "webservergroup" parameter in 
-localconfig, but you are not either a) running this script as $root; or b) a 
-member of this group. This can cause permissions problems and decreased 
-security.  If you experience problems running Bugzilla scripts, log in as 
-$root and re-run this script, become a member of the group, or remove the 
-value of the "webservergroup" parameter. Note that any warnings about 
-"uninitialized values" that you may see below are caused by this.
-
-EOF
-        }
-    }
-
-    else {
-        # if on Win32, print a reminder that setting this value adds no security
-        print <<EOF;
-      
-Warning: You have set webservergroup in your localconfig.
-Please understand that this does not bring you any security when
-running under Windows.
-Verify that the file permissions in your Bugzilla directory are
-suitable for your system.
-Avoid unnecessary write access.
-
-EOF
-    }
-
-} else {
-    # There's no webservergroup, this is very very very very bad.
-    # However, if we're being run on windows, then this option doesn't
-    # really make sense. Doesn't make it any more secure either, though,
-    # but don't print the message, since they can't do anything about it.
-    if (($^O !~ /MSWin32/i) && !$silent) {
-        print <<EOF;
-
-********************************************************************************
-WARNING! You have not entered a value for the "webservergroup" parameter
-in localconfig. This means that certain files and directories which need
-to be editable by both you and the webserver must be world writable, and
-other files (including the localconfig file which stores your database
-password) must be world readable. This means that _anyone_ who can obtain
-local access to this machine can do whatever they want to your Bugzilla
-installation, and is probably also able to run arbitrary Perl code as the
-user that the webserver runs as.
-
-You really, really, really need to change this setting.
-********************************************************************************
-
-EOF
-    }
-}
+require Bugzilla::DB;
 
 ###########################################################################
-# Check Database setup
+# Check and update --LOCAL-- configuration
 ###########################################################################
 
-#
-# Check if we have access to the --DATABASE--
-#
+print "Reading " .  bz_locations()->{'localconfig'} . "...\n" unless $silent;
+update_localconfig({ output => !$silent, answer => \%answer });
+my $lc_hash = read_localconfig();
+
+# XXX Eventually this variable can be eliminated, but it is
+# used more than once throughout checksetup right now.
+my $my_webservergroup = $lc_hash->{'webservergroup'};
+
+###########################################################################
+# Check --DATABASE-- setup
+###########################################################################
+
 # At this point, localconfig is defined and is readable. So we know
 # everything we need to create the DB. We have to create it early,
-# because some data required to populate data/params are stored in the DB.
+# because some data required to populate data/params is stored in the DB.
 
-if ($my_db_check) {
-    # Only certain values are allowed for $db_driver.
-    if (!exists DB_MODULE->{lc($my_db_driver)}) {
-        die "$my_db_driver is not a valid choice for \$db_driver in",
-            " localconfig";
-    }
-
-    # Check the existence and version of the DBD that we need.
-    my $actual_dbd     = DB_MODULE->{lc($my_db_driver)}->{dbd};
-    my $actual_dbd_ver = DB_MODULE->{lc($my_db_driver)}->{dbd_version};
-    my $sql_server     = DB_MODULE->{lc($my_db_driver)}->{name};
-    my $sql_want       = DB_MODULE->{lc($my_db_driver)}->{db_version};
-    unless (have_vers($actual_dbd, $actual_dbd_ver, !$silent)) {
-        print "For $sql_server, Bugzilla requires that perl's"
-              . " $actual_dbd be installed.\nTo install this module,"
-              . " you can do:\n   " . install_command($actual_dbd) . "\n";
-        exit;
-    }
-
-    # And now check the version of the database server itself.
-    my $dbh = Bugzilla::DB::connect_main("no database connection");
-    printf("Checking for %15s %-9s ", $sql_server, "(v$sql_want)") unless $silent;
-    my $sql_vers = $dbh->bz_server_version;
-
-    # Check what version of the database server is installed and let
-    # the user know if the version is too old to be used with Bugzilla.
-    if ( vers_cmp($sql_vers,$sql_want) > -1 ) {
-        print "ok: found v$sql_vers\n" unless $silent;
-    } else {
-        die "\nYour $sql_server v$sql_vers is too old.\n" . 
-            "   Bugzilla requires version $sql_want or later of $sql_server.\n" . 
-            "   Please download and install a newer version.\n";
-    }
-
-    # See if we can connect to the database.
-    my $conn_success = eval { 
-        my $check_dbh = Bugzilla::DB::connect_main(); 
-        $check_dbh->disconnect;
-    };
-    if (!$conn_success) {
-       print "Creating database $my_db_name ...\n";
-       # Try to create the DB, and if we fail print an error.
-       if (!eval { $dbh->do("CREATE DATABASE $my_db_name") }) {
-            my $error = $dbh->errstr;
-            my $localconfig = bz_locations()->{'localconfig'};
-            die <<"EOF"
-
-The '$my_db_name' database could not be created.  The error returned was:
-
-$error
-
-This might have several reasons:
-
-* $sql_server is not running.
-* $sql_server is running, but there is a problem either in the
-  server configuration or the database access rights. Read the Bugzilla
-  Guide in the doc directory. The section about database configuration
-  should help.
-* There is a subtle problem with Perl, DBI, or $sql_server. Make
-  sure all settings in '$localconfig' are correct. If all else fails, set
-  '\$db_check' to zero.\n
-EOF
-        }
-    }
-    $dbh->disconnect if $dbh;
-}
+Bugzilla::DB::bz_check_requirements(!$silent);
+Bugzilla::DB::bz_create_database() if $lc_hash->{'db_check'};
 
 # now get a handle to the database:
-my $dbh = Bugzilla::DB::connect_main();
-
-END { $dbh->disconnect if $dbh }
+my $dbh = Bugzilla->dbh;
 
 ###########################################################################
 # Create tables
 ###########################################################################
 
-# Note: table definitions are now in Bugzilla::DB::Schema.
+# Note: --TABLE-- definitions are now in Bugzilla::DB::Schema.
 $dbh->bz_setup_database();
 
-###########################################################################
-# Detect changed local settings
-###########################################################################
-
-# Nick Barnes nb+bz@ravenbrook.com 2005-10-05
-# 
-# PopulateEnumTable($table, @values): if the table $table has no
-# entries, fill it with the entries in the list @values, in the same
-# order as that list.
-
-sub PopulateEnumTable {
-    my ($table, @valuelist) = @_;
-
-    # If we encounter any of the keys in this hash, they are 
-    # automatically set to isactive=0
-    my %defaultinactive = ('---' => 1);
-
-    # Check if there are any table entries
-    my $query = "SELECT COUNT(id) FROM $table";
-    my $sth = $dbh->prepare($query);
-    $sth->execute();
-
-    # If the table is empty...
-    if ( !$sth->fetchrow_array() ) {
-        my $insert = $dbh->prepare("INSERT INTO $table"
-            . " (value,sortkey,isactive) VALUES (?,?,?)");
-        my $sortorder = 0;
-        foreach my $value (@valuelist) {
-            $sortorder = $sortorder + 100;
-            # Not active if the value exists in $defaultinactive
-            my $isactive = exists($defaultinactive{$value}) ? 0 : 1;
-            print "Inserting value '$value' in table $table" 
-                . " with sortkey $sortorder...\n";
-            $insert->execute($value, $sortorder, $isactive);
-        }
-    }
-}
-
-# Set default values for what used to be the enum types.  These values
-# are no longer stored in localconfig.  If we are upgrading from a
-# Bugzilla with enums to a Bugzilla without enums, we use the
-# enum values.
-#
-# The values that you see here are ONLY DEFAULTS. They are only used
-# the FIRST time you run checksetup, IF you are NOT upgrading from a
-# Bugzilla with enums. After that, they are either controlled through
-# the Bugzilla UI or through the DB.
-
-my $enum_defaults = {
-    bug_severity  => ['blocker', 'critical', 'major', 'normal',
-                      'minor', 'trivial', 'enhancement'],
-    priority     => ["P1","P2","P3","P4","P5"],
-    op_sys       => ["All","Windows","Mac OS","Linux","Other"],
-    rep_platform => ["All","PC","Macintosh","Other"],
-    bug_status   => ["UNCONFIRMED","NEW","ASSIGNED","REOPENED","RESOLVED",
-                     "VERIFIED","CLOSED"],
-    resolution   => ["","FIXED","INVALID","WONTFIX","LATER","REMIND",
-                     "DUPLICATE","WORKSFORME","MOVED"],
-};
-
-# Get all the enum column values for the existing database, or the
-# defaults if the columns are not enums.
-my $enum_values = $dbh->bz_enum_initial_values($enum_defaults);
-
-# Populate the enum tables.
-while (my ($table, $values) = each %$enum_values) {
-    PopulateEnumTable($table, @$values);
-}
+# Populate the tables that hold the values for the <select> fields.
+$dbh->bz_populate_enum_tables();
 
 ###########################################################################
-# Check data directory
+# Check --DATA-- directory
 ###########################################################################
 
-#
-# Create initial --DATA-- directory and make the initial empty files there:
-#
-my $datadir = bz_locations()->{'datadir'};
-unless (-d $datadir && -e "$datadir/nomail") {
-    print "Creating data directory ($datadir) ...\n";
-    # permissions for non-webservergroup are fixed later on
-    mkdir $datadir, 0770;
-    mkdir "$datadir/mimedump-tmp", 01777;
-    open FILE, '>>', "$datadir/nomail"; close FILE;
-    open FILE, '>>', "$datadir/mail"; close FILE;
-}
+update_filesystem({ index_html => $lc_hash->{'index_html'} });
+create_htaccess() if $lc_hash->{'create_htaccess'};
 
-my $attachdir = bz_locations->{'attachdir'};
-unless (-d $attachdir) {
-    print "Creating local attachments directory ...\n";
-    # permissions for non-webservergroup are fixed later on
-    mkdir $attachdir, 0770;
-}
-
-my $extensionsdir = bz_locations->{'extensionsdir'};
-# ZLL: 2005-08-20 Create extensions/ if it does not already exist:
-unless (-d $extensionsdir) {
-    print "Creating extensions directory ($extensionsdir) ...\n";
-    mkdir $extensionsdir, 0770;
-}
-
-
-# 2000-12-14 New graphing system requires a directory to put the graphs in
-# This code copied from what happens for the data dir above.
-# If the graphs dir is not present, we assume that they have been using
-# a Bugzilla with the old data format, and upgrade their data files.
-
-# NB - the graphs dir isn't movable yet, unlike the datadir
-unless (-d 'graphs') {
-    print "Creating graphs directory...\n";
-    # permissions for non-webservergroup are fixed later on
-    mkdir 'graphs', 0770;
-    # Upgrade data format
-    foreach my $in_file (glob("$datadir/mining/*"))
-    {
-        # Don't try and upgrade image or db files!
-        if (($in_file =~ /\.gif$/i) || 
-            ($in_file =~ /\.png$/i) ||
-            ($in_file =~ /\.db$/i) ||
-            ($in_file =~ /\.orig$/i)) {
-            next;
-        }
-
-        rename("$in_file", "$in_file.orig") or next;        
-        open(IN, "$in_file.orig") or next;
-        open(OUT, '>', $in_file) or next;
-        
-        # Fields in the header
-        my @declared_fields = ();
-
-        # Fields we changed to half way through by mistake
-        # This list comes from an old version of collectstats.pl
-        # This part is only for people who ran later versions of 2.11 (devel)
-        my @intermediate_fields = qw(DATE UNCONFIRMED NEW ASSIGNED REOPENED 
-                                     RESOLVED VERIFIED CLOSED);
-
-        # Fields we actually want (matches the current collectstats.pl)
-        my @out_fields = qw(DATE NEW ASSIGNED REOPENED UNCONFIRMED RESOLVED
-                            VERIFIED CLOSED FIXED INVALID WONTFIX LATER REMIND
-                            DUPLICATE WORKSFORME MOVED);
-
-        while (<IN>) {
-            if (/^# fields?: (.*)\s$/) {
-                @declared_fields = map uc, (split /\||\r/, $1);
-                print OUT "# fields: ", join('|', @out_fields), "\n";
-            }
-            elsif (/^(\d+\|.*)/) {
-                my @data = split /\||\r/, $1;
-                my %data = ();
-                if (@data == @declared_fields) {
-                    # old format
-                    for my $i (0 .. $#declared_fields) {
-                        $data{$declared_fields[$i]} = $data[$i];
-                    }
-                }
-                elsif (@data == @intermediate_fields) {
-                    # Must have changed over at this point 
-                    for my $i (0 .. $#intermediate_fields) {
-                        $data{$intermediate_fields[$i]} = $data[$i];
-                    }
-                }
-                elsif (@data == @out_fields) {
-                    # This line's fine - it has the right number of entries 
-                    for my $i (0 .. $#out_fields) {
-                        $data{$out_fields[$i]} = $data[$i];
-                    }
-                }
-                else {
-                    print "Oh dear, input line $. of $in_file had " . 
-                      scalar(@data) . " fields\n";
-                    print "This was unexpected. You may want to check your data files.\n";
-                }
-
-                print OUT join('|', map { 
-                              defined ($data{$_}) ? ($data{$_}) : "" 
-                                                          } @out_fields), "\n";
-            }
-            else {
-                print OUT;
-            }
-        }
-
-        close(IN);
-        close(OUT);
-    }
-}
-
-unless (-d "$datadir/mining") {
-    mkdir "$datadir/mining", 0700;
-}
-
+# XXX Some parts of checksetup still need these, right now.
+my $datadir   = bz_locations()->{'datadir'};
 my $webdotdir = bz_locations()->{'webdotdir'};
-unless (-d "$webdotdir") {
-    # perms/ownership are fixed up later
-    mkdir "$webdotdir", 0700;
-}
-
-if (!-d "skins/custom") {
-    # perms/ownership are fixed up later
-    mkdir "skins/custom", 0700;
-}
-
-if (!-e "skins/.cvsignore") {
-    open CVSIGNORE, '>>', "skins/.cvsignore";
-    print CVSIGNORE ".cvsignore\n";
-    print CVSIGNORE "custom\n";
-    close CVSIGNORE;
-}
-
-# Create custom stylesheets for each standard stylesheet.
-foreach my $standard (<skins/standard/*.css>) {
-    my $custom = $standard;
-    $custom =~ s|^skins/standard|skins/custom|;
-    if (!-e $custom) {
-        open STYLESHEET, '>', $custom;
-        print STYLESHEET <<"END";
-/* 
- * Custom rules for $standard.
- * The rules you put here override rules in that stylesheet.
- */
-END
-        close STYLESHEET;
-    }
-}
-
-if ($my_create_htaccess) {
-  my $fileperm = 0644;
-  my $dirperm = 01777;
-  if ($my_webservergroup) {
-    $fileperm = 0640;
-    $dirperm = 0770;
-  }
-  if (!-e ".htaccess") {
-    print "Creating .htaccess...\n";
-    open HTACCESS, '>', '.htaccess';
-    print HTACCESS <<'END';
-# don't allow people to retrieve non-cgi executable files or our private data
-<FilesMatch ^(.*\.pm|.*\.pl|.*localconfig.*)$>
-  deny from all
-</FilesMatch>
-END
-    close HTACCESS;
-    chmod $fileperm, ".htaccess";
-  } else {
-    # 2002-12-21 Bug 186383
-    open HTACCESS, ".htaccess";
-    my $oldaccess = "";
-    while (<HTACCESS>) {
-      $oldaccess .= $_;
-    }
-    close HTACCESS;
-    my $repaired = 0;
-    if ($oldaccess =~ s/\|localconfig\|/\|.*localconfig.*\|/) {
-        $repaired = 1;
-    }
-    if ($oldaccess !~ /\(\.\*\\\.pm\|/) {
-        $oldaccess =~ s/\(/(.*\\.pm\|/;
-        $repaired = 1;
-    }
-    if ($repaired) {
-      print "Repairing .htaccess...\n";
-      open HTACCESS, '>', '.htaccess';
-      print HTACCESS $oldaccess;
-      close HTACCESS;
-    }
-
-  }
-  if (!-e "$attachdir/.htaccess") {
-    print "Creating $attachdir/.htaccess...\n";
-    open HTACCESS, ">$attachdir/.htaccess";
-    print HTACCESS <<'END';
-# nothing in this directory is retrievable unless overridden by an .htaccess
-# in a subdirectory;
-deny from all
-END
-    close HTACCESS;
-    chmod $fileperm, "$attachdir/.htaccess";
-  }
-  if (!-e "Bugzilla/.htaccess") {
-    print "Creating Bugzilla/.htaccess...\n";
-    open HTACCESS, '>', 'Bugzilla/.htaccess';
-    print HTACCESS <<'END';
-# nothing in this directory is retrievable unless overridden by an .htaccess
-# in a subdirectory
-deny from all
-END
-    close HTACCESS;
-    chmod $fileperm, "Bugzilla/.htaccess";
-  }
-  # Even though $datadir may not (and should not) be in the webtree,
-  # we can't know for sure, so create the .htaccess anyway. It's harmless
-  # if it's not accessible...
-  if (!-e "$datadir/.htaccess") {
-    print "Creating $datadir/.htaccess...\n";
-    open HTACCESS, '>', "$datadir/.htaccess";
-    print HTACCESS <<'END';
-# nothing in this directory is retrievable unless overridden by an .htaccess
-# in a subdirectory; the only exception is duplicates.rdf, which is used by
-# duplicates.xul and must be loadable over the web
-deny from all
-<Files duplicates.rdf>
-  allow from all
-</Files>
-END
-    close HTACCESS;
-    chmod $fileperm, "$datadir/.htaccess";
-  }
-  # Ditto for the template dir
-  my $templatedir = bz_locations()->{'templatedir'};
-  if (!-e "$templatedir/.htaccess") {
-    print "Creating $templatedir/.htaccess...\n";
-    open HTACCESS, '>', "$templatedir/.htaccess";
-    print HTACCESS <<'END';
-# nothing in this directory is retrievable unless overridden by an .htaccess
-# in a subdirectory
-deny from all
-END
-    close HTACCESS;
-    chmod $fileperm, "$templatedir/.htaccess";
-  }
-  if (!-e "$webdotdir/.htaccess") {
-    print "Creating $webdotdir/.htaccess...\n";
-    open HTACCESS, '>', "$webdotdir/.htaccess";
-    print HTACCESS <<'END';
-# Restrict access to .dot files to the public webdot server at research.att.com 
-# if research.att.com ever changes their IP, or if you use a different
-# webdot server, you'll need to edit this
-<FilesMatch \.dot$>
-  Allow from 192.20.225.10
-  Deny from all
-</FilesMatch>
-
-# Allow access to .png files created by a local copy of 'dot'
-<FilesMatch \.png$>
-  Allow from all
-</FilesMatch>
-
-# And no directory listings, either.
-Deny from all
-END
-    close HTACCESS;
-    chmod $fileperm, "$webdotdir/.htaccess";
-  }
-
-}
-
-if ($my_index_html) {
-    if (!-e "index.html") {
-        print "Creating index.html...\n";
-        open HTML, '>', 'index.html';
-        print HTML <<'END';
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
-<html>
-<head>
-<meta http-equiv="Refresh" content="0; URL=index.cgi">
-</head>
-<body>
-<h1>I think you are looking for <a href="index.cgi">index.cgi</a></h1>
-</body>
-</html>
-END
-        close HTML;
-    }
-    else {
-        open HTML, "index.html";
-        if (! grep /index\.cgi/, <HTML>) {
-            print "\n\n";
-            print "*** It appears that you still have an old index.html hanging\n";
-            print "    around.  The contents of this file should be moved into a\n";
-            print "    template and placed in the 'en/custom' directory within";
-            print "    your template directory.\n\n";
-        }
-        close HTML;
-    }
-}
 
 # Check for a new install
 my $newinstall = !-e "$datadir/params";
@@ -2318,15 +1539,6 @@ if ($dbh->bz_table_info('comments')) {
               SELECT $quoted_when, bug_id, who, comment
                 FROM comments");
     $dbh->bz_drop_table("comments");
-}
-
-# 2001-04-08 Added a special directory for the duplicates stats.
-unless (-d "$datadir/duplicates") {
-    print "Creating duplicates directory...\n";
-    mkdir "$datadir/duplicates", 0770; 
-    if ($my_webservergroup eq "") {
-        chmod 01777, "$datadir/duplicates";
-    } 
 }
 
 #
@@ -4145,6 +3357,54 @@ if (!$dbh->bz_column_info('classifications', 'sortkey')) {
 
 $dbh->bz_add_column('fielddefs', 'enter_bug',
     {TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 'FALSE'});
+
+# 2006-07-14 karl@kornel.name - Bug 100953
+# If a nomail file exists, move its contents into the DB
+$dbh->bz_add_column('profiles', 'disable_mail',
+                    { TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 'FALSE' });
+if (-e "$datadir/nomail") {
+    # We have a data/nomail file, read it in and delete it
+    my %nomail;
+    print "Found a data/nomail file.  Moving nomail entries into DB...\n";
+    open NOMAIL, '<', "$datadir/nomail";
+    while (<NOMAIL>) {
+        $nomail{trim($_)} = 1;
+    }
+    close NOMAIL;
+
+    # Go through each entry read.  If a user exists, set disable_mail.
+    my $query = $dbh->prepare('UPDATE profiles
+                                  SET disable_mail = 1
+                                WHERE userid = ?');
+    foreach my $user_to_check (keys %nomail) {
+        my $uid;
+        if ($uid = Bugzilla::User::login_to_id($user_to_check)) {
+            my $user = new Bugzilla::User($uid);
+            print "\tDisabling email for user ", $user->email, "\n";
+            $query->execute($user->id);
+            delete $nomail{$user->email};
+        }
+    }
+
+    # If there are any nomail entries remaining, move them to nomail.bad
+    # and say something to the user.
+    if (scalar(keys %nomail)) {
+        print 'The following users were listed in data/nomail, but do not ' .
+              'have an account here.  The unmatched entries have been moved ' .
+              "to $datadir/nomail.bad\n";
+        open NOMAIL_BAD, '>>', "$datadir/nomail.bad";
+        foreach my $unknown_user (keys %nomail) {
+            print "\t$unknown_user\n";
+            print NOMAIL_BAD "$unknown_user\n";
+            delete $nomail{$unknown_user};
+        }
+        close NOMAIL_BAD;
+    }
+
+    # Now that we don't need it, get rid of the nomail file.
+    unlink "$datadir/nomail";
+}
+
 
 # If you had to change the --TABLE-- definition in any way, then add your
 # differential change code *** A B O V E *** this comment.
