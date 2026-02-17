@@ -6375,11 +6375,8 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
         if (aTag == nsXULAtoms::tooltip) {
           if (aContent->AttrValueIs(kNameSpaceID_None, nsXULAtoms::_default,
                                     nsXULAtoms::_true, eIgnoreCase)) {
-            // Locate the root frame and tell it about the tooltip.
-            nsIFrame* rootFrame = aState.mFrameManager->GetRootFrame();
-            if (rootFrame)
-              rootFrame = rootFrame->GetFirstChild(nsnull);
-            nsCOMPtr<nsIRootBox> rootBox(do_QueryInterface(rootFrame));
+            // Locate the root box and tell it about the tooltip.
+            nsIRootBox* rootBox = nsIRootBox::GetRootBox(mPresShell);
             if (rootBox)
               rootBox->SetDefaultTooltip(aContent);
           }
@@ -6485,10 +6482,7 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
 
       // Locate the root popup set and add ourselves to the popup set's list
       // of popup frames.
-      nsIFrame* rootFrame = aState.mFrameManager->GetRootFrame();
-      if (rootFrame)
-        rootFrame = rootFrame->GetFirstChild(nsnull);
-      nsCOMPtr<nsIRootBox> rootBox(do_QueryInterface(rootFrame));
+      nsIRootBox* rootBox = nsIRootBox::GetRootBox(mPresShell);
       PRBool added = PR_FALSE;
       if (rootBox) {
         nsIFrame* popupSetFrame = rootBox->GetPopupSetFrame();
@@ -6554,10 +6548,7 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
       aContent->HasAttr(kNameSpaceID_None, nsXULAtoms::tooltiptext) ||
       aContent->HasAttr(kNameSpaceID_None, nsXULAtoms::tooltip))
   {
-    nsIFrame* rootFrame = aState.mFrameManager->GetRootFrame();
-    if (rootFrame)
-      rootFrame = rootFrame->GetFirstChild(nsnull);
-    nsCOMPtr<nsIRootBox> rootBox(do_QueryInterface(rootFrame));
+    nsIRootBox* rootBox = nsIRootBox::GetRootBox(mPresShell);
     if (rootBox)
       rootBox->AddTooltipSupport(aContent);
   }
@@ -7709,7 +7700,11 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     newFrame = NS_NewSVGTextFrame(mPresShell, aContent, aStyleContext);
   }
   else if (aTag == nsSVGAtoms::tspan) {
-    newFrame = NS_NewSVGTSpanFrame(mPresShell, aContent, aParentFrame, aStyleContext);
+    nsISVGTextContentMetrics* metrics;
+    CallQueryInterface(aParentFrame, &metrics);
+    if (metrics) {
+      newFrame = NS_NewSVGTSpanFrame(mPresShell, aContent, aParentFrame, aStyleContext);
+    }
   }
   else if (aTag == nsSVGAtoms::linearGradient) {
     newFrame = NS_NewSVGLinearGradientFrame(mPresShell, aContent, aStyleContext);
@@ -7733,7 +7728,11 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     newFrame = NS_NewSVGClipPathFrame(mPresShell, aContent, aStyleContext);
   }
   else if (aTag == nsSVGAtoms::textPath) {
-    newFrame = NS_NewSVGTextPathFrame(mPresShell, aContent, aParentFrame, aStyleContext);
+    nsISVGTextContentMetrics* metrics;
+    CallQueryInterface(aParentFrame, &metrics);
+    if (metrics) {
+      newFrame = NS_NewSVGTextPathFrame(mPresShell, aContent, aParentFrame, aStyleContext);
+    }
   }
   else if (aTag == nsSVGAtoms::filter) {
     newFrame = NS_NewSVGFilterFrame(mPresShell, aContent, aStyleContext);
@@ -9827,10 +9826,8 @@ DeletingFrameSubtree(nsFrameManager* aFrameManager,
     if (display->mDisplay == NS_STYLE_DISPLAY_POPUP) {
       // Locate the root popup set and remove ourselves from the popup set's list
       // of popup frames.
-      nsIFrame* rootFrame = aFrameManager->GetRootFrame();
-      if (rootFrame)
-        rootFrame = rootFrame->GetFirstChild(nsnull);
-      nsCOMPtr<nsIRootBox> rootBox(do_QueryInterface(rootFrame));
+      nsIRootBox* rootBox =
+        nsIRootBox::GetRootBox(aFrameManager->GetPresShell());
       NS_ASSERTION(rootBox, "unexpected null pointer");
       if (rootBox) {
         nsIFrame* popupSetFrame = rootBox->GetPopupSetFrame();
@@ -10020,10 +10017,7 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*     aContainer,
     
         // Locate the root popup set and remove ourselves from the popup set's list
         // of popup frames.
-        nsIFrame* rootFrame = frameManager->GetRootFrame();
-        if (rootFrame)
-          rootFrame = rootFrame->GetFirstChild(nsnull);
-        nsCOMPtr<nsIRootBox> rootBox(do_QueryInterface(rootFrame));
+        nsIRootBox* rootBox = nsIRootBox::GetRootBox(mPresShell);
         if (rootBox) {
           nsIFrame* popupSetFrame = rootBox->GetPopupSetFrame();
           if (popupSetFrame) {
@@ -10683,10 +10677,7 @@ nsCSSFrameConstructor::AttributeChanged(nsIContent* aContent,
   if (aAttribute == nsXULAtoms::tooltiptext ||
       aAttribute == nsXULAtoms::tooltip) 
   {
-    nsIFrame* rootFrame = shell->FrameManager()->GetRootFrame();
-    if (rootFrame)
-      rootFrame = rootFrame->GetFirstChild(nsnull);
-    nsCOMPtr<nsIRootBox> rootBox(do_QueryInterface(rootFrame));
+    nsIRootBox* rootBox = nsIRootBox::GetRootBox(mPresShell);
     if (rootBox) {
       if (aModType == nsIDOMMutationEvent::REMOVAL)
         rootBox->RemoveTooltipSupport(aContent);

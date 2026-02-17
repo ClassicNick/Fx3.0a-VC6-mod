@@ -1161,11 +1161,6 @@ Engine.prototype = {
     if (aEngine._engineToUpdate) {
       engineToUpdate = aEngine._engineToUpdate.wrappedJSObject;
 
-      if (engineToUpdate._readOnly) {
-        LOG("_onLoad: Can't update readonly engine!");
-        return;
-      }
-
       // Make this new engine use the old engine's file.
       aEngine._file = engineToUpdate._file;
     }
@@ -2301,7 +2296,7 @@ SearchService.prototype = {
     // information stored in the database.
     var prefB = Cc["@mozilla.org/preferences-service;1"].
                 getService(Ci.nsIPrefBranch);
-    prefB.setBoolPref(BROWSER_SEARCH_PREF + ".useDBForOrder", true);
+    prefB.setBoolPref(BROWSER_SEARCH_PREF + "useDBForOrder", true);
 
     var engines = this._getSortedEngines(true);
     var values = [];
@@ -2351,13 +2346,34 @@ SearchService.prototype = {
       // The DB isn't being used, so just read the engine order from the prefs
       var i = 0;
       var engineName;
+      var prefName;
+
+      try {
+        var prefB = Cc["@mozilla.org/preferences-service;1"].
+                    getService(Ci.nsIPrefBranch);
+        var extras =
+          prefB.getChildList(BROWSER_SEARCH_PREF + "order.extra.", { });
+
+        for each (prefName in extras) {
+          engineName = prefB.getCharPref(prefName);
+
+          engine = this._engines[engineName];
+          if (!engine || engine.name in addedEngines)
+            continue;
+
+          this._sortedEngines.push(engine);
+          addedEngines[engine.name] = engine;
+        }
+      }
+      catch (e) { }
+
       while (true) {
         engineName = getLocalizedPref(BROWSER_SEARCH_PREF + "order." + (++i));
         if (!engineName)
           break;
 
         engine = this._engines[engineName];
-        if (!engine)
+        if (!engine || engine.name in addedEngines)
           continue;
         
         this._sortedEngines.push(engine);
@@ -2517,6 +2533,43 @@ SearchService.prototype = {
   getVisibleEngines: function SRCH_SVC_getVisible(aCount) {
     LOG("getVisibleEngines: getting all visible engines");
     var engines = this._getSortedEngines(false);
+    aCount.value = engines.length;
+    return engines;
+  },
+
+  getDefaultEngines: function SRCH_SVC_getDefault(aCount) {
+    function isDefault (engine) {
+      return engine._isInAppDir;
+    };
+    var engines = this._sortedEngines.filter(isDefault);
+    var prefB = Cc["@mozilla.org/preferences-service;1"].
+                getService(Ci.nsIPrefService).
+                getBranch(BROWSER_SEARCH_PREF + "order.");
+    var engineOrder = {};
+    var i = 1;
+    while (true) {
+      try {
+        engineOrder[prefB.getCharPref(i)] = i++;
+      } catch (ex) {
+        break;
+      }
+    }
+
+    function compareEngines (a, b) {
+      var aIdx = engineOrder[a.name];
+      var bIdx = engineOrder[b.name];
+
+      if (aIdx && bIdx)
+        return aIdx - bIdx;
+      if (aIdx)
+        return -1;
+      if (bIdx)
+        return 1;
+
+      return a.name < b.name ? -1 : 1;
+    }
+    engines.sort(compareEngines);
+
     aCount.value = engines.length;
     return engines;
   },
@@ -2888,7 +2941,7 @@ var engineUpdateService = {
     ULOG("currentTime: " + currentTime);
     for each (engine in searchService.getEngines({})) {
       engine = engine.wrappedJSObject;
-      if (!engine._hasUpdates)
+      if (!engine._hasUpdates || engine._readOnly)
         continue;
 
       ULOG("checking " + engine.name);

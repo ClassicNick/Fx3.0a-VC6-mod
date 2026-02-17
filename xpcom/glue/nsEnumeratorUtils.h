@@ -20,8 +20,6 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   L. David Baron <dbaron@dbaron.org>
- *   Pierre Phaneuf <pp@ludusdesign.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -37,86 +35,24 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-/*
+#ifndef nsEnumeratorUtils_h__
+#define nsEnumeratorUtils_h__
 
-  An empty enumerator.
+#include "nscore.h"
 
- */
+class nsISupports;
+class nsISimpleEnumerator;
 
-#include "nsEmptyEnumerator.h"
+NS_COM_GLUE nsresult
+NS_NewEmptyEnumerator(nsISimpleEnumerator* *aResult);
 
-////////////////////////////////////////////////////////////////////////
+NS_COM_GLUE nsresult
+NS_NewSingletonEnumerator(nsISimpleEnumerator* *result,
+                          nsISupports* singleton);
 
-EmptyEnumeratorImpl::EmptyEnumeratorImpl(void)
-{
-    MOZ_COUNT_CTOR(EmptyEnumeratorImpl);
-}
+NS_COM_GLUE nsresult
+NS_NewUnionEnumerator(nsISimpleEnumerator* *result,
+                      nsISimpleEnumerator* firstEnumerator,
+                      nsISimpleEnumerator* secondEnumerator);
 
-EmptyEnumeratorImpl::~EmptyEnumeratorImpl(void)
-{
-    MOZ_COUNT_DTOR(EmptyEnumeratorImpl);
-}
-
-// nsISupports interface
-NS_IMETHODIMP_(nsrefcnt) EmptyEnumeratorImpl::AddRef(void)
-{
-    return 2;
-}
-
-NS_IMETHODIMP_(nsrefcnt) EmptyEnumeratorImpl::Release(void)
-{
-    return 1;
-}
-
-NS_IMPL_QUERY_INTERFACE1(EmptyEnumeratorImpl, nsISimpleEnumerator)
-
-
-// nsISimpleEnumerator interface
-NS_IMETHODIMP EmptyEnumeratorImpl::HasMoreElements(PRBool* aResult)
-{
-    *aResult = PR_FALSE;
-    return NS_OK;
-}
-
-NS_IMETHODIMP EmptyEnumeratorImpl::HasMore(PRBool* aResult)
-{
-    *aResult = PR_FALSE;
-    return NS_OK;
-}
-
-NS_IMETHODIMP EmptyEnumeratorImpl::GetNext(nsISupports** aResult)
-{
-    return NS_ERROR_UNEXPECTED;
-}
-
-NS_IMETHODIMP EmptyEnumeratorImpl::GetNext(nsACString& aResult)
-{
-    return NS_ERROR_UNEXPECTED;
-}
-
-NS_IMETHODIMP EmptyEnumeratorImpl::GetNext(nsAString& aResult)
-{
-    return NS_ERROR_UNEXPECTED;
-}
-
-static EmptyEnumeratorImpl* gEmptyEnumerator = nsnull;
-
-extern "C" NS_COM nsresult
-NS_NewEmptyEnumerator(nsISimpleEnumerator** aResult)
-{
-    nsresult rv = NS_OK;
-    if (!gEmptyEnumerator) {
-        gEmptyEnumerator = new EmptyEnumeratorImpl();
-        if (!gEmptyEnumerator)
-            rv = NS_ERROR_OUT_OF_MEMORY;
-    }
-    *aResult = gEmptyEnumerator;
-    return rv;
-}
-
-/* static */ void
-EmptyEnumeratorImpl::Shutdown()
-{
-    delete gEmptyEnumerator;
-    gEmptyEnumerator = nsnull;
-}
+#endif /* nsEnumeratorUtils_h__ */

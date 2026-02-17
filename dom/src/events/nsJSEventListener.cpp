@@ -81,14 +81,16 @@ nsJSEventListener::nsJSEventListener(nsIScriptContext *aContext,
   : nsIJSEventListener(aContext, aScopeObject, aTarget),
     mReturnResult(nsReturnResult_eNotSet)
 {
-    // mScopeObject is the "script global" for a context - this
-    // does not need explicit memory management so long we we don't
-    // outlive the context - which we don't.
+  // aScopeObject is the inner window's JS object, which we need to lock
+  // until we are done with it.
+  NS_ASSERTION(aScopeObject && aContext,
+               "EventListener with no context or scope?");
+  aContext->HoldScriptObject(aScopeObject);
 }
 
 nsJSEventListener::~nsJSEventListener() 
 {
-  // as above, no need to "drop" our reference...
+  mContext->DropScriptObject(mScopeObject);
 }
 
 NS_INTERFACE_MAP_BEGIN(nsJSEventListener)
@@ -201,9 +203,9 @@ nsJSEventListener::HandleEvent(nsIDOMEvent* aEvent)
     iargv = do_QueryInterface(tempargv);
   }
 
-  // XXX [The JSContext inside mContext] doesn't seem like the correct
-  // context on which to execute the event handler. Might need to get one
-  // from the JS thread context stack.
+  // FIXME: bug 347480 - [The JSContext inside mContext] doesn't seem like
+  // the correct context on which to execute the event handler. Might need to
+  // get one from the JS thread context stack.
   nsCOMPtr<nsIVariant> vrv;
   rv = mContext->CallEventHandler(mTarget, mScopeObject, funcval, iargv,
                                   getter_AddRefs(vrv));
@@ -241,13 +243,7 @@ nsJSEventListener::HandleEvent(nsIDOMEvent* aEvent)
           vrv->GetAsDOMString(beforeUnload->text);
         }
       }
-    } else if (dataType == nsIDataType::VTYPE_BOOL ||
-               dataType == nsIDataType::VTYPE_INT8 ||
-               dataType == nsIDataType::VTYPE_INT16 ||
-               dataType == nsIDataType::VTYPE_INT32 ||
-               dataType == nsIDataType::VTYPE_UINT8 ||
-               dataType == nsIDataType::VTYPE_UINT16 ||
-               dataType == nsIDataType::VTYPE_UINT32) {
+    } else if (dataType == nsIDataType::VTYPE_BOOL) {
       // If the handler returned false and its sense is not reversed,
       // or the handler returned true and its sense is reversed from
       // the usual (false means cancel), then prevent default.

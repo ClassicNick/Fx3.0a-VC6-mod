@@ -75,10 +75,9 @@
 static const PRUint32 kMinBidiIndicatorPixels = 2;
 
 #ifdef IBMBIDI
-//-------------------------------IBM BIDI--------------------------------------
-// Mamdouh : Modifiaction of the caret to work with Bidi in the LTR and RTL
 #include "nsLayoutAtoms.h"
-//------------------------------END OF IBM BIDI--------------------------------
+#include "nsIBidiKeyboard.h"
+#include "nsContentUtils.h"
 #endif //IBMBIDI
 
 //-----------------------------------------------------------------------------
@@ -164,13 +163,6 @@ NS_IMETHODIMP nsCaret::Init(nsIPresShell *inPresShell)
       return rv;
   }
 
-#ifdef IBMBIDI
-  PRBool isRTL = PR_FALSE;
-  mBidiKeyboard = do_GetService("@mozilla.org/widget/bidikeyboard;1");
-  if (mBidiKeyboard && NS_SUCCEEDED(mBidiKeyboard->IsLangRTL(&isRTL)))
-    mKeyboardRTL = isRTL;
-#endif
-  
   return NS_OK;
 }
 
@@ -194,10 +186,6 @@ NS_IMETHODIMP nsCaret::Terminate()
 
   mLastContent = nsnull;
   
-#ifdef IBMBIDI
-  mBidiKeyboard = nsnull;
-#endif
-
   return NS_OK;
 }
 
@@ -276,9 +264,6 @@ NS_IMETHODIMP nsCaret::GetCaretCoordinates(EViewCoordinates aRelativeToType,
     return NS_ERROR_NULL_POINTER;
 
   nsCOMPtr<nsISelection> domSelection = aDOMSel;
-  nsCOMPtr<nsISelectionPrivate> privateSelection(do_QueryInterface(domSelection));
-  if (!privateSelection)
-    return NS_ERROR_NOT_INITIALIZED;    // no selection
 
   if (outView)
     *outView = nsnull;
@@ -315,14 +300,10 @@ NS_IMETHODIMP nsCaret::GetCaretCoordinates(EViewCoordinates aRelativeToType,
   nsIFrame*       theFrame = nsnull;
   PRInt32         theFrameOffset = 0;
 
-  nsCOMPtr<nsFrameSelection> frameSelection;
-  privateSelection->GetFrameSelection(getter_AddRefs(frameSelection));
-
-  PRUint8 bidiLevel;
-  nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
-  if (!presShell)
+  nsFrameSelection* frameSelection = GetFrameSelection();
+  if (!frameSelection)
     return NS_ERROR_FAILURE;
-  presShell->GetCaretBidiLevel(&bidiLevel);
+  PRUint8 bidiLevel = frameSelection->GetCaretBidiLevel();
   
   err = GetCaretFrameForNodeOffset(contentNode, focusOffset,
                                    frameSelection->GetHint(), bidiLevel,
@@ -338,6 +319,9 @@ NS_IMETHODIMP nsCaret::GetCaretCoordinates(EViewCoordinates aRelativeToType,
     return NS_ERROR_UNEXPECTED;
   // ramp up to make a rendering context for measuring text.
   // First, we get the pres context ...
+  nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
+  if (!presShell)
+    return NS_ERROR_FAILURE;
   nsPresContext *presContext = presShell->GetPresContext();
 
   // ... then tell it to make a rendering context
@@ -413,10 +397,10 @@ NS_IMETHODIMP nsCaret::DrawAtPosition(nsIDOMNode* aNode, PRInt32 aOffset)
   NS_ENSURE_ARG(aNode);
 
   PRUint8 bidiLevel;
-  nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
-  if (!presShell)
+  nsFrameSelection* frameSelection = GetFrameSelection();
+  if (!frameSelection)
     return NS_ERROR_FAILURE;
-  presShell->GetCaretBidiLevel(&bidiLevel);
+  bidiLevel = frameSelection->GetCaretBidiLevel();
   
   // XXX we need to do more work here to get the correct hint.
   nsresult rv = DrawAtPositionWithHint(aNode, aOffset,
@@ -619,9 +603,6 @@ nsCaret::DrawAtPositionWithHint(nsIDOMNode*             aNode,
     return PR_FALSE;
   }  
 
-  nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
-  if (!presShell)
-    return PR_FALSE;
   if (!mDrawn)
   {
     // save stuff so we can figure out what frame we're in later.
@@ -631,8 +612,12 @@ nsCaret::DrawAtPositionWithHint(nsIDOMNode*             aNode,
     mLastBidiLevel = aBidiLevel;
 
     // If there has been a reflow, set the caret Bidi level to the level of the current frame
-    if (aBidiLevel & BIDI_LEVEL_UNDEFINED)
-      presShell->SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(theFrame));
+    if (aBidiLevel & BIDI_LEVEL_UNDEFINED) {
+      nsFrameSelection* frameSelection = GetFrameSelection();
+      if (!frameSelection)
+        return NS_ERROR_FAILURE;
+      frameSelection->SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(theFrame));
+    }
 
     // Only update the caret's rect when we're not currently drawn.
     rv = UpdateCaretRects(theFrame, theFrameOffset);
@@ -660,12 +645,9 @@ nsCaret::GetCaretFrameForNodeOffset(nsIContent*             aContentNode,
   if (!presShell)
     return NS_ERROR_FAILURE;
 
-  nsCOMPtr<nsISelectionPrivate> privateSelection(do_QueryReferent(mDomSelectionWeak));
-  if (!privateSelection)
+  nsFrameSelection* frameSelection = GetFrameSelection();
+  if (!frameSelection)
     return NS_ERROR_FAILURE;
-
-  nsCOMPtr<nsFrameSelection> frameSelection;
-  privateSelection->GetFrameSelection(getter_AddRefs(frameSelection));
 
   nsIFrame* theFrame = nsnull;
   PRInt32   theFrameOffset = 0;
@@ -979,10 +961,10 @@ void nsCaret::DrawCaret(PRBool aInvalidate)
     if (NS_FAILED(domSelection->GetFocusOffset(&offset)))
       return;
 
-    nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
-    if (!presShell)
+    nsFrameSelection* frameSelection = GetFrameSelection();
+    if (!frameSelection)
       return;
-    presShell->GetCaretBidiLevel(&bidiLevel);
+    bidiLevel = frameSelection->GetCaretBidiLevel();
   }
   else
   {
@@ -1082,8 +1064,9 @@ nsresult nsCaret::UpdateHookRect(nsPresContext* aPresContext)
   // Simon -- make a hook to draw to the left or right of the caret to show keyboard language direction
   PRBool bidiEnabled;
   PRBool isCaretRTL=PR_FALSE;
-  if (!mBidiKeyboard || NS_FAILED(mBidiKeyboard->IsLangRTL(&isCaretRTL)))
-    // if mBidiKeyboard->IsLangRTL() failed, there is no way to tell the
+  nsIBidiKeyboard* bidiKeyboard = nsContentUtils::GetBidiKeyboard();
+  if (!bidiKeyboard || NS_FAILED(bidiKeyboard->IsLangRTL(&isCaretRTL)))
+    // if bidiKeyboard->IsLangRTL() failed, there is no way to tell the
     // keyboard direction, or the user has no right-to-left keyboard
     // installed, so we  never draw the hook.
     return NS_OK;
@@ -1153,6 +1136,17 @@ void nsCaret::CaretBlinkCallback(nsITimer *aTimer, void *aClosure)
   if (!theCaret) return;
   
   theCaret->DrawCaret(PR_TRUE);
+}
+
+
+//-----------------------------------------------------------------------------
+nsFrameSelection* nsCaret::GetFrameSelection() {
+  nsCOMPtr<nsISelectionPrivate> privateSelection(do_QueryReferent(mDomSelectionWeak));
+  if (!privateSelection)
+    return nsnull;
+  nsCOMPtr<nsFrameSelection> frameSelection;
+  privateSelection->GetFrameSelection(getter_AddRefs(frameSelection));
+  return frameSelection;
 }
 
 

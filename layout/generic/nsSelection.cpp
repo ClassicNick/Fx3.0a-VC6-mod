@@ -109,6 +109,10 @@ static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 #include "nsCopySupport.h"
 #include "nsIClipboard.h"
 
+#ifdef IBMBIDI
+#include "nsIBidiKeyboard.h"
+#endif // IBMBIDI
+
 #define STATUS_CHECK_RETURN_MACRO() {if (!mShell) return NS_ERROR_FAILURE;}
 
 
@@ -830,6 +834,9 @@ nsFrameSelection::nsFrameSelection()
   mMouseDoubleDownState = PR_FALSE;
   
   mHint = HINTLEFT;
+#ifdef IBMBIDI
+  mCaretBidiLevel = BIDI_LEVEL_UNDEFINED;
+#endif
   mDragSelectingCells = PR_FALSE;
   mSelectingTableCellMode = 0;
   mSelectedCellIndex = 0;
@@ -1084,6 +1091,34 @@ nsFrameSelection::ConstrainFrameAndPointToAnchorSubtree(nsIFrame  *aFrame,
 
   return NS_OK;
 }
+
+#ifdef IBMBIDI
+void
+nsFrameSelection::SetCaretBidiLevel(PRUint8 aLevel)
+{
+  // If the current level is undefined, we have just inserted new text.
+  // In this case, we don't want to reset the keyboard language
+  PRBool afterInsert = mCaretBidiLevel & BIDI_LEVEL_UNDEFINED;
+  mCaretBidiLevel = aLevel;
+  
+  nsIBidiKeyboard* bidiKeyboard = nsContentUtils::GetBidiKeyboard();
+  if (bidiKeyboard && !afterInsert)
+    bidiKeyboard->SetLangFromBidiLevel(aLevel);
+  return;
+}
+
+PRUint8
+nsFrameSelection::GetCaretBidiLevel()
+{
+  return mCaretBidiLevel;
+}
+
+void
+nsFrameSelection::UndefineCaretBidiLevel()
+{
+  mCaretBidiLevel |= BIDI_LEVEL_UNDEFINED;
+}
+#endif
 
 #ifdef XP_MAC
 #pragma mark -
@@ -1350,7 +1385,7 @@ nsFrameSelection::MoveCaret(PRUint32          aKeycode,
         case nsIDOMKeyEvent::DOM_VK_HOME:
         case nsIDOMKeyEvent::DOM_VK_END:
           // set the caret Bidi level to the paragraph embedding level
-          mShell->SetCaretBidiLevel(NS_GET_BASE_LEVEL(theFrame));
+          SetCaretBidiLevel(NS_GET_BASE_LEVEL(theFrame));
           break;
 
         default:
@@ -1358,7 +1393,7 @@ nsFrameSelection::MoveCaret(PRUint32          aKeycode,
           if ((pos.mContentOffset != frameStart && pos.mContentOffset != frameEnd)
               || (eSelectLine == aAmount))
           {
-            mShell->SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(theFrame));
+            SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(theFrame));
           }
           else
             BidiLevelFromMove(mShell, pos.mResultContent, pos.mContentOffset, aKeycode, tHint);
@@ -1935,120 +1970,20 @@ nsFrameSelection::GetPrevNextBidiLevels(nsIContent *aNode,
     return levels;
   }
 
-  /*
-  we have to find the next or previous *logical* frame.
-
-  Unfortunately |GetFrameFromDirection| has already been munged to return the next/previous *visual* frame, so we can't use that.
-  The following code is taken from there without the Bidi changes.
-
-  XXX is there a simpler way to do this? 
-  */
-
-  if (!aJumpLines) {
-    nsIFrame *blockFrame = currentFrame;
-    nsIFrame *thisBlock = nsnull;
-    PRInt32   thisLine;
-    nsILineIteratorNavigator* it;  // This is qi'd off a frame, and those aren't
-                                   // refcounted
-    nsresult rv = NS_ERROR_FAILURE;
-    while (NS_FAILED(rv) && blockFrame)
-    {
-      thisBlock = blockFrame;
-      blockFrame = blockFrame->GetParent();
-      if (blockFrame) {
-        rv = CallQueryInterface(blockFrame, &it);
-      }
-    }
-
-    if (!blockFrame || !it)
-      return levels;
-
-    if (NS_FAILED(it->FindLineContaining(thisBlock, &thisLine)))
-      return levels;
-
-    if (thisLine < 0)
-      return levels;
-
-    nsIFrame *firstFrame;
-    nsIFrame *lastFrame;
-    nsRect    nonUsedRect;
-    PRInt32   lineFrameCount;
-    PRUint32  lineFlags;
-
-    if (NS_FAILED(it->GetLine(thisLine, &firstFrame,
-                              &lineFrameCount, nonUsedRect, &lineFlags)))
-      return levels;
-
-    lastFrame = firstFrame;
-
-    for (;lineFrameCount > 1;lineFrameCount --) {
-      lastFrame = lastFrame->GetNextSibling();
-    }
-
-    // GetFirstLeaf
-    nsIFrame *lookahead;
-    while (1) {
-      lookahead = firstFrame->GetFirstChild(nsnull);
-      if (!lookahead)
-        break; //nothing to do
-      firstFrame = lookahead;
-    }
-
-    // GetLastLeaf
-    while (1) {
-      lookahead = lastFrame->GetFirstChild(nsnull);
-      if (!lookahead)
-        break; //nothing to do
-      lastFrame = lookahead;
-      while ((lookahead = lastFrame->GetNextSibling()) != nsnull)
-        lastFrame = lookahead;
-    }
-    //END LINE DATA CODE
-
-    if (direction == eDirNext && lastFrame == currentFrame) { // End of line: set aPrevFrame to the current frame
-                                                              //              set aPrevLevel to the embedding level of the current frame
-                                                              //              set aNextFrame to null
-                                                              //              set aNextLevel to the paragraph embedding level
-      levels.SetData(currentFrame, nsnull,
-                     NS_GET_EMBEDDING_LEVEL(currentFrame),
-                     NS_GET_BASE_LEVEL(currentFrame));
-      return levels;
-    }
-
-    if (direction == eDirPrevious && firstFrame == currentFrame) { // Beginning of line: set aPrevFrame to null
-                                                                   //                    set aPrevLevel to the paragraph embedding level
-                                                                   //                    set aNextFrame to the current frame
-                                                                   //                    set aNextLevel to the embedding level of the current frame
-      levels.SetData(nsnull, currentFrame,
-                     NS_GET_BASE_LEVEL(currentFrame),
-                     NS_GET_EMBEDDING_LEVEL(currentFrame));
-      return levels;
-    }
-  } //if (!aJumpLines)
-
-  // Find the adjacent frame
-
-  nsCOMPtr<nsIBidirectionalEnumerator> frameTraversal;
-  if (NS_FAILED(NS_NewFrameTraversal(getter_AddRefs(frameTraversal),
-                                     LEAF, mShell->GetPresContext(),
-                                     currentFrame, PR_TRUE)))
-    return levels;
-
-  nsresult rv;
-  if (direction == eDirNext)
-    rv = frameTraversal->Next();
-  else 
-    rv = frameTraversal->Prev();
-
-  nsISupports *isupports = nsnull;
-  if (NS_SUCCEEDED(rv)) {
-    if (NS_FAILED(frameTraversal->CurrentItem(&isupports)))
-      return levels;
-  }
-
-  //we must CAST here to an nsIFrame. nsIFrame doesn't really follow the rules
-  //for speed reasons
-  nsIFrame *newFrame = (nsIFrame *)isupports;
+  nsPeekOffsetStruct pos;
+  pos.SetData(eSelectCharacter,
+              direction,
+              currentOffset,
+              0,
+              aJumpLines,
+              PR_TRUE,        // aScrollViewStop
+              PR_FALSE,       // aIsKeyboardSelect
+              PR_FALSE);      // aVisual
+  
+  nsresult rv = currentFrame->GetFrameFromDirection(mShell->GetPresContext(), &pos);  
+  nsIFrame *newFrame = nsnull;
+  if (NS_SUCCEEDED(rv))
+    newFrame = pos.mResultFrame;
 
   if (direction == eDirNext) {
     levels.SetData(currentFrame, newFrame,
@@ -2168,9 +2103,6 @@ void nsFrameSelection::BidiLevelFromMove(nsIPresShell* aPresShell,
                                          PRUint32      aKeycode,
                                          HINT          aHint)
 {
-  PRUint8 currentLevel;
-  aPresShell->GetCaretBidiLevel(&currentLevel);
-
   switch (aKeycode) {
 
     // Right and Left: the new cursor Bidi level is the level of the character moved over
@@ -2181,9 +2113,9 @@ void nsFrameSelection::BidiLevelFromMove(nsIPresShell* aPresShell,
                                                           aHint, PR_FALSE);
 
       if (HINTLEFT == aHint)
-        aPresShell->SetCaretBidiLevel(levels.mLevelBefore);
+        SetCaretBidiLevel(levels.mLevelBefore);
       else
-        aPresShell->SetCaretBidiLevel(levels.mLevelAfter);
+        SetCaretBidiLevel(levels.mLevelAfter);
       break;
     }
       /*
@@ -2196,7 +2128,7 @@ void nsFrameSelection::BidiLevelFromMove(nsIPresShell* aPresShell,
       */
 
     default:
-      aPresShell->UndefineCaretBidiLevel();
+      UndefineCaretBidiLevel();
   }
 }
 
@@ -2216,7 +2148,7 @@ void nsFrameSelection::BidiLevelFromClick(nsIContent *aNode,
   if (!clickInFrame)
     return;
 
-  mShell->SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(clickInFrame));
+  SetCaretBidiLevel(NS_GET_EMBEDDING_LEVEL(clickInFrame));
 }
 
 
@@ -4891,8 +4823,7 @@ nsTypedSelection::GetPrimaryFrameForFocusNode(nsIFrame **aReturnFrame, PRInt32 *
     
   nsFrameSelection::HINT hint = mFrameSelection->GetHint();
 
-  PRUint8 caretBidiLevel;
-  presShell->GetCaretBidiLevel(&caretBidiLevel);
+  PRUint8 caretBidiLevel = mFrameSelection->GetCaretBidiLevel();
 
   return caret->GetCaretFrameForNodeOffset(content, FetchFocusOffset(),
     hint, caretBidiLevel, aReturnFrame, aOffsetUsed);
@@ -7533,10 +7464,6 @@ nsTypedSelection::SelectionLanguageChange(PRBool aLangRTL)
     levelAfter = levels.mLevelAfter;
   }
 
-  nsIPresShell* shell = context->GetPresShell();
-  if (!shell)
-    return NS_ERROR_FAILURE;
-
   if ((levelBefore & 1) == (levelAfter & 1)) {
     // if cursor is between two characters with the same orientation, changing the keyboard language
     //  must toggle the cursor level between the level of the character with the lowest level
@@ -7545,17 +7472,17 @@ nsTypedSelection::SelectionLanguageChange(PRBool aLangRTL)
     if ((level != levelBefore) && (level != levelAfter))
       level = PR_MIN(levelBefore, levelAfter);
     if ((level & 1) == aLangRTL)
-      shell->SetCaretBidiLevel(level);
+      mFrameSelection->SetCaretBidiLevel(level);
     else
-      shell->SetCaretBidiLevel(level + 1);
+      mFrameSelection->SetCaretBidiLevel(level + 1);
   }
   else {
     // if cursor is between characters with opposite orientations, changing the keyboard language must change
     //  the cursor level to that of the adjacent character with the orientation corresponding to the new language.
     if ((levelBefore & 1) == aLangRTL)
-      shell->SetCaretBidiLevel(levelBefore);
+      mFrameSelection->SetCaretBidiLevel(levelBefore);
     else
-      shell->SetCaretBidiLevel(levelAfter);
+      mFrameSelection->SetCaretBidiLevel(levelAfter);
   }
   
   // The caret might have moved, so invalidate the desired X position

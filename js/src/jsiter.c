@@ -594,29 +594,30 @@ js_ThrowStopIteration(JSContext *cx, JSObject *obj)
 
 #if JS_HAS_GENERATORS
 
-typedef enum JSGeneratorState {
-    JSGEN_NEWBORN,
-    JSGEN_RUNNING,
-    JSGEN_CLOSED
-} JSGeneratorState;
-
-typedef struct JSGenerator {
-    JSGeneratorState    state;
-    JSStackFrame        frame;
-    JSArena             arena;
-    jsval               stack[1];
-} JSGenerator;
-
+/*
+ * Execute generator's close hook after GC detects that the object has become
+ * unreachable.
+ */
 JSBool
-js_CloseGeneratorObject(JSContext *cx, JSObject *obj)
+js_CloseGeneratorObject(JSContext *cx, JSGenerator *gen)
 {
+    JSObject *obj, *proto;
     jsval fval, rval;
     const jsid id = ATOM_TO_JSID(cx->runtime->atomState.closeAtom);
 
-    JS_ASSERT(OBJ_GET_CLASS(cx, obj) == &js_GeneratorClass);
-    JS_ASSERT(JS_GetPrivate(cx, obj));
+    /* JSGenerator.closeLink must be already unlinked from all lists. */
+    JS_ASSERT(!gen->next);
+    JS_ASSERT(gen != cx->runtime->gcCloseState.reachableList);
+    JS_ASSERT(gen != cx->runtime->gcCloseState.todoHead);
 
-    if (!JS_GetMethodById(cx, obj, id, &obj, &fval))
+    /*
+     * Get generator_close from cached class object for gen's scope chain, so
+     * as not to depend on gen->obj's mutable prototype chain.
+     */
+    obj = gen->obj;
+    if (!js_GetClassPrototype(cx, obj, INT_TO_JSID(JSProto_Generator), &proto))
+        return JS_FALSE;
+    if (!JS_GetMethodById(cx, proto, id, &proto, &fval))
         return JS_FALSE;
 
     return js_InternalCall(cx, obj, fval, 0, NULL, &rval);
@@ -687,6 +688,8 @@ js_NewGenerator(JSContext *cx, JSStackFrame *fp)
     if (!gen)
         goto bad;
 
+    gen->obj = obj;
+
     /* Copy call-invariant object and function references. */
     gen->frame.callobj = fp->callobj;
     gen->frame.argsobj = fp->argsobj;
@@ -743,13 +746,9 @@ js_NewGenerator(JSContext *cx, JSStackFrame *fp)
         goto bad;
     }
 
-    if (!js_RegisterGeneratorObject(cx, obj)) {
-        /*
-         * Do not free gen here, as the finalizer will do that since we
-         * called JS_SetPrivate.
-         */
-        goto bad;
-    }
+    /* Register after we have properly initialized the private slot. */
+    js_RegisterGeneratorObject(cx, gen);
+
     return obj;
 
   bad:
@@ -873,7 +872,7 @@ static JSFunctionSpec generator_methods[] = {
     {js_next_str,     generator_next,  0,0,0},
     {js_send_str,     generator_send,  1,0,0},
     {js_throw_str,    generator_throw, 1,0,0},
-    {js_close_str,    generator_close, 0,0,0},
+    {js_close_str,    generator_close, 0,JSPROP_READONLY|JSPROP_PERMANENT,0},
     {0,0,0,0,0}
 };
 

@@ -38,6 +38,34 @@
 
 #include "nsArrayEnumerator.h"
 
+#include "nsIArray.h"
+#include "nsISimpleEnumerator.h"
+
+#include "nsCOMArray.h"
+#include "nsCOMPtr.h"
+
+class nsSimpleArrayEnumerator : public nsISimpleEnumerator
+{
+public:
+    // nsISupports interface
+    NS_DECL_ISUPPORTS
+
+    // nsISimpleEnumerator interface
+    NS_DECL_NSISIMPLEENUMERATOR
+
+    // nsSimpleArrayEnumerator methods
+    nsSimpleArrayEnumerator(nsIArray* aValueArray) :
+        mValueArray(aValueArray), mIndex(0) {
+    }
+
+private:
+    ~nsSimpleArrayEnumerator() {}
+
+protected:
+    nsCOMPtr<nsIArray> mValueArray;
+    PRUint32 mIndex;
+};
+
 NS_IMPL_ISUPPORTS1(nsSimpleArrayEnumerator, nsISimpleEnumerator)
 
 NS_IMETHODIMP
@@ -80,7 +108,7 @@ nsSimpleArrayEnumerator::GetNext(nsISupports** aResult)
     return mValueArray->QueryElementAt(mIndex++, NS_GET_IID(nsISupports), (void**)aResult);
 }
 
-extern NS_COM nsresult
+nsresult
 NS_NewArrayEnumerator(nsISimpleEnumerator* *result,
                       nsIArray* array)
 {
@@ -198,7 +226,7 @@ nsCOMArrayEnumerator::operator new (size_t size, const nsCOMArray_base& aArray)
     return result;
 }
 
-extern NS_COM nsresult
+nsresult
 NS_NewArrayEnumerator(nsISimpleEnumerator* *aResult,
                       const nsCOMArray_base& aArray)
 {

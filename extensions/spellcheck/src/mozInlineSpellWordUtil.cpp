@@ -87,8 +87,11 @@ mozInlineSpellWordUtil::Init(nsWeakPtr aWeakEditor)
 {
   nsresult rv;
 
+  // getting the editor can fail commonly because the editor was detached, so
+  // don't assert
   nsCOMPtr<nsIEditor> editor = do_QueryReferent(aWeakEditor, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_FAILED(rv))
+    return rv;
 
   nsCOMPtr<nsIDOMDocument> domDoc;
   rv = editor->GetDocument(getter_AddRefs(domDoc));
@@ -159,7 +162,7 @@ FindNextNode(nsIDOMNode* aNode, nsIDOMNode* aRoot,
     }
     
     aNode->GetParentNode(getter_AddRefs(next));
-    if (next == aRoot)
+    if (next == aRoot || ! next)
       return nsnull;
     aNode = next;
     

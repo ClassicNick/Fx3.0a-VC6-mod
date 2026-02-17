@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -11,15 +12,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * the Mozilla Organization.
- * Portions created by the Initial Developer are Copyright (C) 1998-2002
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Robert Kaiser <KaiRo@KaiRo.at>
+ * Contributor(s): nanto vi (TOYAMA Nao)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -34,89 +34,53 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 347593;
+var summary = 'For-each loop with destructuring assignment';
+var actual = '';
+var expect = '';
 
-/* ===== plugins.css =====================================================
-   == Styles used by the about:plugins dialog.
-   ======================================================================= */
 
-body {
-  background-color: -moz-Field;
-  color: -moz-FieldText;
-  font: message-box;
-}
+//-----------------------------------------------------------------------------
+test();
+//-----------------------------------------------------------------------------
 
-div#outside {
- text-align: justify;
- width: 90%;
- margin-left: 5%;
- margin-right: 5%;
-}
+function test()
+{
+  enterFunc ('test');
+  printBugNumber (bug);
+  printStatus (summary);
+  
+  expect = '23';
+  actual = '';
+  for (let [, { a: b }] in [{ a: 2 }, { a: 3 }]) 
+  {
+    actual += b; 
+  }
+  reportCompare(expect, actual, summary);
 
-div#plugs {
-  text-align: center;
-  font-size: xx-large;
-  font-weight: bold;
-}
+  actual = '';
+  for each (let { a: b } in [{ a: 2 }, { a: 3 }])
+  {
+    actual += b; 
+  }
+  reportCompare(expect, actual, summary);
 
-div#noplugs {
-  font-size: x-large;
-  font-weight: bold;
-}
+  expect = 'TypeError';
+  actual = '';
+  try
+  {
+    for each (let [, { a: b }] in [{ a: 2 }, { a: 3 }]) 
+    {
+      actual += b; 
+    }
+  }
+  catch(ex)
+  {
+    writeLineToLog(ex+'');
+    actual = ex.name;
+  }
+  reportCompare(expect, actual, summary);
 
-div#findmore {
-  margin-top: 2em;
-}
-
-div.plugname {
-  margin-top: 2em;
-  margin-bottom: 1em;
-  font-size: large;
-  text-align: left;
-  font-weight: bold;
-}
-
-dl {
-  margin: 0px 0px 3px 0px;
-}
-
-table {
-  background-color: -moz-Dialog;
-  color: -moz-DialogText;
-  font: message-box;
-  text-align: left;
-  width: 100%;
-  border: 1px solid ThreeDShadow;
-  border-spacing: 0px;
-}
-
-th {
-  text-align: center;
-  background-color: Highlight;
-  color: HighlightText;
-}
-
-th + th,
-td + td {
-  border-left: 1px dotted ThreeDShadow; 
-}
-
-td {
-  text-align: left;
-  border-top: 1px dotted ThreeDShadow;
-}
-
-th, td {
-  padding: 3px;
-}
-
-th.type, th.suff {
-  width: 20%;
-}
-
-th.desc {
-  width: 50%;
-}
-
-th.enabled {
-  width: 10%;
+  exitFunc ('test');
 }

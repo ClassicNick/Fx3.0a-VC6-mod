@@ -39,7 +39,7 @@
 #   Joe Hughes <joe@retrovirus.com>
 #   Pamela Greene <pamg.bugs@gmail.com>
 #   Michael Ventnor <ventnors_dogs234@yahoo.com.au>
-#   Simon Bünzli <zeniko@gmail.com>
+#   Simon BÃ¼nzli <zeniko@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -727,7 +727,7 @@ function xpinstallEditPermissions(aDocShell)
                    allowVisible   : true,
                    prefilledHost  : webNav.currentURI.host,
                    permissionType : "install",
-                   windowTitle    : bundlePreferences.getString("addonspermissionstitle"),
+                   windowTitle    : bundlePreferences.getString("addons_permissions_title"),
                    introText      : bundlePreferences.getString("addonspermissionstext") };
     wm = Components.classes["@mozilla.org/appshell/window-mediator;1"]
                    .getService(Components.interfaces.nsIWindowMediator);

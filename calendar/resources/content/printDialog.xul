@@ -70,6 +70,7 @@
    
   <script type="application/x-javascript" src="chrome://calendar/content/printDialog.js"/>
   <script type="application/x-javascript" src="chrome://calendar/content/applicationUtil.js"/>
+  <script type="application/x-javascript" src="chrome://calendar/content/calendarUtils.js"/>
 
   <vbox id="standard-dialog-content"  flex="1">
     <grid>
@@ -113,7 +114,7 @@
         <hbox align="center">
           <label value="&calendar.print.from.label;"/>
           <datepicker id="start-date-picker" onchange="onDatePick();"/>
-          <label value="&calendar.print.from.label;"/>
+          <label value="&calendar.print.to.label;"/>
           <datepicker id="end-date-picker" onchange="onDatePick();"/>
         </hbox>
       </radiogroup>

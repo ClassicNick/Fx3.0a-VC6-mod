@@ -316,11 +316,6 @@ function showView(aView) {
       break;
   }
 
-  AddonsViewBuilder.updateView(types, "richlistitem", bindingList, null);
-
-  if (aView == "updates" || aView == "installs")
-    gExtensionsView.selectedItem = gExtensionsView.children[0];
-
   var isThemes = aView == "themes";
 
   var getMore = document.getElementById("getMore");
@@ -360,6 +355,11 @@ function showView(aView) {
   document.getElementById("continueDialogButton").hidden = !showContinue;
   document.getElementById("themePreviewArea").hidden = !isThemes;
   document.getElementById("themeSplitter").hidden = !isThemes;
+
+  AddonsViewBuilder.updateView(types, "richlistitem", bindingList, null);
+
+  if (aView == "updates" || aView == "installs")
+    gExtensionsView.selectedItem = gExtensionsView.children[0];
 
   if (showSkip) {
     var button = document.getElementById("installUpdatesAllButton");
@@ -458,6 +458,21 @@ function flushDataSource()
   var rds = gExtensionManager.datasource.QueryInterface(Components.interfaces.nsIRDFRemoteDataSource);
   if (rds)
     rds.Flush();
+}
+
+function noUpdatesDismiss(aEvent)
+{
+  window.removeEventListener("command", noUpdatesDismiss, true);
+  if (aEvent.target.localName == "addonsmessage")
+    return;
+
+  var children = gExtensionsView.children;
+  for (var i = 0; i < children.length; ++i) {
+    var child = children[i];
+    if (child.hasAttribute("updateStatus"))
+      child.removeAttribute("updateStatus");
+  }
+  document.getElementById("addonsMsg").hideMessage();
 }
 
 function setRestartMessage(aItem)
@@ -593,6 +608,8 @@ function Shutdown()
                      .getService(Components.interfaces.nsIObserverService);
   os.removeObserver(gAddonsMsgObserver, "addons-message-notification");
   os.removeObserver(gDownloadManager, "xpinstall-download-started");
+  if (document.getElementById("addonsMsg").notifyData == "addons-no-updates")
+    window.removeEventListener("command", noUpdatesDismiss, true);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -823,6 +840,7 @@ UpdateCheckListener.prototype = {
       addonsMsg.showMessage("chrome://mozapps/skin/extensions/question.png",
                             getExtensionString("noUpdatesMsg"),
                             null, null, true, "addons-no-updates");
+      window.addEventListener("command", noUpdatesDismiss, true);
     }
   },
   
