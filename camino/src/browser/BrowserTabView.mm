@@ -39,6 +39,7 @@
 
 #import "NSString+Utils.h"
 #import "NSPasteboard+Utils.h"
+#import "PreferenceManager.h"
 
 #import "BrowserTabView.h"
 #import "BrowserWrapper.h"
@@ -155,7 +156,9 @@ NSString* const kTabBarBackgroundDoubleClickedNotification = @"kTabBarBackground
   // make sure the close button and spinner get removed
   [(BrowserTabViewItem *)tabViewItem willBeRemoved:YES];
   if ([self selectedTabViewItem] == tabViewItem) {
-    if (mJumpbackTab)
+    BOOL tabJumpbackPref = [[PreferenceManager sharedInstance] getBooleanPref:"camino.enable_tabjumpback" withSuccess:NULL];
+
+    if (tabJumpbackPref && mJumpbackTab)
       [mJumpbackTab selectTab:self]; 
     else
       [self selectNextTabViewItem:self];

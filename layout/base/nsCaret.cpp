@@ -320,6 +320,8 @@ NS_IMETHODIMP nsCaret::GetCaretCoordinates(EViewCoordinates aRelativeToType,
 
   PRUint8 bidiLevel;
   nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
+  if (!presShell)
+    return NS_ERROR_FAILURE;
   presShell->GetCaretBidiLevel(&bidiLevel);
   
   err = GetCaretFrameForNodeOffset(contentNode, focusOffset,
@@ -412,6 +414,8 @@ NS_IMETHODIMP nsCaret::DrawAtPosition(nsIDOMNode* aNode, PRInt32 aOffset)
 
   PRUint8 bidiLevel;
   nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
+  if (!presShell)
+    return NS_ERROR_FAILURE;
   presShell->GetCaretBidiLevel(&bidiLevel);
   
   // XXX we need to do more work here to get the correct hint.
@@ -616,6 +620,8 @@ nsCaret::DrawAtPositionWithHint(nsIDOMNode*             aNode,
   }  
 
   nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
+  if (!presShell)
+    return PR_FALSE;
   if (!mDrawn)
   {
     // save stuff so we can figure out what frame we're in later.
@@ -984,6 +990,8 @@ void nsCaret::DrawCaret(PRBool aInvalidate)
       return;
 
     nsCOMPtr<nsIPresShell> presShell = do_QueryReferent(mPresShell);
+    if (!presShell)
+      return;
     presShell->GetCaretBidiLevel(&bidiLevel);
   }
   else

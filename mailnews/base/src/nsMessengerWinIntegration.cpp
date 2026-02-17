@@ -23,6 +23,7 @@
  *   Seth Spitzer <sspitzer@netscape.com>
  *   Bhuvan Racham <racham@netscape.com>
  *   Howard Chu <hyc@symas.com>
+ *   Jens Bannmann <jens.b@web.de>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -62,6 +63,8 @@
 #include "nsIDocShell.h"
 #include "nsIBaseWindow.h"
 #include "nsIWidget.h"
+#include "nsWidgetsCID.h"
+#include "nsILookAndFeel.h"
 
 #include "nsIMessengerWindowService.h"
 #include "prprf.h"
@@ -138,28 +141,26 @@ static void activateWindow( nsIDOMWindowInternal *win )
 
 static void openMailWindow(const PRUnichar * aMailWindowName, const char * aFolderUri)
 {
-  nsCOMPtr<nsIWindowMediator> mediator ( do_GetService(NS_WINDOWMEDIATOR_CONTRACTID) );
-  if (!mediator)
+  nsresult rv;
+  nsCOMPtr<nsIMsgMailSession> mailSession ( do_GetService(NS_MSGMAILSESSION_CONTRACTID, &rv));
+  if (NS_FAILED(rv))
     return;
 
-  nsCOMPtr<nsIDOMWindowInternal> domWindow;
-  mediator->GetMostRecentWindow(aMailWindowName, getter_AddRefs(domWindow));
-  if (domWindow)
+  nsCOMPtr<nsIMsgWindow> topMostMsgWindow;
+  rv = mailSession->GetTopmostMsgWindow(getter_AddRefs(topMostMsgWindow));
+  if (topMostMsgWindow)
   {
     if (aFolderUri)
     {
-      nsCOMPtr<nsPIDOMWindow> piDOMWindow(do_QueryInterface(domWindow));
-      if (piDOMWindow)
-      {
-        nsCOMPtr<nsISupports> xpConnectObj;
-        piDOMWindow->GetObjectProperty(NS_LITERAL_STRING("MsgWindowCommands").get(), getter_AddRefs(xpConnectObj));
-        nsCOMPtr<nsIMsgWindowCommands> msgWindowCommands = do_QueryInterface(xpConnectObj);
-        if (msgWindowCommands)
-          msgWindowCommands->SelectFolder(aFolderUri);
-      }
+      nsCOMPtr<nsIMsgWindowCommands> windowCommands;
+      topMostMsgWindow->GetWindowCommands(getter_AddRefs(windowCommands));
+      if (windowCommands)
+        windowCommands->SelectFolder(aFolderUri);
     }
-
-    activateWindow(domWindow);
+    nsCOMPtr<nsIDOMWindowInternal> domWindow;
+    topMostMsgWindow->GetDomWindow(getter_AddRefs(domWindow));
+    if (domWindow)
+      activateWindow(domWindow);
   }
   else
   {
@@ -543,7 +544,8 @@ nsresult nsMessengerWinIntegration::ShowNewAlertNotification(PRBool aUserInitiat
     NS_ENSURE_SUCCESS(rv, rv);
     ifptr->SetData(mFoldersWithNewMail);
     ifptr->SetDataIID(&NS_GET_IID(nsISupportsArray));
-    argsArray->AppendElement(ifptr);
+    rv = argsArray->AppendElement(ifptr);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     // pass in the observer
     ifptr = do_CreateInstance(NS_SUPPORTS_INTERFACE_POINTER_CONTRACTID, &rv);
@@ -551,13 +553,31 @@ nsresult nsMessengerWinIntegration::ShowNewAlertNotification(PRBool aUserInitiat
     nsCOMPtr <nsISupports> supports = do_QueryInterface(NS_STATIC_CAST(nsIMessengerOSIntegration*, this));
     ifptr->SetData(supports);
     ifptr->SetDataIID(&NS_GET_IID(nsIObserver));
-    argsArray->AppendElement(ifptr);
+    rv = argsArray->AppendElement(ifptr);
+    NS_ENSURE_SUCCESS(rv, rv);
     
     // pass in the animation flag
     nsCOMPtr<nsISupportsPRBool> scriptableUserInitiated (do_CreateInstance(NS_SUPPORTS_PRBOOL_CONTRACTID, &rv));
     NS_ENSURE_SUCCESS(rv, rv);
     scriptableUserInitiated->SetData(aUserInitiated);
-    argsArray->AppendElement(scriptableUserInitiated);
+    rv = argsArray->AppendElement(scriptableUserInitiated);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // pass in the alert origin
+    nsCOMPtr<nsISupportsPRUint8> scriptableOrigin (do_CreateInstance(NS_SUPPORTS_PRUINT8_CONTRACTID));
+    NS_ENSURE_TRUE(scriptableOrigin, NS_ERROR_FAILURE);
+    scriptableOrigin->SetData(0);
+    nsCOMPtr<nsILookAndFeel> lookAndFeel = do_GetService("@mozilla.org/widget/lookandfeel;1");
+    if (lookAndFeel)
+    {
+      PRInt32 origin;
+      lookAndFeel->GetMetric(nsILookAndFeel::eMetric_AlertNotificationOrigin,
+                             origin);
+      if (origin && origin >= 0 && origin <= 7)
+        scriptableOrigin->SetData(origin);
+    }
+    rv = argsArray->AppendElement(scriptableOrigin);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     nsCOMPtr<nsIWindowWatcher> wwatch(do_GetService(NS_WINDOWWATCHER_CONTRACTID));
     nsCOMPtr<nsIDOMWindow> newWindow;

@@ -595,7 +595,7 @@ nsHTMLFormElement::GetAction(nsAString& aValue)
     // Avoid resolving action="" to the base uri, bug 297761.
     return NS_OK;
   }
-  return GetURIAttr(nsHTMLAtoms::action, aValue);
+  return GetURIAttr(nsHTMLAtoms::action, nsnull, aValue);
 }
 
 NS_IMETHODIMP
@@ -932,11 +932,7 @@ nsHTMLFormElement::SubmitSubmission(nsIFormSubmission* aFormSubmission)
 
   // If there is no link handler, then we won't actually be able to submit.
   nsIDocument* doc = GetCurrentDoc();
-  if (!doc) {
-    // Nothing to do
-  }
-
-  nsCOMPtr<nsISupports> container = doc->GetContainer();
+  nsCOMPtr<nsISupports> container = doc ? doc->GetContainer() : nsnull;
   nsCOMPtr<nsILinkHandler> linkHandler(do_QueryInterface(container));
   if (!linkHandler) {
     mIsSubmitting = PR_FALSE;

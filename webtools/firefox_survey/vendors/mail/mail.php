@@ -7,6 +7,7 @@ class mail
     var $to;
     var $subject;
     var $message;
+    var $envelope;
 
     /**
      * Everything coming in via $params should be validated already
@@ -24,6 +25,9 @@ class mail
         }
         if (array_key_exists('message', $params)) {
             $this->message = $params['message'];
+        }
+        if (array_key_exists('envelope', $params)) {
+            $this->envelope = $params['envelope'];
         }
     }
 
@@ -47,8 +51,8 @@ class mail
     }
     function make_additional_parameters()
     {
-        if (!empty($this->from)) {
-            return '-f'.$this->from;
+        if (!empty($this->envelope)) {
+            return '-f'.$this->envelope;
         }
     }
     function send() 

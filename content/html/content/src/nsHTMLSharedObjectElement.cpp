@@ -302,13 +302,13 @@ nsHTMLSharedObjectElement::GetDesiredIMEState()
 NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Align, align)
 NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Alt, alt)
 NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Archive, archive)
-NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Code, code)
+NS_IMPL_URI_ATTR_WITH_BASE(nsHTMLSharedObjectElement, Code, code, codebase)
 NS_IMPL_URI_ATTR(nsHTMLSharedObjectElement, CodeBase, codebase)
 NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Height, height)
 NS_IMPL_INT_ATTR(nsHTMLSharedObjectElement, Hspace, hspace)
 NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Name, name)
-NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Object, object)
-NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Src, src)
+NS_IMPL_URI_ATTR_WITH_BASE(nsHTMLSharedObjectElement, Object, object, codebase)
+NS_IMPL_URI_ATTR(nsHTMLSharedObjectElement, Src, src)
 NS_IMPL_INT_ATTR(nsHTMLSharedObjectElement, TabIndex, tabindex)
 NS_IMPL_STRING_ATTR(nsHTMLSharedObjectElement, Type, type)
 NS_IMPL_INT_ATTR(nsHTMLSharedObjectElement, Vspace, vspace)
@@ -394,17 +394,10 @@ nsHTMLSharedObjectElement::StartObjectLoad(PRBool aNotify)
 
   nsAutoString uri;
   if (!GetAttr(kNameSpaceID_None, URIAttrName(), uri)) {
-    if (mNodeInfo->Equals(nsGkAtoms::applet)) {
-      // The constructor set the type to eType_Loading; but if we have no code
-      // attribute, then we aren't really a plugin
-      Fallback(aNotify);
-    }
-    else {
-      // Be sure to call the nsIURI version if we have no attribute
-      // That handles the case where no URI is specified. An empty string would
-      // get interpreted as the page itself, instead of absence of URI.
-      LoadObject(nsnull, aNotify, type);
-    }
+    // Be sure to call the nsIURI version if we have no attribute
+    // That handles the case where no URI is specified. An empty string would
+    // get interpreted as the page itself, instead of absence of URI.
+    LoadObject(nsnull, aNotify, type);
   }
   else {
     LoadObject(uri, aNotify, type);

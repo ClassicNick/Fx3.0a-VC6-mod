@@ -38,6 +38,7 @@
 #   Jesse Ruderman <jruderman@gmail.com>
 #   Joe Hughes <joe@retrovirus.com>
 #   Pamela Greene <pamg.bugs@gmail.com>
+#   Michael Ventnor <ventnors_dogs234@yahoo.com.au>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -1101,24 +1102,14 @@ function delayedStartup()
   // to create its singleton, whose constructor initializes the service.
   Cc["@mozilla.org/microsummary/service;1"].getService(Ci.nsIMicrosummaryService);
 
-  // initialize the session-restore service
-  var ssEnabled = true;
-  var prefBranch = Cc["@mozilla.org/preferences-service;1"].
-                   getService(Ci.nsIPrefBranch);
-  try {
-    ssEnabled = prefBranch.getBoolPref("browser.sessionstore.enabled");
-  } catch (ex) {}
-
-  if (ssEnabled) {
-    var wType = window.document.documentElement.getAttribute("windowtype");
-    if (wType == "navigator:browser") {
-      try {
-        var ss = Cc["@mozilla.org/browser/sessionstore;1"].
-                 getService(Ci.nsISessionStore);
-        ss.init(window);
-      } catch(ex) {
-        dump("nsSessionStore could not be initialized: " + ex + "\n");
-      }
+  // initialize the session-restore service (in case it's not already running)
+  if (document.documentElement.getAttribute("windowtype") == "navigator:browser") {
+    try {
+      var ss = Cc["@mozilla.org/browser/sessionstore;1"].
+               getService(Ci.nsISessionStore);
+      ss.init(window);
+    } catch(ex) {
+      dump("nsSessionStore could not be initialized: " + ex + "\n");
     }
   }
 
@@ -2982,9 +2973,9 @@ const BrowserSearch = {
         searchRelRegex.test(erel) && searchHrefRegex.test(ehref))
     {
       const targetDoc = target.ownerDocument;
-      // Set the attribute of the (first) search button.
+      // Set the attribute of the (first) search-engine button.
       var searchButton = document.getAnonymousElementByAttribute(this.getSearchBar(),
-                                  "anonid", "search-go-button");
+                                  "anonid", "searchbar-engine-button");
       if (searchButton) {
         var browser = gBrowser.getBrowserForDocument(targetDoc);
          // Append the URI and an appropriate title to the browser data.
@@ -3038,7 +3029,7 @@ const BrowserSearch = {
    */
   updateSearchButton: function() {
     var searchButton = document.getAnonymousElementByAttribute(this.getSearchBar(),
-                                "anonid", "search-go-button");
+                                "anonid", "searchbar-engine-button");
     if (!searchButton)
       return;
     var engines = gBrowser.mCurrentBrowser.engines;
@@ -6730,7 +6721,7 @@ var AugmentTabs = {
     undoCloseTabItem.setAttribute("id", "tabContextUndoCloseTab");
     undoCloseTabItem.setAttribute("label", menuLabel);
     undoCloseTabItem.setAttribute("accesskey", menuAccessKey);
-    undoCloseTabItem.addEventListener("command", function() { undoCloseTab(0); }, false);
+    undoCloseTabItem.setAttribute("command", "History:UndoCloseTab");
 
     // add to tab context menu
     var insertPos = this.tabContextMenu.lastChild.previousSibling;
@@ -6821,7 +6812,22 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
  *        The index of the tab (via nsSessionStore.getClosedTabData)
  */
 function undoCloseTab(aIndex) {
+  // wallpaper patch to prevent an unnecessary blank tab (bug 343895)
+  var tabbrowser = getBrowser();
+  var blankTabToRemove = null;
+  if (tabbrowser.tabContainer.childNodes.length == 1 &&
+      !gPrefService.getBoolPref("browser.tabs.autoHide") &&
+      tabbrowser.selectedBrowser.sessionHistory.count < 2 &&
+      tabbrowser.selectedBrowser.currentURI.spec == "about:blank" &&
+      !tabbrowser.selectedBrowser.contentDocument.body.hasChildNodes())
+    blankTabToRemove = tabbrowser.selectedTab;
+
   var ss = Cc["@mozilla.org/browser/sessionstore;1"].
            getService(Ci.nsISessionStore);
+  if (ss.getClosedTabCount(window) == 0)
+    return;
   ss.undoCloseTab(window, aIndex || 0);
+
+  if (blankTabToRemove)
+    tabbrowser.removeTab(blankTabToRemove);
 }

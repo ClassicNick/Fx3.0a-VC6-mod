@@ -58,16 +58,6 @@ sub tb_build_static {
     &do_static;
 }
 
-sub make_tree_list {
-    my @result;
-    while(<*>) {
-        if( -d $_ && $_ ne 'data' && $_ ne 'CVS' && -f "$_/treedata.pl") {
-            push @result, $_;
-        }
-    }
-    return @result;
-}
-
 sub show_tree_selector {
 
     print "Content-type: text/html\n\n";
@@ -98,12 +88,6 @@ sub show_tree_selector {
     print "</UL></TD></TR></TABLE></TD></TR></TABLE>";
 }
 
-sub require_only_one_tree {
-    my @treelist = &make_tree_list();
-    $::tree = '' if (!grep {$::tree eq $_} @treelist);
-    &show_tree_selector, exit if $::tree eq '';
-}
-
 sub do_static {
     &require_only_one_tree;
 
@@ -128,7 +112,7 @@ sub do_static {
         my ($page, $call) = @{$pair};
         my $outfile = "$::tree/$page";
 
-        open(OUT,">$outfile.$$");
+        open(OUT, ">", "$outfile.$$");
         select OUT;
 
         eval "$call";
@@ -600,7 +584,7 @@ sub who_menu {
   require "$tree/treedata.pl";
 
   my $qr = '';
-  my $ret = "<a href=\"$qr\" onclick=\"return who(event);\">";
+  my $ret = '';
   if ($use_viewvc) {
       $qr = "${viewvc_url}?view=query&who_match=exact&who=" . 
           &url_encode($who) . "&querysort=date&date=explicit" .
@@ -612,6 +596,7 @@ sub who_menu {
       $qr = "${rel_path}../registry/who.cgi?email=". &url_encode($who)
           . "&d=$td->{cvs_module}|$treeflag|$td->{cvs_root}|$mindate";
       $qr = $qr . "|$maxdate" if defined($maxdate);
+      $ret = "<a href=\"$qr\" onclick=\"return who(event);\">";
   }
   return $ret;
 
@@ -660,7 +645,7 @@ BEGIN {
         warn "No BatchID in /d/webdocs/projects/bonsai/data/$bonsai_tree/batchid.pl\n";
         return;
     }
-    open(BATCH, "</d/webdocs/projects/bonsai/data/$bonsai_tree/batch-$::BatchID.pl")
+    open(BATCH, "<", "/d/webdocs/projects/bonsai/data/$bonsai_tree/batch-$::BatchID.pl")
         or print "can't open batch-$::BatchID.pl<br>";
     while (<BATCH>) { 
         if (/^\$::TreeOpen = '(\d+)';/) {

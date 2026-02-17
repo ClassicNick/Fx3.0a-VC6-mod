@@ -47,12 +47,15 @@
       xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
       xmlns:xbl="http://www.mozilla.org/xbl">
 
-  <binding id="searchbar">
+  <binding id="searchbar-base">
     <resources>
       <stylesheet src="chrome://browser/content/search/searchbarBindings.css"/>
       <stylesheet src="chrome://browser/skin/searchbar.css"/>
     </resources>
+  </binding>
 
+  <binding id="searchbar"
+           extends="chrome://browser/content/search/search.xml#searchbar-base">
     <content>
       <xul:stringbundle src="chrome://browser/locale/search.properties"
                         anonid="searchbar-stringbundle"/>
@@ -71,32 +74,24 @@
                        showcommentcolumn="true"
                        tabscrolling="true"
                        xbl:inherits="disableautocomplete,searchengine,src">
-            <xul:image align="center"
-                       class="searchbar-engine-image"
-                       anonid="searchbar-engine-image"
-                       xbl:inherits="src"/>
+            <xul:button class="searchbar-engine-button"
+                        type="menu"
+                        anonid="searchbar-engine-button"
+                        popup="_child"
+                        xbl:inherits="src">
+              <xul:menupopup class="searchbar-popup"
+                             anonid="searchbar-popup"
+                             position="after_start">
+                <xul:menuseparator/>
+                <xul:menuitem class="open-engine-manager"
+                              anonid="open-engine-manager"
+                              label="&cmd_engineManager.label;"
+                              accesskey="&cmd_engineManager.accesskey;"/>
+              </xul:menupopup>
+            </xul:button>
             <xul:hbox class="search-go-button-container">
-# XXX We'd like to add a context="_child" property to this toolbarbutton, but doing
-# so causes the context menu to show up for the textbox too, and subsequently crashes
-# the app on shutdown.  See bug 336662.
-#
-# XXX We'd also like to specify the menupopup position as after_end, as well as
-# probably adjusting its length to match that of the searchbar so the search
-# engine icons line up, but that's prevented by inconsistent behavior of the
-# popup position within a toolbarbutton.  See bug 336868.
               <xul:toolbarbutton class="search-go-button"
-                                 anonid="search-go-button"
-                                 type="menu-button">
-                <xul:menupopup class="searchbar-popup"
-                               anonid="searchbar-popup"
-                               position="after_start">
-                  <xul:menuseparator/>
-                  <xul:menuitem class="open-engine-manager"
-                                anonid="open-engine-manager"
-                                label="&cmd_engineManager.label;"
-                                accesskey="&cmd_engineManager.accesskey;"/>
-                </xul:menupopup>
-              </xul:toolbarbutton>
+                                 anonid="search-go-button" />
             </xul:hbox>
           </xul:textbox>
         </xul:box>
@@ -124,7 +119,7 @@
 
       <destructor><![CDATA[
         var os = Components.classes["@mozilla.org/observer-service;1"]
-                   .getService(Components.interfaces.nsIObserverService);
+                           .getService(Components.interfaces.nsIObserverService);
         os.removeObserver(this, "browser-search-engine-modified");
 
         // Make sure to break the cycle from _texbox to us.  Otherwise we leak
@@ -475,11 +470,12 @@
           }
 
           // Always open in a new tab on a middle-click; otherwise examine the
-          // preference and the alt key.
-          var newTab = (aEvent.button == 1);
+          // preference and the alt key.  If the user chose an autocomplete
+          // entry with the mouse, aEvent will be null, so treat it as no alt key.
+          var newTab = (aEvent && aEvent.button == 1);
           if (!newTab) {
             var newTabPref = textBox._prefBranch.getBoolPref("browser.search.openintab");
-            newTab = (aEvent.altKey ^ newTabPref);
+            newTab = ((aEvent && aEvent.altKey) ^ newTabPref);
           }
           this.doSearch(textValue, newTab);
         ]]></body>
@@ -515,24 +511,19 @@
       <handler event="click"><![CDATA[
         const target = event.originalTarget;
         var anonid = target.getAttribute("anonid");
-        if (anonid == "searchbar-engine-image") {
-          this._textbox.focus();
-          this._textbox.select();
-        }
         /* We can't use checkForMiddleClick() from utilityOverlay.js here
            because the button is using a command handler rather than an oncommand
            attribute.  The middle-click behavior itself (i.e., opening the search 
            in a new tab) is handled in handleSearchCommand().
         */
-        else if (anonid == "button" && event.button == 1) {
+        if (anonid == "search-go-button" && event.button == 1)
           this.handleSearchCommand(event);
-        }
       ]]></handler>
 
       <handler event="command"><![CDATA[
         const target = event.originalTarget;
         var anonid = target.getAttribute("anonid");
-        if (anonid == "button")
+        if (anonid == "search-go-button")
           this.handleSearchCommand(event);
         else if (anonid == "open-engine-manager")
           this.openManager(event);
@@ -547,7 +538,7 @@
 
   <binding id="searchbar-textbox"
       extends="chrome://global/content/bindings/autocomplete.xml#autocomplete">
-    <implementation>
+    <implementation implements="nsIObserver">
       <constructor><![CDATA[
         if (this._getParentSearchbar().parentNode.parentNode.localName ==
             "toolbarpaletteitem")
@@ -556,6 +547,10 @@
       ]]></constructor>
 
       <destructor><![CDATA[
+          var ps2 = Components.classes["@mozilla.org/preferences-service;1"]
+                              .getService(Components.interfaces.nsIPrefBranch2);
+          ps2.removeObserver("browser.search.suggest.enabled", this);
+
         // Because XBL and the customize toolbar code interacts poorly,
         // there may not be anything to remove here
         try {
@@ -566,9 +561,12 @@
       <field name="_stringBundle"/>
       <field name="_formHistSvc"/>
       <field name="_prefBranch"/>
+      <field name="_suggestMenuItem"/>
+      <field name="_suggestEnabled"/>
 
       <method name="initialize">
         <body><![CDATA[
+          // Initialize fields
           this._stringBundle = this._getParentSearchbar()._stringBundle;
           this._formHistSvc =
                    Components.classes["@mozilla.org/satchel/form-history;1"]
@@ -576,10 +574,13 @@
           this._prefBranch =
                     Components.classes["@mozilla.org/preferences-service;1"]
                               .getService(Components.interfaces.nsIPrefBranch);
+          this._suggestEnabled =
+              this._prefBranch.getBoolPref("browser.search.suggest.enabled");
 
           if (this._prefBranch.getBoolPref("browser.urlbar.clickSelectsAll"))
             this.setAttribute("clickSelectsAll", true);
 
+          // Add items to context menu and attach controller to handle them
           var textBox = document.getAnonymousElementByAttribute(this,
                                                 "anonid", "textbox-input-box");
           var cxmenu = document.getAnonymousElementByAttribute(textBox,
@@ -588,15 +589,47 @@
           var element = document.createElementNS(XUL_NS, "menuseparator");
           cxmenu.appendChild(element);
           element = document.createElementNS(XUL_NS, "menuitem");
-          const label = this._stringBundle.getString("cmd_clearHistory");
-          const akey = this._stringBundle.getString("cmd_clearHistory_accesskey");
+          var label = this._stringBundle.getString("cmd_clearHistory");
+          var akey = this._stringBundle.getString("cmd_clearHistory_accesskey");
           element.setAttribute("label", label);
           element.setAttribute("accesskey", akey);
           element.setAttribute("cmd", "cmd_clearhistory");
 
           cxmenu.appendChild(element);
 
+          element = document.createElementNS(XUL_NS, "menuitem");
+          label = this._stringBundle.getString("cmd_showSuggestions");
+          akey = this._stringBundle.getString("cmd_showSuggestions_accesskey");
+          element.setAttribute("anonid", "toggle-suggest-item");
+          element.setAttribute("label", label);
+          element.setAttribute("accesskey", akey);
+          element.setAttribute("cmd", "cmd_togglesuggest");
+          element.setAttribute("type", "checkbox");
+          element.setAttribute("checked", this._suggestEnabled);
+          element.setAttribute("autocheck", "false");
+
+          this._suggestMenuItem = element;
+          cxmenu.appendChild(element);
+
           this.controllers.appendController(this.searchbarController);
+
+          // Add observer for suggest preference
+          var ps2 = Components.classes["@mozilla.org/preferences-service;1"]
+                              .getService(Components.interfaces.nsIPrefBranch2);
+          ps2.addObserver("browser.search.suggest.enabled", this, false);
+        ]]></body>
+      </method>
+
+      <method name="observe">
+        <parameter name="aSubject"/>
+        <parameter name="aTopic"/>
+        <parameter name="aData"/>
+        <body><![CDATA[
+          if (aTopic == "nsPref:changed") {
+            this._suggestEnabled =
+              this._prefBranch.getBoolPref("browser.search.suggest.enabled");
+            this._suggestMenuItem.setAttribute("checked", this._suggestEnabled);
+          }
         ]]></body>
       </method>
 
@@ -656,6 +689,7 @@
         <body><![CDATA[
           var evt = aEvent || this.mEnterEvent;
           this._getParentSearchbar().handleSearchCommand(evt);
+          this.mEnterEvent = null;
         ]]></body>
       </method>
 
@@ -663,18 +697,34 @@
       <field name="searchbarController" readonly="true"><![CDATA[({
         _self: this,
         supportsCommand: function(aCommand) {
-          return aCommand == "cmd_clearhistory";
+          return aCommand == "cmd_clearhistory" ||
+                 aCommand == "cmd_togglesuggest";
         },
 
         isCommandEnabled: function(aCommand) {
-          return this._self._formHistSvc.nameExists(
-                 this._self.getAttribute("autocompletesearchparam"));
+          if (aCommand == "cmd_clearhistory") {
+            var param = this._self.getAttribute("autocompletesearchparam");
+            return this._self._formHistSvc.nameExists(param);
+          }
+          return true;
         },
 
         doCommand: function (aCommand) {
-          this._self._formHistSvc.removeEntriesForName(
-              this._self.getAttribute("autocompletesearchparam"));
-          this._self.value = "";
+          switch (aCommand) {
+            case "cmd_clearhistory":
+              var param = this._self.getAttribute("autocompletesearchparam");
+              this._self._formHistSvc.removeEntriesForName(param);
+              this._self.value = "";
+              break;
+            case "cmd_togglesuggest":
+              // The pref observer will update _suggestEnabled and the menu
+              // checkmark.
+              this._self._prefBranch.setBoolPref("browser.search.suggest.enabled",
+                                                 !this._self._suggestEnabled);
+              break;
+            default:
+              // do nothing with unrecognized command
+          }
         }
       })]]></field>
 
@@ -739,7 +789,6 @@
         var searchService = Components.classes[contractID]
                                       .getService(nsIACSearch);
         searchService.stopSearch();
-        this.mEnterEvent = null;
         this.onTextEntered(event);        
       ]]></handler>
 
@@ -762,5 +811,18 @@
       ]]></handler>
 
     </handlers>
+  </binding>
+
+  <binding id="searchbar-engine-button"
+           extends="chrome://browser/content/search/search.xml#searchbar-base">
+    <content>
+      <xul:stack flex="1">
+        <xul:hbox align="center" class="searchbar-engine-image-container">
+          <xul:image class="searchbar-engine-image" xbl:inherits="src"/>
+        </xul:hbox>
+        <xul:image class="searchbar-dropmarker-image"/>
+      </xul:stack>
+      <children/>
+    </content>
   </binding>
 </bindings>

@@ -20,6 +20,7 @@
 #
 # Contributor(s): 
 
+use Compress::Zlib;
 require 'tbglobals.pl';
 require 'header.pl';
 
@@ -69,7 +70,7 @@ $fulltext    = $form{fulltext};
 
 $enc_buildname = url_encode($buildname);
 
-die "the \"tree\" parameter must be provided\n" unless $tree;
+&require_only_one_tree();
 require "$tree/treedata.pl";
 
 $time_str = print_time($buildtime);
@@ -110,12 +111,12 @@ else
   $brief_filename =~ s/.gz$/.brief.html/;
   if (-T "$tree/$brief_filename" and -M _ > -M $tree/$logfile) 
   {
-    open(BRIEFFILE, "<$tree/$brief_filename");
+    open(BRIEFFILE, "<", "$tree/$brief_filename");
     print while (<BRIEFFILE>)
   }
   else
   {
-    open(BRIEFFILE, ">$tree/$brief_filename");
+    open(BRIEFFILE, ">", "$tree/$brief_filename");
 
     my $errors = print_summary();
     print_log($errors);
@@ -139,19 +140,22 @@ sub print_fragment {
 
   print "<a href='showlog.cgi?tree=$tree&errorparser=$errorparser&logfile=$logfile&buildtime=$buildtime&buildname=$enc_buildname&fulltext=1'>Show Full Build Log</a>";
 
-  open(BUILD_IN, "$gzip -d -c $tree/$logfile|");
+  my $gz = gzopen("$tree/$logfile","rb") or
+      warn "gzopen($tree/$logfile): $!\n";
 
   my $first_line = $linenum - ($numlines/2);
   my $last_line  = $linenum + ($numlines/2);
 
   print "<pre><b>.<br>.<br>.<br></b>";
-  while (<BUILD_IN>) {
+  my ($bytesread, $line);
+  while (defined($gz) && (($bytesread = $gz->gzreadline($line)) > 0)) {
     next if $. < $first_line;
     last if $. > $last_line;
     print "<b><font color='red'>" if $. == $linenum;
     print;
     print "</font></b>" if $. == $linenum;
   }
+  $gz->gzclose() if defined($gz);
   print "<b>.<br>.<br>.<br></b></pre>";
 
 }
@@ -194,7 +198,7 @@ sub print_notes {
   # Print notes
   #
   $found_note = 0;
-  open(NOTES,"<$tree/notes.txt") 
+  open(NOTES,"<", "$tree/notes.txt") 
     or print "<h2>warning: Couldn't open $tree/notes.txt </h2>\n";
   print "$buildtime, $buildname<br>\n";
   while (<NOTES>) {
@@ -224,18 +228,19 @@ sub print_summary {
 
   my $line_num = 0;
   my $error_num = 0;
-  open(BUILD_IN, "$gzip -d -c $tree/$logfile|");
-  while ($line = <BUILD_IN>) {
+  my $gz = gzopen("$tree/$logfile","rb") or
+      warn "gzopen($tree/$logfile): $!\n";
+  my ($bytesread, $line);
+  while (defined($gz) && (($bytesread = $gz->gzreadline($line)) > 0)) {
     $line_has_error = output_summary_line($line, $error_num);
-    
+
     if ($line_has_error) {
       push @log_errors, $line_num;        
       $error_num++;
     }
     $line_num++;
   }
-  close(BUILD_IN);
-
+  $gz->gzclose() if defined($gz);
   logprint('</PRE>');
 
   return \@log_errors;
@@ -254,8 +259,10 @@ sub print_log_section {
   print "<font size='+1'><b>.<br>.<br>.<br></b></font>";
   print "<pre>";
   my $ii = 0;
-  open BUILD_IN, "$gzip -d -c $tree/$logfile|";
-  while (<BUILD_IN>) {
+  my $gz = gzopen("$tree/$logfile", "rb") or
+      warn "gzopen($tree/$logfile): $!\n";
+  my ($bytesread, $line);
+  while (defined($gz) && (($bytesread = $gz->gzreadline($line)) > 0)) {
     $ii++;
     next if $ii < $first_line;
     last if $ii > $last_line;
@@ -265,7 +272,7 @@ sub print_log_section {
       print;
     }
   }
-  close BUILD_IN;
+  $gz->gzclose() if defined($gz);
   print "</pre>";
   print "<font size='+1'><b>.<br>.<br>.<br></b></font>";
   print "<a href='showlog.cgi?tree=$tree&logfile=$logfile&line="
@@ -279,13 +286,14 @@ sub print_log {
   logprint('<H2>Build Error Log</H2><pre>');
 
   $line_num = 0;
-  open(BUILD_IN, "$gzip -d -c $tree/$logfile|");
-  while ($line = <BUILD_IN>) {
+  my $gz = gzopen("$tree/$logfile", "rb") or
+      warn "gzopen($tree/$logfile): $!\n";
+  my ($bytesread, $line);
+  while (defined($gz) && (($bytesread = $gz->gzreadline($line)) > 0)) {
     output_log_line($line, $line_num, $errors);
     $line_num++;
   }
-  close(BUILD_IN);
-
+  $gz->gzclose() if defined($gz);
   logprint('</PRE><p>'
      ."<font size=+1>No More Errors</a></font>"
      .'<br><br><br>');

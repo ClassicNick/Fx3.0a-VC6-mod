@@ -1065,8 +1065,13 @@
           else
             firstTabAdded = gBrowser.addTab(aURIs[0], null, null, null, owner, false);
 
-          for (var i = 1; i < aURIs.length; ++i)
-            gBrowser.addTab(aURIs[i]);
+          var tabNum = this.mTabContainer.selectedIndex;
+          for (var i = 1; i < aURIs.length; ++i) {
+            var tab = gBrowser.addTab(aURIs[i]);
+            if (aReplace)
+              this.moveTabTo(tab, ++tabNum);
+          }
+
           if (!aLoadInBackground) {
             if (firstTabAdded) {
               // .selectedTab setter focuses the content area
@@ -1194,13 +1199,21 @@
               if (aAllowThirdPartyFixup) {
                 flags = nsIWebNavigation.LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP;
               }
-              // loadURIWithFlags throws for unknown schemes
-              try {
-                b.loadURIWithFlags(aURI, flags, aReferrerURI, aCharset, aPostData);
-              } catch (ex) {}
+              b.loadURIWithFlags(aURI, flags, aReferrerURI, aCharset, aPostData);
             }
 
-            this.mTabContainer.adjustTabstrip(false);
+            // |setTimeout| here to ensure we're post reflow
+            var _delayedUpdate = function(aTabContainer) {
+              aTabContainer.adjustTabstrip(false);
+
+              // XXXmano: this is a temporary workaround to bug 343585
+              // We need to manually update the scroll buttons disabled state
+              // if a tab was inserted to the overflow area or removed from it
+              // without any scrolling and when the tabbar has already
+              // overflowed.
+              aTabContainer.mTabstrip._updateScrollButtonsDisabledState();
+            }
+            setTimeout(_delayedUpdate, 0, this.mTabContainer);
 
             // Dispatch a new tab notification.  We do this once we're
             // entirely done, so that things are in a consistent state
@@ -1320,6 +1333,13 @@
             var ds = this.getBrowserForTab(aTab).docShell;
             if (ds.contentViewer && !ds.contentViewer.permitUnload())
               return;
+
+            // see notes in addTab
+            var _delayedUpdate = function(aTabContainer) {
+              aTabContainer.adjustTabstrip(true);
+              aTabContainer.mTabstrip._updateScrollButtonsDisabledState();
+            }
+            setTimeout(_delayedUpdate, 0, this.mTabContainer);
 
             // We're committed to closing the tab now.  
             // Dispatch a notification.
@@ -1615,13 +1635,33 @@
         </body>
       </method>
 
+      <method name="canDrop">
+        <parameter name="aEvent"/>
+        <parameter name="aDragSession"/>
+        <body>
+          <![CDATA[
+            if (aDragSession.sourceNode.parentNode == this.mTabContainer &&
+                (aEvent.screenX >= aDragSession.sourceNode.boxObject.screenX &&
+                 aEvent.screenX <= (aDragSession.sourceNode.boxObject.screenX +
+                                    aDragSession.sourceNode.boxObject.width)))
+                return false;
+            return true;
+          ]]>
+        </body>
+      </method>
+
       <method name="onDragOver">
         <parameter name="aEvent"/>
         <parameter name="aFlavour"/>
         <parameter name="aDragSession"/>
         <body>
           <![CDATA[
-            if (aDragSession.canDrop && aDragSession.sourceNode) {
+            if (aDragSession.sourceNode) {
+              if (!aDragSession.canDrop) {
+                this.mTabDropIndicatorBar.setAttribute('dragging','false');
+                return;
+              }
+
               var tabStrip = this.mTabContainer.mTabstrip;
 
               // autoscroll the tab strip if we drag over the scroll
@@ -1799,6 +1839,15 @@
         <parameter name="aDragSession"/>
         <body>
           <![CDATA[
+            if (aDragSession.sourceNode &&
+                aDragSession.sourceNode.parentNode == this.mTabContainer &&
+                aDragSession.canDrop) {
+              var target = aEvent.relatedTarget;
+              while (target && target != this.mStrip)
+                target = target.parentNode;
+              if (target)
+                return;
+            }
             this.mTabDropIndicatorBar.setAttribute('dragging','false');
           ]]>
         </body>
@@ -2408,7 +2457,8 @@
       </xul:arrowscrollbox>
       <xul:hbox class="tabs-alltabs-box" align="center" pack="end" 
                 anonid="alltabs-box">
-        <xul:toolbarbutton class="tabs-alltabs-button" type="menu">
+        <xul:toolbarbutton class="tabs-alltabs-button" type="menu" tooltip="_child">
+          <xul:tooltip anonid="alltabs-tooltip" label="&listAllTabs.label;"/>
           <xul:menupopup class="tabs-alltabs-popup"
                          anonid="alltabs-popup" 
                          position="after_end"/>
@@ -2539,31 +2589,20 @@
           // 3 - closeatend = close button at the end of the tabstrip
           switch (this.mCloseButtons) {
           case 0:
-            // TabClose fires before the tab closes, so if we have two tabs
-            // and we're removing the tab we should go to no closebutton
-            if ((aRemovingTab && this.childNodes.length == 2) ||
-                this.childNodes.length == 1)
-              this.setAttribute("closebuttons", "noclose");
-            else
-              this.setAttribute("closebuttons", "activetab");
+            this.setAttribute("closebuttons", "activetab");
             break;
           case 1:
             try {
-              // if we have only one tab, hide the closebutton
-              if ((aRemovingTab && this.childNodes.length == 2) ||
-                  this.childNodes.length == 1)
-                this.setAttribute("closebuttons", "noclose");
-              else {
-                var width = this.firstChild.boxObject.width;
-                // 0 width is an invalid value and indicates 
-                // an item without display, so ignore.
-                if (width > this.mTabClipWidth || width == 0)
-                  this.setAttribute("closebuttons", "alltabs");
-                else
-                  this.setAttribute("closebuttons", "activetab");
-              }
+              var width = this.firstChild.boxObject.width;
+              // 0 width is an invalid value and indicates 
+              // an item without display, so ignore.
+              if (width > this.mTabClipWidth || width == 0)
+                this.setAttribute("closebuttons", "alltabs");
+              else
+                this.setAttribute("closebuttons", "activetab");
             }
             catch (e) {
+              // XXXzeniko what error are we catching here?
             }
             break;
           case 2:
@@ -2614,6 +2653,11 @@
       <field name="mAllTabsBox">
         document.getAnonymousElementByAttribute(this, 
                                                 "anonid", "alltabs-box");
+      </field>
+      
+      <field name="mAllTabsTooltip">
+        document.getAnonymousElementByAttribute(this, 
+                                                "anonid", "alltabs-tooltip");
       </field>
 
       <field name="mFlashTimer">null</field>
@@ -2671,8 +2715,12 @@
       </method>
     </implementation>
     <handlers>
-      <handler event="TabClose"  action="this.adjustTabstrip(true);"/>
       <handler event="TabSelect" action="this._handleTabSelect();"/>
+      <handler event="popupshowing"><![CDATA[
+        if (event.originalTarget == this.mAllTabsTooltip &&
+            document.tooltipNode.parentNode == this.mAllTabsPopup)
+          event.preventDefault();
+      ]]></handler>
     </handlers>
   </binding>
 
@@ -2685,33 +2733,62 @@
   -->
   <binding id="tabbrowser-alltabs-popup"
            extends="chrome://global/content/bindings/popup.xml#popup">
-    <implementation>
-      <field name="_allTabsMenuItemCommandHandler" readonly="true">
-      <![CDATA[({
-        mOuter: this,
-        handleEvent: function handleEvent(aEvent) {
-          if (!aEvent.isTrusted) {
-            // Don't let untrusted events mess with tabs.
-            return;
-          }
-
+    <implementation implements="nsIDOMEventListener">
+      <method name="_menuItemOnCommand">
+        <parameter name="aEvent"/>
+        <body><![CDATA[
           // note, the tab may not be valid (if after we built the popup
           // the tab was closed.  but selectedItem setter handles that
           // gracefully.
-          var tabcontainer = document.getBindingParent(this.mOuter);
+          var tabcontainer = document.getBindingParent(this);
           tabcontainer.selectedItem = aEvent.target.tab;
-        }
-      })]]>
-      </field>
+        ]]></body>
+      </method>
+
+      <method name="_tabOnAttrModified">
+        <parameter name="aEvent"/>
+        <body><![CDATA[
+          var menuItem = aEvent.target.mCorrespondingMenuitem;
+          if (menuItem) {
+            var attrName = aEvent.attrName;
+            switch (attrName) {
+              case "label":
+              case "crop":
+              case "busy":
+              case "image":
+                if (aEvent.attrChange == aEvent.REMOVAL)
+                  menuItem.removeAttribute(attrName);
+                else
+                  menuItem.setAttribute(attrName, aEvent.newValue);
+            }
+          }
+        ]]></body>
+      </method>
+
+      <method name="handleEvent">
+        <parameter name="aEvent"/>
+        <body><![CDATA[
+          if (!aEvent.isTrusted)
+            return;
+
+          switch (aEvent.type) {
+            case "command":
+              this._menuItemOnCommand(aEvent);
+              break;
+            case "DOMAttrModified":
+              this._tabOnAttrModified(aEvent);
+          }
+        ]]></body>
+      </method>
 
       <method name="_onHidingAllTabsPopup">
         <body><![CDATA[
           // clear out the menu popup and remove the listeners
           while (this.hasChildNodes()) {
             var menuItem = this.lastChild;
-            menuItem.removeEventListener("command", 
-                                         this._allTabsMenuItemCommandHandler, 
-                                         false);
+            menuItem.removeEventListener("command", this, false);
+            menuItem.tab.removeEventListener("DOMAttrModified", this, false);
+            menuItem.tab.mCorrespondingMenuitem = null;
             this.removeChild(menuItem);
           }
         ]]></body>
@@ -2733,21 +2810,25 @@
               menuItem.setAttribute("selected", "true");
             menuItem.setAttribute("class", "menuitem-iconic alltabs-item");
 
-            // XXX todo
-            // what if uri, image/favicon, title change 
-            // while this popup is open?
-            // mano warns:  "be careful of leaks when addressing this."
             menuItem.setAttribute("label", curTab.label);
+            menuItem.setAttribute("crop", curTab.getAttribute("crop"));
             menuItem.setAttribute("image", curTab.getAttribute("image"));
-            var URI = curTab.linkedBrowser.currentURI.spec;
+            if (curTab.hasAttribute("busy"))
+              menuItem.setAttribute("busy", curTab.getAttribute("busy"));
+
             // XXX todo
             // statustext not working yet, since I don't have a menubar
             // reuse the menubar statustext logic
+            var URI = curTab.linkedBrowser.currentURI.spec;
             menuItem.setAttribute("statustext", URI);
+
+            // Keep some attributes of the menuitem in sync with its
+            // corresponding tab (e.g. the tab label)
+            curTab.mCorrespondingMenuitem = menuItem;
+            curTab.addEventListener("DOMAttrModified", this, false);
+
             menuItem.tab = curTab;
-            menuItem.addEventListener("command", 
-                                      this._allTabsMenuItemCommandHandler, 
-                                      false);
+            menuItem.addEventListener("command", this, false);
             this.appendChild(menuItem);
           }
         ]]></body>
@@ -2824,6 +2905,7 @@
 
     <implementation>
       <field name="mOverCloseButton">false</field>
+      <field name="mCorrespondingMenuitem">null</field>
     </implementation>
 
     <handlers>

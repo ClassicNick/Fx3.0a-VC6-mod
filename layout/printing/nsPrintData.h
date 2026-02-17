@@ -159,7 +159,6 @@ public:
   PRInt32                     mNumPagesPrinted;
   float                       mShrinkRatio;
   float                       mOrigDCScale;
-  float                       mOrigZoom;
 
   nsCOMPtr<nsIPrintSettings>  mPrintSettings;
   nsCOMPtr<nsIPrintOptions>   mPrintOptions;

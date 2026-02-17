@@ -660,8 +660,16 @@ generator_mark(JSContext *cx, JSObject *obj, void *arg)
     JSGenerator *gen;
 
     gen = (JSGenerator *) JS_GetPrivate(cx, obj);
-    if (gen && gen->state == JSGEN_RUNNING)
+    if (gen && gen->state != JSGEN_CLOSED) {
+        /*
+         * We must mark argv[-2], as js_MarkStackFrame will not.  Note that
+         * js_MarkStackFrame will mark thisp (argv[-1]) and actual arguments,
+         * plus any missing formals and local GC roots.
+         */
+        JS_ASSERT(!JSVAL_IS_PRIMITIVE(gen->frame.argv[-2]));
+        GC_MARK(cx, JSVAL_TO_GCTHING(gen->frame.argv[-2]), "generator");
         js_MarkStackFrame(cx, &gen->frame);
+    }
     return 0;
 }
 
@@ -694,7 +702,7 @@ js_NewGenerator(JSContext *cx, JSStackFrame *fp)
     nargs = JS_MAX(argc, fp->fun->nargs);
     nvars = fp->nvars;
     depth = fp->script->depth;
-    nslots = nargs + nvars + 2 * depth;
+    nslots = 2 + nargs + nvars + 2 * depth;
 
     /* Allocate obj's private data struct. */
     gen = (JSGenerator *)
@@ -724,6 +732,8 @@ js_NewGenerator(JSContext *cx, JSStackFrame *fp)
     JS_END_MACRO
 
     /* Copy argv, rval, and vars. */
+    *newsp++ = fp->argv[-2];
+    *newsp++ = fp->argv[-1];
     COPY_STACK_ARRAY(argv, argc, nargs);
     gen->frame.rval = fp->rval;
     COPY_STACK_ARRAY(vars, nvars, nvars);

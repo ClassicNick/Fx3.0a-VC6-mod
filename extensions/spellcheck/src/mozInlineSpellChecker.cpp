@@ -130,7 +130,21 @@ mozInlineSpellChecker::Init(nsIEditor *aEditor)
 
 nsresult mozInlineSpellChecker::Cleanup()
 {
-  return UnregisterEventListeners();
+  mNumWordsInSpellSelection = 0;
+  nsCOMPtr<nsISelection> spellCheckSelection;
+  nsresult rv = GetSpellCheckSelection(getter_AddRefs(spellCheckSelection));
+  if (NS_FAILED(rv)) {
+    // Ensure we still unregister event listeners (but return a failure code)
+    UnregisterEventListeners();
+  } else {
+    spellCheckSelection->RemoveAllRanges();
+
+    rv = UnregisterEventListeners();
+  }
+
+  mSpellCheck = nsnull;
+
+  return rv;
 }
 
 // mozInlineSpellChecker::CanEnableInlineSpellChecking
@@ -231,54 +245,43 @@ mozInlineSpellChecker::GetEnableRealTimeSpell(PRBool* aEnabled)
 NS_IMETHODIMP
 mozInlineSpellChecker::SetEnableRealTimeSpell(PRBool aEnabled)
 {
-  nsresult res = NS_OK;
+  if (!aEnabled) {
+    return Cleanup();
+  }
 
-  if (aEnabled) {
-    if (!mSpellCheck) {
-      nsCOMPtr<nsIEditorSpellCheck> spellchecker = do_CreateInstance("@mozilla.org/editor/editorspellchecker;1", &res);
-      if (NS_SUCCEEDED(res) && spellchecker)
-      {
-        nsCOMPtr<nsITextServicesFilter> filter = do_CreateInstance("@mozilla.org/editor/txtsrvfiltermail;1", &res);
-        spellchecker->SetFilter(filter);
-        nsCOMPtr<nsIEditor> editor (do_QueryReferent(mEditor));
-        res = spellchecker->InitSpellChecker(editor, PR_FALSE);
-        NS_ENSURE_SUCCESS(res, res);
+  if (!mSpellCheck) {
+    nsresult res = NS_OK;
+    nsCOMPtr<nsIEditorSpellCheck> spellchecker = do_CreateInstance("@mozilla.org/editor/editorspellchecker;1", &res);
+    if (NS_SUCCEEDED(res) && spellchecker)
+    {
+      nsCOMPtr<nsITextServicesFilter> filter = do_CreateInstance("@mozilla.org/editor/txtsrvfiltermail;1", &res);
+      spellchecker->SetFilter(filter);
+      nsCOMPtr<nsIEditor> editor (do_QueryReferent(mEditor));
+      res = spellchecker->InitSpellChecker(editor, PR_FALSE);
+      NS_ENSURE_SUCCESS(res, res);
 
-        nsCOMPtr<nsITextServicesDocument> tsDoc = do_CreateInstance("@mozilla.org/textservices/textservicesdocument;1", &res);
-        NS_ENSURE_SUCCESS(res, res);
+      nsCOMPtr<nsITextServicesDocument> tsDoc = do_CreateInstance("@mozilla.org/textservices/textservicesdocument;1", &res);
+      NS_ENSURE_SUCCESS(res, res);
 
-        res = tsDoc->SetFilter(filter);
-        NS_ENSURE_SUCCESS(res, res);
+      res = tsDoc->SetFilter(filter);
+      NS_ENSURE_SUCCESS(res, res);
 
-        res = tsDoc->InitWithEditor(editor);
-        NS_ENSURE_SUCCESS(res, res);
+      res = tsDoc->InitWithEditor(editor);
+      NS_ENSURE_SUCCESS(res, res);
 
-        mTextServicesDocument = tsDoc;
-        mSpellCheck = spellchecker;
+      mTextServicesDocument = tsDoc;
+      mSpellCheck = spellchecker;
 
-        // spell checking is enabled, register our event listeners to track navigation
-        RegisterEventListeners();
-      }
+      // spell checking is enabled, register our event listeners to track navigation
+      RegisterEventListeners();
     }
-
-    // spellcheck the current contents. SpellCheckRange doesn't supply a created
-    // range to DoSpellCheck, which in our case is the entire range. But this
-    // optimization doesn't matter because there is nothing in the spellcheck
-    // selection when starting, which triggers a better optimization.
-    res = SpellCheckRange(nsnull);
-  }
-  else 
-  {
-    nsCOMPtr<nsISelection> spellCheckSelection;
-    res = GetSpellCheckSelection(getter_AddRefs(spellCheckSelection));
-    NS_ENSURE_SUCCESS(res, res); 
-    spellCheckSelection->RemoveAllRanges();    
-    mNumWordsInSpellSelection = 0;
-    UnregisterEventListeners();
-    mSpellCheck = nsnull;
   }
 
-  return res;
+  // spellcheck the current contents. SpellCheckRange doesn't supply a created
+  // range to DoSpellCheck, which in our case is the entire range. But this
+  // optimization doesn't matter because there is nothing in the spellcheck
+  // selection when starting, which triggers a better optimization.
+  return SpellCheckRange(nsnull);
 }
 
 // mozInlineSpellChecker::SpellCheckAfterEditorChange
@@ -313,7 +316,6 @@ mozInlineSpellChecker::SpellCheckAfterEditorChange(
   rv = wordUtil.Init(mEditor);
   if (NS_FAILED(rv))
     return NS_OK; // editor doesn't like us
-  wordUtil.GetDocument()->FlushPendingNotifications(Flush_Style);
 
   nsCOMPtr<nsIDOMRange> wordRange;
   rv = wordUtil.GetRangeForWord(anchorNode, anchorOffset,
@@ -574,22 +576,33 @@ mozInlineSpellChecker::SpellCheckSelection(nsISelection* aSelection)
   PRInt32 startOffset, endOffset;
   nsCOMPtr<nsIDOMRange> checkRange;
 
+  // We have saved the ranges above. Clearing the spellcheck selection here
+  // isn't necessary (rechecking each word will modify it as necessary) but
+  // provides better performance. By ensuring that no ranges need to be
+  // removed in DoSpellCheck, we can save checking range inclusion which is
+  // slow.
+  spellCheckSelection->RemoveAllRanges();
+
+  mozInlineSpellWordUtil wordUtil;
+  rv = wordUtil.Init(mEditor);
+  if (NS_FAILED(rv))
+    return NS_OK; // editor doesn't like us
+
   for (index = 0; index < count; index++)
   {
     checkRange = do_QueryElementAt(ranges, index); 
     if (checkRange)
     {
-      checkRange->GetStartContainer(getter_AddRefs(startNode));
-      checkRange->GetEndContainer(getter_AddRefs(endNode));
-      checkRange->GetStartOffset(&startOffset);
-      checkRange->GetEndOffset(&endOffset);
-
-      rv |= SpellCheckBetweenNodes(startNode, startOffset, endNode,
-                                   endOffset, spellCheckSelection);
+      // We can consider this word as "added" since we know it has no spell
+      // check range over it that needs to be deleted. All the old ranges
+      // were cleared above.
+      rv = DoSpellCheck(wordUtil, checkRange, nsnull, checkRange,
+                        spellCheckSelection);
+      NS_ENSURE_SUCCESS(rv, rv);
     }
   }
 
-  return rv;
+  return NS_OK;
 }
 
 NS_IMETHODIMP mozInlineSpellChecker::WillCreateNode(const nsAString & aTag, nsIDOMNode *aParent, PRInt32 aPosition)

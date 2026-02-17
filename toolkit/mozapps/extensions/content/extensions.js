@@ -340,7 +340,7 @@ function showView(aView) {
                                                       : PREF_EXTENSIONS_GETMOREEXTENSIONSURL,
                                              Components.interfaces.nsIPrefLocalizedString).data;
       getMoreURL = getMoreURL.replace(/%APPID%/g, gAppID);
-      getMore.setAttribute("onclick", "openURL(\"" + getMoreURL + "\");");
+      getMore.setAttribute("getMoreURL", getMoreURL);
       if (getMore.hidden)
         getMore.hidden = false;
     }
@@ -588,7 +588,6 @@ function Shutdown()
   gExtensionsView.database.RemoveDataSource(gExtensionManager.datasource);
 
   gExtensionManager.removeUpdateListenerAt(gObserverIndex);
-//  gExtensionManager.rebuildProgressData();
 
   var os = Components.classes["@mozilla.org/observer-service;1"]
                      .getService(Components.interfaces.nsIObserverService);

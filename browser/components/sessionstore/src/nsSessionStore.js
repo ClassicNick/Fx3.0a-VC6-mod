@@ -76,9 +76,6 @@ const DEFAULT_ENABLED = true;
 // minimal interval between two save operations (in milliseconds)
 const DEFAULT_INTERVAL = 10000;
 
-// maximum number of closed windows remembered
-const DEFAULT_MAX_WINDOWS_UNDO = 10;
-
 // maximum number of closed tabs remembered (per window)
 const DEFAULT_MAX_TABS_UNDO = 10;
 
@@ -154,9 +151,6 @@ SessionStoreService.prototype = {
   // states for all currently opened windows
   _windows: {},
 
-  // storage for Undo Close Window
-  _closedWindows: [],
-
   // in case the last closed window ain't a navigator:browser one
   _lastWindowClosed: null,
 
@@ -172,10 +166,7 @@ SessionStoreService.prototype = {
    * Initialize the component
    */
   init: function sss_init(aWindow) {
-    if (!aWindow || aWindow == null)
-      return;
-
-    if (this._loadState == STATE_RUNNING)
+    if (!aWindow || this._loadState == STATE_RUNNING)
       return;
 
     this._prefBranch = Cc["@mozilla.org/preferences-service;1"].
@@ -198,7 +189,6 @@ SessionStoreService.prototype = {
     this._prefBranch.addObserver("sessionstore.interval", this, true);
     
     // observe prefs changes so we can modify stored data to match
-    this._prefBranch.addObserver("sessionstore.max_windows_undo", this, true);
     this._prefBranch.addObserver("sessionstore.max_tabs_undo", this, true);
 
     // get file references
@@ -246,10 +236,7 @@ SessionStoreService.prototype = {
     }
 
     // As this is called at delayedStartup, restoration must be initiated here
-    var windowLoad = function(self) {
-      self.onLoad(this);
-    }
-    aWindow.setTimeout(windowLoad, 0, this);
+    this.onLoad(aWindow);
   },
 
   /**
@@ -274,9 +261,6 @@ SessionStoreService.prototype = {
    * Handle notifications
    */
   observe: function sss_observe(aSubject, aTopic, aData) {
-    var observerService = Cc["@mozilla.org/observer-service;1"].
-                          getService(Ci.nsIObserverService);
-
     // for event listeners
     var _this = this;
 
@@ -315,8 +299,7 @@ SessionStoreService.prototype = {
         });
       });
       this._clearDisk();
-      // also clear all data about closed windows and tabs
-      this._closedWindows = [];
+      // also clear all data about closed tabs
       for (ix in this._windows) {
         this._windows[ix]._closedTabs = [];
       }
@@ -329,11 +312,6 @@ SessionStoreService.prototype = {
       break;
     case "nsPref:changed": // catch pref changes
       switch (aData) {
-      // if the user decreases the max number of windows they want preserved
-      // update our internal state to match that max
-      case "sessionstore.max_windows_undo":
-        this._closedWindows.splice(this._getPref("sessionstore.max_windows_undo", DEFAULT_MAX_WINDOWS_UNDO));
-        break;
       // if the user decreases the max number of closed tabs they want
       // preserved update our internal states to match that max
       case "sessionstore.max_tabs_undo":
@@ -484,10 +462,6 @@ SessionStoreService.prototype = {
       this._lastWindowClosed = this._windows[aWindow.__SSi];
       this._lastWindowClosed.title = aWindow.content.document.title;
       this._updateCookies([this._lastWindowClosed]);
-      
-      // add the window to the list of recently closed windows
-      this._closedWindows.unshift(this._lastWindowClosed);
-      this._closedWindows.splice(this._getPref("sessionstore.max_windows_undo", DEFAULT_MAX_WINDOWS_UNDO));
       
       // clear this window from the list
       delete this._windows[aWindow.__SSi];
@@ -655,40 +629,14 @@ SessionStoreService.prototype = {
     this.restoreWindow(window, aState, true);
   },
 
+// * get/set the opaque state of a closed window (for persisting it over sessions)
+
   getOpaqueWindowState: function sss_getOpaqueWindowState(aWindow) {
     return this._getWindowState(aWindow);
   },
 
   setOpaqueWindowState: function sss_setOpaqueWindowState(aWindow, aState) {
     this.restoreWindow(aWindow, aState, true);
-  },
-
-// * allow to reopen closed windows
-// * get/set the opaque state of a closed window (for persisting it over sessions)
-
-  get closedWindowCount() {
-    return this._closedWindows.length;
-  },
-
-  closedWindowNameAt: function sss_closedWindowNameAt(aIx) {
-    return aIx in this._closedWindows ? this._closedWindows[aIx].title : null;
-  },
-
-  get closedWindowData() {
-    return this._closedWindows;
-  },
-
-  set closedWindowData(aData) {
-    this._closedWindows = aData;
-  },
-
-  undoCloseWindow: function sss_undoCloseWindow(aIx) {
-    if (aIx in this._closedWindows) {
-      this._openWindowWithState({ windows: this._closedWindows.splice(aIx, 1) });
-    }
-    else {
-      Components.returnCode = Cr.NS_ERROR_INVALID_ARG;
-    }
   },
 
 // * allow to reopen closed tabs
@@ -1822,38 +1770,13 @@ SessionStoreService.prototype = {
    * @returns bool
    */
   _isCmdLineEmpty: function sss_isCmdLineEmpty(aWindow) {
-    if (!aWindow.arguments) {
-      return true;
-    }
-    
-    var homepage = null;
-    switch (this._getPref("startup.page", 1)) {
-    case 0:
-    case 3:
-      homepage = "about:blank";
-      break;
-    case 1:
-      try {
-        homepage = this._prefBranch.getComplexValue("startup.homepage", Ci.nsIPrefLocalizedString).data;
-      }
-      catch (ex) {
-        homepage = this._getPref("startup.homepage", "");
-      }
-      break;
-    case 2:
-      homepage = Cc["@mozilla.org/browser/global-history;2"].
-                 getService(Ci.nsIBrowserHistory).lastPageVisited;
-      break;
-    }
-    
-    for (var i = 0; i < aWindow.arguments.length; i++) {
-      var url = aWindow.arguments[i].split("\n")[0];
-      if (!url || url == homepage) {
-        aWindow.arguments.splice(i--, 1);
-      }
-    }
-    
-    return (aWindow.arguments.length == 0);
+    var defaultArgs = Cc["@mozilla.org/browser/clh;1"].
+                      getService(Ci.nsIBrowserHandler).defaultArgs;
+    if (aWindow.arguments && aWindow.arguments[0] &&
+        aWindow.arguments[0] == defaultArgs)
+      aWindow.arguments[0] = null;
+
+    return !aWindow.arguments || !aWindow.arguments[0];
   },
 
   /**

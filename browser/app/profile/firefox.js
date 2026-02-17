@@ -229,6 +229,15 @@ pref("browser.search.openintab", false);
 // send ping to the server to update
 pref("browser.search.update", true);
 
+// disable logging for the search service update system by default
+pref("browser.search.update.log", false);
+
+// Check whether we need to perform engine updates every 6 hours
+pref("browser.search.updateinterval", 6);
+
+// enable search suggestions by default
+pref("browser.search.suggest.enabled", true);
+
 pref("browser.history.grouping", "day");
 pref("browser.sessionhistory.max_entries", 50);
 
@@ -468,6 +477,8 @@ pref("browser.contentHandlers.types.1.type", "application/vnd.mozilla.maybe.feed
 pref("browser.contentHandlers.types.2.title", "My Yahoo");
 pref("browser.contentHandlers.types.2.uri", "http://add.my.yahoo.com/rss?url=%s");
 pref("browser.contentHandlers.types.2.type", "application/vnd.mozilla.maybe.feed");
+
+pref("browser.feeds.handler", "ask");
 #endif
 
 #ifdef MOZ_SAFE_BROWSING
