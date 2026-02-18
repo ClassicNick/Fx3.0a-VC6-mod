@@ -359,6 +359,8 @@ nsMacEventHandler::nsMacEventHandler(nsMacWindow* aTopLevelWidget,
 
   mMouseInWidgetHit = PR_FALSE;
 
+  ClearLastMouseUp();
+
   if (aEventDispatchHandler) {
     mEventDispatchHandler = aEventDispatchHandler;
     mOwnEventDispatchHandler = PR_FALSE;
@@ -366,11 +368,6 @@ nsMacEventHandler::nsMacEventHandler(nsMacWindow* aTopLevelWidget,
   else {
     mEventDispatchHandler = new nsMacEventDispatchHandler();
     mOwnEventDispatchHandler = PR_TRUE;
-  }
-
-  if (sLastActive == this) {
-    // This shouldn't happen
-    sLastActive = nsnull;
   }
 }
 
@@ -386,6 +383,11 @@ nsMacEventHandler::~nsMacEventHandler()
 
 	if (mOwnEventDispatchHandler)
 		delete mEventDispatchHandler;
+
+  if (sLastActive == this) {
+    // This shouldn't happen
+    sLastActive = nsnull;
+  }
 }
 
 
@@ -1078,6 +1080,8 @@ IsContextMenuKey(const nsKeyEvent& inKeyEvent)
 //-------------------------------------------------------------------------
 PRBool nsMacEventHandler::HandleUKeyEvent(const PRUnichar* text, long charCount, EventRecord& aOSEvent)
 {
+  ClearLastMouseUp();
+
   // The focused widget changed in HandleKeyUpDownEvent, so no NS_KEY_PRESS
   // events should be generated.
   if (mKeyIgnore)
@@ -1155,6 +1159,8 @@ PRBool nsMacEventHandler::HandleUKeyEvent(const PRUnichar* text, long charCount,
 //-------------------------------------------------------------------------
 void nsMacEventHandler::HandleActivateEvent(EventRef aEvent)
 {
+  ClearLastMouseUp();
+
   OSErr err;
   PRUint32 eventKind = ::GetEventKind(aEvent);
   PRBool isActive = (eventKind == kEventWindowActivated) ? PR_TRUE : PR_FALSE;
@@ -1721,18 +1727,14 @@ void nsMacEventHandler::ConvertOSEventToMouseEvent(
 														nsMouseEvent&		aMouseEvent,
 														PRUint32				aMessage)
 {
-	static UInt32	sLastMouseUp = 0;
-	static Point	sLastWhere = {0};
-	static SInt16	sLastClickCount = 0;
-	
 	// we're going to time double-clicks from mouse *up* to next mouse *down*
 	if (aMessage == NS_MOUSE_LEFT_BUTTON_UP  ||
       aMessage == NS_MOUSE_RIGHT_BUTTON_UP ||
       aMessage == NS_MOUSE_MIDDLE_BUTTON_UP)
 	{
 		// remember when this happened for the next mouse down
-		sLastMouseUp = aOSEvent.when;
-		sLastWhere = aOSEvent.where;
+		mLastMouseUpWhen = aOSEvent.when;
+		mLastMouseUpWhere = aOSEvent.where;
 	}
 	else if (aMessage == NS_MOUSE_LEFT_BUTTON_DOWN  ||
            aMessage == NS_MOUSE_RIGHT_BUTTON_DOWN ||
@@ -1741,19 +1743,19 @@ void nsMacEventHandler::ConvertOSEventToMouseEvent(
 		// now look to see if we want to convert this to a double- or triple-click
 		const short kDoubleClickMoveThreshold	= 5;
 		
-		if (((aOSEvent.when - sLastMouseUp) < ::GetDblTime()) &&
-				(((abs(aOSEvent.where.h - sLastWhere.h) < kDoubleClickMoveThreshold) &&
-				 	(abs(aOSEvent.where.v - sLastWhere.v) < kDoubleClickMoveThreshold))))
+		if (((aOSEvent.when - mLastMouseUpWhen) < ::GetDblTime()) &&
+				(((abs(aOSEvent.where.h - mLastMouseUpWhere.h) < kDoubleClickMoveThreshold) &&
+				 	(abs(aOSEvent.where.v - mLastMouseUpWhere.v) < kDoubleClickMoveThreshold))))
 		{		
-			sLastClickCount ++;
+			mClickCount ++;
 			
-//			if (sLastClickCount == 2)
+//			if (mClickCount == 2)
 //				aMessage = NS_MOUSE_LEFT_DOUBLECLICK;
 		}
 		else
 		{
 			// reset the click count, to count *this* click
-			sLastClickCount = 1;
+			mClickCount = 1;
 		}
 	}
 
@@ -1825,7 +1827,7 @@ void nsMacEventHandler::ConvertOSEventToMouseEvent(
         widgetHit = mTopLevelWidget;
 
     InitializeMouseEvent(aMouseEvent, widgetHitPoint, aOSEvent.modifiers,
-                         sLastClickCount);
+                         mClickCount);
 
     // nsEvent
     aMouseEvent.message     = aMessage;
@@ -2249,10 +2251,46 @@ PRBool
 nsMacEventHandler::HandleKeyUpDownEvent(EventHandlerCallRef aHandlerCallRef,
                                         EventRef aEvent)
 {
+  ClearLastMouseUp();
+
   PRUint32 eventKind = ::GetEventKind(aEvent);
   NS_ASSERTION(eventKind == kEventRawKeyDown ||
                eventKind == kEventRawKeyUp,
                "Unknown event kind");
+
+  OSStatus err = noErr;
+
+  PRBool sendToTSM = PR_FALSE;
+  if (eventKind == kEventRawKeyDown) {
+    if (mTSMDocument != ::TSMGetActiveDocument()) {
+      // If some TSM document other than the one that we use for this window
+      // is active, first try to call through to the TSM handler during a
+      // keydown.  This can happen if a plugin installs its own TSM handler
+      // and activates its own TSM document.
+      // This is done early, before dispatching NS_KEY_DOWN because the
+      // plugin will receive the keyDown event carried in the NS_KEY_DOWN.
+      // If an IME session is active, this could cause the plugin to accept
+      // both raw keydowns and text input from the IME session as input.
+      err = ::CallNextEventHandler(aHandlerCallRef, aEvent);
+      if (err == noErr) {
+        // Someone other than us handled the event.  Don't send NS_KEY_DOWN.
+        return PR_TRUE;
+      }
+
+      // No foreign handlers did anything.  Leave sendToTSM false so that
+      // no subsequent attempts to call through to the foreign handler will
+      // be made.
+    }
+    else {
+      // The TSM document matches the one corresponding to the window.
+      // An NS_KEY_DOWN event will be sent, and after that, it will be put
+      // back into the handler chain to go to the TSM input handlers.
+      // This assumes that the TSM handler is still ours, or that if
+      // something else changed the TSM handler, that the new handler will
+      // at least call through to ours.
+      sendToTSM = PR_TRUE;
+    }
+  }
 
   PRBool handled = PR_FALSE;
   nsWindow* focusedWidget = mEventDispatchHandler->GetActive();
@@ -2260,10 +2298,10 @@ nsMacEventHandler::HandleKeyUpDownEvent(EventHandlerCallRef aHandlerCallRef,
     focusedWidget = mTopLevelWidget;
 
   PRUint32 modifiers = 0;
-  OSStatus err = ::GetEventParameter(aEvent, kEventParamKeyModifiers,
-                                     typeUInt32, NULL,
-                                     sizeof(modifiers), NULL,
-                                     &modifiers);
+  err = ::GetEventParameter(aEvent, kEventParamKeyModifiers,
+                            typeUInt32, NULL,
+                            sizeof(modifiers), NULL,
+                            &modifiers);
   NS_ASSERTION(err == noErr, "Could not get kEventParamKeyModifiers");
 
   PRUint32 keyCode = 0;
@@ -2328,14 +2366,16 @@ nsMacEventHandler::HandleKeyUpDownEvent(EventHandlerCallRef aHandlerCallRef,
     mKeyHandled = PR_TRUE;
   }
 
-  // The event needs further processing.
-  //  - If no input method is active, an event will be delivered to the
-  //    kEventTextInputUnicodeForKeyEvent handler, which will call
-  //    HandleUKeyEvent, which takes care of dispatching NS_KEY_PRESS events.
-  //  - If an input method is active, an event will be delivered to the
-  //    kEventTextInputUpdateActiveInputArea handler, which will call
-  //    UnicodeHandleUpdateInputArea to handle the input session.
-  ::CallNextEventHandler(aHandlerCallRef, aEvent);
+  if (sendToTSM) {
+    // The event needs further processing.
+    //  - If no input method is active, an event will be delivered to the
+    //    kEventTextInputUnicodeForKeyEvent handler, which will call
+    //    HandleUKeyEvent, which takes care of dispatching NS_KEY_PRESS events.
+    //  - If an input method is active, an event will be delivered to the
+    //    kEventTextInputUpdateActiveInputArea handler, which will call
+    //    UnicodeHandleUpdateInputArea to handle the input session.
+    ::CallNextEventHandler(aHandlerCallRef, aEvent);
+  }
 
   mKeyHandled = lastHandled;
   mKeyIgnore = lastIgnore;
@@ -2347,6 +2387,8 @@ PRBool
 nsMacEventHandler::HandleKeyModifierEvent(EventHandlerCallRef aHandlerCallRef,
                                           EventRef aEvent)
 {
+  ClearLastMouseUp();
+
   PRBool handled = PR_FALSE;
   nsWindow* focusedWidget = mEventDispatchHandler->GetActive();
   if (!focusedWidget)
@@ -2411,4 +2453,13 @@ nsMacEventHandler::HandleKeyModifierEvent(EventHandlerCallRef aHandlerCallRef,
 
   mLastModifierState = modifiers;
   return handled;
+}
+
+void
+nsMacEventHandler::ClearLastMouseUp()
+{
+  mLastMouseUpWhere.h = 0;
+  mLastMouseUpWhere.v = 0;
+  mLastMouseUpWhen = 0;
+  mClickCount = 0;
 }

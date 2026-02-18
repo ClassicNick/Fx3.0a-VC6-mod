@@ -103,6 +103,7 @@ function PROT_PhishMsgDisplayerBase(msgDesc, browser, doc, url) {
   this.messageContentId_ = "safebrowsing-palm-message-content";
   this.extendedMessageId_ = "safebrowsing-palm-extended-message";
   this.showmoreLinkId_ = "safebrowsing-palm-showmore-link";
+  this.faqLinkId_ = "safebrowsing-palm-faq-link";
   this.urlbarIconId_ = "safebrowsing-urlbar-icon";
   this.refElementId_ = this.urlbarIconId_;
 
@@ -472,6 +473,13 @@ PROT_PhishMsgDisplayerBase.prototype.maybeAddScrollbars_ = function() {
 PROT_PhishMsgDisplayerBase.prototype.showMore_ = function() {
   this.doc_.getElementById(this.extendedMessageId_).hidden = false;
   this.doc_.getElementById(this.showmoreLinkId_).style.display = "none";
+
+  // set FAQ URL
+  var formatter = Components.classes["@mozilla.org/browser/URLFormatterService;1"]
+                            .getService(Components.interfaces.nsIURLFormatter);
+  var faqURL = formatter.formatURLPref("browser.safebrowsing.warning.infoURL", null);
+  var labelEl = this.doc_.getElementById(this.faqLinkId_);
+  labelEl.setAttribute("href", faqURL);
   
   this.maybeAddScrollbars_();
 }
@@ -641,8 +649,6 @@ PROT_PhishMsgDisplayerCanvas.prototype.showMessageAfterOverlay_ = function() {
   // (6)
   var link = this.doc_.getElementById('safebrowsing-palm-falsepositive-link');
   link.href = this.getReportErrorURL_();
-  link = this.doc_.getElementById('safebrowsing-palm-report-link');
-  link.href = this.getReportGenericURL_();
 
   // (7)
   this.doc_.getElementById(this.messageContentId_).focus();

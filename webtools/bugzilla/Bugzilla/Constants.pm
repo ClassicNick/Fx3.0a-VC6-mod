@@ -27,6 +27,7 @@
 #                 Christopher Aillon <christopher@aillon.com>
 #                 Shane H. W. Travis <travis@sedsystems.ca>
 #                 Max Kanat-Alexander <mkanat@bugzilla.org>
+#                 Marc Schumann <wurblzap@gmail.com>
 
 package Bugzilla::Constants;
 use strict;
@@ -108,9 +109,19 @@ use File::Basename;
 
     BUG_STATE_OPEN
 
+    USAGE_MODE_BROWSER
+    USAGE_MODE_CMDLINE
+    USAGE_MODE_WEBSERVICE
+
+    ERROR_MODE_WEBPAGE
+    ERROR_MODE_DIE
+    ERROR_MODE_DIE_SOAP_FAULT
+
     DB_MODULE
     ROOT_USER
     ON_WINDOWS
+
+    MAX_TOKEN_AGE
 );
 
 @Bugzilla::Constants::EXPORT_OK = qw(contenttypes);
@@ -286,9 +297,23 @@ use constant SENDMAIL_EXE => '/usr/lib/sendmail.exe';
 use constant FIELD_TYPE_UNKNOWN   => 0;
 use constant FIELD_TYPE_FREETEXT  => 1;
 
+# The maximum number of days a token will remain valid.
+use constant MAX_TOKEN_AGE => 3;
+
 # States that are considered to be "open" for bugs.
 use constant BUG_STATE_OPEN => ('NEW', 'REOPENED', 'ASSIGNED', 
                                 'UNCONFIRMED');
+
+# Usage modes. Default USAGE_MODE_BROWSER. Use with Bugzilla->usage_mode.
+use constant USAGE_MODE_BROWSER    => 0;
+use constant USAGE_MODE_CMDLINE    => 1;
+use constant USAGE_MODE_WEBSERVICE => 2;
+
+# Error modes. Default set by Bugzilla->usage_mode (so ERROR_MODE_WEBPAGE
+# usually). Use with Bugzilla->error_mode.
+use constant ERROR_MODE_WEBPAGE        => 0;
+use constant ERROR_MODE_DIE            => 1;
+use constant ERROR_MODE_DIE_SOAP_FAULT => 2;
 
 # Data about what we require for different databases.
 use constant DB_MODULE => {

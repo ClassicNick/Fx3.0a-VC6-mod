@@ -233,6 +233,30 @@
   -moz-image-region: rect(48px 360px 72px 336px) !important;
 } 
 
+#button-goback, #button-goforward[chromedir="rtl"] {
+  -moz-image-region: rect(0px 384px 24px 360px);
+}
+
+#button-goback:hover, #button-goforward:hover[chromedir="rtl"]{
+  -moz-image-region: rect(24px 384px 48px 360px);
+} 
+
+#button-goback[disabled], #button-goforward[chromedir="rtl"][disabled] {
+  -moz-image-region: rect(48px 384px 72px 360px) !important;
+} 
+
+#button-goforward, #button-goback[chromedir="rtl"] {
+  -moz-image-region: rect(0px 408px 24px 384px);
+}
+
+#button-goforward:hover, #button-goback:hover[chromedir="rtl"]{
+  -moz-image-region: rect(24px 408px 48px 384px);
+} 
+
+#button-goforward[disabled], #button-goback[chromedir="rtl"][disabled] {
+  -moz-image-region: rect(48px 408px 72px 384px) !important;
+} 
+
 /* ::::: small primary toolbar buttons ::::: */
 
 toolbar[iconsize="small"] .toolbarbutton-1 {
@@ -442,6 +466,30 @@ toolbar[iconsize="small"] #button-tag:hover {
 
 toolbar[iconsize="small"] #button-tag[disabled] {
   -moz-image-region: rect(32px 240px 48px 224px) !important;
+}
+
+toolbar[iconsize="small"] #button-goback {
+  -moz-image-region: rect(0px 256px 16px 240px);
+}
+
+toolbar[iconsize="small"] #button-goback:hover {
+  -moz-image-region: rect(16px 256px 32px 240px);
+} 
+
+toolbar[iconsize="small"] #button-goback[disabled] {
+  -moz-image-region: rect(32px 256px 48px 240px) !important;
+}
+
+toolbar[iconsize="small"] #button-goforward {
+  -moz-image-region: rect(0px 272px 16px 256px);
+}
+
+toolbar[iconsize="small"] #button-goforward:hover {
+  -moz-image-region: rect(16px 272px 32px 256px);
+} 
+
+toolbar[iconsize="small"] #button-goforward[disabled] {
+  -moz-image-region: rect(32px 272px 48px 256px) !important;
 }
 
 /* ::::: end small primary toolbar buttons ::::: */

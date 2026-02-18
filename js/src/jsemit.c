@@ -1511,18 +1511,8 @@ js_DefineCompileTimeConstant(JSContext *cx, JSCodeGenerator *cg, JSAtom *atom,
     return JS_TRUE;
 }
 
-/*
- * Find a lexically scoped variable (one declared by let, catch, or an array
- * comprehension) named by atom, looking in tc's compile-time scopes.
- *
- * If a WITH statement is reached along the scope stack, return its statement
- * info record, so callers can tell that atom is ambiguous.  If atom is found,
- * set *slotp to its stack slot, and return the statement info record in which
- * it was found directly.  Otherwise (atom was not found and no WITH statement
- * was reached) return null.
- */
-static JSStmtInfo *
-LexicalLookup(JSTreeContext *tc, JSAtom *atom, jsint *slotp)
+JSStmtInfo *
+js_LexicalLookup(JSTreeContext *tc, JSAtom *atom, jsint *slotp)
 {
     JSStmtInfo *stmt;
     JSObject *obj;
@@ -1530,10 +1520,9 @@ LexicalLookup(JSTreeContext *tc, JSAtom *atom, jsint *slotp)
     JSScopeProperty *sprop;
     jsval v;
 
-    *slotp = -1;
     for (stmt = tc->topScopeStmt; stmt; stmt = stmt->downScope) {
         if (stmt->type == STMT_WITH)
-            return stmt;
+            break;
 
         JS_ASSERT(stmt->flags & SIF_SCOPE);
         obj = ATOM_TO_OBJECT(stmt->atom);
@@ -1543,18 +1532,22 @@ LexicalLookup(JSTreeContext *tc, JSAtom *atom, jsint *slotp)
         if (sprop) {
             JS_ASSERT(sprop->flags & SPROP_HAS_SHORTID);
 
-            /*
-             * Use LOCKED_OBJ_GET_SLOT since we know obj is single-threaded
-             * and owned by this compiler activation.
-             */
-            v = LOCKED_OBJ_GET_SLOT(obj, JSSLOT_BLOCK_DEPTH);
-            JS_ASSERT(JSVAL_IS_INT(v) && JSVAL_TO_INT(v) >= 0);
-            *slotp = JSVAL_TO_INT(v) + sprop->shortid;
+            if (slotp) {
+                /*
+                 * Use LOCKED_OBJ_GET_SLOT since we know obj is single-
+                 * threaded and owned by this compiler activation.
+                 */
+                v = LOCKED_OBJ_GET_SLOT(obj, JSSLOT_BLOCK_DEPTH);
+                JS_ASSERT(JSVAL_IS_INT(v) && JSVAL_TO_INT(v) >= 0);
+                *slotp = JSVAL_TO_INT(v) + sprop->shortid;
+            }
             return stmt;
         }
     }
 
-    return NULL;
+    if (slotp)
+        *slotp = -1;
+    return stmt;
 }
 
 JSBool
@@ -1586,7 +1579,7 @@ js_LookupCompileTimeConstant(JSContext *cx, JSCodeGenerator *cg, JSAtom *atom,
         obj = fp->varobj;
         if (obj == fp->scopeChain) {
             /* XXX this will need revising when 'let const' is added. */
-            stmt = LexicalLookup(&cg->treeContext, atom, &slot);
+            stmt = js_LexicalLookup(&cg->treeContext, atom, &slot);
             if (stmt)
                 return JS_TRUE;
 
@@ -1878,7 +1871,7 @@ BindNameToSlot(JSContext *cx, JSTreeContext *tc, JSParseNode *pn)
      * block-locals.
      */
     atom = pn->pn_atom;
-    stmt = LexicalLookup(tc, atom, &slot);
+    stmt = js_LexicalLookup(tc, atom, &slot);
     if (stmt) {
         if (stmt->type == STMT_WITH)
             return JS_TRUE;
@@ -2152,8 +2145,23 @@ CheckSideEffects(JSContext *cx, JSTreeContext *tc, JSParseNode *pn,
              * is another assignment overwriting this one's ostensible effect,
              * because the left operand may be a property with a setter that
              * has side effects.
+             *
+             * The only exception is assignment of a useless value to a const
+             * declared in the function currently being compiled.
              */
-            *answer = JS_TRUE;
+            pn2 = pn->pn_left;
+            if (pn2->pn_type != TOK_NAME) {
+                *answer = JS_TRUE;
+            } else {
+                if (!BindNameToSlot(cx, tc, pn2))
+                    return JS_FALSE;
+                if (!CheckSideEffects(cx, tc, pn->pn_right, answer))
+                    return JS_FALSE;
+                if (!*answer &&
+                    (pn2->pn_slot < 0 || !(pn2->pn_attrs & JSPROP_READONLY))) {
+                    *answer = JS_TRUE;
+                }
+            }
         } else {
             if (pn->pn_type == TOK_LB) {
                 pn2 = pn->pn_left;
@@ -4793,7 +4801,17 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 if (!CheckSideEffects(cx, &cg->treeContext, pn2, &useful))
                     return JS_FALSE;
             }
-            if (!useful) {
+
+            /*
+             * Don't eliminate apparently useless expressions if they are
+             * labeled expression statements.  The tc->topStmt->update test
+             * catches the case where we are nesting in js_EmitTree for a
+             * labeled compound statement.
+             */
+            if (!useful &&
+                (!cg->treeContext.topStmt ||
+                 cg->treeContext.topStmt->type != STMT_LABEL ||
+                 cg->treeContext.topStmt->update < CG_OFFSET(cg))) {
                 CG_CURRENT_LINE(cg) = pn2->pn_pos.begin.lineno;
                 if (!js_ReportCompileErrorNumber(cx, cg,
                                                  JSREPORT_CG |
@@ -4996,10 +5014,20 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 
         /* If += etc., emit the binary operator with a decompiler note. */
         if (op != JSOP_NOP) {
-            if (js_NewSrcNote(cx, cg, SRC_ASSIGNOP) < 0 ||
-                js_Emit1(cx, cg, op) < 0) {
-                return JS_FALSE;
+            /*
+             * Take care to avoid SRC_ASSIGNOP if the left-hand side is a
+             * const declared in a function (i.e., with non-negative pn_slot
+             * and JSPROP_READONLY in pn_attrs), as in this case (just a bit
+             * further below) we will avoid emitting the assignment op.
+             */
+            if (pn2->pn_type != TOK_NAME ||
+                pn2->pn_slot < 0 ||
+                !(pn2->pn_attrs & JSPROP_READONLY)) {
+                if (js_NewSrcNote(cx, cg, SRC_ASSIGNOP) < 0)
+                    return JS_FALSE;
             }
+            if (js_Emit1(cx, cg, op) < 0)
+                return JS_FALSE;
         }
 
         /* Left parts such as a.b.c and a[b].c need a decompiler note. */
@@ -5062,22 +5090,24 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         if (jmp < 0)
             return JS_FALSE;
         CHECK_AND_SET_JUMP_OFFSET_AT(cx, cg, beq);
+
+        /*
+         * Because each branch pushes a single value, but our stack budgeting
+         * analysis ignores branches, we now have to adjust cg->stackDepth to
+         * ignore the value pushed by the first branch.  Execution will follow
+         * only one path, so we must decrement cg->stackDepth.  Failing to do
+         * this will foil code, such as the try/catch/finally exception
+         * handling code generator, that samples cg->stackDepth for use at
+         * runtime (JSOP_SETSP) or let expressions and statements, which must
+         * use the stack depth to find locals correctly.
+         */
+        JS_ASSERT(cg->stackDepth > 0);
+        cg->stackDepth--;
         if (!js_EmitTree(cx, cg, pn->pn_kid3))
             return JS_FALSE;
         CHECK_AND_SET_JUMP_OFFSET_AT(cx, cg, jmp);
         if (!js_SetSrcNoteOffset(cx, cg, noteIndex, 0, jmp - beq))
             return JS_FALSE;
-
-        /*
-         * Because each branch pushes a single value, but our stack budgeting
-         * analysis ignores branches, we now have two values accounted for in
-         * cg->stackDepth.  Execution will follow only one path, so we must
-         * decrement cg->stackDepth here.  Failing to do this will foil code,
-         * such as the try/catch/finally exception handling code generator,
-         * that samples cg->stackDepth for use at runtime (JSOP_SETSP).
-         */
-        JS_ASSERT(cg->stackDepth > 1);
-        cg->stackDepth--;
         break;
 
       case TOK_OR:

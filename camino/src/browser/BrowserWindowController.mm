@@ -127,15 +127,15 @@
 
 #include "nsAppDirectoryServiceDefs.h"
 
-static NSString* const BrowserToolbarIdentifier	        = @"Browser Window Toolbar Combined";
-static NSString* const BackToolbarItemIdentifier	      = @"Back Toolbar Item";
-static NSString* const ForwardToolbarItemIdentifier	    = @"Forward Toolbar Item";
-static NSString* const ReloadToolbarItemIdentifier	    = @"Reload Toolbar Item";
-static NSString* const StopToolbarItemIdentifier	      = @"Stop Toolbar Item";
-static NSString* const HomeToolbarItemIdentifier	      = @"Home Toolbar Item";
+static NSString* const BrowserToolbarIdentifier         = @"Browser Window Toolbar Combined";
+static NSString* const BackToolbarItemIdentifier        = @"Back Toolbar Item";
+static NSString* const ForwardToolbarItemIdentifier     = @"Forward Toolbar Item";
+static NSString* const ReloadToolbarItemIdentifier      = @"Reload Toolbar Item";
+static NSString* const StopToolbarItemIdentifier        = @"Stop Toolbar Item";
+static NSString* const HomeToolbarItemIdentifier        = @"Home Toolbar Item";
 static NSString* const CombinedLocationToolbarItemIdentifier  = @"Combined Location Toolbar Item";
-static NSString* const BookmarksToolbarItemIdentifier	  = @"Sidebar Toolbar Item";    // note legacy name
-static NSString* const PrintToolbarItemIdentifier	      = @"Print Toolbar Item";
+static NSString* const BookmarksToolbarItemIdentifier   = @"Sidebar Toolbar Item";    // note legacy name
+static NSString* const PrintToolbarItemIdentifier       = @"Print Toolbar Item";
 static NSString* const ThrobberToolbarItemIdentifier    = @"Throbber Toolbar Item";
 static NSString* const SearchToolbarItemIdentifier      = @"Search Toolbar Item";
 static NSString* const ViewSourceToolbarItemIdentifier  = @"View Source Toolbar Item";
@@ -233,7 +233,7 @@ public:
 //////////////////////////////////////
 @interface AutoCompleteTextFieldEditor : NSTextView
 {
-  NSFont* mDefaultFont;	// will be needed if editing empty field
+  NSFont* mDefaultFont; // will be needed if editing empty field
   NSUndoManager *mUndoManager; //we handle our own undo to avoid stomping on bookmark undo
 }
 - (id)initWithFrame:(NSRect)bounds defaultFont:(NSFont*)defaultFont;
@@ -271,7 +271,7 @@ public:
       if ([self shouldChangeTextInRange:aRange replacementString:newText]) {
         [[self textStorage] replaceCharactersInRange:aRange withString:newText];
         if (NSMaxRange(aRange) == 0 && mDefaultFont) // will only be true if the field is empty
-          [self setFont:mDefaultFont];	// wrong font will be used otherwise
+          [self setFont:mDefaultFont]; // wrong font will be used otherwise
         [self didChangeText];
       }
       // after a paste, the insertion point should be after the pasted text
@@ -466,11 +466,11 @@ enum BWCOpenDest {
 - (void)openNewTabWithDescriptor:(nsISupports*)aDesc displayType:(PRUint32)aDisplayType loadInBackground:(BOOL)aLoadInBG;
 - (BOOL)isPageTextFieldFocused;
 - (void)performSearch:(SearchTextField *)inSearchField inView:(BWCOpenDest)inDest inBackground:(BOOL)inLoadInBG;
+- (int)historyIndexOfPageBeforeBookmarkManager;
 - (void)goToLocationFromToolbarURLField:(AutoCompleteTextField *)inURLField inView:(BWCOpenDest)inDest inBackground:(BOOL)inLoadInBG;
 
 - (BrowserTabViewItem*)tabForBrowser:(BrowserWrapper*)inWrapper;
 - (BookmarkViewController*)bookmarkViewControllerForCurrentTab;
-- (void)bookmarkableTitle:(NSString **)outTitle URL:(NSString**)outURLString forWrapper:(BrowserWrapper*)inWrapper;
 - (void)sessionHistoryItemAtRelativeOffset:(int)indexOffset forWrapper:(BrowserWrapper*)inWrapper title:(NSString**)outTitle URL:(NSString**)outURLString;
 - (NSString *)locationToolTipWithFormat:(NSString *)format title:(NSString *)backTitle URL:(NSString *)backURL;
 
@@ -554,7 +554,7 @@ enum BWCOpenDest {
   if ([self isResponderGeckoView:[[self window] firstResponder]])
   {
     BrowserWindow* browserWin = (BrowserWindow*)[self window];
-    [browserWin setSuppressMakeKeyFront:YES];	// prevent gecko focus bringing the window to the front
+    [browserWin setSuppressMakeKeyFront:YES]; // prevent gecko focus bringing the window to the front
     [mBrowserView setBrowserActive:inActive];
     [browserWin setSuppressMakeKeyFront:NO];
   }
@@ -952,9 +952,9 @@ enum BWCOpenDest {
 
 - (NSSize)windowWillResize:(NSWindow *)sender toSize:(NSSize)proposedFrameSize
 {
-	//if ( mChromeMask && !(mChromeMask & nsIWebBrowserChrome::CHROME_WINDOW_RESIZE) )
+  //if ( mChromeMask && !(mChromeMask & nsIWebBrowserChrome::CHROME_WINDOW_RESIZE) )
   //  return [[self window] frame].size;
-	return proposedFrameSize;
+  return proposedFrameSize;
 }
 
 #pragma mark -
@@ -1413,7 +1413,7 @@ enum BWCOpenDest {
     return enable;
   }
   else if (action == @selector(manageBookmarks:))
-    return [[mBrowserView getBrowserView] canGoBack] || (![self bookmarkManagerIsVisible]);
+    return ![self bookmarkManagerIsVisible] || [self canHideBookmarks];
   else if (action == @selector(reload:))
     return [[self getBrowserWrapper] canReload];
   else if (action == @selector(stop:))
@@ -1799,28 +1799,6 @@ enum BWCOpenDest {
   return nil;
 }
 
-// this gets the previous entry in session history if bookmarks are showing
-- (void)bookmarkableTitle:(NSString**)outTitle URL:(NSString**)outURLString forWrapper:(BrowserWrapper*)inWrapper
-{
-  *outTitle = nil;
-  *outURLString = nil;
-
-  NSString* curTitle = nil;
-  NSString* curURL = nil;
-  [inWrapper getTitle:&curTitle andHref:&curURL];
-
-  // if we're currently showing history or bookmarks, hand back the last URL.
-  if ([[curURL lowercaseString] isEqualToString:@"about:bookmarks"] ||
-      [[curURL lowercaseString] isEqualToString:@"about:history"])
-  {
-    // get the previous title and URL from the session history
-    [self sessionHistoryItemAtRelativeOffset:-1 forWrapper:inWrapper title:&curTitle URL:&curURL ];
-  }
-
-  *outTitle = curTitle;
-  *outURLString = curURL;
-}
-
 // indexOffset denotes the number of entries forward or back in session history to look
 - (void)sessionHistoryItemAtRelativeOffset:(int)indexOffset forWrapper:(BrowserWrapper*)inWrapper title:(NSString**)outTitle URL:(NSString**)outURLString
 {
@@ -1891,7 +1869,7 @@ enum BWCOpenDest {
 - (void)focusURLBar
 {
   [mBrowserView setBrowserActive:NO];
-	[mURLBar selectText:self];
+  [mURLBar selectText:self];
 }
 
 - (void)beginLocationSheet
@@ -1974,8 +1952,11 @@ enum BWCOpenDest {
 //
 -(IBAction)manageBookmarks:(id)aSender
 {
-  if ([self bookmarkManagerIsVisible])
-    [self back:aSender];
+  if ([self bookmarkManagerIsVisible]) {
+    int previousPage = [self historyIndexOfPageBeforeBookmarkManager];
+    if (previousPage != -1)
+      [[[self getBrowserWrapper] getBrowserView] goToSessionHistoryIndex:previousPage];
+  }
   else
     [self loadURL:@"about:bookmarks"];
 
@@ -2006,6 +1987,45 @@ enum BWCOpenDest {
   // an item that we wish to reveal. However, it belongs to a different
   // data source than the one we just created. need a way to find the one
   // to reveal...
+}
+
+//
+// historyIndexOfPageBeforeBookmarkManager
+//
+// Returns the index in session history of the last page visited before viewing the bookmarks manager
+//
+- (int)historyIndexOfPageBeforeBookmarkManager
+{
+  if (![self bookmarkManagerIsVisible])
+    return -1;
+
+  nsIWebNavigation* webNav = [self currentWebNavigation];
+  if (!webNav)
+    return -1;
+
+  nsCOMPtr<nsISHistory> sessionHistory;
+  webNav->GetSessionHistory(getter_AddRefs(sessionHistory));
+  if (!sessionHistory)
+    return -1;
+
+  PRInt32 curEntryIndex;
+  sessionHistory->GetIndex(&curEntryIndex);
+
+  for (int i = curEntryIndex - 1; i >= 0; --i) {
+    nsCOMPtr<nsIHistoryEntry> entry;
+    sessionHistory->GetEntryAtIndex(i, PR_FALSE, getter_AddRefs(entry));
+
+    nsCAutoString uriSpec;
+    nsCOMPtr<nsIURI> entryURI;
+    entry->GetURI(getter_AddRefs(entryURI));
+    if (entryURI)
+      entryURI->GetSpec(uriSpec);
+
+    if (!(uriSpec.EqualsLiteral("about:bookmarks") || uriSpec.EqualsLiteral("about:history")))
+      return i;
+  }
+
+  return -1;
 }
 
 - (IBAction)goToLocationFromToolbarURLField:(id)sender
@@ -2416,7 +2436,7 @@ enum BWCOpenDest {
 
 - (BOOL)canHideBookmarks
 {
-  return [self bookmarkManagerIsVisible] && [[mBrowserView getBrowserView] canGoBack];
+  return [self historyIndexOfPageBeforeBookmarkManager] != -1;
 }
 
 - (BOOL)singleBookmarkIsSelected
@@ -2437,7 +2457,7 @@ enum BWCOpenDest {
     BrowserWrapper* browserWrapper = (BrowserWrapper*)[[mTabBrowser tabViewItemAtIndex:i] view];
     NSString* curTitleString = nil;
     NSString* hrefString = nil;
-    [self bookmarkableTitle:&curTitleString URL:&hrefString forWrapper:browserWrapper];
+    [browserWrapper getTitle:&curTitleString andHref:&hrefString];
 
     NSMutableDictionary* itemInfo = [NSMutableDictionary dictionaryWithObject:hrefString forKey:kAddBookmarkItemURLKey];
 
@@ -2665,7 +2685,7 @@ enum BWCOpenDest {
 - (NSString*)getContextMenuNodeDocumentURL
 {
   if (!mDataOwner->mContextMenuNode) return @"";
-  
+
   nsCOMPtr<nsIDOMDocument> ownerDoc;
   mDataOwner->mContextMenuNode->GetOwnerDocument(getter_AddRefs(ownerDoc));
 
@@ -2675,7 +2695,7 @@ enum BWCOpenDest {
   nsCOMPtr<nsIDOMLocation> location;
   nsDoc->GetLocation(getter_AddRefs(location));
   if (!location) return @"";
-	
+
   nsAutoString urlStr;
   location->GetHref(urlStr);
   return [NSString stringWith_nsAString:urlStr];
@@ -3139,7 +3159,7 @@ enum BWCOpenDest {
   if (aLoadInBG)
   {
     BrowserWindow* browserWin = (BrowserWindow*)[browser window];
-    [browserWin setSuppressMakeKeyFront:YES];	// prevent gecko focus bringing the window to the front
+    [browserWin setSuppressMakeKeyFront:YES]; // prevent gecko focus bringing the window to the front
     [browserWin orderWindow: NSWindowBelow relativeTo: [[self window] windowNumber]];
     [browserWin setSuppressMakeKeyFront:NO];
   }
@@ -3236,8 +3256,8 @@ enum BWCOpenDest {
 
 - (void)openURLArray:(NSArray*)urlArray tabOpenPolicy:(ETabOpenPolicy)tabPolicy allowPopups:(BOOL)inAllowPopups
 {
-  int curNumTabs	 = [mTabBrowser numberOfTabViewItems];
-  int numItems 		 = (int)[urlArray count];
+  int curNumTabs = [mTabBrowser numberOfTabViewItems];
+  int numItems   = (int)[urlArray count];
   int selectedTabIndex = [[mTabBrowser tabViewItems] indexOfObject:[mTabBrowser selectedTabViewItem]];
   BrowserTabViewItem* tabViewToSelect = nil;
   
@@ -3549,7 +3569,7 @@ enum BWCOpenDest {
     menuPrototype = mPageMenu;
     [mBackItem    setEnabled: [[mBrowserView getBrowserView] canGoBack]];
     [mForwardItem setEnabled: [[mBrowserView getBrowserView] canGoForward]];
-    [mCopyItem		setEnabled:hasSelection];
+    [mCopyItem    setEnabled:hasSelection];
   }
     
   if (mDataOwner->mContextMenuNode) {
@@ -4064,9 +4084,9 @@ enum BWCOpenDest {
 //
 - (BOOL)loadBookmarkBarIndex:(unsigned short)inIndex openBehavior:(EBookmarkOpenBehavior)inBehavior
 {
-  NSArray* bookmarkBarChildren     = [[[BookmarkManager sharedBookmarkManager] toolbarFolder] childArray];
-  unsigned int loadableItemIndex   = 0; // holds the number of loadable items we've cycled through
-  NSEnumerator* enumerator         = [bookmarkBarChildren objectEnumerator];
+  NSArray* bookmarkBarChildren   = [[[BookmarkManager sharedBookmarkManager] toolbarFolder] childArray];
+  unsigned int loadableItemIndex = 0; // holds the number of loadable items we've cycled through
+  NSEnumerator* enumerator       = [bookmarkBarChildren objectEnumerator];
   id item;
 
   // We cycle through all the toolbar items.  When we've skipped enough loadable items
@@ -4079,7 +4099,7 @@ enum BWCOpenDest {
   }
 
   if (item)
-    [[NSApp delegate] loadBookmark:item withWindowController:self openBehavior:inBehavior];
+    [[NSApp delegate] loadBookmark:item withBWC:self openBehavior:inBehavior reverseBgToggle:NO];
   else // We ran out of toolbar items before finding the nth loadable one
     NSBeep();
 

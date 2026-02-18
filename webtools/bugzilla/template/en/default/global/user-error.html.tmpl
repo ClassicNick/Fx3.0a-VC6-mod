@@ -158,6 +158,8 @@
       classifications
     [% ELSIF object == "components" %]
       components
+    [% ELSIF object == "custom_fields" %]
+      custom fields
     [% ELSIF object == "flagtypes" %]
       flag types
     [% ELSIF object == "group_access" %]
@@ -307,9 +309,27 @@
     Product [% product FILTER html %] does not have a component
     named [% name FILTER html %].
 
-  [% ELSIF error == "product_doesnt_exist" %]
-    [% title = "Specified Product Does Not Exist" %]
-    The product '[% product FILTER html %]' does not exist.
+  [% ELSIF error == "customfield_already_exists" %]
+    [% title = "Field Already Exists" %]
+    The field '[% field.name FILTER html %]' ([% field.description FILTER html %])
+    already exists. Please choose another name.
+
+  [% ELSIF error == "customfield_nonexistent" %]
+    [% title = "Unknown Custom Field" %]
+    There is no custom field with the name '[% name FILTER html %]'.
+
+  [% ELSIF error == "customfield_invalid_sortkey" %]
+    [% title = "Invalid Sortkey for Field" %]
+    The sortkey [% sortkey FILTER html %] that you have provided for
+    the '[% name FILTER html %]' field is not a valid positive integer.
+
+  [% ELSIF error == "customfield_missing_description" %]
+    [% title = "Missing Description for Field" %]
+    You must enter a description for the '[% name FILTER html %]' field.
+
+  [% ELSIF error == "customfield_missing_name" %]
+    [% title = "Missing Name for Field" %]
+    You must enter a name for this field.
 
   [% ELSIF error == "dependency_loop_multi" %]
     [% title = "Dependency Loop Detected" %]
@@ -982,7 +1002,21 @@
 
   [% ELSIF error == "no_bug_ids" %]
     [% title = BLOCK %]No [% terms.Bugs %] Chosen[% END %]
-    You didn't choose any [% terms.bugs %] to add to the saved search.
+    You didn't choose any [% terms.bugs %] to
+    [% IF action == "add" %] add to [% ELSE %] remove from [% END %]
+    the saved search.
+
+  [% ELSIF error == "no_bugs_in_list" %]
+    [% title = "Delete Saved Search?" %]
+    You are going to remove all [% terms.bugs %] from the '[% saved_search FILTER html %]'
+    saved search. This will delete this saved search completely. Click
+    <a href="buglist.cgi?cmdtype=dorem&amp;remaction=forget&amp;namedcmd=
+    [%- saved_search FILTER url_quote %]">here</a> if you really want to
+    remove it.
+
+  [% ELSIF error == "no_bugs_to_remove" %]
+    [% title = "No Saved Search Selected" %]
+    You didn't select any saved search to remove [% terms.bugs %] from.
 
   [% ELSIF error == "no_component_change_for_multiple_products" %]
     [% title = "Action Not Permitted" %]
@@ -1085,6 +1119,10 @@
     kilobytes (KB) in size.
     Patches cannot be more than [% Param('maxpatchsize') %] KB in size.
     Try breaking your patch into several pieces.
+
+  [% ELSIF error == "product_doesnt_exist" %]
+    [% title = "Specified Product Does Not Exist" %]
+    The product '[% product FILTER html %]' does not exist.
 
   [% ELSIF error == "product_votes_per_bug_must_be_nonnegative" %]
     [% title = "Maximum Votes Must Be Non-negative" %]
@@ -1318,8 +1356,13 @@
 
   [% ELSIF error == "too_soon_for_new_token" %]
     [% title = "Too Soon For New Token" %]
-    You have requested a password token too recently to request
-    another.  Please wait a while and try again.
+    You have requested
+    [% IF type == "password" %]
+      a password
+    [% ELSIF type == "account" %]
+      an account
+    [% END %]
+    token too recently to request another. Please wait a while and try again.
 
   [% ELSIF error == "unknown_keyword" %]
     [% title = "Unknown Keyword" %]
@@ -1398,6 +1441,10 @@
     [% title = "Wrong Token" %]
     That token cannot be used to change your email address.
 
+  [% ELSIF error == "wrong_token_for_creating_account" %]
+    [% title = "Wrong Token" %]
+    That token cannot be used to create a user account.
+
   [% ELSIF error == "zero_length_file" %]
     [% title = "File Is Empty" %]
     The file you are trying to attach is empty!
@@ -1422,9 +1469,11 @@
   [% END %]
 [% END %]
 
-[%# If we are in batch mode, we want the error message to be plain text, not HTML %]
+[%# If we are in ERROR_MODE_DIE, we want the error message to be plain text,
+  # not HTML
+%]
 [% USE Bugzilla %]
-[% IF Bugzilla.batch %]
+[% IF Bugzilla.error_mode == ERROR_MODE_DIE %]
   [% error_message FILTER none %]
   [% RETURN %]
 [% END %]

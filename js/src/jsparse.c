@@ -1618,23 +1618,30 @@ BindLet(JSContext *cx, BindData *data, JSAtom *atom, JSTreeContext *tc)
     JSObject *blockObj;
     JSScope *scope;
     JSScopeProperty *sprop;
+    JSAtomListElement *ale;
 
     blockObj = data->obj;
     scope = OBJ_SCOPE(blockObj);
     sprop = SCOPE_GET_PROPERTY(scope, ATOM_TO_JSID(atom));
-    if (sprop) {
+    ATOM_LIST_SEARCH(ale, &tc->decls, atom);
+    if (sprop || (ale && ALE_JSOP(ale) == JSOP_DEFCONST)) {
         const char *name;
 
-        JS_ASSERT(sprop->flags & SPROP_HAS_SHORTID);
-        JS_ASSERT((uint16)sprop->shortid < data->u.let.index);
-        OBJ_DROP_PROPERTY(cx, blockObj, (JSProperty *) sprop);
+        if (sprop) {
+            JS_ASSERT(sprop->flags & SPROP_HAS_SHORTID);
+            JS_ASSERT((uint16)sprop->shortid < data->u.let.index);
+            OBJ_DROP_PROPERTY(cx, blockObj, (JSProperty *) sprop);
+        }
 
         name = js_AtomToPrintableString(cx, atom);
         if (name) {
             js_ReportCompileErrorNumber(cx,
                                         BIND_DATA_REPORT_ARGS(data,
                                                               JSREPORT_ERROR),
-                                        JSMSG_REDECLARED_VAR, "variable",
+                                        JSMSG_REDECLARED_VAR,
+                                        (ale && ALE_JSOP(ale) == JSOP_DEFCONST)
+                                        ? js_const_str
+                                        : "variable",
                                         name);
         }
         return JS_FALSE;
@@ -1661,6 +1668,7 @@ BindLet(JSContext *cx, BindData *data, JSAtom *atom, JSTreeContext *tc)
 static JSBool
 BindVarOrConst(JSContext *cx, BindData *data, JSAtom *atom, JSTreeContext *tc)
 {
+    JSStmtInfo *stmt;
     JSAtomListElement *ale;
     JSOp op, prevop;
     const char *name;
@@ -1671,10 +1679,11 @@ BindVarOrConst(JSContext *cx, BindData *data, JSAtom *atom, JSTreeContext *tc)
     JSPropertyOp currentGetter, currentSetter;
     JSScopeProperty *sprop;
 
+    stmt = js_LexicalLookup(tc, atom, NULL);
     ATOM_LIST_SEARCH(ale, &tc->decls, atom);
     op = data->op;
-    if (ale) {
-        prevop = ALE_JSOP(ale);
+    if ((stmt && stmt->type != STMT_WITH) || ale) {
+        prevop = ale ? ALE_JSOP(ale) : JSOP_DEFVAR;
         if (JS_HAS_STRICT_OPTION(cx)
             ? op != JSOP_DEFVAR || prevop != JSOP_DEFVAR
             : op == JSOP_DEFCONST || prevop == JSOP_DEFCONST) {
@@ -1700,7 +1709,8 @@ BindVarOrConst(JSContext *cx, BindData *data, JSAtom *atom, JSTreeContext *tc)
         }
         if (op == JSOP_DEFVAR && prevop == JSOP_CLOSURE)
             tc->flags |= TCF_FUN_CLOSURE_VS_VAR;
-    } else {
+    }
+    if (!ale) {
         ale = js_IndexAtom(cx, atom, &tc->decls);
         if (!ale)
             return JS_FALSE;
@@ -2381,20 +2391,24 @@ LetBlock(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc, JSBool statement)
         pn1->pn_kid = pn;
         pn = pn1;
 
+        statement = JS_FALSE;
+    }
+
+    if (statement) {
+        pnlet->pn_right = Statements(cx, ts, tc);
+        if (!pnlet->pn_right)
+            return NULL;
+        MUST_MATCH_TOKEN(TOK_RC, JSMSG_CURLY_AFTER_LET);
+    } else {
         /*
          * Change pnblock's opcode to the variant that propagates the last
          * result down after popping the block, and clear statement.
          */
         pnblock->pn_op = JSOP_LEAVEBLOCKEXPR;
-        statement = JS_FALSE;
+        pnlet->pn_right = Expr(cx, ts, tc);
+        if (!pnlet->pn_right)
+            return NULL;
     }
-
-    pnlet->pn_right = statement ? Statements(cx, ts, tc) : Expr(cx, ts, tc);
-    if (!pnlet->pn_right)
-        return NULL;
-
-    if (statement)
-        MUST_MATCH_TOKEN(TOK_RC, JSMSG_CURLY_AFTER_LET);
 
     js_PopStatement(tc);
     return pn;
@@ -3284,6 +3298,7 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
                 return NULL;
 
             pn1->pn_type = TOK_LEXICALSCOPE;
+            pn1->pn_op = JSOP_LEAVEBLOCK;
             pn1->pn_pos = tc->blockNode->pn_pos;
             pn1->pn_atom = atom;
             pn1->pn_expr = tc->blockNode;
@@ -3450,7 +3465,8 @@ Variables(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
     JS_ASSERT(let || CURRENT_TOKEN(ts).type == TOK_VAR);
 
     /* Make sure that Statement set the tree context up correctly. */
-    JS_ASSERT(!let || tc->topStmt == tc->topScopeStmt);
+    JS_ASSERT(!let ||
+              (tc->topScopeStmt && (tc->topScopeStmt->flags & SIF_SCOPE)));
 
     data.pn = NULL;
     data.ts = ts;

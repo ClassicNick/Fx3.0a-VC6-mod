@@ -1450,7 +1450,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                     LOCAL_ASSERT(*pc == JSOP_SETLOCALPOP);
                     i = GET_UINT16(pc);
                     pc += JSOP_SETLOCALPOP_LENGTH;
-                    str = ATOM_TO_STRING(atomv[i]);
+                    str = ATOM_TO_STRING(atomv[i - OBJ_BLOCK_DEPTH(cx, obj)]);
                     rval = QuoteString(&ss->sprinter, str, 0);
                     if (!rval) {
                         ok = JS_FALSE;
@@ -2034,7 +2034,10 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 (void) PopOff(ss, op);
 
                 /* Get the callee's decompiled image in argv[0]. */
+                if (saveop == JSOP_NEW)
+                    op = saveop;
                 argv[0] = JS_strdup(cx, POP_STR());
+                op = JSOP_NOP;
                 if (!argv[i])
                     ok = JS_FALSE;
 
@@ -2704,7 +2707,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 
 #if JS_HAS_EXPORT_IMPORT
               case JSOP_EXPORTALL:
-                js_printf(jp, "\texport *\n");
+                js_printf(jp, "\texport *;\n");
                 todo = -2;
                 break;
 
@@ -2713,19 +2716,20 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 if (!rval)
                     return JS_FALSE;
                 RETRACT(&ss->sprinter, rval);
-                js_printf(jp, "\texport %s\n", rval);
+                js_printf(jp, "\texport %s;\n", rval);
                 todo = -2;
               END_LITOPX_CASE
 
               case JSOP_IMPORTALL:
                 lval = POP_STR();
-                js_printf(jp, "\timport %s.*\n", lval);
+                js_printf(jp, "\timport %s.*;\n", lval);
                 todo = -2;
                 break;
 
               case JSOP_IMPORTPROP:
               do_importprop:
-                GET_ATOM_QUOTE_AND_FMT("\timport %s[%s]\n", "\timport %s.%s\n",
+                GET_ATOM_QUOTE_AND_FMT("\timport %s[%s];\n",
+                                       "\timport %s.%s;\n",
                                        rval);
                 lval = POP_STR();
                 js_printf(jp, fmt, lval, rval);
@@ -2738,7 +2742,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 if (js_CodeSpec[lastop].format & JOF_XMLNAME)
                     goto do_importprop;
                 lval = POP_STR();
-                js_printf(jp, "\timport %s[%s]\n", lval, xval);
+                js_printf(jp, "\timport %s[%s];\n", lval, xval);
                 todo = -2;
                 break;
 #endif /* JS_HAS_EXPORT_IMPORT */

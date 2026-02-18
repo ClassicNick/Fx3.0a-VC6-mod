@@ -48,8 +48,34 @@
 #endif
 #endif
 
-pref("startup.homepage_override_url","chrome://browser-region/locale/region.properties");
-pref("startup.homepage_welcome_url","chrome://browser-region/locale/region.properties");
+#ifdef OFFICIAL_BRANDING
+
+pref("startup.homepage_override_url","http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/%VERSION%/whatsnew/");
+pref("startup.homepage_welcome_url","http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/%VERSION%/firstrun/");
+// URL user can browse to manually if for some reason all update installation
+// attempts fail.
+pref("app.update.url.manual", "http://%LOCALE%.www.mozilla.com/%LOCALE%/products/%APP%/");
+// A default value for the "More information about this update" link
+// supplied in the "An update is available" page of the update wizard. 
+pref("app.update.url.details", "http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/releases/");
+
+// Release notes URL
+pref("app.releaseNotesURL", "http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/%VERSION%/releasenotes/");
+#else
+
+pref("startup.homepage_override_url","http://www.mozilla.org/projects/%APP%/%VERSION%/whatsnew/");
+pref("startup.homepage_welcome_url","http://www.mozilla.org/projects/%APP%/%VERSION%/firstrun/");
+// URL user can browse to manually if for some reason all update installation
+// attempts fail.
+pref("app.update.url.manual", "http://www.mozilla.org/products/%APP%/");
+// A default value for the "More information about this update" link
+// supplied in the "An update is available" page of the update wizard. 
+pref("app.update.url.details", "http://www.mozilla.org/projects/%APP%/");
+
+// Release notes URL
+pref("app.releaseNotesURL", "http://www.mozilla.org/projects/%APP%/%VERSION%/releasenotes/");
+#endif
+
 pref("general.startup.browser", true);
 
 pref("browser.chromeURL","chrome://browser/content/");
@@ -74,7 +100,7 @@ pref("extensions.hideInstallButton", true);
 pref("extensions.blocklist.enabled", true);
 pref("extensions.blocklist.interval", 86400);
 pref("extensions.blocklist.url", "https://addons.mozilla.org/blocklist/1/%APP_ID%/%APP_VERSION%/");
-pref("extensions.blocklist.detailsURL", "http://www.mozilla.com/blocklist/");
+pref("extensions.blocklist.detailsURL", "http://%LOCALE%.www.mozilla.com/%LOCALE%/blocklist/");
 
 // Dictionary download preference
 pref("browser.dictionaries.download.url", "https://%LOCALE%.add-ons.mozilla.com/%LOCALE%/firefox/%VERSION%/dictionaries/");
@@ -105,12 +131,8 @@ pref("app.update.silent", false);
 
 // Update service URL:
 pref("app.update.url", "https://aus2.mozilla.org/update/2/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/update.xml");
-// URL user can browse to manually if for some reason all update installation
-// attempts fail.  TODO: Change this URL
-pref("app.update.url.manual", "http://www.mozilla.org/products/firefox/");
-// A default value for the "More information about this update" link
-// supplied in the "An update is available" page of the update wizard. 
-pref("app.update.url.details", "chrome://browser-region/locale/region.properties");
+// app.update.url.manual is in branding section
+// app.update.url.details is in branding section
 
 // User-settable override to app.update.url for testing purposes.
 //pref("app.update.url.override", "");
@@ -154,8 +176,8 @@ pref("extensions.update.url", "chrome://mozapps/locale/extensions/extensions.pro
 pref("extensions.update.interval", 86400);  // Check for updates to Extensions and 
                                             // Themes every day
 // Non-symmetric (not shared by extensions) extension-specific [update] preferences
-pref("extensions.getMoreExtensionsURL", "chrome://mozapps/locale/extensions/extensions.properties");
-pref("extensions.getMoreThemesURL", "chrome://mozapps/locale/extensions/extensions.properties");
+pref("extensions.getMoreExtensionsURL", "http://%LOCALE%.add-ons.mozilla.com/%LOCALE%/%APP%/%VERSION%/extensions/");
+pref("extensions.getMoreThemesURL", "http://%LOCALE%.add-ons.mozilla.com/%LOCALE%/%APP%/%VERSION%/themes/");
 pref("extensions.dss.enabled", false);          // Dynamic Skin Switching                                               
 pref("extensions.dss.switchPending", false);    // Non-dynamic switch pending after next
                                                 // restart.
@@ -181,8 +203,8 @@ pref("general.autoScroll", true);
 // is the default browser.
 pref("browser.shell.checkDefaultBrowser", true);
 
-// 0 = blank, 1 = home (browser.startup.homepage), 2 = last
-// XXXBlake Remove this stupid pref
+// 0 = blank, 1 = home (browser.startup.homepage), 2 = last visited page, 3 = resume previous browser session
+// The behavior of option 3 is detailed at: http://wiki.mozilla.org/Session_Restore
 pref("browser.startup.page",                1);
 pref("browser.startup.homepage",	          "resource:/browserconfig.properties");
 
@@ -209,6 +231,9 @@ pref("browser.download.manager.closeWhenDone", false);
 pref("browser.download.manager.openDelay", 0);
 pref("browser.download.manager.focusWhenStarting", false);
 pref("browser.download.manager.flashCount", 2);
+
+// search engines URL
+pref("browser.search.searchEnginesURL",      "https://%LOCALE%.add-ons.mozilla.com/%LOCALE%/firefox/%VERSION%/search-engines/");
 
 // pointer to the default engine name
 pref("browser.search.defaultenginename",      "chrome://browser-region/locale/region.properties");
@@ -516,4 +541,7 @@ pref("browser.safebrowsing.provider.0.privacy.url", "chrome://browser/content/pr
 pref("browser.safebrowsing.provider.0.reportGenericURL", "http://{moz:locale}.phish-generic.mozilla.com/?hl={moz:locale}");
 pref("browser.safebrowsing.provider.0.reportErrorURL", "http://{moz:locale}.phish-error.mozilla.com/?hl={moz:locale}");
 pref("browser.safebrowsing.provider.0.reportPhishURL", "http://{moz:locale}.phish-report.mozilla.com/?hl={moz:locale}");
+
+// FAQ URL
+pref("browser.safebrowsing.warning.infoURL", "http://%LOCALE%.www.mozilla.com/%LOCALE%/firefox/phishing-protection/");
 #endif
