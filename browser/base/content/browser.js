@@ -1652,6 +1652,10 @@ function updateGoMenu(aEvent, goMenu)
   // In case the timer didn't fire.
   destroyGoMenuItems(goMenu);
 
+  // enable/disable RCT sub menu
+  // do this here, before the early return
+  HistoryMenu.toggleRecentlyClosedTabs();
+
   var history = document.getElementById("hiddenHistoryTree");
 
   if (history.hidden) {
@@ -1700,9 +1704,6 @@ function updateGoMenu(aEvent, goMenu)
 
   if (showSep)
     endSep.hidden = false;
-
-  // enable/disable RCT sub menu
-  HistoryMenu.toggleRecentlyClosedTabs();
 }
  
 function addBookmarkAs(aBrowser, aBookmarkAllTabs, aIsWebPanel)
@@ -2622,17 +2623,26 @@ function FillInHTMLTooltip(tipElement)
 
   var titleText = null;
   var XLinkTitleText = null;
+  var direction = tipElement.ownerDocument.dir;
 
   while (!titleText && !XLinkTitleText && tipElement) {
     if (tipElement.nodeType == Node.ELEMENT_NODE) {
       titleText = tipElement.getAttribute("title");
       XLinkTitleText = tipElement.getAttributeNS(XLinkNS, "title");
+      var defView = tipElement.ownerDocument.defaultView;
+      // XXX Work around bug 350679:
+      // "Tooltips can be fired in documents with no view".
+      if (!defView)
+        return retVal;
+      direction = defView.getComputedStyle(tipElement, "")
+        .getPropertyValue("direction");
     }
     tipElement = tipElement.parentNode;
   }
 
   var texts = [titleText, XLinkTitleText];
   var tipNode = document.getElementById("aHTMLTooltip");
+  tipNode.style.direction = direction;
 
   for (var i = 0; i < texts.length; ++i) {
     var t = texts[i];
@@ -2728,6 +2738,7 @@ function openHomeDialog(aURL)
   }
 }
 
+#ifndef MOZ_PLACES
 var bookmarksButtonObserver = {
   onDrop: function (aEvent, aXferData, aDragSession)
   {
@@ -2738,12 +2749,8 @@ var bookmarksButtonObserver = {
         name: split[1],
         url: url
       }
-#ifndef MOZ_PLACES
       openDialog("chrome://browser/content/bookmarks/addBookmark2.xul", "",
                  BROWSER_ADD_BM_FEATURES, dialogArgs);
-#else
-      dump("*** IMPLEMENT ME");
-#endif
     }
   },
 
@@ -2769,6 +2776,7 @@ var bookmarksButtonObserver = {
     return flavourSet;
   }
 }
+#endif
 
 var newTabButtonObserver = {
   onDragOver: function(aEvent, aFlavour, aDragSession)
@@ -2937,18 +2945,20 @@ const BrowserSearch = {
     // XXX this event listener can/should probably be combined with the onLinkAdded
     // listener in tabbrowser.xml.  See comments in FeedHandler.onLinkAdded().
     const target = event.target;
-    var erel = target.rel;
     var etype = target.type;
-    var etitle = target.title;
-    var ehref = target.href;
     const searchRelRegex = /(^|\s)search($|\s)/i;
     const searchHrefRegex = /^(https?|ftp):\/\//i;
 
     if (!etype)
       return;
       
+    // Bug 349431: If the engine has no suggested title, ignore it rather
+    // than trying to find an alternative.
+    if (!target.title)
+      return;
+
     if (etype == "application/opensearchdescription+xml" &&
-        searchRelRegex.test(erel) && searchHrefRegex.test(ehref))
+        searchRelRegex.test(target.rel) && searchHrefRegex.test(target.href))
     {
       const targetDoc = target.ownerDocument;
       // Set the attribute of the (first) search-engine button.
@@ -2960,19 +2970,17 @@ const BrowserSearch = {
         var iconURL = null;
         if (gBrowser.shouldLoadFavIcon(browser.currentURI))
           iconURL = browser.currentURI.prePath + "/favicon.ico";
-        var usableTitle = target.title || browser.contentTitle || target.href;
+
         var hidden = false;
-        if (target.title) {
-          // If this engine (identified by title) is already in the list, add it
-          // to the list of hidden engines rather than to the main list.
-          // XXX This will need to be changed when engines are identified by URL;
-          // see bug 335102.
-          var searchService =
-              Components.classes["@mozilla.org/browser/search-service;1"]
-                        .getService(Components.interfaces.nsIBrowserSearchService);
-          if (searchService.getEngineByName(target.title))
-            hidden = true;
-        }
+        // If this engine (identified by title) is already in the list, add it
+        // to the list of hidden engines rather than to the main list.
+        // XXX This will need to be changed when engines are identified by URL;
+        // see bug 335102.
+         var searchService =
+            Components.classes["@mozilla.org/browser/search-service;1"]
+                      .getService(Components.interfaces.nsIBrowserSearchService);
+        if (searchService.getEngineByName(target.title))
+          hidden = true;
 
         var engines = [];
         if (hidden) {
@@ -2985,7 +2993,7 @@ const BrowserSearch = {
         }
 
         engines.push({ uri: target.href,
-                       title: usableTitle,
+                       title: target.title,
                        icon: iconURL });
 
          if (hidden) {
@@ -3372,7 +3380,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   // Update the urlbar
   var url = getWebNavigation().currentURI.spec;
   if (gURLBar) {
-    gURLBar.value = url;
+    gURLBar.value = url == "about:blank" ? "" : url;
     SetPageProxyState("valid");
     XULBrowserWindow.asyncUpdateUI();    
   }
@@ -5035,17 +5043,6 @@ nsContextMenu.prototype = {
                                          Components.interfaces.nsIClipboardHelper );
         clipboard.copyString(addresses);
     },
-    addBookmark : function() {
-      var docshell = document.getElementById( "content" ).webNavigation;
-#ifndef MOZ_PLACES
-      BookmarksUtils.addBookmark( docshell.currentURI.spec,
-                                  docshell.document.title,
-                                  docshell.document.charset,
-                                  BookmarksUtils.getDescriptionFromDocument(docshell.document));
-#else
-      dump("*** IMPLEMENT ME\n");
-#endif
-    },
     addBookmarkForFrame : function() {
 #ifndef MOZ_PLACES
       var doc = this.target.ownerDocument;
@@ -5056,7 +5053,7 @@ nsContextMenu.prototype = {
         title = uri;
       BookmarksUtils.addBookmark(uri, title, doc.charset, description);
 #else
-      dump("*** IMPLEMENT ME\n");
+      dump("*** IMPLEMENT ME: Bug 342217\n");
 #endif
     },
     // Open Metadata window for node
@@ -5468,7 +5465,7 @@ function asyncOpenWebPanel(event)
                     BROWSER_ADD_BM_FEATURES, dialogArgs);
          event.preventDefault();
 #else
-         dump("*** IMPLEMENT ME");
+         dump("*** IMPLEMENT ME: Bug 329964\n");
 #endif
          return false;
        }
@@ -6232,7 +6229,7 @@ function AddKeywordForSearchField()
   openDialog("chrome://browser/content/bookmarks/addBookmark2.xul", "",
              BROWSER_ADD_BM_FEATURES, dialogArgs);
 #else
-  dump("*** IMPLEMENT ME\n");
+  dump("*** IMPLEMENT ME: Bug 329281\n");
 #endif
 }
 

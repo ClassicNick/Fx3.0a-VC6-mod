@@ -668,19 +668,6 @@ nsDocument::~nsDocument()
 
   mInDestructor = PR_TRUE;
 
-  // We can't rely on the nsINode dtor doing this for us since
-  // by the time it runs GetOwnerDoc will return null.
-  // This is because we call mNodeInfoManager->DropReference()
-  // below, which will run before the nsINode dtor. Additionally
-  // the properties hash and the document will have been destroyed,
-  // so there would be no way to find the handlers.
-  if (HasProperties()) {
-    nsContentUtils::CallUserDataHandler(this,
-                                        nsIDOMUserDataHandler::NODE_DELETED,
-                                        this, nsnull, nsnull);
-  }
-
-  nsNodeUtils::NodeWillBeDestroyed(this);
   // Clear mObservers to keep it in sync with the mutationobserver list
   mObservers.Clear();
 
@@ -748,10 +735,6 @@ nsDocument::~nsDocument()
     NS_RELEASE(mCSSLoader);
   }
 
-  // Delete properties before dropping the document reference from
-  // NodeInfoManager!
-  mPropertyTable.DeleteAllProperties();
-
   // XXX Ideally we'd do this cleanup in the nsIDocument destructor.
   if (mNodeInfoManager) {
     mNodeInfoManager->DropDocumentReference();
@@ -769,6 +752,18 @@ nsDocument::~nsDocument()
   delete mHeaderData;
   delete mBoxObjectTable;
   nsLayoutStatics::Release();
+}
+
+void
+nsDocument::LastRelease()
+{
+  nsNodeUtils::LastRelease(this, PR_FALSE);
+  // Delete properties before starting to destruct the document.
+  // Some of the properties are bound to nsINode objects and the destructor
+  // functions of the properties may want to use the owner document of the
+  // nsINode.
+  mPropertyTable.DeleteAllProperties();
+  delete this;
 }
 
 NS_INTERFACE_MAP_BEGIN(nsDocument)
@@ -813,8 +808,7 @@ NS_INTERFACE_MAP_BEGIN(nsDocument)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_ADDREF(nsDocument)
-NS_IMPL_RELEASE_WITH_DESTROY(nsDocument,
-                             nsNodeUtils::LastRelease(this))
+NS_IMPL_RELEASE_WITH_DESTROY(nsDocument, LastRelease())
 
 nsresult
 nsDocument::Init()
@@ -830,10 +824,8 @@ nsDocument::Init()
   NS_ENSURE_TRUE(bindingManager, NS_ERROR_OUT_OF_MEMORY);
   mBindingManager = bindingManager;
 
-  if (!mObservers.PrependObserver(bindingManager)) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-  
+  // The binding manager needs to come before everything but us in our
+  // mutation observer list.
   nsINode::nsSlots* slots = GetSlots();
   NS_ENSURE_TRUE(slots &&
                  slots->mMutationObservers.PrependObserver(bindingManager),
@@ -2245,6 +2237,18 @@ nsDocument::GetScriptLoader()
   }
 
   return mScriptLoader;
+}
+
+void
+nsDocument::AddMutationObserver(nsIMutationObserver* aMutationObserver)
+{
+  mBindingManager->AddObserver(aMutationObserver);
+}
+
+void
+nsDocument::RemoveMutationObserver(nsIMutationObserver* aMutationObserver)
+{
+  mBindingManager->RemoveObserver(aMutationObserver);
 }
 
 // Note: We don't hold a reference to the document observer; we assume
@@ -4264,9 +4268,7 @@ nsDocument::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
   aVisitor.mForceContentDispatch = PR_TRUE;
 
   // Load events must not propagate to |window| object, see bug 335251.
-  if (!(aVisitor.mEvent->message == NS_IMAGE_LOAD ||
-        aVisitor.mEvent->message == NS_PAGE_LOAD ||
-        aVisitor.mEvent->message == NS_SCRIPT_LOAD)) {
+  if (aVisitor.mEvent->message != NS_LOAD) {
     aVisitor.mParentTarget = GetWindow();
   }
   return NS_OK;

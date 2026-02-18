@@ -288,6 +288,7 @@
 <!ENTITY calendar.unifinder.tree.location.label    "Location">
 <!ENTITY calendar.unifinder.tree.status.label    "Status">
 <!ENTITY calendar.unifinder.tree.calendarname.label    "Calendar Name">
+<!ENTITY calendar.find.key  "F">
 
 <!ENTITY calendar.gototoday.button.tooltip        "Go to today" >
 <!ENTITY calendar.choosedate.button.tooltip       "Choose date to go to" >
@@ -488,7 +489,12 @@
 <!ENTITY calendar.alarm.title.label                "Calendar Alarm" >
 <!ENTITY calendar.alarm.dismiss.label               "Dismiss" >
 <!ENTITY calendar.alarm.dismissall.label            "Dismiss All" >
-
+<!ENTITY calendar.alarm.for.label  "for" >
+<!ENTITY calendar.alarm.5minutes  "5 minutes" >
+<!ENTITY calendar.alarm.15minutes  "15 minutes" >
+<!ENTITY calendar.alarm.30minutes  "30 minutes" >
+<!ENTITY calendar.alarm.1hour  "1 hour" >
+<!ENTITY calendar.alarm.1day  "1 day" >
 
 <!-- Calendar Server Dialog -->
 <!ENTITY calendar.server.dialog.title.new           "New Calendar File">

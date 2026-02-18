@@ -149,6 +149,54 @@ nsPopupSetFrame::Init(nsIContent*      aContent,
   return rv;
 }
 
+NS_IMETHODIMP
+nsPopupSetFrame::AppendFrames(nsIAtom*        aListName,
+                              nsIFrame*       aFrameList)
+{
+  if (aListName == nsGkAtoms::popupList) {
+    NS_ASSERTION(!aFrameList->GetNextSibling(), "Append one popup at a time!");
+    return AddPopupFrame(aFrameList);
+  }
+
+  return nsBoxFrame::AppendFrames(aListName, aFrameList);
+}
+
+NS_IMETHODIMP
+nsPopupSetFrame::RemoveFrame(nsIAtom*        aListName,
+                             nsIFrame*       aOldFrame)
+{
+  if (aListName == nsGkAtoms::popupList) {
+    return RemovePopupFrame(aOldFrame);
+  }
+
+  return nsBoxFrame::RemoveFrame(aListName, aOldFrame);
+}
+
+#ifdef DEBUG
+NS_IMETHODIMP
+nsPopupSetFrame::InsertFrames(nsIAtom*        aListName,
+                              nsIFrame*       aPrevFrame,
+                              nsIFrame*       aFrameList)
+{
+  NS_PRECONDITION(aListName != nsGkAtoms::popupList,
+               "Shouldn't be inserting popups");
+
+  return nsBoxFrame::InsertFrames(aListName, aPrevFrame, aFrameList);
+}
+
+NS_IMETHODIMP
+nsPopupSetFrame::SetInitialChildList(nsIAtom*        aListName,
+                                     nsIFrame*       aChildList)
+{
+  NS_PRECONDITION(aListName != nsGkAtoms::popupList,
+                  "Shouldn't be setting initial popup child list");
+
+  return nsBoxFrame::SetInitialChildList(aListName, aChildList);
+
+}
+#endif
+
+
 void
 nsPopupSetFrame::Destroy()
 {
@@ -723,7 +771,7 @@ nsPopupSetFrame::OnDestroyed(nsPresContext* aPresContext,
   return PR_TRUE;
 }
 
-NS_IMETHODIMP
+nsresult
 nsPopupSetFrame::RemovePopupFrame(nsIFrame* aPopup)
 {
   // This was called by the Destroy() method of the popup, so all we have to do is
@@ -756,7 +804,7 @@ nsPopupSetFrame::RemovePopupFrame(nsIFrame* aPopup)
   return NS_OK;
 }
 
-NS_IMETHODIMP
+nsresult
 nsPopupSetFrame::AddPopupFrame(nsIFrame* aPopup)
 {
   // The entry should already exist, but might not (if someone decided to make their

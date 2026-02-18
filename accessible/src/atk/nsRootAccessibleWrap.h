@@ -61,4 +61,11 @@ public:
     NS_IMETHOD GetParent(nsIAccessible **  aParent);
 };
 
+// For gtk+ native window
+class nsNativeRootAccessibleWrap: public nsRootAccessible
+{
+public:
+    nsNativeRootAccessibleWrap(AtkObject *aAccessible);
+};
+
 #endif   /* __NS_ROOT_ACCESSIBLE_WRAP_H__ */

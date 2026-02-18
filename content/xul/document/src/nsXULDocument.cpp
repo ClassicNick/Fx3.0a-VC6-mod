@@ -216,13 +216,6 @@ nsXULDocument::~nsXULDocument()
     NS_ASSERTION(mNextSrcLoadWaiter == nsnull,
         "unreferenced document still waiting for script source to load?");
 
-    // Notify our observers here, we can't let the nsINode
-    // destructor do that for us since some of the observers are
-    // deleted by the time we get there.
-    nsNodeUtils::NodeWillBeDestroyed(this);
-    // Clear mObservers to keep it in sync with the mutationobserver list
-    mObservers.Clear();
-
     // In case we failed somewhere early on and the forward observer
     // decls never got resolved.
     DestroyForwardReferences();
@@ -3116,7 +3109,10 @@ nsXULDocument::LoadScript(nsXULPrototypeScript* aScriptProto, PRBool* aBlock)
         nsCOMPtr<nsIStreamLoader> loader;
         rv = NS_NewStreamLoader(getter_AddRefs(loader), aScriptProto->mSrcURI,
                                 this, nsnull, group);
-        if (NS_FAILED(rv)) return rv;
+        if (NS_FAILED(rv)) {
+            mCurrentScriptProto = nsnull;
+            return rv;
+        }
 
         aScriptProto->mSrcLoading = PR_TRUE;
     }

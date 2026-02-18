@@ -3264,6 +3264,10 @@ nsTableFrame::ReflowChildren(nsTableReflowState& aReflowState,
             // again. Note that rowGroups doesn't get used again after
             // we PushChildren below, anyway.
             rowGroups.InsertElementAt(continuingFrame, childX + 1);
+          } 
+          else {
+            // put the nextinflow so that it will get pushed
+            rowGroups.InsertElementAt(kidNextInFlow, childX + 1);
           }
           // We've used up all of our available space so push the remaining
           // children to the next-in-flow
@@ -4940,7 +4944,7 @@ BCMapCellIterator::Next(BCMapCellInfo& aMapInfo)
   while ((mRowIndex <= mAreaEnd.y) && !mAtEnd) {
     for (; mColIndex <= mAreaEnd.x; mColIndex++) {
       PRInt32 rgRowIndex = mRowIndex - mRowGroupStart;
-      CellData* cellData = mCellMap->GetDataAt(*mTableCellMap, rgRowIndex, mColIndex, PR_FALSE);
+      CellData* cellData = mCellMap->GetDataAt(*mTableCellMap, rgRowIndex, mColIndex, PR_TRUE);
       if (!cellData) { // add a dead cell data
         nsRect damageArea;
         cellData = mCellMap->AppendCell(*mTableCellMap, nsnull, rgRowIndex, PR_FALSE, damageArea); if (!cellData) ABORT0();
@@ -4969,7 +4973,7 @@ BCMapCellIterator::PeekRight(BCMapCellInfo&   aRefInfo,
   PRInt32 colIndex = aRefInfo.colIndex + aRefInfo.colSpan;
   PRUint32 rgRowIndex = aRowIndex - mRowGroupStart;
 
-  CellData* cellData = mCellMap->GetDataAt(*mTableCellMap, rgRowIndex, colIndex, PR_FALSE);
+  CellData* cellData = mCellMap->GetDataAt(*mTableCellMap, rgRowIndex, colIndex, PR_TRUE);
   if (!cellData) { // add a dead cell data
     NS_ASSERTION(colIndex < mTableCellMap->GetColCount(), "program error");
     nsRect damageArea;
@@ -5020,7 +5024,7 @@ BCMapCellIterator::PeekBottom(BCMapCellInfo&   aRefInfo,
     }
   }
 
-  CellData* cellData = cellMap->GetDataAt(*mTableCellMap, rgRowIndex, aColIndex, PR_FALSE);
+  CellData* cellData = cellMap->GetDataAt(*mTableCellMap, rgRowIndex, aColIndex, PR_TRUE);
   if (!cellData) { // add a dead cell data
     NS_ASSERTION(rgRowIndex < cellMap->GetRowCount(), "program error");
     nsRect damageArea;
@@ -5759,7 +5763,9 @@ nsTableFrame::CalcBCBorders()
   nsTableCellMap* tableCellMap = GetCellMap(); if (!tableCellMap) ABORT0();
   PRInt32 numRows = GetRowCount();
   PRInt32 numCols = GetColCount();
-  
+  if (!numRows || !numCols)
+    return; // nothing to do
+
   // Get the property holding the table damage area and border widths
   BCPropertyData* propData = 
     (BCPropertyData*)nsTableFrame::GetProperty(this, nsLayoutAtoms::tableBCProperty, PR_FALSE);

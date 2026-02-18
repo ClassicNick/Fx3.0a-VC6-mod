@@ -1409,7 +1409,7 @@ nsXMLHttpRequest::RequestCompleted()
   CopyEventListeners(mOnLoadListener, mLoadEventListeners, loadEventListeners);
 
   // We need to create the event before nulling out mDocument
-  nsEvent evt(PR_TRUE, NS_PAGE_LOAD);
+  nsEvent evt(PR_TRUE, NS_LOAD);
   nsCOMPtr<nsIDOMEvent> domevent;
   if (loadEventListeners.Count()) {
     rv = CreateEvent(&evt, EmptyString(), getter_AddRefs(domevent));
@@ -1838,8 +1838,7 @@ nsXMLHttpRequest::Error(nsIDOMEvent* aEvent)
 
   // We need to create the event before nulling out mDocument
   nsCOMPtr<nsIDOMEvent> event = aEvent;
-  // There is no NS_PAGE_ERROR event but NS_SCRIPT_ERROR should be ok.
-  nsEvent evt(PR_TRUE, NS_SCRIPT_ERROR);
+  nsEvent evt(PR_TRUE, NS_LOAD_ERROR);
   if (!event && errorEventListeners.Count()) {
     CreateEvent(&evt, EmptyString(), getter_AddRefs(event));
   }

@@ -92,11 +92,10 @@ public:
     // return the atk object for app root accessible
     NS_IMETHOD GetNativeInterface(void **aOutAccessible);
 
-    nsresult AddRootAccessible(nsRootAccessibleWrap *aRootAccWrap);
-    nsresult RemoveRootAccessible(nsRootAccessibleWrap *aRootAccWrap);
+    nsresult AddRootAccessible(nsIAccessible *aRootAccWrap);
+    nsresult RemoveRootAccessible(nsIAccessible *aRootAccWrap);
 private:
     nsCOMPtr<nsIMutableArray> mChildren;
-    PRBool mInitialized;
 };
 
 #endif   /* __NS_APP_ROOT_ACCESSIBLE_H__ */

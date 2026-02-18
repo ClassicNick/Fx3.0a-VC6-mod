@@ -48,8 +48,19 @@
 #include <gtk/gtk.h>
 #include <atk/atk.h>
 
+typedef GType (* AtkGetTypeType) (void);
+GType g_atk_hyperlink_impl_type = G_TYPE_INVALID;
+static PRBool sATKChecked = PR_FALSE;
+static const char sATKLibName[] = "libatk-1.0.so";
+static const char sATKHyperlinkImplGetTypeSymbol[] = "atk_hyperlink_impl_get_type";
+
 /* app root accessible */
 static nsAppRootAccessible *sAppRoot = nsnull;
+
+/* gail function pointer */
+static guint (* gail_add_global_event_listener) (GSignalEmissionHook listener,
+                                                 const gchar *event_type);
+static void (* gail_remove_global_event_listener) (guint remove_listener);
 
 /* maiutil */
 
@@ -70,7 +81,8 @@ static void _listener_info_destroy(gpointer data);
 static guint add_listener (GSignalEmissionHook listener,
                            const gchar *object_type,
                            const gchar *signal,
-                           const gchar *hook_data);
+                           const gchar *hook_data,
+                           guint gail_listenerid = 0);
 static AtkKeyEventStruct *atk_key_event_from_gdk_event_key(GdkEventKey *key);
 static gboolean notify_hf(gpointer key, gpointer value, gpointer data);
 static void insert_hf(gpointer key, gpointer value, gpointer data);
@@ -81,9 +93,6 @@ static void value_destroy_func(gpointer data);
 
 static GHashTable *listener_list = NULL;
 static gint listener_idx = 1;
-
-typedef struct _MaiUtilListenerInfo MaiUtilListenerInfo;
-
 
 #define MAI_TYPE_UTIL              (mai_util_get_type ())
 #define MAI_UTIL(obj)              (G_TYPE_CHECK_INSTANCE_CAST ((obj), \
@@ -97,9 +106,6 @@ typedef struct _MaiUtilListenerInfo MaiUtilListenerInfo;
 #define MAI_UTIL_GET_CLASS(obj)    (G_TYPE_INSTANCE_GET_CLASS ((obj), \
                                     MAI_TYPE_UTIL, MaiUtilClass))
 
-typedef struct _MaiUtil                  MaiUtil;
-typedef struct _MaiUtilClass             MaiUtilClass;
-
 static GHashTable *key_listener_list = NULL;
 static guint key_snooper_id = 0;
 
@@ -108,7 +114,7 @@ typedef void (*GnomeAccessibilityInit) (void);
 typedef void (*GnomeAccessibilityShutdown) (void);
 G_END_DECLS
 
-struct _MaiUtil
+struct MaiUtil
 {
     AtkUtil parent;
     GList *listener_list;
@@ -130,13 +136,13 @@ struct GnomeAccessibilityModule
     GnomeAccessibilityShutdown shutdown;
 };
 
-GType mai_util_get_type (void);
-static void mai_util_class_init(MaiUtilClass *klass);
-
-struct _MaiUtilClass
+struct MaiUtilClass
 {
     AtkUtilClass parent_class;
 };
+
+GType mai_util_get_type (void);
+static void mai_util_class_init(MaiUtilClass *klass);
 
 /* supporting */
 PRLogModuleInfo *gMaiLog = NULL;
@@ -144,11 +150,16 @@ PRLogModuleInfo *gMaiLog = NULL;
 #define MAI_VERSION MOZILLA_VERSION
 #define MAI_NAME "Gecko"
 
-struct _MaiUtilListenerInfo
+struct MaiUtilListenerInfo
 {
     gint key;
     guint signal_id;
     gulong hook_id;
+    // For window create/destory/minimize/maximize/restore/activate/deactivate
+    // events, we'll chain gail_util's add/remove_global_event_listener.
+    // So we store the listenerid returned by gail's add_global_event_listener
+    // in this structure to call gail's remove_global_event_listener later.
+    guint gail_listenerid;
 };
 
 static GnomeAccessibilityModule sAtkBridge = {
@@ -158,8 +169,13 @@ static GnomeAccessibilityModule sAtkBridge = {
     "libatk-bridge.so", NULL,
 #endif
     "gnome_accessibility_module_init", NULL,
+    "gnome_accessibility_module_shutdown", NULL
+};
 
-    "gnome_accessibility_module_shutdown", NULL,
+static GnomeAccessibilityModule sGail = {
+    "libgail.so", NULL,
+    "gnome_accessibility_module_init", NULL,
+    "gnome_accessibility_module_shutdown", NULL
 };
 
 GType
@@ -199,6 +215,10 @@ mai_util_class_init(MaiUtilClass *klass)
     data = g_type_class_peek(ATK_TYPE_UTIL);
     atk_class = ATK_UTIL_CLASS(data);
 
+    // save gail function pointer
+    gail_add_global_event_listener = atk_class->add_global_event_listener;
+    gail_remove_global_event_listener = atk_class->remove_global_event_listener;
+
     atk_class->add_global_event_listener =
         mai_util_add_global_event_listener;
     atk_class->remove_global_event_listener =
@@ -224,17 +244,15 @@ mai_util_add_global_event_listener(GSignalEmissionHook listener,
 
     if (split_string) {
         if (!strcmp ("window", split_string[0])) {
-            /*  ???
-                static gboolean initialized = FALSE;
-
-                if (!initialized) {
-                do_window_event_initialization ();
-                initialized = TRUE;
-                }
-                rc = add_listener (listener, "MaiWindow",
-                split_string[1], event_type);
-            */
-            rc = add_listener (listener, "MaiAtkObject", split_string[1], event_type);
+            guint gail_listenerid = 0;
+            if (gail_add_global_event_listener) {
+                // call gail's function to track gtk native window events
+                gail_listenerid =
+                    gail_add_global_event_listener(listener, event_type);
+            }
+            
+            rc = add_listener (listener, "MaiAtkObject", split_string[1],
+                               event_type, gail_listenerid);
         }
         else {
             rc = add_listener (listener, split_string[1], split_string[2],
@@ -255,6 +273,11 @@ mai_util_remove_global_event_listener(guint remove_listener)
             g_hash_table_lookup(listener_list, &tmp_idx);
 
         if (listener_info != NULL) {
+            if (gail_remove_global_event_listener &&
+                listener_info->gail_listenerid) {
+              gail_remove_global_event_listener(listener_info->gail_listenerid);
+            }
+            
             /* Hook id of 0 and signal id of 0 are invalid */
             if (listener_info->hook_id != 0 && listener_info->signal_id != 0) {
                 /* Remove the emission hook */
@@ -270,7 +293,6 @@ mai_util_remove_global_event_listener(guint remove_listener)
                 g_log((gchar *)0, G_LOG_LEVEL_WARNING,
                       "Invalid listener hook_id %ld or signal_id %d\n",
                       listener_info->hook_id, listener_info->signal_id);
-
             }
         }
         else {
@@ -438,7 +460,8 @@ guint
 add_listener (GSignalEmissionHook listener,
               const gchar *object_type,
               const gchar *signal,
-              const gchar *hook_data)
+              const gchar *hook_data,
+              guint gail_listenerid)
 {
     GType type;
     guint signal_id;
@@ -460,6 +483,7 @@ add_listener (GSignalEmissionHook listener,
                                            g_strdup(hook_data),
                                            (GDestroyNotify)g_free);
             listener_info->signal_id = signal_id;
+            listener_info->gail_listenerid = gail_listenerid;
 
             g_hash_table_insert(listener_list, &(listener_info->key),
                                 listener_info);
@@ -475,18 +499,11 @@ add_listener (GSignalEmissionHook listener,
     return rc;
 }
 
-
-
-
-// currently support one child
-nsRootAccessibleWrap *sOnlyChild = nsnull;
-
 static nsresult LoadGtkModule(GnomeAccessibilityModule& aModule);
 
 nsAppRootAccessible::nsAppRootAccessible():
     nsAccessibleWrap(nsnull, nsnull),
-    mChildren(nsnull),
-    mInitialized(PR_FALSE)
+    mChildren(nsnull)
 {
     MAI_LOG_DEBUG(("======Create AppRootAcc=%p\n", (void*)this));
 }
@@ -531,17 +548,22 @@ nsAppRootAccessible::DumpMaiObjectInfo(int aDepth)
 
 NS_IMETHODIMP nsAppRootAccessible::Init()
 {
-    NS_ASSERTION((mInitialized == FALSE), "Init AppRoot Again!!");
-    if (mInitialized == PR_TRUE)
-        return NS_OK;
+    // load and initialize gail library
+    nsresult rv = LoadGtkModule(sGail);
+    if (NS_SUCCEEDED(rv)) {
+        (*sGail.init)();
+    }
+    else {
+        MAI_LOG_DEBUG(("Fail to load lib: %s\n", sGail.libName));
+    }
 
     MAI_LOG_DEBUG(("Mozilla Atk Implementation initializing\n"));
-    g_type_init();
     // Initialize the MAI Utility class
+    // it will overwrite gail_util
     g_type_class_unref(g_type_class_ref(MAI_TYPE_UTIL));
 
     // load and initialize atk-bridge library
-    nsresult rv = LoadGtkModule(sAtkBridge);
+    rv = LoadGtkModule(sAtkBridge);
     if (NS_SUCCEEDED(rv)) {
         // init atk-bridge
         (*sAtkBridge.init)();
@@ -564,6 +586,13 @@ NS_IMETHODIMP nsAppRootAccessible::Init()
         sAtkBridge.lib = NULL;
         sAtkBridge.init = NULL;
         sAtkBridge.shutdown = NULL;
+    }
+    if (sGail.lib) {
+        if (sGail.shutdown)
+            (*sGail.shutdown)();
+        sGail.lib = NULL;
+        sGail.init = NULL;
+        sGail.shutdown = NULL;
     }
 }
 
@@ -693,35 +722,40 @@ NS_IMETHODIMP nsAppRootAccessible::GetNativeInterface(void **aOutAccessible)
 {
     *aOutAccessible = nsnull;
 
-    if (!mMaiAtkObject) {
-        mMaiAtkObject =
+    if (!mAtkObject) {
+        mAtkObject =
             NS_REINTERPRET_CAST(AtkObject *,
                                 g_object_new(MAI_TYPE_ATK_OBJECT, NULL));
-        NS_ENSURE_TRUE(mMaiAtkObject, NS_ERROR_OUT_OF_MEMORY);
+        NS_ENSURE_TRUE(mAtkObject, NS_ERROR_OUT_OF_MEMORY);
 
-        atk_object_initialize(mMaiAtkObject, this);
-        mMaiAtkObject->role = ATK_ROLE_INVALID;
-        mMaiAtkObject->layer = ATK_LAYER_INVALID;
+        atk_object_initialize(mAtkObject, this);
+        mAtkObject->role = ATK_ROLE_INVALID;
+        mAtkObject->layer = ATK_LAYER_INVALID;
     }
 
-    *aOutAccessible = mMaiAtkObject;
+    *aOutAccessible = mAtkObject;
     return NS_OK;
 }
 
 nsresult
-nsAppRootAccessible::AddRootAccessible(nsRootAccessibleWrap *aRootAccWrap)
+nsAppRootAccessible::AddRootAccessible(nsIAccessible *aRootAccWrap)
 {
     NS_ENSURE_ARG_POINTER(aRootAccWrap);
 
     nsresult rv = NS_ERROR_FAILURE;
 
     // add by weak reference
-    rv = mChildren->AppendElement(NS_STATIC_CAST(nsIAccessibleDocument*, aRootAccWrap),
-                                  PR_TRUE);
+    rv = mChildren->AppendElement(aRootAccWrap, PR_TRUE);
 
-#ifdef MAI_LOGGING
+    void* atkAccessible;
+    aRootAccWrap->GetNativeInterface(&atkAccessible);
+    atk_object_set_parent((AtkObject*)atkAccessible, mAtkObject);
     PRUint32 count = 0;
     mChildren->GetLength(&count);
+    g_signal_emit_by_name(mAtkObject, "children_changed::add", count - 1,
+                          atkAccessible, NULL);
+
+#ifdef MAI_LOGGING
     if (NS_SUCCEEDED(rv)) {
         MAI_LOG_DEBUG(("\nAdd RootAcc=%p OK, count=%d\n",
                        (void*)aRootAccWrap, count));
@@ -735,7 +769,7 @@ nsAppRootAccessible::AddRootAccessible(nsRootAccessibleWrap *aRootAccWrap)
 }
 
 nsresult
-nsAppRootAccessible::RemoveRootAccessible(nsRootAccessibleWrap *aRootAccWrap)
+nsAppRootAccessible::RemoveRootAccessible(nsIAccessible *aRootAccWrap)
 {
     NS_ENSURE_ARG_POINTER(aRootAccWrap);
 
@@ -743,9 +777,14 @@ nsAppRootAccessible::RemoveRootAccessible(nsRootAccessibleWrap *aRootAccWrap)
     nsresult rv = NS_ERROR_FAILURE;
 
     // we must use weak ref to get the index
-    nsCOMPtr<nsIWeakReference> weakPtr =
-        do_GetWeakReference(NS_STATIC_CAST(nsIAccessibleDocument*, aRootAccWrap));
+    nsCOMPtr<nsIWeakReference> weakPtr = do_GetWeakReference(aRootAccWrap);
     rv = mChildren->IndexOf(0, weakPtr, &index);
+
+    void* atkAccessible;
+    aRootAccWrap->GetNativeInterface(&atkAccessible);
+    atk_object_set_parent((AtkObject*)atkAccessible, NULL);
+    g_signal_emit_by_name(mAtkObject, "children_changed::remove", index,
+                          atkAccessible, NULL);
 
 #ifdef MAI_LOGGING
     PRUint32 count = 0;
@@ -770,6 +809,14 @@ nsAppRootAccessible::RemoveRootAccessible(nsRootAccessibleWrap *aRootAccWrap)
 nsAppRootAccessible *
 nsAppRootAccessible::Create()
 {
+    if (!sATKChecked) {
+        PRLibrary *atkLib = PR_LoadLibrary(sATKLibName);
+        AtkGetTypeType pfn_atk_hyperlink_impl_get_type = (AtkGetTypeType) PR_FindFunctionSymbol(atkLib, sATKHyperlinkImplGetTypeSymbol);
+        if (pfn_atk_hyperlink_impl_get_type) {
+            g_atk_hyperlink_impl_type = pfn_atk_hyperlink_impl_get_type();
+        }
+        sATKChecked = PR_TRUE;
+    }
     if (!sAppRoot) {
         sAppRoot = new nsAppRootAccessible();
         NS_ASSERTION(sAppRoot, "OUT OF MEMORY");

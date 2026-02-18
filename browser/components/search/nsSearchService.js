@@ -1011,7 +1011,6 @@ Engine.prototype = {
 
     switch (this._dataType) {
       case SEARCH_DATA_XML:
-
         var domParser = Cc["@mozilla.org/xmlextras/domparser;1"].
                         createInstance(Ci.nsIDOMParser);
         var doc = domParser.parseFromStream(fileInStream, "UTF-8",
@@ -1507,6 +1506,9 @@ Engine.prototype = {
         case "UpdateInterval":
           this._updateInterval = parseInt(child.textContent);
           break;
+        case "IconUpdateUrl":
+          this._iconUpdateURL = child.textContent;
+          break;
       }
     }
     ENSURE(this.name && (this._urls.length > 0),
@@ -1873,6 +1875,8 @@ Engine.prototype = {
     appendTextNode(MOZSEARCH_NS_10, "Alias", this.alias);
     appendTextNode(MOZSEARCH_NS_10, "UpdateInterval", this._updateInterval);
     appendTextNode(MOZSEARCH_NS_10, "UpdateUrl", this._updateURL);
+    appendTextNode(MOZSEARCH_NS_10, "IconUpdateUrl", this._iconUpdateURL);
+    appendTextNode(MOZSEARCH_NS_10, "SearchForm", this._searchForm);
 
     for (var i = 0; i < this._urls.length; ++i)
       this._urls[i]._serializeToElement(doc, docElem);
@@ -2391,11 +2395,7 @@ SearchService.prototype = {
         alphaEngines.push(this._engines[engine.name]);
     }
     alphaEngines = alphaEngines.sort(function (a, b) {
-                                       if (a.name < b.name)
-                                         return -1;
-                                       if (a.name > b.name)
-                                         return 1;
-                                       return 0;
+                                       return a.name.localeCompare(b.name);
                                      });
     this._sortedEngines = this._sortedEngines.concat(alphaEngines);
   },
@@ -2566,7 +2566,7 @@ SearchService.prototype = {
       if (bIdx)
         return 1;
 
-      return a.name < b.name ? -1 : 1;
+      return a.name.localeCompare(b.name);
     }
     engines.sort(compareEngines);
 

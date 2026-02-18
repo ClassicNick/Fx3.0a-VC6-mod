@@ -41,9 +41,9 @@ EXTRA_DSO_LDOPTS += $(MOZ_CAIRO_LIBS)
 endif
 
 EXTRA_DSO_LDOPTS += \
-	$(NSPR_LIBS) \
-	$(XPCOM_LIBS) \
 	$(MOZ_UNICHARUTIL_LIBS) \
+	$(XPCOM_LIBS) \
+	$(NSPR_LIBS) \
 	$(NULL)
 
 
@@ -93,7 +93,7 @@ CPPSRCS	+= 	gfxQuartzSurface.cpp gfxPlatformMac.cpp gfxAtsuiFonts.cpp
 CMMSRCS = gfxQuartzFontCache.mm
 
 # Always link with OpenGL/AGL
-EXTRA_DSO_LDOPTS += -framework OpenGL -framework AGL -framework Cocoa
+EXTRA_DSO_LDOPTS += -framework OpenGL -framework AGL -framework Cocoa -framework QuickTime
 endif
 
 ifdef MOZ_ENABLE_GLITZ

@@ -356,6 +356,7 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mHavePendingClose(PR_FALSE),
     mHadOriginalOpener(PR_FALSE),
     mIsPopupSpam(PR_FALSE),
+    mBlockScriptedClosingFlag(PR_FALSE),
     mFireOfflineStatusChangeEventOnThaw(PR_FALSE),
     mGlobalObjectOwner(nsnull),
     mTimeouts(nsnull),
@@ -1798,7 +1799,8 @@ nsGlobalWindow::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
 
   if (aVisitor.mEvent->message == NS_RESIZE_EVENT) {
     mIsHandlingResizeEvent = PR_FALSE;
-  } else if (aVisitor.mEvent->message == NS_PAGE_UNLOAD) {
+  } else if (aVisitor.mEvent->message == NS_PAGE_UNLOAD &&
+             NS_IS_TRUSTED_EVENT(aVisitor.mEvent)) {
     // Execute bindingdetached handlers before we tear ourselves
     // down.
     if (mDocument) {
@@ -1806,7 +1808,10 @@ nsGlobalWindow::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
       mDoc->BindingManager()->ExecuteDetachedHandlers();
     }
     mIsDocumentLoaded = PR_FALSE;
-  } else if (aVisitor.mEvent->message == NS_PAGE_LOAD) {
+  } else if (aVisitor.mEvent->message == NS_LOAD &&
+             NS_IS_TRUSTED_EVENT(aVisitor.mEvent)) {
+    // This is page load event since load events don't propagate to |window|.
+    // @see nsDocument::PreHandleEvent.
     mIsDocumentLoaded = PR_TRUE;
 
     nsCOMPtr<nsIContent> content(do_QueryInterface(GetFrameElementInternal()));
@@ -1825,7 +1830,7 @@ nsGlobalWindow::PostHandleEvent(nsEventChainPostVisitor& aVisitor)
       // onload event for the frame element.
 
       nsEventStatus status = nsEventStatus_eIgnore;
-      nsEvent event(NS_IS_TRUSTED_EVENT(aVisitor.mEvent), NS_PAGE_LOAD);
+      nsEvent event(NS_IS_TRUSTED_EVENT(aVisitor.mEvent), NS_LOAD);
       event.flags |= NS_EVENT_FLAG_CANT_BUBBLE;
 
       // Most of the time we could get a pres context to pass in here,
@@ -4317,6 +4322,7 @@ nsGlobalWindow::Open(const nsAString& aUrl, const nsAString& aName,
                       PR_FALSE,          // aDoJSFixups
                       nsnull, nsnull,    // No args
                       GetPrincipal(),    // aCalleePrincipal
+                      nsnull,            // aJSCallerContext
                       _retval);
 }
 
@@ -4367,6 +4373,7 @@ nsGlobalWindow::Open(nsIDOMWindow **_retval)
                       PR_TRUE,           // aDoJSFixups
                       nsnull, nsnull,    // No args
                       GetPrincipal(),    // aCalleePrincipal
+                      cx,                // aJSCallerContext
                       _retval);
 }
 
@@ -4383,6 +4390,7 @@ nsGlobalWindow::OpenDialog(const nsAString& aUrl, const nsAString& aName,
                       PR_FALSE,                   // aDoJSFixups
                       nsnull, aExtraArgument,     // Arguments
                       GetPrincipal(),             // aCalleePrincipal
+                      nsnull,                     // aJSCallerContext
                       _retval);
 }
 
@@ -4441,6 +4449,7 @@ nsGlobalWindow::OpenDialog(nsIDOMWindow** _retval)
                       PR_FALSE,            // aDoJSFixups
                       argvArray, nsnull,   // Arguments
                       GetPrincipal(),      // aCalleePrincipal
+                      cx,                  // aJSCallerContext
                       _retval);
 }
 
@@ -4489,6 +4498,14 @@ nsGlobalWindow::Close()
   if (mHavePendingClose) {
     // We're going to be closed anyway; do nothing since we don't want
     // to double-close
+    return NS_OK;
+  }
+
+  if (mBlockScriptedClosingFlag)
+  {
+    // A script's popup has been blocked and we don't want
+    // the window to be closed directly after this event,
+    // so the user can see that there was a blocked popup.
     return NS_OK;
   }
 
@@ -5942,6 +5959,15 @@ nsGlobalWindow::GetParentInternal()
   return parentInternal;
 }
 
+// static
+void
+nsGlobalWindow::CloseBlockScriptTerminationFunc(nsISupports *aRef)
+{
+  nsGlobalWindow* pwin = NS_STATIC_CAST(nsGlobalWindow*,
+                                        NS_STATIC_CAST(nsPIDOMWindow*, aRef));
+  pwin->mBlockScriptedClosingFlag = PR_FALSE;
+}
+
 nsresult
 nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
                              const nsAString& aOptions, PRBool aDialog,
@@ -5949,12 +5975,13 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
                              nsIArray *argv,
                              nsISupports *aExtraArgument,
                              nsIPrincipal *aCalleePrincipal,
+                             JSContext *aJSCallerContext,
                              nsIDOMWindow **aReturn)
 {
   FORWARD_TO_OUTER(OpenInternal, (aUrl, aName, aOptions, aDialog,
                                   aCalledNoScript, aDoJSFixups,
                                   argv, aExtraArgument, aCalleePrincipal,
-                                  aReturn),
+                                  aJSCallerContext, aReturn),
                    NS_ERROR_NOT_INITIALIZED);
 
 #ifdef NS_DEBUG
@@ -5968,6 +5995,8 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
                   "Can't pass JS args when called via the noscript methods");
   NS_PRECONDITION(!aDoJSFixups || !aCalledNoScript,
                   "JS fixups should not be done when called noscript");
+  NS_PRECONDITION(!aJSCallerContext || !aCalledNoScript,
+                  "Shouldn't have caller context when called noscript");
 
   *aReturn = nsnull;
   
@@ -5997,6 +6026,20 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
     abuseLevel = CheckForAbusePoint();
     allowReason = CheckOpenAllow(abuseLevel);
     if (allowReason == allowNot) {
+      if (aJSCallerContext) {
+        // If script in some other window is doing a window.open on us and
+        // it's being blocked, then it's OK to close us afterwards, probably.
+        // But if we're doing a window.open on ourselves and block the popup,
+        // prevent this window from closing until after this script terminates
+        // so that whatever popup blocker UI the app has will be visible.
+        if (mContext == GetScriptContextFromJSContext(aJSCallerContext)) {
+          mBlockScriptedClosingFlag = PR_TRUE;
+          mContext->SetTerminationFunction(CloseBlockScriptTerminationFunc,
+                                           NS_STATIC_CAST(nsPIDOMWindow*,
+                                                          this));
+        }
+      }
+
       FireAbuseEvents(PR_TRUE, PR_FALSE, aUrl, aName, aOptions);
       return aDoJSFixups ? NS_OK : NS_ERROR_FAILURE;
     }

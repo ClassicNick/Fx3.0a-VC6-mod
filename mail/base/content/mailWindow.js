@@ -213,10 +213,11 @@ function CreateMailWindowGlobals()
 
 function InitMsgWindow()
 {
-  msgWindow.windowCommands = new nsMsgWindowCommands();  
+  msgWindow.windowCommands = new nsMsgWindowCommands();
+  // set the domWindow before setting the status feedback and header sink objects
+  msgWindow.domWindow = window; 
   msgWindow.statusFeedback = statusFeedback;
   msgWindow.msgHeaderSink = messageHeaderSink;
-  msgWindow.domWindow = window;
   mailSession.AddMsgWindow(msgWindow);
   getBrowser().docShell.allowAuth = false;
   msgWindow.rootDocShell.allowAuth = true; 
@@ -382,7 +383,7 @@ nsMsgStatusFeedback.prototype =
         gTimelineService.markTimer("FolderLoading");
         gTimelineService.resetTimer("FolderLoading");
       }
-      dump("in stopMetors\n");
+
       this.ensureStatusFields();
       this.showStatusString(defaultStatus);
       
