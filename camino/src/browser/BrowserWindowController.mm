@@ -1415,7 +1415,7 @@ enum BWCOpenDest {
   else if (action == @selector(manageBookmarks:))
     return [[mBrowserView getBrowserView] canGoBack] || (![self bookmarkManagerIsVisible]);
   else if (action == @selector(reload:))
-    return ![self bookmarkManagerIsVisible];
+    return [[self getBrowserWrapper] canReload];
   else if (action == @selector(stop:))
     return [mBrowserView isBusy];
   else if (action == @selector(addBookmark:))
@@ -1427,13 +1427,12 @@ enum BWCOpenDest {
   else if (action == @selector(newTab:))
     return YES;
   else if (action == @selector(closeCurrentTab:))
-    return ([mTabBrowser numberOfTabViewItems] > 1);
+    return ([mTabBrowser numberOfTabViewItems] > 1 && [[self window] isKeyWindow]);
   else if (action == @selector(sendURL:)) {
     NSString* curURL = [[self getBrowserWrapper] getCurrentURI];
     return ![MainController isBlankURL:curURL];
   }
   else if (action == @selector(viewSource:)) {
-    NSString* curURL = [[self getBrowserWrapper] getCurrentURI];
     return (![self bookmarkManagerIsVisible] &&
             [[[self getBrowserWrapper] getBrowserView] isTextBasedContent]);
   }
@@ -1530,15 +1529,24 @@ enum BWCOpenDest {
 -(BOOL)validateMenuItem: (NSMenuItem*)aMenuItem
 {
   SEL action = [aMenuItem action];
-  
+
   if (action == @selector(moveTabToNewWindow:) ||
       action == @selector(closeCurrentTab:)    ||
       action == @selector(closeSendersTab:)    ||
       action == @selector(closeOtherTabs:))
     return ([mTabBrowser numberOfTabViewItems] > 1);
-  
+
   if (action == @selector(fillForm:))
     return ![self bookmarkManagerIsVisible];
+
+  if (action == @selector(reloadSendersTab:)) {
+    BrowserTabViewItem* sendersTab = [[self getTabBrowser] itemWithTag:[aMenuItem tag]];
+    return [[sendersTab view] canReload];
+  }
+
+  if (action == @selector(reload:))
+    return [[self getBrowserWrapper] canReload];
+
 
   return YES;
 }

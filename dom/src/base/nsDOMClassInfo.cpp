@@ -38,6 +38,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nscore.h"
+#include "nsCOMPtr.h"
 #include "nsDOMClassInfo.h"
 #include "nsCRT.h"
 #include "nsIServiceManager.h"

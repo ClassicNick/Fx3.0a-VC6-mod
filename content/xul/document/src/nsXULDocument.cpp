@@ -63,6 +63,7 @@
 */
 
 // Note the ALPHABETICAL ORDERING
+#include "nsCOMPtr.h"
 #include "nsXULDocument.h"
 
 #include "nsDOMError.h"

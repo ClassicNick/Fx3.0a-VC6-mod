@@ -2700,7 +2700,7 @@ NS_IMETHODIMP
 PresShell::BeginObservingDocument()
 {
   if (mDocument) {
-    mDocument->AddObserver(this);
+    mDocument->BindingManager()->AddObserver(this);
     if (mIsDocumentGone) {
       NS_WARNING("Adding a presshell that was disconnected from the document "
                  "as a document observer?  Sounds wrong...");
@@ -2718,7 +2718,7 @@ PresShell::EndObservingDocument()
   // is gone, perhaps?  Except for printing it's NOT gone, sometimes.
   mIsDocumentGone = PR_TRUE;
   if (mDocument) {
-    mDocument->RemoveObserver(this);
+    mDocument->BindingManager()->RemoveObserver(this);
   }
   return NS_OK;
 }
@@ -5265,6 +5265,15 @@ PresShell::CharacterDataChanged(nsIDocument *aDocument,
   NS_PRECONDITION(aDocument == mDocument, "Unexpected aDocument");
 
   WillCauseReflow();
+  if (mCaret) {
+    // Invalidate the caret's current location before we call into the frame
+    // constructor. It is important to do this now, and not wait until the
+    // resulting reflow, because this call causes continuation frames of the
+    // text frame the caret is in to forget what part of the content they
+    // refer to, making it hard for them to return the correct continuation
+    // frame to the caret.
+    mCaret->InvalidateOutsideCaret();
+  }
   mFrameConstructor->CharacterDataChanged(aContent, aAppend);
   VERIFY_STYLE_TREE;
   DidCauseReflow();

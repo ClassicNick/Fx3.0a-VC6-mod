@@ -422,14 +422,12 @@ nsAccessibilityService::CreateHTMLButtonAccessible(nsISupports *aFrame, nsIAcces
 }
 
 nsresult
-nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsISupports *aFrame,
+nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsIFrame *aFrame,
                                                      nsIWeakReference *aWeakShell,
                                                      nsIDOMNode *aNode,
                                                      const nsAString& aRole,
                                                      nsIAccessible **aAccessible)
 {
-  // aFrame type was generic, we'll use the DOM to decide 
-  // if and what kind of accessible object is needed.
   // This method assumes we're in an HTML namespace.
   *aAccessible = nsnull;
   nsCOMPtr<nsIContent> content(do_QueryInterface(aNode));
@@ -444,12 +442,9 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsISupports *aFrame,
     *aAccessible = new nsHTMLListAccessible(aNode, aWeakShell);
   }
   else if (tag == nsAccessibilityAtoms::a) {
-    *aAccessible = new nsHTMLLinkAccessible(aNode, aWeakShell, NS_STATIC_CAST(nsIFrame*, aFrame));
+    *aAccessible = new nsHTMLLinkAccessible(aNode, aWeakShell, aFrame);
   }
-  else if (content->HasAttr(kNameSpaceID_None, nsAccessibilityAtoms::onclick)) {
-    *aAccessible = new nsLinkableAccessible(aNode, aWeakShell);
-  }
-  else if (tag == nsAccessibilityAtoms::li) {
+  else if (tag == nsAccessibilityAtoms::li && aFrame->GetType() != nsAccessibilityAtoms::blockFrame) {
     // Normally this is created by the list item frame which knows about the bullet frame
     // However, in this case the list item must have been styled using display: foo
     *aAccessible = new nsHTMLLIAccessible(aNode, aWeakShell, nsnull, EmptyString());
@@ -474,7 +469,7 @@ nsAccessibilityService::CreateHTMLAccessibleByMarkup(nsISupports *aFrame,
            tag == nsAccessibilityAtoms::thead ||
 #endif
            tag == nsAccessibilityAtoms::q) {
-    *aAccessible = new nsHyperTextAccessible(aNode, aWeakShell);
+    return CreateHyperTextAccessible(aFrame, aAccessible);
   }
   NS_IF_ADDREF(*aAccessible);
   return NS_OK;
@@ -504,7 +499,7 @@ nsAccessibilityService::CreateHTMLLIAccessible(nsISupports *aFrame,
 }
 
 NS_IMETHODIMP
-nsAccessibilityService::CreateHyperTextAccessible(nsISupports *aFrame, nsIAccessible **_retval)
+nsAccessibilityService::CreateHyperTextAccessible(nsISupports *aFrame, nsIAccessible **aAccessible)
 {
   nsIFrame* frame;
   nsCOMPtr<nsIDOMNode> node;
@@ -513,11 +508,20 @@ nsAccessibilityService::CreateHyperTextAccessible(nsISupports *aFrame, nsIAccess
   if (NS_FAILED(rv))
     return rv;
 
-  *_retval = new nsHyperTextAccessible(node, weakShell);
-  if (! *_retval) 
+  nsCOMPtr<nsIContent> content(do_QueryInterface(node));
+  NS_ENSURE_TRUE(content, NS_ERROR_FAILURE);
+  if (content->HasAttr(kNameSpaceID_None, nsAccessibilityAtoms::onclick)) {
+    // nsLinkableAccessible inherits from nsHyperTextAccessible, but
+    // it also includes code for dealing with the onclick
+    *aAccessible = new nsLinkableAccessible(node, weakShell);
+  }
+  else {
+    *aAccessible = new nsHyperTextAccessible(node, weakShell);
+  }
+  if (nsnull == *aAccessible)
     return NS_ERROR_OUT_OF_MEMORY;
 
-  NS_ADDREF(*_retval);
+  NS_ADDREF(*aAccessible);
   return NS_OK;
 }
 
@@ -1024,7 +1028,7 @@ NS_IMETHODIMP nsAccessibilityService::GetAccessible(nsIDOMNode *aNode,
   // Please leave this in for now, it's a convenient debugging method
   nsAutoString name;
   aNode->GetLocalName(name);
-  if (name.LowerCaseEqualsLiteral("table")) 
+  if (name.LowerCaseEqualsLiteral("h1")) 
     printf("## aaronl debugging tag name\n");
 
   nsAutoString attrib;
@@ -1241,20 +1245,22 @@ NS_IMETHODIMP nsAccessibilityService::GetAccessible(nsIDOMNode *aNode,
 
   // If no accessible, see if we need to create a generic accessible because
   // of some property that makes this object interesting
-  if (!newAcc &&
+  // We don't do this for <body>, <html>, <window>, <dialog> etc. which 
+  // correspond to the doc accessible and will be created in any case
+  if (!newAcc && content->Tag() != nsAccessibilityAtoms::body && content->GetParent() && 
       (content->IsFocusable() ||
+       content->HasAttr(kNameSpaceID_None, nsAccessibilityAtoms::onclick) ||
        content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::describedby) ||
        content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::labelledby) ||
        content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::required) ||
        content->HasAttr(kNameSpaceID_WAIProperties, nsAccessibilityAtoms::invalid) ||
-       // The role from a <body> or doc element is already exposed in nsDocAccessible
-       (content->Tag() != nsAccessibilityAtoms::body && content->GetParent() && !role.IsEmpty()))) {
+       !role.IsEmpty())) {
     // This content is focusable or has an interesting dynamic content accessibility property.
     // If it's interesting we need it in the accessibility hierarchy so that events or
     // other accessibles can point to it, or so that it can hold a state, etc.
     if (content->IsNodeOfType(nsINode::eHTML)) {
       // Interesting HTML container which may have selectable text and/or embedded objects
-      newAcc = new nsHyperTextAccessible(aNode, aWeakShell);
+      CreateHyperTextAccessible(frame, getter_AddRefs(newAcc));
     }
     else {  // XUL, SVG, MathML etc.
       // Interesting generic non-HTML container

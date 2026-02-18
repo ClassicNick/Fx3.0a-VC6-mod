@@ -1981,14 +1981,6 @@ InternNonIntElementId(JSContext *cx, jsval idval, jsid *idp)
 # undef JS_THREADED_INTERP
 #endif
 
-typedef enum JSOpLength {
-#define OPDEF(op,val,name,token,length,nuses,ndefs,prec,format) \
-    op##_LENGTH = length,
-#include "jsopcode.tbl"
-#undef OPDEF
-    JSOP_LIMIT_LENGTH
-} JSOpLength;
-
 JSBool
 js_Interpret(JSContext *cx, jsbytecode *pc, jsval *result)
 {
@@ -2021,7 +2013,7 @@ js_Interpret(JSContext *cx, jsbytecode *pc, jsval *result)
     JSFunction *fun;
     JSType type;
 #if !defined JS_THREADED_INTERP && defined DEBUG
-    FILE *tracefp;
+    FILE *tracefp = NULL;
 #endif
 #if JS_HAS_EXPORT_IMPORT
     JSIdArray *ida;
@@ -4256,7 +4248,6 @@ interrupt:
               case JSOP_GETMETHOD:    goto do_JSOP_GETMETHOD;
               case JSOP_SETMETHOD:    goto do_JSOP_SETMETHOD;
 #endif
-              case JSOP_INITCATCHVAR: goto do_JSOP_INITCATCHVAR;
               case JSOP_NAMEDFUNOBJ:  goto do_JSOP_NAMEDFUNOBJ;
               case JSOP_NUMBER:       goto do_JSOP_NUMBER;
               case JSOP_OBJECT:       goto do_JSOP_OBJECT;
@@ -5497,41 +5488,16 @@ interrupt:
             /* let the code at out try to catch the exception. */
             goto out;
 
-          BEGIN_LITOPX_CASE(JSOP_INITCATCHVAR, 0)
-            /* Load the value into rval, while keeping it live on stack. */
-            JS_ASSERT(sp - fp->spbase >= 2);
-            rval = FETCH_OPND(-1);
-
-            /* Get the immediate catch variable name into id. */
-            id   = ATOM_TO_JSID(atom);
-
-            /* Find the object being initialized at top of stack. */
-            lval = FETCH_OPND(-2);
-            JS_ASSERT(JSVAL_IS_OBJECT(lval));
-            obj = JSVAL_TO_OBJECT(lval);
-
-            SAVE_SP_AND_PC(fp);
-
+          BEGIN_CASE(JSOP_SETLOCALPOP)
             /*
-             * It's possible for an evil script to substitute a random object
-             * for the new object. Check to make sure that we don't override a
-             * readonly property with the below OBJ_DEFINE_PROPERTY.
+             * The stack must have a block with at least one local slot below
+             * the exception object.
              */
-            ok = OBJ_GET_ATTRIBUTES(cx, obj, id, NULL, &attrs);
-            if (!ok)
-                goto out;
-            if (!(attrs & (JSPROP_READONLY | JSPROP_PERMANENT |
-                           JSPROP_GETTER | JSPROP_SETTER))) {
-                /* Define obj[id] to contain rval and to be permanent. */
-                ok = OBJ_DEFINE_PROPERTY(cx, obj, id, rval, NULL, NULL,
-                                         JSPROP_PERMANENT, NULL);
-                if (!ok)
-                    goto out;
-            }
-
-            /* Now that we're done with rval, pop it. */
-            sp--;
-          END_LITOPX_CASE(JSOP_INITCATCHVAR)
+            JS_ASSERT(sp - fp->spbase >= 2);
+            slot = GET_UINT16(pc);
+            JS_ASSERT(slot + 1 < (uintN)depth);
+            fp->spbase[slot] = POP_OPND();
+          END_CASE(JSOP_SETLOCALPOP)
 
           BEGIN_CASE(JSOP_INSTANCEOF)
             SAVE_SP_AND_PC(fp);
@@ -5931,9 +5897,29 @@ interrupt:
                 STORE_OPND(0, JSVAL_VOID);
                 sp++;
             }
-            JS_ASSERT(!fp->blockChain ||
-                      OBJ_GET_PARENT(cx, obj) == fp->blockChain);
-            fp->blockChain = obj;
+
+            /*
+             * If this frame had to reflect the compile-time block chain into
+             * the runtime scope chain, we can't optimize block scopes out of
+             * runtime any longer, because an outer block that parents obj has
+             * been cloned onto the scope chain.  To avoid re-cloning such a
+             * parent and accumulating redundant clones via js_GetScopeChain,
+             * we must clone each block eagerly on entry, and push it on the
+             * scope chain, until this frame pops.
+             */
+            if (fp->flags & JSFRAME_POP_BLOCKS) {
+                JS_ASSERT(!fp->blockChain);
+                obj = js_CloneBlockObject(cx, obj, fp->scopeChain, fp);
+                if (!obj) {
+                    ok = JS_FALSE;
+                    goto out;
+                }
+                fp->scopeChain = obj;
+            } else {
+                JS_ASSERT(!fp->blockChain ||
+                          OBJ_GET_PARENT(cx, obj) == fp->blockChain);
+                fp->blockChain = obj;
+            }
           END_LITOPX_CASE(JSOP_ENTERBLOCK)
 
           BEGIN_CASE(JSOP_LEAVEBLOCKEXPR)
@@ -5974,7 +5960,11 @@ interrupt:
             JS_ASSERT(op == JSOP_LEAVEBLOCKEXPR
                       ? fp->spbase + OBJ_BLOCK_DEPTH(cx, obj) == sp - 1
                       : fp->spbase + OBJ_BLOCK_DEPTH(cx, obj) == sp);
+
             *chainp = OBJ_GET_PARENT(cx, obj);
+            JS_ASSERT(chainp != &fp->blockChain ||
+                      !*chainp ||
+                      OBJ_GET_CLASS(cx, *chainp) == &js_BlockClass);
           }
           END_CASE(JSOP_LEAVEBLOCK)
 

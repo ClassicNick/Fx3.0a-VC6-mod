@@ -43,6 +43,7 @@
 [
   <!ENTITY % dtd1 SYSTEM "chrome://calendar/locale/global.dtd" >  %dtd1;
   <!ENTITY % dtd2 SYSTEM "chrome://calendar/locale/calendar.dtd" >  %dtd2;
+  <!ENTITY % dtd3 SYSTEM "chrome://calendar/locale/sun-calendar-event-dialog.dtd" > %dtd3;
 ]>
 
 <bindings xmlns="http://www.mozilla.org/xbl"
@@ -129,9 +130,9 @@
               <xul:label value="&newevent.privacy.label;" disable-on-readonly="true"/>
               <xul:menulist id="privacy-menulist" crop="none" disable-on-readonly="true">
                 <xul:menupopup>
-                  <xul:menuitem label="&newevent.public.label;" value="PUBLIC"/>
-                  <xul:menuitem label="&newevent.private.label;" value="PRIVATE"/>
-                  <xul:menuitem label="&newevent.confidential.label;" value="CONFIDENTIAL"/>
+                  <xul:menuitem label="&event.public.label;" value="PUBLIC"/>
+                  <xul:menuitem label="&event.confidential.label;" value="CONFIDENTIAL"/>
+                  <xul:menuitem label="&event.private.label;" value="PRIVATE"/>
                 </xul:menupopup>
               </xul:menulist>
             </xul:row>
@@ -166,7 +167,7 @@
               </xul:menulist>
             </xul:row>
 
-            <xul:row class="todo-only">
+            <xul:row class="todo-only" align="center">
               <xul:label id="todo-status-label" value="&newevent.status.label;" disable-on-readonly="true"/>
               <xul:hbox align="center">
                 <xul:menulist id="todo-status" class="todo-only" oncommand="updateToDoStatus(this.value);" disable-on-readonly="true">
@@ -192,7 +193,7 @@
             <xul:separator class="groove"/>
 
             <!-- Reminder -->
-            <xul:row align="center">
+            <xul:row align="center" class="event-only">
               <xul:label value="&newevent.alarm.label;" disable-on-readonly="true"/>
               <xul:hbox align="center">
                 <xul:menulist id="item-alarm" oncommand="updateAlarm()" disable-on-readonly="true">
@@ -209,7 +210,7 @@
             </xul:row>
 
             <!-- Reminder-Details -->
-            <xul:row id="alarm-details">
+            <xul:row id="alarm-details" class="event-only">
               <xul:spacer flex="1"/>
               <xul:vbox>
                 <xul:hbox>
@@ -231,7 +232,7 @@
               </xul:vbox>
             </xul:row>
 
-            <xul:separator class="groove"/>
+            <xul:separator class="groove event-only"/>
 
             <!-- Description -->
             <xul:row id="description-row" flex="1">
@@ -324,32 +325,35 @@
             // add calendars to the calendar menulist
             var calendarList = document.getElementById("item-calendar");
             var calendars = getCalendarManager().getCalendars({});
+            var calendarToUse = item.calendar || window.arguments[0].calendar
+            var selectIndex = 0;
             for (i in calendars) {
                 var calendar = calendars[i];
                 if (calendar == item.calendar || calendar == window.arguments[0].calendar) {
                   var menuitem = calendarList.appendItem(calendar.name, i);
                   menuitem.calendar = calendar;
+                  if(calendarToUse) {
+                    if (calendarToUse.uri.equals(calendar.uri)) {
+                      calendarList.selectedIndex = selectIndex;
+                    }
+                  }
+                  selectIndex++;
                 } else if (calendar && !calendar.readOnly) {
                   var menuitem = calendarList.appendItem(calendar.name, i);
                   menuitem.calendar = calendar;
+                  if(calendarToUse) {
+                    if (calendarToUse.uri.equals(calendar.uri)) {
+                      calendarList.selectedIndex = selectIndex;
+                    }
+                  }
+                  selectIndex++;
                 }
             }
-
-            // item default calendar
-            // If this is a new item, it might not have a calendar, but a default
-            // option could well have been passed in.
-            var calendarToUse = item.calendar || window.arguments[0].calendar
-            if (calendarToUse) {
-                var calendarList = document.getElementById("item-calendar");
-                var calendars = getCalendarManager().getCalendars({});
-                for (i in calendars) {
-                    if (calendarToUse.uri.equals(calendars[i].uri))
-                        calendarList.selectedIndex = i;
-                }
-            } else {
-                // no calendar attached to item
-                // select first entry in calendar list as default
-                document.getElementById("item-calendar").selectedIndex = 0;
+            
+            // no calendar attached to item
+            // select first entry in calendar list as default
+            if (!calendarToUse) {
+              document.getElementById("item-calendar").selectedIndex = 0;
             }
 
             // Categories
@@ -497,8 +501,6 @@
             // update alarm checkbox/label/settings button
             this.updateAlarm();
 
-            this.updateURL(item.getProperty("URL"));
-
             // hide rows based on if this is an event or todo
             this.updateStyle();
             
@@ -508,6 +510,8 @@
 
             // update datetime pickers
             this.updateAllDay();
+
+            this.updateURL(item.getProperty("URL"));
 
             this.onChangeCalendar();
 
@@ -685,6 +689,25 @@
               for (i=0;i<enableElements.length;i++) {
                 enableElements[i].removeAttribute('disabled');
               }
+
+              // Task completed date
+              if (item.completedDate) {
+                  this.updateToDoStatus(item.status, item.completedDate.jsDate);
+              } else {
+                  this.updateToDoStatus(item.status);
+              }
+
+              // update alarm fields
+              this.updateAlarm();
+
+              // update datetime pickers
+              this.updateDueDate();
+              this.updateEntryDate();
+
+              // update datetime pickers
+              this.updateAllDay();
+
+              this.updateURL(getElementValue("item-url"));
             }
 
             var event = document.createEvent('Events'); 
@@ -904,6 +927,10 @@
             var button = document.getElementById("load-url-button");
             button.setAttribute("disabled", true)
 
+            if (this.mIsReadOnly) {
+              return;
+            }
+
             if (!aValue) {
                 return;
             }
@@ -1023,9 +1050,9 @@
 
             var kDefaultTimezone = calendarDefaultTimezone();
 
-            var title = getElementValue("item-title");
-            if (title.length == 0)
-                enableAccept = false;
+            //var title = getElementValue("item-title");
+            //if (title.length == 0)
+                //enableAccept = false;
 
             // don't allow for end dates to be before start dates
             var startDate;

@@ -748,6 +748,10 @@ nsDocument::~nsDocument()
     NS_RELEASE(mCSSLoader);
   }
 
+  // Delete properties before dropping the document reference from
+  // NodeInfoManager!
+  mPropertyTable.DeleteAllProperties();
+
   // XXX Ideally we'd do this cleanup in the nsIDocument destructor.
   if (mNodeInfoManager) {
     mNodeInfoManager->DropDocumentReference();
@@ -809,7 +813,8 @@ NS_INTERFACE_MAP_BEGIN(nsDocument)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_ADDREF(nsDocument)
-NS_IMPL_RELEASE(nsDocument)
+NS_IMPL_RELEASE_WITH_DESTROY(nsDocument,
+                             nsNodeUtils::LastRelease(this))
 
 nsresult
 nsDocument::Init()
@@ -825,18 +830,19 @@ nsDocument::Init()
   NS_ENSURE_TRUE(bindingManager, NS_ERROR_OUT_OF_MEMORY);
   mBindingManager = bindingManager;
 
-  // The binding manager must always be the first observer of the document.
-  mObservers.PrependObserver(bindingManager);
+  if (!mObservers.PrependObserver(bindingManager)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+  
   nsINode::nsSlots* slots = GetSlots();
   NS_ENSURE_TRUE(slots &&
                  slots->mMutationObservers.PrependObserver(bindingManager),
                  NS_ERROR_OUT_OF_MEMORY);
+
   // Prepend self as mutation-observer whether we need it or not (some
   // subclasses currently do, other don't). This is because the code in
-  // nsNodeUtils always notifies the first observer first, even when going
-  // backwards, expecting the first observer to be the document.
-  // If we remove that hack, we can move the below registring out to the leaf
-  // classes.
+  // nsNodeUtils always notifies the first observer first, expecting the
+  // first observer to be the document.
   NS_ENSURE_TRUE(slots->mMutationObservers.PrependObserver(this),
                  NS_ERROR_OUT_OF_MEMORY);
 

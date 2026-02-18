@@ -547,7 +547,7 @@ sub open_showbuilds_href_target {
 
 sub query_ref {
   my ($td, $mindate, $maxdate, $who) = @_;
-  my $output = '';
+  my $output = '<a><!-- query system not configured -->';
 
   if ($use_viewvc) {
       $output = "<a href=\"${viewvc_url}?view=query&who_match=exact";
@@ -559,12 +559,12 @@ sub query_ref {
       $output .= "&who=" . &url_encode($who) if (defined($who) && $who ne '');
       $output .= "\">";
   } elsif ($use_bonsai) {
-      $output = "<a href=${rel_path}../bonsai/cvsquery.cgi";
+      $output = "<a href=$bonsai_url/cvsquery.cgi";
       $output .= "?module=$td->{cvs_module}";
       $output .= "&branch=$td->{cvs_branch}"   if $td->{cvs_branch} ne 'HEAD';
       $output .= "&branchtype=regexp"
           if $td->{cvs_branch} =~ /\+|\?|\*/;
-      $output .= "&cvsroot=$td->{cvs_root}"    if $td->{cvs_root} ne $default_root;
+      $output .= "&cvsroot=$td->{cvs_root}"    if $td->{cvs_root} ne $default_cvsroot;
       $output .= "&date=explicit&mindate=$mindate";
       $output .= "&maxdate=$maxdate"           if $maxdate and $maxdate ne '';
       $output .= "&who=$who"                   if $who and $who ne '';
@@ -584,7 +584,7 @@ sub who_menu {
   require "$tree/treedata.pl";
 
   my $qr = '';
-  my $ret = '';
+  my $ret = '<a><!-- no query system configured -->';
   if ($use_viewvc) {
       $qr = "${viewvc_url}?view=query&who_match=exact&who=" . 
           &url_encode($who) . "&querysort=date&date=explicit" .
@@ -593,7 +593,7 @@ sub who_menu {
           (defined($maxdate));
       $ret = "<a href='$qr'>";
   } elsif ($use_bonsai) {
-      $qr = "${rel_path}../registry/who.cgi?email=". &url_encode($who)
+      $qr = "$registry_url/who.cgi?email=". &url_encode($who)
           . "&d=$td->{cvs_module}|$treeflag|$td->{cvs_root}|$mindate";
       $qr = $qr . "|$maxdate" if defined($maxdate);
       $ret = "<a href=\"$qr\" onclick=\"return who(event);\">";
@@ -640,12 +640,12 @@ BEGIN {
 
     local $_;
     $::BatchID='';
-    eval qq(require "/d/webdocs/projects/bonsai/data/$bonsai_tree/batchid.pl");
+    eval qq(require "$bonsai_dir/data/$bonsai_tree/batchid.pl");
     if ($::BatchID eq '') {
-        warn "No BatchID in /d/webdocs/projects/bonsai/data/$bonsai_tree/batchid.pl\n";
+        warn "No BatchID in $bonsai_dir/data/$bonsai_tree/batchid.pl\n";
         return;
     }
-    open(BATCH, "<", "/d/webdocs/projects/bonsai/data/$bonsai_tree/batch-$::BatchID.pl")
+    open(BATCH, "<", "$bonsai_dir/data/$bonsai_tree/batch-$::BatchID.pl")
         or print "can't open batch-$::BatchID.pl<br>";
     while (<BATCH>) { 
         if (/^\$::TreeOpen = '(\d+)';/) {

@@ -9772,7 +9772,8 @@ DoDeletingFrameSubtree(nsFrameManager* aFrameManager,
   
         // Remove the mapping from the out-of-flow frame to its placeholder.
         aFrameManager->UnregisterPlaceholderFrame((nsPlaceholderFrame*)childFrame);
-        ((nsPlaceholderFrame*)childFrame)->SetOutOfFlowFrame(nsnull);
+        // Don't SetOutOfFlowFrame(nsnull) here because the float cache depends
+        // on it when the float is removed later on, see bug 348688 comment 6.
         
         // Queue the out-of-flow frame to be destroyed only if aRemovedFrame is _not_
         // one of its ancestor frames or if it is a popup frame. 
@@ -10068,9 +10069,9 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*     aContainer,
 
       // Remove the placeholder frame first (XXX second for now) (so
       // that it doesn't retain a dangling pointer to memory)
-      parentFrame = placeholderFrame->GetParent();
+      nsIFrame* placeholderParent = placeholderFrame->GetParent();
       ::DeletingFrameSubtree(frameManager, placeholderFrame);
-      rv |= frameManager->RemoveFrame(parentFrame,
+      rv |= frameManager->RemoveFrame(placeholderParent,
                                       nsnull, placeholderFrame);
     } else {
       // Notify the parent frame that it should delete the frame
@@ -10091,9 +10092,11 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*     aContainer,
     }
 
     if (haveFLS && mInitialContainingBlock) {
+      NS_ASSERTION(containingBlock == GetFloatContainingBlock(parentFrame),
+                   "What happened here?");
       nsFrameConstructorState state(mPresShell, mFixedContainingBlock,
                                     GetAbsoluteContainingBlock(parentFrame),
-                                    GetFloatContainingBlock(parentFrame));
+                                    containingBlock);
       RecoverLetterFrames(state, containingBlock);
     }
 
@@ -11535,14 +11538,9 @@ nsCSSFrameConstructor::GetInsertionPoint(nsIFrame*     aParentFrame,
     }
     nsIFrame* insertionPoint = mPresShell->GetPrimaryFrameFor(insertionElement);
     if (insertionPoint) {
-      // If the insertion point is a scrollable, then walk ``through''
-      // it to get the scrolled frame.
-      nsIScrollableFrame* scroll = nsnull;
-      CallQueryInterface(insertionPoint, &scroll);
-      if (scroll)
-        insertionPoint = scroll->GetScrolledFrame();
-
-      if (insertionPoint != aParentFrame) 
+      // Use the content insertion frame of the insertion point.
+      insertionPoint = insertionPoint->GetContentInsertionFrame();
+      if (insertionPoint && insertionPoint != aParentFrame) 
         GetInsertionPoint(insertionPoint, aChildContent, aInsertionPoint, aMultiple);
     }
     else {

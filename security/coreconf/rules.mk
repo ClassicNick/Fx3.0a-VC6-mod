@@ -870,8 +870,7 @@ endif
 
 ifneq (,$(filter-out OpenVMS OS2 WIN%,$(OS_TARGET)))
 # Can't use sed because of its 4000-char line length limit, so resort to perl
-.DEFAULT:
-	@perl -e '                                                            \
+PERL_DEPENDENCIES_PROGRAM =                                                   \
 	    open(MD, "< $(DEPENDENCIES)");                                    \
 	    while (<MD>) {                                                    \
 		if (m@ \.*/*$< @) {                                           \
@@ -898,7 +897,10 @@ ifneq (,$(filter-out OpenVMS OS2 WIN%,$(OS_TARGET)))
 	    } elsif ("$<" ne "$(DEPENDENCIES)") {                             \
 		print "$(MAKE): *** No rule to make target $<.  Stop.\n";     \
 		exit(1);                                                      \
-	    }'
+	    }
+
+.DEFAULT:
+	@perl -e '$(PERL_DEPENDENCIES_PROGRAM)'
 endif
 
 #############################################################################

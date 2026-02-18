@@ -40,8 +40,9 @@
 *   locale/browser/bookmarks/bookmarksProperties.dtd (%chrome/browser/bookmarks/bookmarksProperties.dtd)
 #endif
 #ifdef MOZ_SAFE_BROWSING
-     locale/browser/safebrowsing/phishing-afterload-warning-message.dtd (%chrome/browser/safebrowsing/phishing-afterload-warning-message.dtd)
-     locale/browser/safebrowsing/report-phishing.dtd                    (%chrome/browser/safebrowsing/report-phishing.dtd)
+    locale/browser/safebrowsing/phishing-afterload-warning-message.dtd (%chrome/browser/safebrowsing/phishing-afterload-warning-message.dtd)
+    locale/browser/safebrowsing/report-phishing.dtd                    (%chrome/browser/safebrowsing/report-phishing.dtd)
+    locale/browser/safebrowsing/eula.dtd                               (%chrome/browser/safebrowsing/eula.dtd)
 #endif
 #ifdef MOZ_FEEDS
     locale/browser/feeds/subscribe.dtd              (%chrome/browser/feeds/subscribe.dtd)
@@ -60,11 +61,13 @@
     locale/browser/preferences/content.dtd            (%chrome/browser/preferences/content.dtd)
     locale/browser/preferences/connection.dtd         (%chrome/browser/preferences/connection.dtd)
     locale/browser/preferences/downloadactions.dtd    (%chrome/browser/preferences/downloadactions.dtd)
+    locale/browser/preferences/fallbackEULA.dtd       (%chrome/browser/preferences/fallbackEULA.dtd)
     locale/browser/preferences/feeds.dtd              (%chrome/browser/preferences/feeds.dtd)
     locale/browser/preferences/fonts.dtd              (%chrome/browser/preferences/fonts.dtd)
     locale/browser/preferences/main.dtd               (%chrome/browser/preferences/main.dtd)
     locale/browser/preferences/languages.dtd          (%chrome/browser/preferences/languages.dtd)
     locale/browser/preferences/permissions.dtd        (%chrome/browser/preferences/permissions.dtd)
+    locale/browser/preferences/phishEULA.dtd          (%chrome/browser/preferences/phishEULA.dtd)
     locale/browser/preferences/preferences.dtd        (%chrome/browser/preferences/preferences.dtd)
     locale/browser/preferences/preferences.properties (%chrome/browser/preferences/preferences.properties)
     locale/browser/preferences/privacy.dtd            (%chrome/browser/preferences/privacy.dtd)

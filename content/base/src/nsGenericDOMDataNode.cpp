@@ -97,7 +97,8 @@ nsGenericDOMDataNode::~nsGenericDOMDataNode()
 
 
 NS_IMPL_ADDREF(nsGenericDOMDataNode)
-NS_IMPL_RELEASE(nsGenericDOMDataNode)
+NS_IMPL_RELEASE_WITH_DESTROY(nsGenericDOMDataNode,
+                             nsNodeUtils::LastRelease(this))
 
 NS_INTERFACE_MAP_BEGIN(nsGenericDOMDataNode)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
@@ -403,7 +404,6 @@ nsGenericDOMDataNode::AppendData(const nsAString& aData)
   // Apparently this is called often enough that we don't want to just simply
   // call SetText like ReplaceData does. See bug 77585 and comment in
   // ReplaceData.
-  nsIDocument *document = GetCurrentDoc();
   
   // FIXME, but 330872: We can't call BeginUpdate here because it confuses the
   // poor little nsHTMLContentSink.

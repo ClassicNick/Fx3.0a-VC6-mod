@@ -54,6 +54,9 @@
 #include "nsMaiInterfaceValue.h"
 #include "nsMaiInterfaceHypertext.h"
 #include "nsMaiInterfaceTable.h"
+#ifdef USE_ATK_TYPE_DOCUMENT
+#include "nsMaiInterfaceDocument.h"
+#endif
 
 /* MaiAtkObject */
 
@@ -77,7 +80,8 @@ enum MaiInterfaceType {
     MAI_INTERFACE_HYPERTEXT,
     MAI_INTERFACE_SELECTION,
     MAI_INTERFACE_TABLE,
-    MAI_INTERFACE_TEXT /* 7 */
+    MAI_INTERFACE_TEXT,
+    MAI_INTERFACE_DOCUMENT /* 8 */
 };
 
 static GType GetAtkTypeForMai(MaiInterfaceType type)
@@ -99,6 +103,10 @@ static GType GetAtkTypeForMai(MaiInterfaceType type)
       return ATK_TYPE_TABLE;
     case MAI_INTERFACE_TEXT:
       return ATK_TYPE_TEXT;
+#ifdef USE_ATK_TYPE_DOCUMENT
+    case MAI_INTERFACE_DOCUMENT:
+      return ATK_TYPE_DOCUMENT;
+#endif
   }
   return G_TYPE_INVALID;
 }
@@ -119,6 +127,10 @@ static const GInterfaceInfo atk_if_infos[] = {
     {(GInterfaceInitFunc)tableInterfaceInitCB,
      (GInterfaceFinalizeFunc) NULL, NULL},
     {(GInterfaceInitFunc)textInterfaceInitCB,
+#ifdef USE_ATK_TYPE_DOCUMENT
+     (GInterfaceFinalizeFunc) NULL, NULL},
+    {(GInterfaceInitFunc)documentInterfaceInitCB,
+#endif
      (GInterfaceFinalizeFunc) NULL, NULL}
 };
 
@@ -367,6 +379,16 @@ nsAccessibleWrap::CreateMaiInterfaces(void)
     if (accessInterfaceTable) {
         interfacesBits |= 1 << MAI_INTERFACE_TABLE;
     }
+
+#ifdef USE_ATK_TYPE_DOCUMENT
+    //nsIAccessibleDocument
+    nsCOMPtr<nsIAccessibleDocument> accessInterfaceDocument;
+    QueryInterface(NS_GET_IID(nsIAccessibleDocument),
+                              getter_AddRefs(accessInterfaceDocument));
+    if (accessInterfaceDocument) {
+        interfacesBits |= 1 << MAI_INTERFACE_DOCUMENT;
+    }
+#endif
 
     return interfacesBits;
 }
@@ -902,12 +924,41 @@ refChildCB(AtkObject *aAtkObj, gint aChildIndex)
 gint
 getIndexInParentCB(AtkObject *aAtkObj)
 {
+    // We don't use nsIAccessible::GetIndexInParent() because
+    // for ATK we don't want to include text leaf nodes as children
     NS_ENSURE_SUCCESS(CheckMaiAtkObject(aAtkObj), -1);
     nsAccessibleWrap *accWrap =
         NS_REINTERPRET_CAST(MaiAtkObject*, aAtkObj)->accWrap;
 
-    PRInt32 currentIndex = -1;
-    accWrap->GetIndexInParent(&currentIndex);
+    nsCOMPtr<nsIAccessible> parent;
+    accWrap->GetParent(getter_AddRefs(parent));
+    if (!parent) {
+        return -1; // No parent
+    }
+
+    nsCOMPtr<nsIAccessible> sibling;
+    parent->GetFirstChild(getter_AddRefs(sibling));
+    if (!sibling) {
+        return -1;  // Error, parent has no children
+    }
+
+    PRInt32 currentIndex = 0;
+
+    while (sibling != NS_STATIC_CAST(nsIAccessible*, accWrap)) {
+      NS_ASSERTION(sibling, "Never ran into the same child that we started from");
+
+      if (!sibling) {
+          return -1;
+      }
+      if (nsAccessible::IsEmbeddedObject(sibling)) {
+        ++ currentIndex;
+      }
+
+      nsCOMPtr<nsIAccessible> tempAccessible;
+      sibling->GetNextSibling(getter_AddRefs(tempAccessible));
+      sibling.swap(tempAccessible);
+    }
+
     return currentIndex;
 }
 

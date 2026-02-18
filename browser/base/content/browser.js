@@ -1131,9 +1131,6 @@ function delayedStartup()
 
   // browser-specific tab augmentation
   AugmentTabs.init();
-
-  // set up history menu
-  HistoryMenu.init();
 }
 
 function BrowserShutdown()
@@ -1741,6 +1738,9 @@ function updateGoMenu(aEvent, goMenu)
 
   if (showSep)
     endSep.hidden = false;
+
+  // enable/disable RCT sub menu
+  HistoryMenu.toggleRecentlyClosedTabs();
 }
  
 function addBookmarkAs(aBrowser, aBookmarkAllTabs, aIsWebPanel)
@@ -3221,6 +3221,10 @@ function FillHistoryMenu(aParent, aMenu, aInsertBefore)
             }
           break;
       }
+
+    // enable/disable RCT sub menu
+    HistoryMenu.toggleRecentlyClosedTabs();
+
     return true;
   }
 
@@ -5282,7 +5286,7 @@ nsContextMenu.prototype = {
 
     addDictionaries : function()
     {
-      var uri = gPrefService.getCharPref("browser.dictionaries.download.url");
+      var uri = formatURL("browser.dictionaries.download.url", null, true);
 
       var locale = "-";
       try {
@@ -6416,17 +6420,32 @@ var FeedHandler = {
   },
   
   /**
+   * The click handler for the Feed icon in the location bar. Opens the
+   * subscription page if user is not given a choice of feeds.
+   * (Otherwise the list of available feeds will be presented to the 
+   * user in a popup menu.)
+   */
+  onFeedButtonClick: function(event) {
+    event.stopPropagation();
+
+    if (event.target.hasAttribute("feed") &&
+        event.eventPhase == Event.AT_TARGET &&
+        (event.button == 0 || event.button == 1)) {
+        this.subscribeToFeed(null, event);
+    }
+  },
+  
+  /**
    * Called when the user clicks on the Feed icon in the location bar. 
    * Builds a menu of unique feeds associated with the page, and if there
    * is only one, shows the feed inline in the browser window. 
-   * @param   event
-   *          The popupshowing event from the feed list menupopup
+   * @param   menuPopup
+   *          The feed list menupopup to be populated.
    * @returns true if the menu should be shown, false if there was only
    *          one feed and the feed should be shown inline in the browser
    *          window (do not show the menupopup).
    */
-  buildFeedList: function(event) {
-    var menuPopup = event.target;
+  buildFeedList: function(menuPopup) {
     var feeds = gBrowser.selectedBrowser.feeds;
     if (feeds == null) {
       // XXX hack -- menu opening depends on setting of an "open"
@@ -6445,10 +6464,8 @@ var FeedHandler = {
     // Get the list of unique feeds, and if there's only one unique entry, 
     // show the feed in the browser rather than displaying a menu. 
     var feeds = this.harvestFeeds(feeds);
-    if (feeds.length == 1) {
-      this.subscribeToFeed(feeds[0].href);
+    if (feeds.length == 1)
       return false;
-    }
 
     // Build the menu showing the available feed choices for viewing. 
     for (var i = 0; i < feeds.length; ++i) {
@@ -6475,22 +6492,22 @@ var FeedHandler = {
    *   3. Page has multiple feeds and user selects from feed icon popup
    *   4. Page has multiple feeds and user selects from Subscribe submenu
    * @param   href
-   *          The feed to subscribe to
+   *          The feed to subscribe to. May be null, in which case the
+   *          event target's feed attribute is examined.
+   * @param   event
+   *          The event this method is handling. Used to decide where 
+   *          to open the preview UI. (Optional, unless href is null)
    */
-  subscribeToFeed: function(href) {
+  subscribeToFeed: function(href, event) {
+#ifdef MOZ_FEEDS
+      // Just load the feed in the content area to either subscribe or show the
+      // preview UI
+      if (!href)
+        href = event.target.getAttribute("feed");
+      this.loadFeed(href, event);
+#else
 #ifdef MOZ_PLACES
-#ifdef MOZ_FEEDS
-      // Just load the feed in the content area to either subscribe or show the
-      // preview UI
-      this.loadFeed(href);
-#else
       PlacesCommandHook.addLiveBookmark(feeds[0].href);
-#endif
-#else
-#ifdef MOZ_FEEDS
-      // Just load the feed in the content area to either subscribe or show the
-      // preview UI
-      this.loadFeed(href);
 #else
       this.addLiveBookmark(feeds[0].href);
 #endif
@@ -6576,10 +6593,10 @@ var FeedHandler = {
 #endif
   
 #ifdef MOZ_FEEDS
-  loadFeed: function(href) {
+  loadFeed: function(href, event) {
     var feeds = gBrowser.selectedBrowser.feeds;
     try {
-      loadURI(href, null, null, false);
+      openUILink(href, event, false, true, false, null);
     }
     finally {
       // We might default to a livebookmarks modal dialog, 
@@ -6604,8 +6621,8 @@ var FeedHandler = {
 
     var feeds = gBrowser.mCurrentBrowser.feeds;
     if (!feeds || feeds.length == 0) {
-      if (feedButton.hasAttribute("feeds"))
-        feedButton.removeAttribute("feeds");
+      feedButton.removeAttribute("feeds");
+      feedButton.removeAttribute("feed");
       feedButton.setAttribute("tooltiptext", 
                               gNavigatorBundle.getString("feedNoFeeds"));
       this._feedMenuitem.setAttribute("disabled", "true");
@@ -6625,7 +6642,10 @@ var FeedHandler = {
       if (feeds.length > 1) {
         this._feedMenuitem.setAttribute("hidden", "true");
         this._feedMenupopup.removeAttribute("hidden");
+        feedButton.removeAttribute("feed");
       } else {
+        feedButton.setAttribute("feed", feeds[0].href);
+        this._feedMenuitem.setAttribute("feed", feeds[0].href);
         this._feedMenuitem.removeAttribute("disabled");
         this._feedMenuitem.removeAttribute("hidden");
         this._feedMenupopup.setAttribute("hidden", "true");
@@ -6836,17 +6856,18 @@ var AugmentTabs = {
 var HistoryMenu = {};
 #endif
 
-HistoryMenu.init = function PHM_init() {
-  this.initializeUndoSubmenu();
-}
+HistoryMenu.toggleRecentlyClosedTabs = function PHM_toggleRecentlyClosedTabs() {
+  // enable/disable the Recently Closed Tabs sub menu
+  var undoPopup = document.getElementById("historyUndoPopup");
 
-/**
- * Initialize the "Undo Close Tabs" menu
- */
-HistoryMenu.initializeUndoSubmenu = function PHM_initializeUndoSubmenu() {
-  // get history menupopup 
-  var histMenu = document.getElementById("goPopup");
-  histMenu.addEventListener("popupshowing", function() { HistoryMenu.populateUndoSubmenu(); }, false);
+  // get closed-tabs from nsSessionStore
+  var ss = Cc["@mozilla.org/browser/sessionstore;1"].
+           getService(Ci.nsISessionStore);
+  // no restorable tabs, so disable menu
+  if (ss.getClosedTabCount(window) == 0)
+    undoPopup.parentNode.setAttribute("disabled", true);
+  else
+    undoPopup.parentNode.removeAttribute("disabled");
 }
 
 /**
@@ -6921,4 +6942,28 @@ function undoCloseTab(aIndex) {
 
   if (blankTabToRemove)
     tabbrowser.removeTab(blankTabToRemove);
+}
+
+/**
+ * Format a URL
+ * eg:
+ * echo formatURL("http://%LOCALE%.%SERVICE%.mozilla.org/%LOCALE%/%MYVAR%/", {SERVICE:"amo", MYVAR:"test"});
+ * > http://en-US.amo.mozilla.org/en-US/test/
+ *
+ * Currently supported built-ins are LOCALE, and any value from nsIXULAppInfo, uppercased.
+ */
+function formatURL(aFormat, aVars, aIsPref) {
+
+  var repl = null;
+  if (aVars) {
+    repl = Cc["@mozilla.org/dictionary;1"].createInstance(Ci.nsIDictionary);
+    for (var key in aVars) {
+      var val = Cc['@mozilla.org/supports-string;1'].createInstance(Ci.nsISupportsString);
+      val.data = aVars[key];
+      repl.setValue(key, val);
+    }
+  }
+
+  var formatter = Cc["@mozilla.org/browser/URLFormatterService;1"].getService(Ci.nsIURLFormatter);
+  return aIsPref ? formatter.formatURLPref(aFormat, repl) : formatter.formatURL(aFormat, repl);
 }

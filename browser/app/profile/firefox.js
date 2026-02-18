@@ -77,7 +77,7 @@ pref("extensions.blocklist.url", "https://addons.mozilla.org/blocklist/1/%APP_ID
 pref("extensions.blocklist.detailsURL", "http://www.mozilla.com/blocklist/");
 
 // Dictionary download preference
-pref("browser.dictionaries.download.url", "https://addons.mozilla.org/%LOCALE%/firefox/%VERSION%/dictionaries/");
+pref("browser.dictionaries.download.url", "https://%LOCALE%.add-ons.mozilla.com/%LOCALE%/firefox/%VERSION%/dictionaries/");
 
 // App-specific update preferences
 
@@ -499,18 +499,21 @@ pref("browser.safebrowsing.enabled", true);
 pref("browser.safebrowsing.remoteLookups", false);
 
 // Non-enhanced mode (local url lists) URL list to check for updates
-pref("browser.safebrowsing.provider.0.updateURL", "http://sb.google.com/safebrowsing/update?client=navclient-auto-ffox2&");
+pref("browser.safebrowsing.provider.0.updateURL", "http://sb.google.com/safebrowsing/update?client={moz:client}&mozver={moz:version}-{moz:buildid}&");
 
 pref("browser.safebrowsing.dataProvider", 0);
 
 // Does the provider name need to be localizable?
 pref("browser.safebrowsing.provider.0.name", "Google");
-pref("browser.safebrowsing.provider.0.lookupURL", "http://sb.google.com/safebrowsing/lookup?sourceid=firefox-antiphish&features=TrustRank&client=navclient-auto-ffox2&");
+pref("browser.safebrowsing.provider.0.lookupURL", "http://sb.google.com/safebrowsing/lookup?sourceid=firefox-antiphish&features=TrustRank&client={moz:client}&mozver={moz:version}-{moz:buildid}&");
 pref("browser.safebrowsing.provider.0.keyURL", "https://www.google.com/safebrowsing/getkey?");
 pref("browser.safebrowsing.provider.0.reportURL", "http://sb.google.com/safebrowsing/report?");
 
+// privacy policy -- must be chrome URL
+pref("browser.safebrowsing.provider.0.privacy.url", "chrome://browser/content/preferences/phishEULA.xhtml");
+
 // HTML report pages
-pref("browser.safebrowsing.provider.0.reportGenericURL", "http://www.mozilla.org/projects/bonecho/anti-phishing/report_general/?hl={moz:locale}");
-pref("browser.safebrowsing.provider.0.reportErrorURL", "http://www.mozilla.org/projects/bonecho/anti-phishing/report_error/?hl={moz:locale}");
-pref("browser.safebrowsing.provider.0.reportPhishURL", "http://www.mozilla.org/projects/bonecho/anti-phishing/report_phish/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportGenericURL", "http://{moz:locale}.phish-generic.mozilla.com/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportErrorURL", "http://{moz:locale}.phish-error.mozilla.com/?hl={moz:locale}");
+pref("browser.safebrowsing.provider.0.reportPhishURL", "http://{moz:locale}.phish-report.mozilla.com/?hl={moz:locale}");
 #endif
