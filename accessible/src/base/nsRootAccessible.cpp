@@ -527,9 +527,9 @@ NS_IMETHODIMP nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
   aEvent->GetType(eventType);
   nsAutoString localName;
   targetNode->GetLocalName(localName);
-#ifdef DEBUG_aleventhal
+#ifdef DEBUG_A11Y
   // Very useful for debugging, please leave this here.
-  if (eventType.LowerCaseEqualsLiteral("focus")) {
+  if (eventType.LowerCaseEqualsLiteral("alertactive")) {
     printf("\ndebugging %s events for %s", NS_ConvertUTF16toUTF8(eventType).get(), NS_ConvertUTF16toUTF8(localName).get());
   }
   if (localName.LowerCaseEqualsLiteral("textbox")) {
@@ -755,12 +755,15 @@ NS_IMETHODIMP nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
 #else
   AtkStateChange stateData;
   if (eventType.LowerCaseEqualsLiteral("focus")) {
+#ifdef MOZ_XUL
     if (treeItemAccessible) { // use focused treeitem
       privAcc = do_QueryInterface(treeItemAccessible);
       privAcc->FireToolkitEvent(nsIAccessibleEvent::EVENT_FOCUS, 
                                 treeItemAccessible, nsnull);
     }
-    else if (localName.EqualsIgnoreCase("radiogroup")) {
+    else
+#endif 
+    if (localName.EqualsIgnoreCase("radiogroup")) {
       // fire focus event for checked radio instead of radiogroup
       PRInt32 childCount = 0;
       accessible->GetChildCount(&childCount);
@@ -782,13 +785,16 @@ NS_IMETHODIMP nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
       FireAccessibleFocusEvent(accessible, targetNode, aEvent);
   }
   else if (eventType.LowerCaseEqualsLiteral("select")) {
+#ifdef MOZ_XUL
     if (treeItemAccessible) { // it's a XUL <tree>
       // use EVENT_FOCUS instead of EVENT_ATK_SELECTION_CHANGE
       privAcc = do_QueryInterface(treeItemAccessible);
       privAcc->FireToolkitEvent(nsIAccessibleEvent::EVENT_FOCUS, 
                                 treeItemAccessible, nsnull);
     }
-    else if (localName.LowerCaseEqualsLiteral("tabpanels")) {
+    else 
+#endif
+    if (localName.LowerCaseEqualsLiteral("tabpanels")) {
       // make GOK refresh "UI-Grab" window
       privAcc->FireToolkitEvent(nsIAccessibleEvent::EVENT_REORDER, accessible, nsnull);
     }

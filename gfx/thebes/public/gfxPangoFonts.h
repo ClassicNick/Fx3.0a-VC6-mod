@@ -100,6 +100,7 @@ public:
 
 private:
     nsString mString;
+
     gfxPangoFontGroup *mGroup;
 
     PangoLayout *mPangoLayout;

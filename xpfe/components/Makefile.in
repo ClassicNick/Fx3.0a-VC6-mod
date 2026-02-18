@@ -66,9 +66,14 @@ endif
 
 DIRS = \
         find \
+        $(NULL)
+
+ifdef MOZ_RDF
+DIRS += \
         intl \
         windowds \
         $(NULL)
+endif
 
 ifdef MOZ_HAVE_BROWSER
 DIRS += \
@@ -82,7 +87,6 @@ ifndef MOZ_PHOENIX
 ifndef MOZ_XULRUNNER
 DIRS += \
         related \
-        console \
         autocomplete \
         download-manager \
         history \
@@ -90,6 +94,7 @@ DIRS += \
         $(NULL)
 ifndef MOZ_XUL_APP
 DIRS += \
+        console \
         updates \
         startup \
         alerts \

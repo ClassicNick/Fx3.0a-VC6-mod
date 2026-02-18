@@ -183,11 +183,6 @@
       [%+ terms.bug %] [%+ bug_id FILTER html %].
     [% END %]
 
-  [% ELSIF error == "invalid_numeric_argument" %]
-    [% title = "Invalid number argument" %]
-    The argument <code>[% argument FILTER html %] = [% value FILTER html %]</code>
-    of <code>[% function FILTER html %]</code> is not a natural number.
-
   [% ELSIF error == "invalid_series_id" %]
     [% title = "Invalid Series" %]
     The series_id [% series_id FILTER html %] is not valid. It may be that
@@ -293,6 +288,12 @@
     [% title = "Invalid Parameter" %]
     Invalid parameter passed to [% function FILTER html %].
     It must be numeric.
+
+  [% ELSIF error == "param_required" %]
+    [% title = "Missing Parameter" %]
+    The function <code>[% function FILTER html %]</code> requires
+    a <code>[% param FILTER html %]</code> argument, and that
+    argument was not set.
 
   [% ELSIF error == "unknown_comparison_type" %]
     Specified comparison type is not supported.

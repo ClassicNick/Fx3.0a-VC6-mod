@@ -1937,6 +1937,12 @@ NS_IMETHODIMP nsWindow::SetSizeMode(PRInt32 aMode) {
 
   nsresult rv;
 
+  // Let's not try and do anything if we're already in that state.
+  // (This is needed to prevent problems when calling window.minimize(), which
+  // calls us directly, and then the OS triggers another call to us.)
+  if (aMode == mSizeMode)
+    return NS_OK;
+
   // save the requested state
   rv = nsBaseWidget::SetSizeMode(aMode);
   if (NS_SUCCEEDED(rv) && mIsVisible) {
@@ -1949,6 +1955,21 @@ NS_IMETHODIMP nsWindow::SetSizeMode(PRInt32 aMode) {
       case nsSizeMode_Minimized :
 #ifndef WINCE
         mode = gTrimOnMinimize ? SW_MINIMIZE : SW_SHOWMINIMIZED;
+        if (!gTrimOnMinimize) {
+          // Find the next window that is visible and not minimized.
+          HWND hwndBelow = ::GetNextWindow(mWnd, GW_HWNDNEXT);
+          while (hwndBelow && (!::IsWindowVisible(hwndBelow) ||
+                               ::IsIconic(hwndBelow))) {
+            hwndBelow = ::GetNextWindow(hwndBelow, GW_HWNDNEXT);
+          }
+
+          // Push ourselves to the bottom of the stack, then activate the
+          // next window.
+          ::SetWindowPos(mWnd, HWND_BOTTOM, 0, 0, 0, 0,
+                         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+          if (hwndBelow)
+            ::SetForegroundWindow(hwndBelow);
+        }
 #endif
         break;
       default :
@@ -5887,7 +5908,7 @@ PRBool nsWindow::OnPaint(HDC aDC)
         thebesContext->SetOperator(gfxContext::OPERATOR_OVER);
       } else {
         // If we're not doing translucency, then double buffer
-        thebesContext->PushGroup(gfxContext::CONTENT_COLOR);
+        thebesContext->PushGroup(gfxASurface::CONTENT_COLOR);
       }
 #endif
 

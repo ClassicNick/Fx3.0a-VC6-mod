@@ -1213,7 +1213,7 @@ js_InCatchBlock(JSTreeContext *tc, JSAtom *atom)
     JSStmtInfo *stmt;
 
     for (stmt = tc->topStmt; stmt; stmt = stmt->down) {
-        if (stmt->type == STMT_CATCH && stmt->label == atom)
+        if (stmt->type == STMT_CATCH && stmt->atom == atom)
             return JS_TRUE;
     }
     return JS_FALSE;
@@ -1226,10 +1226,9 @@ js_PushStatement(JSTreeContext *tc, JSStmtInfo *stmt, JSStmtType type,
     stmt->type = type;
     stmt->flags = 0;
     SET_STATEMENT_TOP(stmt, top);
-    stmt->label = NULL;
+    stmt->atom = NULL;
     stmt->down = tc->topStmt;
     tc->topStmt = stmt;
-    stmt->blockObj = NULL;
     if (STMT_IS_SCOPE(stmt)) {
         stmt->downScope = tc->topScopeStmt;
         tc->topScopeStmt = stmt;
@@ -1239,15 +1238,19 @@ js_PushStatement(JSTreeContext *tc, JSStmtInfo *stmt, JSStmtType type,
 }
 
 void
-js_PushBlockScope(JSTreeContext *tc, JSStmtInfo *stmt, JSObject *blockObj,
+js_PushBlockScope(JSTreeContext *tc, JSStmtInfo *stmt, JSAtom *blockAtom,
                   ptrdiff_t top)
 {
+    JSObject *blockObj;
+
     js_PushStatement(tc, stmt, STMT_BLOCK, top);
     stmt->flags |= SIF_SCOPE;
+    blockObj = ATOM_TO_OBJECT(blockAtom);
     blockObj->slots[JSSLOT_PARENT] = OBJECT_TO_JSVAL(tc->blockChain);
     stmt->downScope = tc->topScopeStmt;
     tc->topScopeStmt = stmt;
-    tc->blockChain = stmt->blockObj = blockObj;
+    tc->blockChain = blockObj;
+    stmt->atom = blockAtom;
 }
 
 /*
@@ -1335,7 +1338,7 @@ EmitNonLocalJumpFixup(JSContext *cx, JSCodeGenerator *cg, JSStmtInfo *toStmt,
           case STMT_FINALLY:
             if (js_NewSrcNote(cx, cg, SRC_HIDDEN) < 0)
                 return JS_FALSE;
-            jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH_PUSH, &stmt->gosub);
+            jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH_PUSH, &GOSUBS(*stmt));
             if (jmp < 0)
                 return JS_FALSE;
             break;
@@ -1377,9 +1380,8 @@ EmitNonLocalJumpFixup(JSContext *cx, JSCodeGenerator *cg, JSStmtInfo *toStmt,
             /* There is a Block object with locals on the stack to pop. */
             if (js_NewSrcNote(cx, cg, SRC_HIDDEN) < 0)
                 return JS_FALSE;
-            i = OBJ_BLOCK_COUNT(cx, stmt->blockObj);
+            i = OBJ_BLOCK_COUNT(cx, ATOM_TO_OBJECT(stmt->atom));
             EMIT_UINT16_IMM_OP(JSOP_LEAVEBLOCK, i);
-            break;
         }
 #endif
     }
@@ -1442,14 +1444,15 @@ void
 js_PopStatement(JSTreeContext *tc)
 {
     JSStmtInfo *stmt;
+    JSObject *blockObj;
 
     stmt = tc->topStmt;
     tc->topStmt = stmt->down;
     if (STMT_IS_SCOPE(stmt)) {
         tc->topScopeStmt = stmt->downScope;
         if (stmt->flags & SIF_SCOPE) {
-            tc->blockChain =
-                JSVAL_TO_OBJECT(stmt->blockObj->slots[JSSLOT_PARENT]);
+            blockObj = ATOM_TO_OBJECT(stmt->atom);
+            tc->blockChain = JSVAL_TO_OBJECT(blockObj->slots[JSSLOT_PARENT]);
         }
     }
 }
@@ -1460,9 +1463,10 @@ js_PopStatementCG(JSContext *cx, JSCodeGenerator *cg)
     JSStmtInfo *stmt;
 
     stmt = cg->treeContext.topStmt;
-    if (!BackPatch(cx, cg, stmt->breaks, CG_NEXT(cg), JSOP_GOTO) ||
-        !BackPatch(cx, cg, stmt->continues, CG_CODE(cg, stmt->update),
-                   JSOP_GOTO)) {
+    if (!STMT_IS_TRYING(stmt) &&
+        (!BackPatch(cx, cg, stmt->breaks, CG_NEXT(cg), JSOP_GOTO) ||
+         !BackPatch(cx, cg, stmt->continues, CG_CODE(cg, stmt->update),
+                    JSOP_GOTO))) {
         return JS_FALSE;
     }
     js_PopStatement(&cg->treeContext);
@@ -1517,13 +1521,13 @@ LexicalLookup(JSContext *cx, JSTreeContext *tc, JSAtom *atom, jsint *slotp)
         if (stmt->type == STMT_WITH)
             return stmt;
         if (stmt->type == STMT_CATCH) {
-            if (stmt->label == atom)
+            if (stmt->atom == atom)
                 return stmt;
             continue;
         }
 
         JS_ASSERT(stmt->flags & SIF_SCOPE);
-        obj = stmt->blockObj;
+        obj = ATOM_TO_OBJECT(stmt->atom);
         if (!js_LookupProperty(cx, obj, ATOM_TO_JSID(atom), &pobj, &prop))
             return NULL;
         if (prop) {
@@ -1875,7 +1879,7 @@ BindNameToSlot(JSContext *cx, JSTreeContext *tc, JSParseNode *pn)
         if (stmt->type == STMT_WITH)
             return JS_TRUE;
         if (stmt->type == STMT_CATCH) {
-            JS_ASSERT(stmt->label == atom);
+            JS_ASSERT(stmt->atom == atom);
             return JS_TRUE;
         }
 
@@ -4235,7 +4239,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             ale = js_IndexAtom(cx, atom, &cg->atomList);
             if (!ale)
                 return JS_FALSE;
-            while (stmt->type != STMT_LABEL || stmt->label != atom)
+            while (stmt->type != STMT_LABEL || stmt->atom != atom)
                 stmt = stmt->down;
             noteType = SRC_BREAK2LABEL;
         } else {
@@ -4258,7 +4262,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             ale = js_IndexAtom(cx, atom, &cg->atomList);
             if (!ale)
                 return JS_FALSE;
-            while (stmt->type != STMT_LABEL || stmt->label != atom) {
+            while (stmt->type != STMT_LABEL || stmt->atom != atom) {
                 if (STMT_IS_LOOP(stmt))
                     loop = stmt;
                 stmt = stmt->down;
@@ -4291,12 +4295,12 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 
       case TOK_TRY:
       {
-        ptrdiff_t start, end, catchStart, finallyCatch, catchJump;
-        JSParseNode *iter;
+        ptrdiff_t start, end, catchStart, guardJump, finallyCatch;
+        JSParseNode *lastCatch;
         intN depth;
 
         /* Quell GCC overwarnings. */
-        end = catchStart = finallyCatch = catchJump = -1;
+        end = catchStart = guardJump = finallyCatch = -1;
 
         /*
          * Push stmtInfo to track jumps-over-catches and gosubs-to-finally
@@ -4308,7 +4312,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
          * EmitBackPatchOp and BackPatch).
          */
         js_PushStatement(&cg->treeContext, &stmtInfo,
-                         pn->pn_kid3 ? STMT_FINALLY : STMT_BLOCK,
+                         pn->pn_kid3 ? STMT_FINALLY : STMT_TRY,
                          CG_OFFSET(cg));
 
         /*
@@ -4335,7 +4339,8 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         if (pn->pn_kid3) {
             if (js_NewSrcNote(cx, cg, SRC_HIDDEN) < 0)
                 return JS_FALSE;
-            jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH_PUSH, &stmtInfo.gosub);
+            jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH_PUSH,
+                                  &GOSUBS(stmtInfo));
             if (jmp < 0)
                 return JS_FALSE;
         }
@@ -4343,15 +4348,16 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         /* Emit (hidden) jump over catch and/or finally. */
         if (js_NewSrcNote(cx, cg, SRC_HIDDEN) < 0)
             return JS_FALSE;
-        jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH, &stmtInfo.catchJump);
+        jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH, &CATCHJUMPS(stmtInfo));
         if (jmp < 0)
             return JS_FALSE;
 
         end = CG_OFFSET(cg);
 
         /* If this try has a catch block, emit it. */
-        iter = pn->pn_kid2;
-        if (iter) {
+        pn2 = pn->pn_kid2;
+        lastCatch = NULL;
+        if (pn2) {
             catchStart = end;
 
             /*
@@ -4376,17 +4382,19 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
              * also used for the catch-all trynote for capturing exceptions
              * thrown from catch{} blocks.
              */
-            for (;;) {
+            for (pn3 = pn2->pn_head; pn3; pn3 = pn3->pn_next) {
                 JSStmtInfo stmtInfo2;
-                JSParseNode *disc;
-                ptrdiff_t guardnote;
+                JSParseNode *catchHead;
+                ptrdiff_t catchNote;
 
-                if (!UpdateLineNumberNotes(cx, cg, iter))
+                if (!UpdateLineNumberNotes(cx, cg, pn3))
                     return JS_FALSE;
 
-                if (catchJump != -1) {
+                if (guardJump != -1) {
+                    JS_ASSERT(cg->stackDepth == depth);
+
                     /* Fix up and clean up previous catch block. */
-                    CHECK_AND_SET_JUMP_OFFSET_AT(cx, cg, catchJump);
+                    CHECK_AND_SET_JUMP_OFFSET_AT(cx, cg, guardJump);
 
                     /* Compensate for the [leavewith]. */
                     cg->stackDepth++;
@@ -4402,9 +4410,9 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                     cg->stackDepth = depth;
                 }
 
-                /* Non-negative guardnote offset is length of catchguard. */
-                guardnote = js_NewSrcNote2(cx, cg, SRC_CATCH, 0);
-                if (guardnote < 0 ||
+                /* Non-negative catchNote offset is length of catchguard. */
+                catchNote = js_NewSrcNote2(cx, cg, SRC_CATCH, 0);
+                if (catchNote < 0 ||
                     js_Emit1(cx, cg, JSOP_NOP) < 0) {
                     return JS_FALSE;
                 }
@@ -4422,8 +4430,8 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 }
 
                 /* initcatchvar <atomIndex> */
-                disc = iter->pn_kid1;
-                ale = js_IndexAtom(cx, disc->pn_atom, &cg->atomList);
+                catchHead = pn3->pn_kid1;
+                ale = js_IndexAtom(cx, catchHead->pn_atom, &cg->atomList);
                 if (!ale)
                     return JS_FALSE;
 
@@ -4434,27 +4442,28 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 }
 
                 /* boolean_expr */
-                if (disc->pn_expr) {
-                    ptrdiff_t guardstart = CG_OFFSET(cg);
-                    if (!js_EmitTree(cx, cg, disc->pn_expr))
+                if (pn3->pn_kid2) {
+                    ptrdiff_t guardStart = CG_OFFSET(cg);
+                    if (!js_EmitTree(cx, cg, pn3->pn_kid2))
                         return JS_FALSE;
-                    if (!js_SetSrcNoteOffset(cx, cg, guardnote, 0,
-                                             CG_OFFSET(cg) - guardstart)) {
+                    if (!js_SetSrcNoteOffset(cx, cg, catchNote, 0,
+                                             CG_OFFSET(cg) - guardStart)) {
                         return JS_FALSE;
                     }
                     /* ifeq <next block> */
-                    catchJump = EmitJump(cx, cg, JSOP_IFEQ, 0);
-                    if (catchJump < 0)
+                    guardJump = EmitJump(cx, cg, JSOP_IFEQ, 0);
+                    if (guardJump < 0)
                         return JS_FALSE;
                 }
 
                 /* Emit catch block. */
                 js_PushStatement(&cg->treeContext, &stmtInfo2, STMT_CATCH,
                                  CG_OFFSET(cg));
-                stmtInfo2.label = disc->pn_atom;
-                if (!js_EmitTree(cx, cg, iter->pn_kid3))
+                stmtInfo2.atom = catchHead->pn_atom;
+                if (!js_EmitTree(cx, cg, pn3->pn_kid3))
                     return JS_FALSE;
-                js_PopStatementCG(cx, cg);
+                if (!js_PopStatementCG(cx, cg))
+                    return JS_FALSE;
 
                 /*
                  * Jump over the remaining catch blocks.
@@ -4471,31 +4480,31 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 /* gosub <finally>, if required */
                 if (pn->pn_kid3) {
                     jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH_PUSH,
-                                          &stmtInfo.gosub);
+                                          &GOSUBS(stmtInfo));
                     if (jmp < 0)
                         return JS_FALSE;
+                    JS_ASSERT(cg->stackDepth == depth + 1);
+                    cg->stackDepth = depth;
                 }
 
                 /* This will get fixed up to jump to after catch/finally. */
                 if (js_NewSrcNote(cx, cg, SRC_HIDDEN) < 0)
                     return JS_FALSE;
                 jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH,
-                                      &stmtInfo.catchJump);
+                                      &CATCHJUMPS(stmtInfo));
                 if (jmp < 0)
                     return JS_FALSE;
-                if (!iter->pn_kid2)     /* leave iter at last catch */
-                    break;
-                iter = iter->pn_kid2;
+
+                lastCatch = pn3;    /* save pointer to last catch */
             }
         }
 
         /*
-         * We use a [setsp],[exception][gosub],[throw] block for rethrowing
+         * We emit a [setsp, exception, gosub, throw] block for rethrowing
          * when there's no unguarded catch, and also for running finally code
          * while letting an uncaught exception pass through.
          */
-        if (pn->pn_kid3 ||
-            (catchJump != -1 && iter->pn_kid1->pn_expr)) {
+        if (pn->pn_kid3 || (lastCatch && lastCatch->pn_kid2)) {
             /*
              * Emit another stack fixup, because the catch could itself
              * throw an exception in an unbalanced state, and the finally
@@ -4504,6 +4513,22 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
              * stack fixup.
              */
             finallyCatch = CG_OFFSET(cg);
+
+            /*
+             * Last catch guard jumps to the rethrow code sequence if none
+             * of the guards match.  Target guardJump at the beginning of the
+             * rethrow sequence, just in case a guard expression throws and
+             * leaves the stack unbalanced.
+             *
+             * What's more, we must jump to the front of the rethrow sequence
+             * for a second reason: to re-sample the pending exception via the
+             * [exception] opcode, so that it can be saved across the [gosub].
+             * See below for case 2 in the comment describing finally clause
+             * stack budget.
+             */
+            if (lastCatch && lastCatch->pn_kid2)
+                CHECK_AND_SET_JUMP_OFFSET_AT(cx, cg, guardJump);
+
             EMIT_UINT16_IMM_OP(JSOP_SETSP, (jsatomid)depth);
             cg->stackDepth = depth;
 
@@ -4512,13 +4537,9 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 return JS_FALSE;
             }
 
-            /* Last discriminant jumps to rethrow if none match. */
-            if (catchJump != -1 && iter->pn_kid1->pn_expr)
-                CHECK_AND_SET_JUMP_OFFSET_AT(cx, cg, catchJump);
-
             if (pn->pn_kid3) {
                 jmp = EmitBackPatchOp(cx, cg, JSOP_BACKPATCH_PUSH,
-                                      &stmtInfo.gosub);
+                                      &GOSUBS(stmtInfo));
                 if (jmp < 0)
                     return JS_FALSE;
 
@@ -4544,17 +4565,34 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
          * gosubs that might have been emitted before non-local jumps.
          */
         if (pn->pn_kid3) {
-            if (!BackPatch(cx, cg, stmtInfo.gosub, CG_NEXT(cg), JSOP_GOSUB))
+            if (!BackPatch(cx, cg, GOSUBS(stmtInfo), CG_NEXT(cg), JSOP_GOSUB))
                 return JS_FALSE;
 
             /*
-             * The stack budget must be balanced at this point, but we need
-             * two more slots for the saved exception and the JSOP_RETSUB's
-             * return pc index that was pushed by the JSOP_GOSUB opcode that
-             * called this finally clause.
+             * The stack budget must be balanced at this point.  There are
+             * three cases:
+             *
+             * 1.  try-finally: we need two more slots for the saved exception
+             *     and the JSOP_RETSUB's return pc index that was pushed by
+             *     the JSOP_GOSUB opcode that called this finally clause.
+             *
+             * 2.  try-catch(guard)...-catch(guard)-finally: we can't know at
+             *     compile time whether a guarded catch caught the exception,
+             *     so we may need to propagate it via re-throw bytecode when
+             *     the finally returns.  In this case, if no guard expression
+             *     evaluates to true, we will jump to the rethrow sequence,
+             *     which re-samples cx->exception using JSOP_EXCEPTION, then
+             *     calls the finally subroutine.  So in this case as well as
+             *     in case 1, two more slots will already be on the stack.
+             *
+             * 3.  try-catch-finally or try-catch(guard)...-catch-finally:
+             *     we need one slot for the JSOP_RETSUB's return pc index.
+             *     The unguarded catch is guaranteed to pop the exception,
+             *     i.e., to "catch the exception" -- so we do not need to
+             *     stack it across the finally in order to propagate it.
              */
             JS_ASSERT(cg->stackDepth == depth);
-            cg->stackDepth += 2;
+            cg->stackDepth += (lastCatch && !lastCatch->pn_kid2) ? 1 : 2;
             if ((uintN)cg->stackDepth > cg->maxStackDepth)
                 cg->maxStackDepth = cg->stackDepth;
 
@@ -4569,10 +4607,13 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             }
 
             /* Restore stack depth budget to its balanced state. */
-            JS_ASSERT(cg->stackDepth == depth + 1);
-            cg->stackDepth = depth;
+            if (cg->stackDepth != depth) {
+                JS_ASSERT(cg->stackDepth == depth + 1);
+                cg->stackDepth = depth;
+            }
         }
-        js_PopStatementCG(cx, cg);
+        if (!js_PopStatementCG(cx, cg))
+            return JS_FALSE;
 
         if (js_NewSrcNote(cx, cg, SRC_ENDBRACE) < 0 ||
             js_Emit1(cx, cg, JSOP_NOP) < 0) {
@@ -4580,7 +4621,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         }
 
         /* Fix up the end-of-try/catch jumps to come here. */
-        if (!BackPatch(cx, cg, stmtInfo.catchJump, CG_NEXT(cg), JSOP_GOTO))
+        if (!BackPatch(cx, cg, CATCHJUMPS(stmtInfo), CG_NEXT(cg), JSOP_GOTO))
             return JS_FALSE;
 
         /*
@@ -4749,7 +4790,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         /* Emit code for the labeled statement. */
         js_PushStatement(&cg->treeContext, &stmtInfo, STMT_LABEL,
                          CG_OFFSET(cg));
-        stmtInfo.label = atom;
+        stmtInfo.atom = atom;
         if (!js_EmitTree(cx, cg, pn2))
             return JS_FALSE;
         if (!js_PopStatementCG(cx, cg))
@@ -5332,7 +5373,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 
         atom = pn->pn_atom;
         obj = ATOM_TO_OBJECT(atom);
-        js_PushBlockScope(&cg->treeContext, &stmtInfo, obj, CG_OFFSET(cg));
+        js_PushBlockScope(&cg->treeContext, &stmtInfo, atom, CG_OFFSET(cg));
 
         OBJ_SET_BLOCK_DEPTH(cx, obj, cg->stackDepth);
         count = OBJ_BLOCK_COUNT(cx, obj);
@@ -5355,8 +5396,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 
         cg->stackDepth -= count;
 
-        if (!js_PopStatementCG(cx, cg))
-            return JS_FALSE;
+        ok = js_PopStatementCG(cx, cg);
         break;
       }
 

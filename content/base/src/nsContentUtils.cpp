@@ -135,6 +135,8 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 #include "nsIEventListenerManager.h"
 #include "nsAttrName.h"
 #include "nsIDOMUserDataHandler.h"
+#include "nsIFragmentContentSink.h"
+
 #ifdef IBMBIDI
 #include "nsIBidiKeyboard.h"
 #endif
@@ -600,6 +602,9 @@ void
 nsContentUtils::Shutdown()
 {
   sInitialized = PR_FALSE;
+
+  NS_HTMLParanoidFragmentSinkShutdown();
+  NS_XHTMLParanoidFragmentSinkShutdown();
 
   NS_IF_RELEASE(sContentPolicyService);
   sTriedToGetContentPolicy = PR_FALSE;
@@ -3427,7 +3432,7 @@ nsContentUtils::CreateContextualFragment(nsIDOMNode* aContextNode,
   for (PRInt32 i = 0; i < count; i++) {
     PRUnichar* str = (PRUnichar*)tagStack.ElementAt(i);
     if (str) {
-      nsCRT::free(str);
+      NS_Free(str);
     }
   }
 

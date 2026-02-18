@@ -72,6 +72,16 @@ pref("mailnews.headers.showUserAgent",       false);
 // is displayed in the message pane or not...
 pref("mailnews.headers.showOrganization",    false);
 
+// default sort order settings (when creating new folder views)
+// sort_order is an int value reflecting nsMsgViewSortOrder values
+//   as defined in nsIMsgDBView.idl (ascending = 1, descending = 2)
+// sort_type is an int value reflecting nsMsgViewSortType values
+//   as defined in nsIMsgDBView.idl (byDate = 18, byThread = 22 etc.)
+pref("mailnews.default_sort_order", 1); // for Mail/RSS/... (nsMsgDatabase)
+pref("mailnews.default_sort_type", 18); //
+pref("mailnews.default_news_sort_order", 1); // for News (nsNewsDatabase)
+pref("mailnews.default_news_sort_type", 22); //
+
 // mailnews tcp read+write timeout in seconds.
 pref("mailnews.tcptimeout", 60);
 
@@ -279,11 +289,13 @@ pref("ldap_2.autoComplete.directoryServer", "");
 pref("ldap_2.servers.pab.position",								1);
 pref("ldap_2.servers.pab.description",							"chrome://messenger/locale/addressbook/addressBook.properties");
 pref("ldap_2.servers.pab.dirType",								2);
+pref("ldap_2.servers.pab.filename",                             "abook.mab");
 pref("ldap_2.servers.pab.isOffline",							false);
 
 pref("ldap_2.servers.history.position",							2);
 pref("ldap_2.servers.history.description",						"chrome://messenger/locale/addressbook/addressBook.properties");
 pref("ldap_2.servers.history.dirType",							2);
+pref("ldap_2.servers.history.filename",                         "history.mab");
 pref("ldap_2.servers.history.isOffline",						false);
 
 // default mapping of addressbook properties to ldap attributes

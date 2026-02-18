@@ -150,10 +150,6 @@ description {
   margin-bottom: 4px !important;
 }
 
-#browserStartupHomepage {
-  padding: 2px 2px 3px 4px;
-}
-
 #downloadFolderIcon {
   width: 16px;
   height: 16px;
@@ -208,7 +204,10 @@ caption {
   padding: 4px 4px 0px 0px !important;
 }
 
-#paneMain description, #paneAdvanced description, #paneSecurity description {
+#paneMain description,
+#paneContent description,
+#paneAdvanced description,
+#paneSecurity description {
   font: -moz-dialog;
 }
 
@@ -245,10 +244,6 @@ caption {
 
 #privacyPrefs > tabpanels {
   padding: 18px 10px 10px 10px;
-}
-
-#browserStartupHomepage {
-  padding: 0;
 }
 
 #OCSPDialogPane {

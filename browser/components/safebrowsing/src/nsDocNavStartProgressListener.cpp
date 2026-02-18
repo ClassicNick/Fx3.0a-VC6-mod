@@ -42,9 +42,9 @@
 #include "nsITimer.h"
 #include "nsIURI.h"
 #include "nsIWebProgress.h"
-#include "nsComponentManagerUtils.h"
+#include "nsNetUtil.h"
 #include "nsServiceManagerUtils.h"
-#include "nsStringAPI.h"
+#include "nsString.h"
 
 NS_IMPL_ISUPPORTS4(nsDocNavStartProgressListener,
                    nsIDocNavStartProgressListener,
@@ -196,6 +196,19 @@ nsDocNavStartProgressListener::IsSpurious(nsIURI* aURI, PRBool* isSpurious)
                 scheme.Equals("chrome") ||
                 scheme.Equals("file");
 
+  if (scheme.Equals("jar")) {
+    // If it's a jar URI, we want to check the inner URI's scheme
+    nsCAutoString inner;
+    rv = aURI->GetPath(inner);
+    NS_ENSURE_SUCCESS(rv, rv);
+    
+    nsCOMPtr<nsIURI> innerURI;
+    rv = NS_NewURI(getter_AddRefs(innerURI), inner);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    return IsSpurious(innerURI, isSpurious);
+  }
+
   return NS_OK;
 }
 
@@ -329,7 +342,7 @@ nsDocNavStartProgressListener::Observe(nsISupports *subject, const char *topic,
         // We don't care about URL fragments so we take that off.
         PRInt32 pos = uriString.FindChar('#');
         if (pos > -1) {
-          uriString.SetLength(pos);
+          uriString.Truncate(pos);
         }
         
         mCallback->OnDocNavStart(request, uriString);

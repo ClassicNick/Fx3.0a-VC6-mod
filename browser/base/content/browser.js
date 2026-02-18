@@ -1818,14 +1818,16 @@ function addBookmarkForBrowser(aDocShell, aIsWebPanel)
 
 function openLocation()
 {
-  if (gURLBar && !gURLBarContainer.parentNode.collapsed &&
-      (document.defaultView.getComputedStyle(gURLBarContainer, null).display
-       != "none")) {
-    gURLBar.focus();
-    gURLBar.select();
+  if (gURLBar) {
+    var style = document.defaultView.getComputedStyle(gURLBarContainer, null);
+    if (style.visibility == "visible" && style.display != "none") {
+      gURLBar.focus();
+      gURLBar.select();
+      return;
+    }
   }
 #ifdef XP_MACOSX
-  else if (window.location.href != getBrowserURL()) {
+  if (window.location.href != getBrowserURL()) {
     var win = getTopWin();
     if (win) {
       // If there's an open browser window, it should handle this command
@@ -1838,11 +1840,11 @@ function openLocation()
                               "chrome,all,dialog=no", "about:blank");
       win.addEventListener("load", openLocationCallback, false);
     }
+    return;
   }
 #endif
-  else
-    openDialog("chrome://browser/content/openLocation.xul", "_blank",
-               "chrome,modal,titlebar", window);
+  openDialog("chrome://browser/content/openLocation.xul", "_blank",
+             "chrome,modal,titlebar", window);
 }
 
 function openLocationCallback()
@@ -3145,9 +3147,11 @@ const BrowserSearch = {
    */
   getSearchBar: function BrowserSearch_getSearchBar() {
     var searchBar = document.getElementById("searchbar");
-    if (searchBar && !searchBar.parentNode.parentNode.collapsed &&
-        window.getComputedStyle(searchBar.parentNode, null).display != "none")
-      return searchBar;
+    if (searchBar) {
+      var style = window.getComputedStyle(searchBar.parentNode, null);
+      if (style.visibility == "visible" && style.display != "none")
+        return searchBar;
+    }
     return null;
   },
 
@@ -4969,12 +4973,17 @@ nsContextMenu.prototype = {
         savedmenu.toggleImageBlocking(!aBlock);
       }
 
+      var uri = gBrowser.selectedBrowser.webNavigation.currentURI;
+      var brandBundle = document.getElementById("bundle_brand");
+      var app = brandBundle.getString("brandShortName");
       var bundle_browser = document.getElementById("bundle_browser");
       var message;
       if (aBlock)
-        message = bundle_browser.getString("imageWarningBlocked");
+        message = bundle_browser.getFormattedString("imageBlockedWarning",
+                                                    [app, uri.host]);
       else 
-        message = bundle_browser.getString("imageWarningAllowed");
+        message = bundle_browser.getFormattedString("imageAllowedWarning",
+                                                    [app, uri.host]);
 
       var notificationBox = gBrowser.getNotificationBox();
       var notification = notificationBox.getNotificationWithValue("images-blocked");
@@ -6473,7 +6482,7 @@ var FeedHandler = {
 #ifdef MOZ_FEEDS
       // Just load the feed in the content area to either subscribe or show the
       // preview UI
-      loadURI(href, null, null, false);
+      this.loadFeed(href);
 #else
       PlacesCommandHook.addLiveBookmark(feeds[0].href);
 #endif
@@ -6481,7 +6490,7 @@ var FeedHandler = {
 #ifdef MOZ_FEEDS
       // Just load the feed in the content area to either subscribe or show the
       // preview UI
-      loadURI(href, null, null, false);
+      this.loadFeed(href);
 #else
       this.addLiveBookmark(feeds[0].href);
 #endif
@@ -6566,6 +6575,20 @@ var FeedHandler = {
   },
 #endif
   
+#ifdef MOZ_FEEDS
+  loadFeed: function(href) {
+    var feeds = gBrowser.selectedBrowser.feeds;
+    try {
+      loadURI(href, null, null, false);
+    }
+    finally {
+      // We might default to a livebookmarks modal dialog, 
+      // so reset that if the user happens to click it again
+      gBrowser.selectedBrowser.feeds = feeds;
+    }
+  },
+#endif
+
   /**
    * Update the browser UI to show whether or not feeds are available when
    * a page is loaded or the user switches tabs to a page that has feeds. 

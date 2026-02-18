@@ -983,7 +983,7 @@ Engine.prototype = {
   _confirm: false,
   // Whether to set this as the current engine as soon as it is loaded.  This
   // is only used when the engine is first added to the list.
-  _useNow: false,
+  _useNow: true,
   // Whether the search engine file is in the app dir.
   __isInAppDir: null,
   // The number of days between update checks for new versions
@@ -1197,14 +1197,16 @@ Engine.prototype = {
     // Check to see if this is a duplicate engine. If we're confirming the
     // engine load, then we display a "this is a duplicate engine" prompt,
     // otherwise we fail silently.
-    var ss = Cc["@mozilla.org/browser/search-service;1"].
-             getService(Ci.nsIBrowserSearchService);
-    if (ss.getEngineByName(aEngine.name)) {
-      if (aEngine._confirm)
-        onError("error_duplicate_engine_msg", "error_invalid_engine_title");
+    if (!engineToUpdate) {
+      var ss = Cc["@mozilla.org/browser/search-service;1"].
+               getService(Ci.nsIBrowserSearchService);
+      if (ss.getEngineByName(aEngine.name)) {
+        if (aEngine._confirm)
+          onError("error_duplicate_engine_msg", "error_invalid_engine_title");
 
-      LOG("_onLoad: duplicate engine found, bailing");
-      return;
+        LOG("_onLoad: duplicate engine found, bailing");
+        return;
+      }
     }
 
     // If requested, confirm the addition now that we have the title.

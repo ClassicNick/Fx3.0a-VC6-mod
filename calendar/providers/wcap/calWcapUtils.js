@@ -253,105 +253,87 @@ function setPref(prefName, value)
     }
 }
 
-
-//
-// init code for globals, prefs:
-//
-
-// ctors:
-var CalEvent = new Components.Constructor(
-    "@mozilla.org/calendar/event;1", "calIEvent" );
-var CalTodo = new Components.Constructor(
-    "@mozilla.org/calendar/todo;1", "calITodo" );
-var CalDateTime = new Components.Constructor(
-    "@mozilla.org/calendar/datetime;1", "calIDateTime" );
-var XmlHttpRequest = new Components.Constructor(
-    "@mozilla.org/xmlextras/xmlhttprequest;1", "nsIXMLHttpRequest" );
-
-// global preferences:
-
-// caching: off|memory|storage:
-var CACHE = "off";
-// denotes where to host local storage calendar(s)
-var CACHE_DIR = null;
-
-// logging:
-#expand var LOG_LEVEL = __LOG_LEVEL__;
-var LOG_TIMEZONE = getPref("calendar.timezone.local", null);
-var LOG_FILE_STREAM = null;
-
-try {
-    var logLevel = getPref("calendar.wcap.log_level", null);
-    if (logLevel == null) { // log_level pref undefined:
-        if (getPref("calendar.debug.log", false))
-            logLevel = 1; // at least basic logging when calendar.debug.log
+function syncExec( func )
+{
+    // xxx todo: how to do better?
+    // possible HACK here, because of lack of sync possibilities:
+    // when we run into executing dialogs, the js runtime
+    // concurrently executes (another getItems() request).
+    // That concurrent request needs to wait for the first login
+    // attempt to finish.
+    // Creating a thread event queue somehow hinders the js engine
+    // from scheduling another js execution.
+    var eventQueueService = null;
+    try {
+        eventQueueService =
+            Components.classes["@mozilla.org/event-queue-service;1"]
+            .getService(Components.interfaces.nsIEventQueueService);
     }
-    if (logLevel > LOG_LEVEL) {
-        LOG_LEVEL = logLevel;
+    catch (exc) {
     }
-    
-    if (LOG_LEVEL > 0) {
-        var logFileName = getPref("calendar.wcap.log_file", null);
-        if (logFileName != null) {
-            // set up file:
-            var logFile = Components.classes["@mozilla.org/file/local;1"]
-                          .createInstance(Components.interfaces.nsILocalFile);
-            logFile.initWithPath( logFileName );
-            // create output stream:
-            var logFileStream = Components.classes[
-                "@mozilla.org/network/file-output-stream;1"]
-                .createInstance(Components.interfaces.nsIFileOutputStream);
-            logFileStream.init(
-                logFile,
-                0x02 /* PR_WRONLY */ |
-                0x08 /* PR_CREATE_FILE */ |
-                0x10 /* PR_APPEND */,
-                0700 /* read, write, execute/search by owner */,
-                0 /* unused */ );
-            LOG_FILE_STREAM = logFileStream;
+    if (eventQueueService != null) {
+        var eventQueue = eventQueueService.pushThreadEventQueue();
+        try {
+            func();
         }
-        logMessage( "init sequence",
-                    "################################# NEW LOG " +
-                    "#################################" );
+        catch (exc) {
+            eventQueueService.popThreadEventQueue( eventQueue );
+            throw exc;
+        }
+        eventQueueService.popThreadEventQueue( eventQueue );
     }
-    
-    // init cache dir directory:
-    CACHE = getPref("calendar.wcap.cache", "off" /* xxx todo */ );
-    logMessage( "calendar.wcap.cache", CACHE );
-    if (CACHE == "storage") {
-        var cacheDir = null;
-        var sCacheDir = getPref("calendar.wcap.cache_dir", null);
-        if (sCacheDir != null) {
-            cacheDir = Components.classes["@mozilla.org/file/local;1"]
-                       .createInstance(Components.interfaces.nsILocalFile);
-            cacheDir.initWithPath( sCacheDir );
-        }
-        else { // not found: default to wcap/ directory in profile
-            var dirService = Components.classes[
-                "@mozilla.org/file/directory_service;1"]
-                .getService(Components.interfaces.nsIProperties);
-            cacheDir = dirService.get(
-                "ProfD", Components.interfaces.nsILocalFile );
-            cacheDir.append( "wcap" );
-        }
-        CACHE_DIR = cacheDir;
-        logMessage( "calendar.wcap.cache_dir", CACHE_DIR.path );
-        if (!CACHE_DIR.exists()) {
-            CACHE_DIR.create( Components.interfaces.nsIFile.DIRECTORY_TYPE,
-                              0700 /* read, write, execute/search by owner */ );
-        }
-    }
-}
-catch (exc) {
-    logMessage( "error in init sequence", exc );
+    else // xxx todo: eventQueue has vanished on TRUNK
+        func();
 }
 
-// some string resources:
-var g_privateItemTitle = getWcapBundle().GetStringFromName(
-    "privateItem.title.text");
-var g_confidentialItemTitle = getWcapBundle().GetStringFromName(
-    "confidentialItem.title.text");
-var g_busyItemTitle = getWcapBundle().GetStringFromName(
-    "busyItem.title.text");
-var g_busyPhantomItemUuidPrefix = ("PHANTOM_uuid" + getTime().icalString);
+// // xxx todo: the below code still does not sync properly...
+// function syncExec( func )
+// {
+//     // sync all execution for login to UI thread, using nsIRunnable:
+//     // change from MOZILLA_1_8_BRANCH->TRUNK: probe xxx todo: test
+//     var target = null; // eventQueue or eventTarget
+//     try {
+//         var eventQueueService =
+//             Components.classes["@mozilla.org/event-queue-service;1"]
+//             .getService(Components.interfaces.nsIEventQueueService);
+//         if (eventQueueService != null) {
+//             target = eventQueueService.getSpecialEventQueue(
+//                 Components.interfaces.
+//                 nsIEventQueueService.UI_THREAD_EVENT_QUEUE );
+//         }
+//     }
+//     catch (exc) {
+//         // eventQueue has vanished on TRUNK
+//     }
+//     if (target == null) {
+//         // we are on the TRUNK:
+//         var threadManager = Components.classes["@mozilla.org/thread-manager;1"]
+//                             .getService(Components.interfaces.nsIThreadManager);
+//         target = threadManager.mainThread;
+//     }
+    
+//     var proxyObjectManager =
+//         Components.classes["@mozilla.org/xpcomproxy;1"]
+//         .getService(Components.interfaces.nsIProxyObjectManager);
+//     var proxy = proxyObjectManager.getProxyForObject(
+//         target, Components.interfaces.nsIRunnable,
+//         { // need to implemented QueryInterface, because object param
+//           // is not associated with iid:
+//             QueryInterface:
+//             function( iid ) {
+//                 if (Components.interfaces.nsIRunnable.equals(iid) ||
+//                     Components.interfaces.nsISupports.equals(iid))
+//                     return this;
+//                 throw Components.results.NS_ERROR_NO_INTERFACE;
+//             },
+//             // nsIRunnable:
+//             run:
+//             function() {
+//                 func();
+//             }
+//         },
+//         Components.interfaces.nsIProxyObjectManager.INVOKE_SYNC );
+//     // xxx todo: are rc/exceptions forwarded to current thread?
+//     proxy.run();
+// }
 

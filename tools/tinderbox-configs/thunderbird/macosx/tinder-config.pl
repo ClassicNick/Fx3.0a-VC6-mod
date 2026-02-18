@@ -1,6 +1,6 @@
 #
-## hostname: triton.mozilla.org
-## uname: Darwin triton.mozilla.org 7.9.0 Darwin Kernel Version 7.9.0: Wed Mar 30 20:11:17 PST 2005; root:xnu/xnu-517.12.7.obj~1/RELEASE_PPC  Power Macintosh powerpc
+## hostname: xserve03.build.mozilla.org
+## uname: Darwin xserve03.build.mozilla.org 8.1.0 Darwin Kernel Version 8.1.0: Tue May 10 18:16:08 PDT 2005; root:xnu-792.1.5.obj~4/RELEASE_PPC Power Macintosh powerpc
 #
 
 #- tinder-config.pl - Tinderbox configuration file.
@@ -10,6 +10,8 @@
 # $ENV{NO_EM_RESTART} = "1";
 # $ENV{DYLD_NO_FIX_PREBINDING} = "1";
 # $ENV{LD_PREBIND_ALLOW_OVERLAP} = "1";
+
+$MacUniversalBinary = 1;
 
 # $ENV{MOZ_PACKAGE_MSI}
 #-----------------------------------------------------------------------------
@@ -144,10 +146,10 @@ $moz_cvsroot   = ":ext:cltbld\@cvs.mozilla.org:/cvsroot";
 #$moz_client_mk = 'client.mk';
 
 #- Set if you want to build in a separate object tree
-#$ObjDir = '';
+$ObjDir = '../build/universal';
 
 # Extra build name, if needed.
-$BuildNameExtra = 'Release';
+$BuildNameExtra = 'Universal Nightly';
 
 # User comment, eg. ip address for dhcp builds.
 # ex: $UserComment = "ip = 208.12.36.108";
@@ -210,7 +212,7 @@ $push_raw_xpis = 0;
 $update_package = 1;
 $update_product = "Thunderbird";
 $update_version = "trunk";
-$update_platform = "Darwin_ppc-gcc3";
+$update_platform = "Darwin_Universal-gcc3";
 $update_hash = "md5";
 $update_filehost = "ftp.mozilla.org";
 $update_appv = "3.0a1";

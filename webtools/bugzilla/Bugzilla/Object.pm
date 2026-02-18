@@ -21,7 +21,9 @@ package Bugzilla::Object;
 use Bugzilla::Util;
 use Bugzilla::Error;
 
-use constant LIST_ORDER => 'name';
+use constant NAME_FIELD => 'name';
+use constant ID_FIELD   => 'id';
+use constant LIST_ORDER => NAME_FIELD;
 
 ###############################
 ####    Initialization     ####
@@ -35,12 +37,19 @@ sub new {
     return $object;
 }
 
+
+# Note: Because this uses sql_istrcmp, if you make a new object use
+# Bugzilla::Object, make sure that you modify bz_setup_database
+# in Bugzilla::DB::Pg appropriately, to add the right LOWER
+# index. You can see examples already there.
 sub _init {
     my $class = shift;
     my ($param) = @_;
     my $dbh = Bugzilla->dbh;
     my $columns = join(',', $class->DB_COLUMNS);
     my $table   = $class->DB_TABLE;
+    my $name_field = $class->NAME_FIELD;
+    my $id_field   = $class->ID_FIELD;
 
     my $id = $param unless (ref $param eq 'HASH');
     my $object;
@@ -52,12 +61,13 @@ sub _init {
 
         $object = $dbh->selectrow_hashref(qq{
             SELECT $columns FROM $table
-             WHERE id = ?}, undef, $id);
+             WHERE $id_field = ?}, undef, $id);
     } elsif (defined $param->{'name'}) {
         trick_taint($param->{'name'});
         $object = $dbh->selectrow_hashref(qq{
             SELECT $columns FROM $table
-             WHERE name = ?}, undef, $param->{'name'});
+             WHERE } . $dbh->sql_istrcmp($name_field, '?'), 
+            undef, $param->{'name'});
     } else {
         ThrowCodeError('bad_arg',
             {argument => 'param',
@@ -74,6 +84,7 @@ sub new_from_list {
     my $columns = join(',', $class->DB_COLUMNS);
     my $table   = $class->DB_TABLE;
     my $order   = $class->LIST_ORDER;
+    my $id_field = $class->ID_FIELD;
 
     my $objects;
     if (@$id_list) {
@@ -85,7 +96,7 @@ sub new_from_list {
             push(@detainted_ids, $id);
         }
         $objects = $dbh->selectall_arrayref(
-            "SELECT $columns FROM $table WHERE id IN (" 
+            "SELECT $columns FROM $table WHERE $id_field IN (" 
             . join(',', @detainted_ids) . ") ORDER BY $order", {Slice=>{}});
     } else {
         return [];
@@ -108,14 +119,54 @@ sub name              { return $_[0]->{'name'};        }
 ####      Subroutines    ######
 ###############################
 
+sub create {
+    my ($class, $params) = @_;
+    my $dbh = Bugzilla->dbh;
+
+    my $required   = $class->REQUIRED_CREATE_FIELDS;
+    my $validators = $class->VALIDATORS;
+    my $table      = $class->DB_TABLE;
+
+    foreach my $field ($class->REQUIRED_CREATE_FIELDS) {
+        ThrowCodeError('param_required', 
+            { function => "${class}->create", param => $field })
+            if !exists $params->{$field};
+    }
+
+    my (@field_names, @values);
+    # We do the sort just to make sure that validation always
+    # happens in a consistent order.
+    foreach my $field (sort keys %$params) {
+        my $value;
+        if (exists $validators->{$field}) {
+            $value = &{$validators->{$field}}($params->{$field});
+        }
+        else {
+            $value = $params->{$field};
+        }
+        trick_taint($value);
+        push(@field_names, $field);
+        push(@values, $value);
+    }
+
+    my $qmarks = '?,' x @values;
+    chop($qmarks);
+    $dbh->do("INSERT INTO $table (" . join(', ', @field_names) 
+             . ") VALUES ($qmarks)", undef, @values);
+    my $id = $dbh->bz_last_key($table, 'id');
+
+    return $class->new($id);
+}
+
 sub get_all {
     my $class = shift;
     my $dbh = Bugzilla->dbh;
     my $table = $class->DB_TABLE;
     my $order = $class->LIST_ORDER;
+    my $id_field = $class->ID_FIELD;
 
     my $ids = $dbh->selectcol_arrayref(qq{
-        SELECT id FROM $table ORDER BY $order});
+        SELECT $id_field FROM $table ORDER BY $order});
 
     my $objects = $class->new_from_list($ids);
     return @$objects;
@@ -167,11 +218,37 @@ for C<Bugzilla::Keyword> this would be C<keyworddefs>.
 The names of the columns that you want to read out of the database
 and into this object. This should be an array.
 
+=item C<NAME_FIELD>
+
+The name of the column that should be considered to be the unique
+"name" of this object. The 'name' is a B<string> that uniquely identifies
+this Object in the database. Defaults to 'name'. When you specify 
+C<{name => $name}> to C<new()>, this is the column that will be 
+matched against in the DB.
+
+=item C<ID_FIELD>
+
+The name of the column that represents the unique B<integer> ID
+of this object in the database. Defaults to 'id'.
+
 =item C<LIST_ORDER>
 
 The order that C<new_from_list> and C<get_all> should return objects
 in. This should be the name of a database column. Defaults to
-C<name>.
+L</NAME_FIELD>.
+
+=item C<REQUIRED_CREATE_FIELDS>
+
+The list of fields that B<must> be specified when the user calls
+C<create()>. This should be an array.
+
+=item C<VALIDATORS>
+
+A hashref that points to a function that will validate each param to
+C<create()>. Each function in this hashref will be passed a single
+argument, the value passed to C<create()> for that field. These
+functions should call L<Bugzilla::Error/ThrowUserError> if they fail.
+They must return the validated value.
 
 =back
 
@@ -188,7 +265,8 @@ C<name>.
                        id of the object, from the database, that we 
                        want to read in. If you pass in a hash with 
                        C<name> key, then the value of the name key 
-                       is the name of the object from the DB.
+                       is the case-insensitive name of the object from 
+                       the DB.
 
  Returns:     A fully-initialized object.
 
@@ -209,6 +287,25 @@ C<name>.
 =head1 SUBROUTINES
 
 =over
+
+=item C<create($params)>
+
+Description: Creates a new item in the database.
+             Throws a User Error if any of the passed-in params
+             are invalid.
+
+Params:      C<$params> - hashref - A value to put in each database
+               field for this object. Certain values must be set (the 
+               ones specified in L</REQUIRED_CREATE_FIELDS>), and
+               the function will throw a Code Error if you don't set
+               them.
+
+Returns:     The Object just created in the database.
+
+Notes:       In order for this function to work in your subclass,
+             your subclass's C<id> field must be of C<SERIAL>
+             type in the database. Your subclass also must
+             define L</REQUIRED_CREATE_FIELDS> and L</VALIDATORS>.
 
 =item C<get_all>
 

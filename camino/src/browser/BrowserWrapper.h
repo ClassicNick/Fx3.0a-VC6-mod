@@ -41,6 +41,7 @@
 @class BrowserWindowController;
 @class ToolTip;
 @class AutoCompleteTextField;
+@class RolloverImageButton;
 
 class nsIMutableArray;
 class nsIArray;
@@ -149,6 +150,7 @@ class nsIArray;
   ToolTip*                  mToolTip;
 
   IBOutlet NSView*          mBlockedPopupView;   // loaded on demand, can be nil, STRONG
+  IBOutlet RolloverImageButton* mBlockedPopupCloseButton; 
 
   double                    mProgress;
   
@@ -199,7 +201,7 @@ class nsIArray;
 - (IBAction)unblockPopupSites:(id)sender;
 - (IBAction)hideBlockedPopupView:(id)sender;
 
-- (void)loadURI:(NSString *)urlSpec referrer:(NSString*)referrer flags:(unsigned int)flags activate:(BOOL)activate allowPopups:(BOOL)inAllowPopups;
+- (void)loadURI:(NSString *)urlSpec referrer:(NSString*)referrer flags:(unsigned int)flags focusContent:(BOOL)focusContent allowPopups:(BOOL)inAllowPopups;
 
 - (void)didBecomeActiveBrowser;
 - (void)willResignActiveBrowser;

@@ -102,49 +102,16 @@ if ($action eq 'add') {
 #
 # action='new' -> add keyword entered in the 'action=add' screen
 #
-
 if ($action eq 'new') {
-    # Cleanups and validity checks
+    my $name = $cgi->param('name') || '';
+    my $desc = $cgi->param('description')  || '';
 
-    my $name = trim($cgi->param('name') || '');
-    my $description  = trim($cgi->param('description')  || '');
-
-    Validate($name, $description);
-
-    my $id = $dbh->selectrow_array('SELECT id FROM keyworddefs
-                                    WHERE name = ?', undef, $name);
-
-    if ($id) {
-        $vars->{'name'} = $name;
-        ThrowUserError("keyword_already_exists", $vars);
-    }
-
-
-    # Pick an unused number.  Be sure to recycle numbers that may have been
-    # deleted in the past.  This code is potentially slow, but it happens
-    # rarely enough, and there really aren't ever going to be that many
-    # keywords anyway.
-
-    my $existing_ids =
-        $dbh->selectcol_arrayref('SELECT id FROM keyworddefs ORDER BY id');
-
-    my $newid = 1;
-
-    foreach my $oldid (@$existing_ids) {
-        if ($oldid > $newid) {
-            last;
-        }
-        $newid = $oldid + 1;
-    }
-
-    # Add the new keyword.
-    $dbh->do('INSERT INTO keyworddefs
-              (id, name, description) VALUES (?, ?, ?)',
-              undef, ($newid, $name, $description));
+    my $keyword = Bugzilla::Keyword->create(
+        { name => $name, description => $desc });
 
     print $cgi->header();
 
-    $vars->{'name'} = $name;
+    $vars->{'name'} = $keyword->name;
     $template->process("admin/keywords/created.html.tmpl", $vars)
       || ThrowTemplateError($template->error());
 

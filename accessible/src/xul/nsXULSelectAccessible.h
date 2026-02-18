@@ -114,6 +114,8 @@ public:
   /* ----- nsIAccessible ----- */
   NS_IMETHOD GetRole(PRUint32 *_retval);
   NS_IMETHOD GetState(PRUint32 *_retval);
+  // Don't use XUL menuitems's description attribute
+  NS_IMETHOD GetDescription(nsAString& aDesc) { return nsAccessibleWrap::GetDescription(aDesc); }
   nsIFrame*  GetBoundsFrame();
 };
 
@@ -135,7 +137,6 @@ public:
   NS_IMETHOD GetRole(PRUint32 *_retval);
   NS_IMETHOD GetState(PRUint32 *_retval);
   NS_IMETHOD GetValue(nsAString& _retval);
-
 };
 
 /**
@@ -157,7 +158,9 @@ public:
   NS_IMETHOD GetState(PRUint32 *_retval);
   NS_IMETHOD GetActionName(PRUint8 index, nsAString& _retval);
   // Don't use XUL menu's special child aggregator, this can be a rich list item
-  NS_IMETHOD GetChildCount(PRInt32 *aAccChildCount) { return nsAccessibleWrap::GetChildCount(aAccChildCount); }
+  void CacheChildren() { nsAccessibleWrap::CacheChildren(); }
+  // Don't use XUL menuitems's description attribute
+  NS_IMETHOD GetDescription(nsAString& aDesc) { return nsAccessibleWrap::GetDescription(aDesc); }
 
 private:
   PRBool mIsCheckbox;
@@ -178,7 +181,7 @@ public:
   virtual ~nsXULComboboxAccessible() {}
 
   /* ----- nsIAccessible ----- */
-  NS_IMETHOD GetChildCount(PRInt32 *_retval);
+  void CacheChildren();
   NS_IMETHOD GetRole(PRUint32 *_retval);
   NS_IMETHOD GetState(PRUint32 *_retval);
 

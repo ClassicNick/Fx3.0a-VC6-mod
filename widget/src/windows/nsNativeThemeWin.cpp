@@ -847,42 +847,57 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
 
   nsRefPtr<gfxContext> ctx = (gfxContext*)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
 
-  gfxFloat xoff, yoff;
-  nsRefPtr<gfxASurface> surf = ctx->CurrentSurface(&xoff, &yoff);
+  gfxPoint offset;
+  nsRefPtr<gfxASurface> surf = ctx->CurrentSurface(&offset.x, &offset.y);
 
   HDC hdc = NS_STATIC_CAST(gfxWindowsSurface*, NS_STATIC_CAST(gfxASurface*, surf.get()))->GetDC();
-  SaveDC(hdc);
-  SetGraphicsMode(hdc, GM_ADVANCED);
 
   /* Need to force the clip to be set */
   ctx->UpdateSurfaceClip();
 
   /* Covert the current transform to a world transform */
+  XFORM oldWorldTransform;
   gfxMatrix m = ctx->CurrentMatrix();
-  XFORM xform;
-  double dm[6];
-  m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
+  if (m.HasNonTranslation()) {
+    GetWorldTransform(hdc, &oldWorldTransform);
 
-  xform.eM11 = (FLOAT) dm[0];
-  xform.eM12 = (FLOAT) dm[1];
-  xform.eM21 = (FLOAT) dm[2];
-  xform.eM22 = (FLOAT) dm[3];
-  xform.eDx  = (FLOAT) dm[4];
-  xform.eDy  = (FLOAT) dm[5];
-  SetWorldTransform (hdc, &xform);
+    SetGraphicsMode(hdc, GM_ADVANCED);
+    XFORM xform;
+    double dm[6];
+    m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
+
+    xform.eM11 = (FLOAT) dm[0];
+    xform.eM12 = (FLOAT) dm[1];
+    xform.eM21 = (FLOAT) dm[2];
+    xform.eM22 = (FLOAT) dm[3];
+    xform.eDx  = (FLOAT) dm[4];
+    xform.eDy  = (FLOAT) dm[5];
+    SetWorldTransform (hdc, &xform);
+  } else {
+    gfxPoint pos(m.GetTranslation());
+
+    tr.x += NSToCoordRound(pos.x);
+    tr.y += NSToCoordRound(pos.y);
+    cr.x += NSToCoordRound(pos.x);
+    cr.y += NSToCoordRound(pos.y);
+  }
 
 #if 0
+  {
+  double dm[6];
+  m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
   fprintf (stderr, "xform: %f %f %f %f [%f %f]\n", dm[0], dm[1], dm[2], dm[3], dm[4], dm[5]);
   fprintf (stderr, "tr: [%d %d %d %d]\ncr: [%d %d %d %d]\noff: [%f %f]\n",
            tr.x, tr.y, tr.width, tr.height, cr.x, cr.y, cr.width, cr.height,
-           xoff, yoff);
+           offset.x, offset.y);
   fflush (stderr);
+  }
 #endif
 
   /* Set the device offsets as appropriate */
   POINT origViewportOrigin, origBrushOrigin;
   GetViewportOrgEx(hdc, &origViewportOrigin);
-  SetViewportOrgEx(hdc, origViewportOrigin.x + (int) xoff, origViewportOrigin.y + (int) yoff, NULL);
+  SetViewportOrgEx(hdc, origViewportOrigin.x + (int)offset.x, origViewportOrigin.y + (int)offset.y, NULL);
 
 #else /* non-MOZ_CAIRO_GFX */
 
@@ -895,8 +910,6 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
   HDC hdc = (HDC)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_WINDOWS_DC);
   if (!hdc)
     return NS_ERROR_FAILURE;
-
-  SaveDC(hdc);
 
 #ifndef WINCE
   SetGraphicsMode(hdc, GM_ADVANCED);
@@ -1003,9 +1016,12 @@ nsNativeThemeWin::DrawWidgetBackground(nsIRenderingContext* aContext,
     }
   }
 
-  RestoreDC(hdc, -1);
-
 #ifdef MOZ_CAIRO_GFX
+  SetViewportOrgEx(hdc, origViewportOrigin.x, origViewportOrigin.y, NULL);
+
+  if (m.HasNonTranslation())
+    SetWorldTransform(hdc, &oldWorldTransform);
+
   surf->MarkDirty();
 #endif
 
@@ -2014,32 +2030,41 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
 
   nsRefPtr<gfxContext> ctx = (gfxContext*)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
 
-  gfxFloat xoff, yoff;
-  nsRefPtr<gfxASurface> surf = ctx->CurrentSurface(&xoff, &yoff);
+  gfxPoint offset;
+  nsRefPtr<gfxASurface> surf = ctx->CurrentSurface(&offset.x, &offset.y);
   HDC hdc = NS_STATIC_CAST(gfxWindowsSurface*, NS_STATIC_CAST(gfxASurface*, surf.get()))->GetDC();
-  SaveDC(hdc);
-  SetGraphicsMode(hdc, GM_ADVANCED);
 
   /* Need to force the clip to be set */
   ctx->UpdateSurfaceClip();
 
   /* Covert the current transform to a world transform */
+  XFORM oldWorldTransform;
   gfxMatrix m = ctx->CurrentMatrix();
-  XFORM xform;
-  double dm[6];
-  m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
-  xform.eM11 = (FLOAT) dm[0];
-  xform.eM12 = (FLOAT) dm[1];
-  xform.eM21 = (FLOAT) dm[2];
-  xform.eM22 = (FLOAT) dm[3];
-  xform.eDx  = (FLOAT) dm[4];
-  xform.eDy  = (FLOAT) dm[5];
-  SetWorldTransform (hdc, &xform);
+  if (m.HasNonTranslation()) {
+    GetWorldTransform(hdc, &oldWorldTransform);
+
+    SetGraphicsMode(hdc, GM_ADVANCED);
+    XFORM xform;
+    double dm[6];
+    m.ToValues(&dm[0], &dm[1], &dm[2], &dm[3], &dm[4], &dm[5]);
+    xform.eM11 = (FLOAT) dm[0];
+    xform.eM12 = (FLOAT) dm[1];
+    xform.eM21 = (FLOAT) dm[2];
+    xform.eM22 = (FLOAT) dm[3];
+    xform.eDx  = (FLOAT) dm[4];
+    xform.eDy  = (FLOAT) dm[5];
+    SetWorldTransform (hdc, &xform);
+  } else {
+    gfxPoint pos(m.GetTranslation());
+
+    tr.x += NSToCoordRound(pos.x);
+    tr.y += NSToCoordRound(pos.y);
+  }
 
   /* Set the device offsets as appropriate */
   POINT origViewportOrigin;
   GetViewportOrgEx(hdc, &origViewportOrigin);
-  SetViewportOrgEx(hdc, origViewportOrigin.x + (int) xoff, origViewportOrigin.y + (int) yoff, NULL);
+  SetViewportOrgEx(hdc, origViewportOrigin.x + (int)offset.x, origViewportOrigin.y + (int)offset.y, NULL);
 
 #else /* non-MOZ_CAIRO_GFX */
 
@@ -2048,8 +2073,6 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
   transformMatrix->TransformCoord(&tr.x,&tr.y,&tr.width,&tr.height);
 
   HDC hdc = (HDC)aContext->GetNativeGraphicData(nsIRenderingContext::NATIVE_WINDOWS_DC);
-
-  SaveDC(hdc);
 
 #endif /* MOZ_CAIRO_GFX */
 
@@ -2322,9 +2345,13 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsIRenderingContext* aCon
       rv = NS_ERROR_FAILURE;
       break;
   }
-  RestoreDC(hdc, -1);
 
 #ifdef MOZ_CAIRO_GFX
+  SetViewportOrgEx(hdc, origViewportOrigin.x, origViewportOrigin.y, NULL);
+
+  if (m.HasNonTranslation())
+    SetWorldTransform(hdc, &oldWorldTransform);
+
   surf->MarkDirty();
 #endif
 

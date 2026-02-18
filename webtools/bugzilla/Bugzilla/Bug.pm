@@ -65,36 +65,18 @@ use constant MAX_COMMENT_LENGTH => 65535;
 
 #####################################################################
 
-# create a new empty bug
-#
 sub new {
-  my $type = shift();
-  my %bug;
-
-  # create a ref to an empty hash and bless it
-  #
-  my $self = {%bug};
-  bless $self, $type;
-
-  # construct from a hash containing a bug's info
-  #
-  if ($#_ == 1) {
-    $self->initBug(@_);
-  } else {
-    confess("invalid number of arguments \($#_\)($_)");
-  }
-
-  # bless as a Bug
-  #
+  my $invocant = shift;
+  my $class = ref($invocant) || $invocant;
+  my $self = {};
+  bless $self, $class;
+  $self->_init(@_);
   return $self;
 }
 
-# dump info about bug into hash unless user doesn't have permission
-# user_id 0 is used when person is not logged in.
-#
-sub initBug  {
+sub _init {
   my $self = shift();
-  my ($bug_id, $user_id) = (@_);
+  my ($bug_id) = (@_);
   my $dbh = Bugzilla->dbh;
 
   $bug_id = trim($bug_id || 0);
@@ -103,18 +85,6 @@ sub initBug  {
 
   # If the bug ID isn't numeric, it might be an alias, so try to convert it.
   $bug_id = bug_alias_to_id($bug_id) if $bug_id !~ /^0*[1-9][0-9]*$/;
-
-  # If the user is not logged in, sets $user_id to 0.
-  # Else gets $user_id from the user login name if this
-  # argument is not numeric.
-  my $stored_user_id = $user_id;
-  if (!defined $user_id) {
-    $user_id = 0;
-  } elsif (!detaint_natural($user_id)) {
-    $user_id = login_to_id($stored_user_id); 
-  }
-
-  $self->{'who'} = new Bugzilla::User($user_id);
 
   unless ($bug_id && detaint_natural($bug_id)) {
       # no bug number given or the alias didn't match a bug
@@ -138,36 +108,24 @@ sub initBug  {
       bug_file_loc, short_desc, target_milestone,
       qa_contact AS qa_contact_id, status_whiteboard, " .
       $dbh->sql_date_format('creation_ts', '%Y.%m.%d %H:%i') . ",
-      delta_ts, COALESCE(SUM(votes.vote_count), 0), everconfirmed,
-      reporter_accessible, cclist_accessible,
+      delta_ts, everconfirmed, reporter_accessible, cclist_accessible,
       estimated_time, remaining_time, " .
       $dbh->sql_date_format('deadline', '%Y-%m-%d') .
       $custom_fields . "
     FROM bugs
-       LEFT JOIN votes
-              ON bugs.bug_id = votes.bug_id
       INNER JOIN components
               ON components.id = bugs.component_id
       INNER JOIN products
               ON products.id = bugs.product_id
       INNER JOIN classifications
               ON classifications.id = products.classification_id
-      WHERE bugs.bug_id = ? " .
-    $dbh->sql_group_by('bugs.bug_id', "alias, products.classification_id,
-      classifications.name, bugs.product_id, products.name, version,
-      rep_platform, op_sys, bug_status, resolution, priority,
-      bug_severity, bugs.component_id, components.name, assigned_to,
-      reporter, bug_file_loc, short_desc, target_milestone,
-      qa_contact, status_whiteboard, everconfirmed, creation_ts, 
-      delta_ts, reporter_accessible, cclist_accessible,
-      estimated_time, remaining_time, deadline $custom_fields");
+      WHERE bugs.bug_id = ?";
 
   my $bug_sth = $dbh->prepare($query);
   $bug_sth->execute($bug_id);
   my @row;
 
-  if ((@row = $bug_sth->fetchrow_array()) 
-      && $self->{'who'}->can_see_bug($bug_id)) {
+  if (@row = $bug_sth->fetchrow_array) {
     my $count = 0;
     my %fields;
     foreach my $field ("bug_id", "alias", "classification_id", "classification",
@@ -177,7 +135,7 @@ sub initBug  {
                        "assigned_to_id", "reporter_id", 
                        "bug_file_loc", "short_desc",
                        "target_milestone", "qa_contact_id", "status_whiteboard",
-                       "creation_ts", "delta_ts", "votes", "everconfirmed",
+                       "creation_ts", "delta_ts", "everconfirmed",
                        "reporter_accessible", "cclist_accessible",
                        "estimated_time", "remaining_time", "deadline",
                        Bugzilla->custom_field_names)
@@ -188,10 +146,6 @@ sub initBug  {
         }
         $count++;
     }
-  } elsif (@row) {
-      $self->{'bug_id'} = $bug_id;
-      $self->{'error'} = "NotPermitted";
-      return $self;
   } else {
       $self->{'bug_id'} = $bug_id;
       $self->{'error'} = "NotFound";
@@ -693,6 +647,20 @@ sub settable_resolutions {
     return $resolutions;
 }
 
+sub votes {
+    my ($self) = @_;
+    return 0 if $self->{error};
+    return $self->{votes} if defined $self->{votes};
+
+    my $dbh = Bugzilla->dbh;
+    $self->{votes} = $dbh->selectrow_array(
+        'SELECT SUM(vote_count) FROM votes
+          WHERE bug_id = ? ' . $dbh->sql_group_by('bug_id'),
+        undef, $self->bug_id);
+    $self->{votes} ||= 0;
+    return $self->{votes};
+}
+
 # Convenience Function. If you need speed, use this. If you need
 # other Bug fields in addition to this, just create a new Bug with
 # the alias.
@@ -1186,7 +1154,7 @@ sub CheckIfVotedConfirmed {
 sub check_can_change_field {
     my $self = shift;
     my ($field, $oldvalue, $newvalue, $PrivilegesRequired, $data) = (@_);
-    my $user = $self->{'who'};
+    my $user = Bugzilla->user;
 
     $oldvalue = defined($oldvalue) ? $oldvalue : '';
     $newvalue = defined($newvalue) ? $newvalue : '';

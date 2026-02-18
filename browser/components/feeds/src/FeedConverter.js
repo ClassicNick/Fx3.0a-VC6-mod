@@ -216,11 +216,14 @@ FeedConverter.prototype = {
           getService(Ci.nsIIOService);
       var chromeChannel;
       if (result.doc) {
-        // If there was no automatic handler, or this was a podcast, photostream or
-        // some other kind of application, we must always show the preview page...
 
-        // Store the result in the result service so that the display page can 
-        // access it.
+        // If there was no automatic handler, or this was a podcast,
+        // photostream or some other kind of application, we must always
+        // show the preview page.
+        
+        // Store the result in the result service so that the display
+        // page can access it.
+
         feedService.addFeedResult(result);
 
         // Now load the actual XUL document.
@@ -316,7 +319,8 @@ var FeedConverterFactory = {
 var FeedResultService = {
   
   /**
-   * A URI spec -> nsIFeedResult hash
+   * A URI spec -> [nsIFeedResult] hash. We have to keep a list as the
+   * value in case the same URI is requested concurrently.
    */
   _results: { },
   
@@ -389,25 +393,6 @@ var FeedResultService = {
 #endif
       break;
     }
-    
-    // We need to reload the current page to cause the feed list to get 
-    // regenerated. If we don't do this, the startDocumentLoad notification
-    // the browser receives for the initiation of the load of the feed 
-    // preview page will reset the list of feeds maintained by that browser,
-    // so that subsequent clicks to the subscribe icon (unlikely, but possible)
-    // will do nothing, even if the user wants to choose another option.
-    // See bug #341407
-    request.cancel(Cr.NS_ERROR_FAILURE);
-    var channel = request.QueryInterface(Ci.nsIChannel);
-    try {
-      var webNavigation = 
-          channel.notificationCallbacks.getInterface(Ci.nsIWebNavigation);
-      webNavigation.reload(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
-    }
-    catch (e) {
-      // .notificationCallbacks is not guaranteed to provide a web-navigation.
-      // Just fail silently in this case, since it's not the end of the world.
-    }
   },
   
   /**
@@ -416,7 +401,10 @@ var FeedResultService = {
   addFeedResult: function FRS_addFeedResult(feedResult) {
     NS_ASSERT(feedResult.uri != null, "null URI!");
     NS_ASSERT(feedResult.uri != null, "null feedResult!");
-    this._results[feedResult.uri.spec] = feedResult;
+    var spec = feedResult.uri.spec;
+    if(!this._results[spec])  
+      this._results[spec] = [];
+    this._results[spec].push(feedResult);
   },
   
   /**
@@ -424,7 +412,12 @@ var FeedResultService = {
    */
   getFeedResult: function RFS_getFeedResult(uri) {
     NS_ASSERT(uri != null, "null URI!");
-    return this._results[uri.spec];
+    var resultList = this._results[uri.spec];
+    for (var i in resultList) {
+      if (resultList[i].uri == uri)
+        return resultList[i];
+    }
+    return null;
   },
   
   /**
@@ -432,7 +425,18 @@ var FeedResultService = {
    */
   removeFeedResult: function FRS_removeFeedResult(uri) {
     NS_ASSERT(uri != null, "null URI!");
-    if (uri.spec in this._results)
+    var resultList = this._results[uri.spec];
+    for (var i = 0; i < resultList.length; ++i) {
+      if (resultList[i].uri == uri) {
+        delete resultList[i];
+        // send the null value to the end of our little list and pop
+        // it off
+        resultList.sort(); 
+        resultList.pop();
+        break;
+      }
+    }
+    if (resultList.length == 0)
       delete this._results[uri.spec];
   },
 

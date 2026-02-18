@@ -24,7 +24,7 @@ use Config;         # for $Config{sig_name} and $Config{sig_num}
 use File::Find ();
 use File::Copy;
 
-$::UtilsVersion = '$Revision: 1.333 $ ';
+$::UtilsVersion = '$Revision: 1.337 $ ';
 
 package TinderUtils;
 
@@ -53,9 +53,16 @@ require "gettime.pl";
 #   cpan> install Bundle::LWP
 #
 
+##
+## Constants.
+##
+
 my $co_time_str = 0;  # Global, let tests send cvs co time to graph server.
 my $co_default_timeout = 300;
 my $graph_time;
+my $server_start_time;
+my $CVS_CLOBBER_FILE = 'CLOBBER';
+my $ST_MTIME = 9;
 
 sub Setup {
     InitVars();
@@ -83,11 +90,32 @@ sub UpdateBuildConfigs() {
         chdir($args->{'TboxBuildConfigDir'}) or 
          die "Couldn't chdir() into $args->{'TboxBuildConfigDir'}: $!";
 
+        my $origClobberFileMTime = 0;
+        if (-f $CVS_CLOBBER_FILE) {
+            $origClobberFileMTime = (stat($CVS_CLOBBER_FILE))[$ST_MTIME];
+        } else {
+            print STDERR "Error: Couldn't find $CVS_CLOBBER_FILE in " .
+             "$args->{'TboxBuildConfigDir'}\n";
+        }
+
         my $status = run_shell_command_with_timeout('cvs update -CPd',
          $co_default_timeout);
         if ($status->{'exit_value'} != 0) {
-           die "cvs update in $args->{'TboxBuildConfigDir'} failed";
+            die "cvs update in $args->{'TboxBuildConfigDir'} failed\n";
         }
+
+        if (-f $CVS_CLOBBER_FILE) {
+            my $newClobberFileMTime = (stat($CVS_CLOBBER_FILE))[$ST_MTIME];
+
+            # Check to make sure that the stat() call actually returned
+            # something; if so, is the new modified-time greater than the old
+            # modified-time? If so, CVS probably updated it.
+            if (defined($newClobberFileMTime) && 
+             $newClobberFileMTime > $origClobberFileMTime) {
+                $args->{'ForceRebuild'} = 1;
+            }
+        }
+
         chdir($cwd) or die "Couldn't return to $cwd";
     }
 }
@@ -259,8 +287,7 @@ sub GetSystemInfo {
     $Settings::CPU = `uname -m`;
     #$Settings::ObjDir = '';
     my $build_type = $Settings::BuildDepend ? 'Depend' : 'Clobber';
-    my $host = ::hostname();
-    $host = $1 if $host =~ /(.*?)\./;
+    my $host = ShortHostname();
     chomp($Settings::OS, $os_ver, $Settings::CPU, $host);
 
     # Redirecting stderr to stdout works on *nix, winnt, but not on win98.
@@ -893,7 +920,17 @@ sub BuildIt {
             $cvsco = "$Settings::CVSCO -A";
         }
 
-        mail_build_started_message($start_time) if $Settings::ReportStatus;
+        my $mailBuildStartTime = $start_time;
+        if ($Settings::TestOnlyTinderbox){
+          $server_start_time = get_build_time_from_server($start_time);
+          download_prebuilt();
+          if (! $server_start_time) {
+            die "Could not get time from server.\n";
+          }
+          $mailBuildStartTime = $server_start_time;
+        }
+
+        mail_build_started_message($mailBuildStartTime) if $Settings::ReportStatus;
 
         chdir $build_dir;
         my $logfile = "$Settings::DirName.log";
@@ -1143,20 +1180,6 @@ sub BuildIt {
                 TinderUtils::run_shell_command("cd $objdir/dist/universal/xpi-stage/xforms && zip -qr ../xforms.xpi *");
               }
             }
-          } elsif ($build_status ne 'busted' and $Settings::TestOnlyTinderbox) {
-            $graph_time = get_build_time_from_server($start_time);
-            my $prebuilt = "$build_dir/$Settings::DownloadBuildDir";
-            my $status = 0;
-            if ( -f $prebuilt) {
-              $status = run_shell_command("rm -rf $prebuilt");
-              $build_status = 'busted' if ($status);
-            }
-            $status = run_shell_command("mkdir -p $prebuilt");
-            $build_status = 'busted' if ($status);
-            $status = run_shell_command("wget -qO $prebuilt/build.tgz $Settings::DownloadBuildURL");
-            $build_status = 'busted' if ($status);
-            $status = run_shell_command("tar -C $prebuilt -xf $prebuilt/build.tgz");
-            $build_status = 'busted' if ($status);
           }
 
           if ($build_status ne 'busted' and BinaryExists($full_binary_name)) {
@@ -1199,8 +1222,12 @@ sub BuildIt {
         close LOG;
         chdir $build_dir;
 
-        mail_build_finished_message($start_time, $build_status, $binary_url, $logfile)
-            if $Settings::ReportStatus;
+        my $mailBuildEndTime = $start_time;
+        if ($Settings::TestOnlyTinderbox){
+          $mailBuildEndTime = $server_start_time;
+        }
+
+        mail_build_finished_message($mailBuildEndTime, $build_status, $binary_url, $logfile) if $Settings::ReportStatus;
 
         rebootSystem() if $Settings::OS eq 'WIN98' && $Settings::RebootSystem;
 
@@ -1716,7 +1743,7 @@ sub get_build_time_from_server {
         if ($status eq 'success') {
           $grabbed_time = $data[4];
           if (not $grabbed_time =~ /\d+/) {
-            print_log("Error - downloaded start time is no good: $time \n");
+            print_log("Error - downloaded start time is no good: $grabbed_time\n");
           }
         }else{
           print_log("Found match: $buildname but status is not success: $status\n");
@@ -1794,7 +1821,7 @@ sub send_results_to_server {
 
     my $time = POSIX::strftime("%Y:%m:%d:%H:%M:%S", localtime);
     if ($Settings::TestOnlyTinderbox) {
-      $time = POSIX::strftime("%Y:%m:%d:%H:%M:%S", localtime($graph_time));
+      $time = POSIX::strftime("%Y:%m:%d:%H:%M:%S", localtime($server_start_time));
       $data_plus_co_time = "MOZ_CO_DATE=$time\t$raw_data";
     }
     my $tmpurl = "http://$Settings::results_server/graph/collect.cgi";
@@ -1973,15 +2000,16 @@ sub run_all_tests {
     # Set prefs to run tests properly.
     #
     if ($pref_file && $test_result eq 'success') { #XXX lame
-        if($Settings::LayoutPerformanceTest  or
-           $Settings::DHTMLPerformanceTest   or
-           $Settings::XULWindowOpenTest      or
-           $Settings::StartupPerformanceTest or
-           $Settings::MailBloatTest          or
-           $Settings::QATest                 or
-           $Settings::BloatTest2             or
-           $Settings::BloatTest              or
-           $Settings::RenderPerformanceTest  or
+        if($Settings::LayoutPerformanceTest      or
+           $Settings::LayoutPerformanceLocalTest or
+           $Settings::DHTMLPerformanceTest       or
+           $Settings::XULWindowOpenTest          or
+           $Settings::StartupPerformanceTest     or
+           $Settings::MailBloatTest              or
+           $Settings::QATest                     or
+           $Settings::BloatTest2                 or
+           $Settings::BloatTest                  or
+           $Settings::RenderPerformanceTest      or
            $Settings::RunUnitTests) {
             
             # Chances are we will be timing these tests.  Bring gettime() into memory
@@ -2202,6 +2230,29 @@ sub run_all_tests {
       }
 
       $test_result = LayoutPerformanceTest("LayoutPerformanceTest",
+                                           $build_dir,
+                                           $app_args);
+    }
+    # New layout performance test.
+    if ($Settings::LayoutPerformanceLocalTest and $test_result eq 'success') {
+      my $app_args = [$binary];
+      if ($Settings::BinaryName eq 'Camino') {
+        push(@$app_args, '-url');
+      }
+
+      # When I found this, it avoided setting the profile for Firefox.
+      # That didn't work on a tinderbox that had multiple profiles.
+      # Now, it will set the profile if it's not 'default' on the assumption
+      # that existing tinderboxes were all using 'default' anyway.  Why
+      # so careful?  I'm afraid of things like bug 112767, and I assume this
+      # had been done for a reason.  -mm
+      unless ($Settings::BinaryName eq "TestGtkEmbed" ||
+              ($Settings::BinaryName =~ /^firefox/ && $Settings::MozProfileName eq 'default') ||
+              $Settings::BinaryName eq 'Camino') {
+        push(@$app_args, "-P", $Settings::MozProfileName);
+      }
+
+      $test_result = LayoutPerformanceLocalTest("LayoutPerformanceLocalTest",
                                            $build_dir,
                                            $app_args);
     }
@@ -2553,6 +2604,62 @@ sub LayoutPerformanceTest {
       
       if($Settings::TestsPhoneHome) {
         send_results_to_server($layout_time, $raw_data, "pageload");
+      }
+    }
+
+    return $layout_test_result;
+}
+
+sub LayoutPerformanceLocalTest {
+    my ($test_name, $build_dir, $args) = @_;
+    my $layout_test_result;
+    my $layout_time;
+    my $layout_time_details;
+    my $binary_log = "$build_dir/$test_name.log";
+    my $url = "http://localhost/pageload/cycler.html";
+    
+    # Settle OS.
+    run_system_cmd("sync; sleep 5", 35);
+    
+    $layout_time = AliveTestReturnToken($test_name,
+                                        $build_dir,
+                                        [@$args, $url],
+                                        $Settings::LayoutPerformanceLocalTestTimeout,
+                                        "_x_x_mozilla_page_load",
+                                        ",");
+    
+    if($layout_time) {
+      chomp($layout_time);
+      my @times = split(',', $layout_time);
+      $layout_time = $times[0];  # Set layout time to first number. 
+    } else {
+      print_log "TinderboxPrint:Tp2:[CRASH]\n";
+    }
+    
+    # Set test status.
+    if($layout_time) {
+      $layout_test_result = 'success';
+    } else {
+      $layout_test_result = 'testfailed';
+      print_log "LayoutPerformanceLocalTest: test failed\n";
+    }
+    
+    if($layout_test_result eq 'success') {
+      my $tp_prefix = "";
+      if($Settings::BinaryName eq "TestGtkEmbed") {
+        $tp_prefix = "m";
+      }
+      
+      print_log_test_result_ms('pageload2',
+                               'Avg of the median per url pageload time',
+                               $layout_time, 'Tp2');
+      
+      # Pull out detail data from log.
+      my $raw_data = extract_token_from_file($binary_log, "_x_x_mozilla_page_load_details", ",");
+      chomp($raw_data);
+      
+      if($Settings::TestsPhoneHome) {
+        send_results_to_server($layout_time, $raw_data, "pageload2");
       }
     }
 
@@ -3361,6 +3468,111 @@ sub BloatTest2 {
     return 'success';
 }
 
+sub download_prebuilt() {
+  my $build_dir = get_system_cwd();
+  my $prebuilt = "$build_dir/$Settings::DownloadBuildDir";
+  my $unpack_build;
+
+  if (is_windows()) {
+    if ($build_dir !~ m/^.:\//) {
+      chomp($build_dir = `cygpath -w $build_dir`);
+      $build_dir =~ s/\\/\//g;
+    }
+    $unpack_build = "cd $prebuilt && unzip -qq -o $build_dir/$Settings::DownloadBuildFile";
+  } elsif (is_linux()) { 
+    $unpack_build = "tar -C $prebuilt -xf $build_dir/$Settings::DownloadBuildFile";
+  } else {
+    stop_tinderbox(reason => "Only Linux and Win32 for now.");
+  }
+  my $status = 0;
+  my $before_sum = HashFile(function => "md5", 
+                            file => "$build_dir/$Settings::DownloadBuildFile");
+
+  my $downloadUrl = $Settings::DownloadBuildURL
+    . '/' . $Settings::DownloadBuildFile;
+
+  if ( -d $prebuilt) {
+    $status = run_shell_command("rm -rf $prebuilt");
+    stop_tinderbox(reason => "Cannot rm -rf $prebuilt") if ($status);
+  }
+  $status = run_shell_command("mkdir -p $prebuilt");
+  stop_tinderbox(reason => "Cannot mkdir $prebuilt") if ($status);
+
+  $status = run_shell_command("wget -q -P $build_dir -N $downloadUrl");
+  stop_tinderbox(reason => "Cannot wget $downloadUrl") if ($status);
+  my $after_sum = HashFile( function => "md5", 
+                            file => "$build_dir/$Settings::DownloadBuildFile");
+  if ($before_sum eq $after_sum) {
+    stop_tinderbox(reason => "No new build available.");
+  }
+  $status = run_shell_command($unpack_build);
+  stop_tinderbox(reason => "Cannot unpack $build_dir/$Settings::DownloadBuildFile") if ($status); 
+}
+
+sub stop_tinderbox() {
+  my %args = @_;
+  my $reason = $args{'reason'};
+
+  print_log("Stopping tinderbox: ".$reason."\n");
+  exit(1);
+}
+
+sub HashFile
+{
+  my %args = @_;
+
+  my $hashFunction = $args{'function'};
+  my $file = $args{'file'};
+
+  if ($hashFunction ne 'md5' && $hashFunction ne 'sha1') {
+    die "ASSERT: unknown hashFunction: $hashFunction\n";
+  }
+  elsif (not -f $file) {
+    return '';
+  }
+
+  # TODO - Use the new RunShellCommand()
+  my $hashValue = `openssl dgst -$hashFunction $file`;
+
+  # if we errored out, make sure the hash value is empty... 
+  if ($?) {
+    $hashValue = '';
+  }
+
+  chomp($hashValue);
+
+  # Expects input like MD5(mozconfig)= d7433cc4204b4f3c65d836fe483fa575
+  # Removes everything up to and including the "= "
+  $hashValue =~ s/^.+\s+(\w+)$/$1/;
+
+  return $hashValue;
+}
+
+sub is_windows
+{
+  return $Settings::OS =~ /^WIN/;
+}
+
+sub is_linux
+{
+  return $Settings::OS eq 'Linux';
+}
+sub is_os2
+{
+  return $Settings::OS eq 'OS2';
+}
+
+sub is_mac
+{
+  return $Settings::OS eq 'Darwin';
+}
+
+sub ShortHostname
+{
+  my $host = ::hostname();
+  $host = $1 if $host =~ /(.*?)\./;
+  return $host;
+}
 
 # Need to end with a true value, (since we're using "require").
 1;

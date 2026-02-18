@@ -49,6 +49,7 @@
 #import "PageProxyIcon.h"
 #import "KeychainService.h"
 #import "AutoCompleteTextField.h"
+#import "RolloverImageButton.h"
 
 #include "CHBrowserService.h"
 #include "ContentClickListener.h"
@@ -335,7 +336,7 @@ static NSString* const kOfflineNotificationName = @"offlineModeChanged";
 }
 
 
-- (void)loadURI:(NSString *)urlSpec referrer:(NSString*)referrer flags:(unsigned int)flags activate:(BOOL)activate allowPopups:(BOOL)inAllowPopups
+- (void)loadURI:(NSString*)urlSpec referrer:(NSString*)referrer flags:(unsigned int)flags focusContent:(BOOL)focusContent allowPopups:(BOOL)inAllowPopups
 {
   // blast it into the urlbar immediately so that we know what we're 
   // trying to load, even if it doesn't work
@@ -354,7 +355,7 @@ static NSString* const kOfflineNotificationName = @"offlineModeChanged";
   if ([[PreferenceManager sharedInstance] getBooleanPref:"keyword.enabled" withSuccess:NULL])
     flags |= NSLoadFlagsAllowThirdPartyFixup;
 
-  [self setPendingActive:activate];
+  [self setPendingActive:focusContent];
   [mBrowserView loadURI:urlSpec referrer:referrer flags:flags allowPopups:inAllowPopups];
 }
 
@@ -506,6 +507,11 @@ static NSString* const kOfflineNotificationName = @"offlineModeChanged";
   // current tab is eventually displayed.
   if ([self popupsBlocked] && !mBlockedPopupView) {
     [NSBundle loadNibNamed:@"PopupBlockView" owner:self];
+
+    [mBlockedPopupCloseButton setImage:[NSImage imageNamed:@"tab_close"]];
+    [mBlockedPopupCloseButton setAlternateImage:[NSImage imageNamed:@"tab_close_pressed"]];
+    [mBlockedPopupCloseButton setHoverImage:[NSImage imageNamed:@"tab_close_hover"]];
+
     [self addSubview:mBlockedPopupView];
     [self setFrame:[self frame] resizingBrowserViewIfHidden:YES];
     [self display];

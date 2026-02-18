@@ -375,6 +375,7 @@ NS_IMETHODIMP nsComboboxControlFrame::GetAccessible(nsIAccessible** aAccessible)
 void 
 nsComboboxControlFrame::SetFocus(PRBool aOn, PRBool aRepaint)
 {
+  nsWeakFrame weakFrame(this);
   if (aOn) {
     nsListControlFrame::ComboboxFocusSet();
     mFocused = this;
@@ -383,7 +384,12 @@ nsComboboxControlFrame::SetFocus(PRBool aOn, PRBool aRepaint)
     if (mDroppedDown) {
       mListControlFrame->ComboboxFinish(mDisplayedIndex);
     }
+    // May delete |this|.
     mListControlFrame->FireOnChange();
+  }
+
+  if (!weakFrame.IsAlive()) {
+    return;
   }
 
   // This is needed on a temporary basis. It causes the focus
@@ -572,7 +578,13 @@ nsComboboxControlFrame::PositionDropdown(nsPresContext* aPresContext,
     }
   }
  
-  dropdownRect.x = 0;
+  const nsStyleVisibility* vis = GetStyleVisibility();
+  if (vis->mDirection == NS_STYLE_DIRECTION_RTL) {
+    // Align the right edge of the drop-down with the right edge of the control.
+    dropdownRect.x = aAbsoluteTwipsRect.width - dropdownRect.width;
+  } else {
+    dropdownRect.x = 0;
+  }
   dropdownRect.y = dropdownYOffset; 
 
   mDropdownFrame->SetRect(dropdownRect);
