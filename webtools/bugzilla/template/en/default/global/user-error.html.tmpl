@@ -907,8 +907,8 @@
                          'components.html' => 'Creating a component'} %]
     Sorry, the product <em>[% product FILTER html %]</em>
     has to have at least one component in order for you to
-    enter [% terms.abug %] into it.<p>
-    [% IF UserInGroup("editcomponents") %]
+    enter [% terms.abug %] into it.<br>
+    [% IF user.in_group("editcomponents") %]
       <a href="editcomponents.cgi?action=add&amp;product=[% product FILTER url_quote %]">Create
       a new component</a>.
     [% ELSE %]
@@ -980,7 +980,7 @@
     Sorry, the product <em>[% product FILTER html %]</em>
     has to have at least one version in order for you to
     enter [% terms.abug %] into it.<p>
-    [% IF UserInGroup("editcomponents") %]
+    [% IF user.in_group("editcomponents") %]
       <a href="editversions.cgi?action=add&amp;product=[% product FILTER url_quote %]">Create
       a new version</a>.
     [% ELSE %]
@@ -1475,11 +1475,9 @@
   [% END %]
 [% END %]
 
-[%# If we are in ERROR_MODE_DIE, we want the error message to be plain text,
-  # not HTML
-%]
+[%# We only want HTML error messages for ERROR_MODE_WEBPAGE %]
 [% USE Bugzilla %]
-[% IF Bugzilla.error_mode == ERROR_MODE_DIE %]
+[% IF Bugzilla.error_mode != constants.ERROR_MODE_WEBPAGE %]
   [% error_message FILTER none %]
   [% RETURN %]
 [% END %]

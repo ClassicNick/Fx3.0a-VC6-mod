@@ -139,11 +139,50 @@ var gFeedsPane = {
     window.addEventListener("unload", this, false);
   },
 
+#ifdef XP_WIN
+  /**
+   * Returns the system default feed reader as a nsILocalFile object if any,
+   * null otherwise.
+   */
+  _getSystemDefaultReader: function() {
+    var defaultReader;
+    try {
+      const WRK = Ci.nsIWindowsRegKey;
+      var regKey =
+          Cc["@mozilla.org/windows-registry-key;1"].createInstance(WRK);
+      regKey.open(WRK.ROOT_KEY_CLASSES_ROOT, 
+                  "feed\\shell\\open\\command", WRK.ACCESS_READ);
+      var path = regKey.readStringValue("");
+      if (path.charAt(0) == "\"") {
+        // Everything inside the quotes
+        path = path.substr(1);
+        path = path.substr(0, path.indexOf("\""));
+      }
+      else {
+        // Everything up to the first space
+        path = path.substr(0, path.indexOf(" "));
+      }
+
+      defaultReader = Cc["@mozilla.org/file/local;1"].
+                      createInstance(Ci.nsILocalFile);
+      defaultReader.initWithPath(path);
+
+      return defaultReader;
+    }
+    catch (ex) { }
+
+    return null;
+  },
+#endif
+
+
   /**
    * Populates the UI list of available feed readers.
    */
   _initFeedReaders: function() {
     this.updateSelectedApplicationInfo();
+
+    var readersList = this.element("readers");
 #ifdef XP_WIN
     // On Windows, list the system default feed reader if it is
     // not the last-selected application already
@@ -155,10 +194,12 @@ var gFeedsPane = {
         var selectedAppFile = this.element("selectedAppFilefield").file;
         if (!selectedAppFile || defaultSystemReaderFilefield.file.path !=
             selectedAppFile.path) {
-          var defaultReaderItem = this.element("defaultSystemReaderListitem");
+          var defaultReaderItem = document.createElementNS(kXULNS, "listitem");
+          defaultReaderItem.id = "defaultSystemReaderListitem";
+          defaultReaderItem.className = "listitem-iconic";
           defaultReaderItem.setAttribute("label", defaultSystemReaderFilefield.label);
           defaultReaderItem.setAttribute("image", defaultSystemReaderFilefield.image);
-          defaultReaderItem.hidden = false;
+          readersList.appendChild(defaultReaderItem);
         }
       }
     }
@@ -176,7 +217,6 @@ var gFeedsPane = {
     var ios = 
         Cc["@mozilla.org/network/io-service;1"].
         getService(Ci.nsIIOService);
-    var readersList = this.element("readers");
     for (var i = 0; i < handlers.length; ++i) {
       var row = document.createElementNS(kXULNS, "listitem");
       row.className = "listitem-iconic";

@@ -899,6 +899,8 @@ function OnUnloadMessenger()
   // FIX ME - later we will be able to use onload from the overlay
   OnUnloadMsgHeaderPane();
 
+  OnUnloadFolderPane();
+
   OnMailWindowUnload();
 }
 
@@ -906,19 +908,6 @@ function NotifyObservers(aSubject, aTopic, aData)
 {
   var observerService = Components.classes["@mozilla.org/observer-service;1"].getService(Components.interfaces.nsIObserverService);
   observerService.notifyObservers(aSubject, aTopic, aData);
-}
-
-// because the "open" state persists, we'll call
-// PerformExpand() for all servers that are open at startup.            
-function PerformExpandForAllOpenServers()
-{
-    var servers = accountManager.allServers;
-    for (var i = 0; i < servers.Count(); i++)
-    {
-        var server = servers.QueryElementAt(i, Components.interfaces.nsIMsgIncomingServer);
-        if (server.type != "imap" && !server.rootMsgFolder.getFlag(MSG_FOLDER_FLAG_ELIDED))
-            server.performExpand(msgWindow);
-    }
 }
 
 function loadStartFolder(initialUri)
@@ -981,15 +970,6 @@ function loadStartFolder(initialUri)
           defaultServer.PerformBiff(msgWindow);        
 
         SelectFolder(startFolder.URI);        
-
-
-        // because the "open" state persists, we'll call
-        // PerformExpand() for all servers that are open at startup.
-        // note, because of the "news.persist_server_open_state_in_folderpane" pref
-        // we don't persist the "open" state of news servers across sessions, 
-        // but we do within a session, so if you open another 3 pane
-        // and a news server is "open", we'll update the unread counts.
-        PerformExpandForAllOpenServers();
     }
     catch(ex)
     {
@@ -1198,6 +1178,12 @@ function OnLoadFolderPane()
   folderTreeBuilder.addObserver(folderObserver);
   folderTree.addEventListener("click",FolderPaneOnClick,true);
   folderTree.addEventListener("mousedown",TreeOnMouseDown,true);
+}
+
+function OnUnloadFolderPane()
+{
+  var folderTreeBuilder = GetFolderTree().builder.QueryInterface(Components.interfaces.nsIXULTreeBuilder);
+  folderTreeBuilder.removeObserver(folderObserver);
 }
 
 // builds prior to 12-08-2001 did not have the labels column

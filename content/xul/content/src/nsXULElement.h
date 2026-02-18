@@ -522,8 +522,6 @@ public:
 
     virtual nsIContent *GetBindingParent() const;
     virtual PRBool IsNodeOfType(PRUint32 aFlags) const;
-    NS_IMETHOD GetListenerManager(PRBool aCreateIfNotFound,
-                                  nsIEventListenerManager** aResult);
     virtual PRBool IsFocusable(PRInt32 *aTabIndex = nsnull);
     virtual nsIAtom* GetID() const;
     virtual const nsAttrValue* GetClasses() const;
@@ -549,7 +547,7 @@ public:
     { return GetFlags() & (aFlag << XUL_ELEMENT_LAZY_STATE_OFFSET); }
 
     // nsIDOMNode
-    NS_FORWARD_NSIDOMNODE_NO_CLONENODE(nsGenericElement::)
+    NS_FORWARD_NSIDOMNODE(nsGenericElement::)
 
     // nsIDOMElement
     NS_FORWARD_NSIDOMELEMENT(nsGenericElement::)
@@ -571,6 +569,7 @@ public:
     // nsIChromeEventHandler
     NS_DECL_NSICHROMEEVENTHANDLER
 
+    virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
 protected:
     nsXULElement(nsINodeInfo* aNodeInfo);
@@ -600,7 +599,6 @@ protected:
 
     // Required fields
     nsRefPtr<nsXULPrototypeElement>     mPrototype;
-    nsCOMPtr<nsIEventListenerManager>   mListenerManager;    // [OWNER]
 
     /**
      * The nearest enclosing content node with a binding

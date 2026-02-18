@@ -619,12 +619,6 @@ pref("mailnews.ui.advanced_directory_search_results.version", 1);
 //If set to a number greater than 0, msg compose windows will be recycled in order to open them quickly
 pref("mail.compose.max_recycled_windows", 1); 
 
-// true makes it so we persist the open state of news server when starting up the 3 pane
-// this is costly, as it might result in network activity.
-// false makes it so we act like 4.x
-// see bug #103010 for details
-pref("news.persist_server_open_state_in_folderpane",false);
-
 // default description and color prefs for tags
 // (we keep the .labels. names for backwards compatibility)
 pref("mailnews.labels.description.1", "chrome://messenger/locale/messenger.properties");
@@ -660,6 +654,10 @@ pref("msgcompose.background_color",         "#FFFFFF");
 // When there is no disclosed recipients (only bcc), we should address the message to empty group
 // to prevent some mail server to disclose the bcc recipients
 pref("mail.compose.add_undisclosed_recipients", true);
+
+// Set this preference to true to tell mail not to attach the source of a link to a local
+// network file (file://///<network name>/<path>/<file name>). Windows only
+pref("mail.compose.dont_attach_source_of_local_network_links", false);
 
 // these prefs (in minutes) are here to help QA test this feature
 // "mail.purge.min_delay", never purge a junk folder more than once every 480 minutes (60 mins/hour * 8 hours)

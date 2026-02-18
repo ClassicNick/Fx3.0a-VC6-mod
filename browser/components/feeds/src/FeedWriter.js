@@ -347,6 +347,10 @@ FeedWriter.prototype = {
     return "moz-icon://" + urlSpec + "?size=16";
   },
 
+  /**
+   * Displays a prompt from which the user may choose a (client) feed reader.
+   * @return - true if a feed reader was selected, false otherwise.
+   */
   _chooseClientApp: function FW__chooseClientApp() {
     try {
       var fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
@@ -382,15 +386,14 @@ FeedWriter.prototype = {
             // Show and select the selected application menuitem
             selectedAppMenuItem.wrappedJSObject.hidden = false;
             selectedAppMenuItem.doCommand();
-            return;
+            return true;
           }
         }
       }
     }
     catch(ex) { }
 
-    // Select the (per-prefs) selected handler if no application was selected
-    this._setSelectedHandler();
+    return false;
   },
 
   _setAlwaysUseCheckedState: function FW__setAlwaysUseCheckedState() {
@@ -428,16 +431,29 @@ FeedWriter.prototype = {
       return;
     }
 
-    if (event.type == "command") {
-      switch(event.target.id) {
-        case "subscribeButton":
-          this.subscribe();
-          break;
-        case "chooseApplicationMenuItem":
-          this._chooseClientApp();
-          break;
-        default:
-          this._setAlwaysUseLabel();
+    switch(event.type) {
+      case "command" : {
+        switch(event.target.id) {
+          case "subscribeButton":
+            this.subscribe();
+            break;
+          case "chooseApplicationMenuItem":
+            // For keyboard-only users, we only show the file picker once the 
+            // subscribe button is pressed. See click event handling for the
+            // mouse-case.
+            break;
+          default:
+            this._setAlwaysUseLabel();
+        }
+        break;
+      }
+      case "click": {
+        if (event.target.id == "chooseApplicationMenuItem") {
+          if (!this._chooseClientApp()) {
+            // Select the (per-prefs) selected handler if no application was selected
+            this._setSelectedHandler();
+          }
+        }
       }
     }
   },
@@ -599,6 +615,7 @@ FeedWriter.prototype = {
     menuItem = this._document.createElementNS(XUL_NS, "menuitem");
     menuItem.id = "chooseApplicationMenuItem";
     menuItem.setAttribute("label", this._getString("chooseApplicationMenuItem"));
+    menuItem.addEventListener("click", this, false);
     handlersMenuPopup.appendChild(menuItem);
 
     // separator
@@ -678,13 +695,14 @@ FeedWriter.prototype = {
   
   _window: null,
   _document: null,
-  
+  _feedURI: null,
+
   /**
    * See nsIFeedWriter
    */
   write: function FW_write(window) {
-    var originalURI = this._getOriginalURI(window);
-    if (!originalURI)
+    this._feedURI = this._getOriginalURI(window);
+    if (!this._feedURI)
       return;
     try {
       this._window = window;
@@ -714,10 +732,7 @@ FeedWriter.prototype = {
       this._writeFeedContent(container);
     }
     finally {
-      var feedService = 
-          Cc["@mozilla.org/browser/feeds/result-service;1"].
-          getService(Ci.nsIFeedResultService);
-      feedService.removeFeedResult(originalURI);
+      this._removeFeedFromCache();
     }
   },
 
@@ -734,6 +749,17 @@ FeedWriter.prototype = {
     prefs.removeObserver(PREF_SELECTED_READER, this);
     prefs.removeObserver(PREF_SELECTED_WEB, this);
     prefs.removeObserver(PREF_SELECTED_APP, this);
+    this._removeFeedFromCache();
+  },
+
+  _removeFeedFromCache: function FW__removeFeedFromCache() {
+    if (this._feedURI) {
+      var feedService = 
+           Cc["@mozilla.org/browser/feeds/result-service;1"].
+           getService(Ci.nsIFeedResultService);
+      feedService.removeFeedResult(this._feedURI);
+      this._feedURI = null;
+    }
   },
 
   /**
@@ -748,10 +774,21 @@ FeedWriter.prototype = {
     var useAsDefault = this._document.getElementById("alwaysUse")
                                      .getAttribute("checked");
 
-    var selectedHandler = this._document.getElementById("handlersMenuList")
-                              .wrappedJSObject.selectedItem;
-    if (selectedHandler.hasAttribute("webhandlerurl")) {
-      var webURI = selectedHandler.getAttribute("webhandlerurl");
+    var selectedItem = this._document.getElementById("handlersMenuList")
+                                     .wrappedJSObject.selectedItem;
+
+    // Show the file picker before subscribing if the
+    // choose application menuitem was choosen using the keyboard
+    if (selectedItem.id == "chooseApplicationMenuItem") {
+      if (!this._chooseClientApp())
+        return;
+      
+      selectedItem = this._document.getElementById("handlersMenuList")
+                                   .wrappedJSObject.selectedItem;
+    }
+
+    if (selectedItem.hasAttribute("webhandlerurl")) {
+      var webURI = selectedItem.getAttribute("webhandlerurl");
       prefs.setCharPref(PREF_SELECTED_READER, "web");
       prefs.setCharPref(PREF_SELECTED_WEB, webURI);
 
@@ -768,14 +805,14 @@ FeedWriter.prototype = {
       }
     }
     else {
-      switch (selectedHandler.id) {
+      switch (selectedItem.id) {
         case "selectedAppMenuItem":
 #ifdef XP_WIN
         case "defaultHandlerMenuItem":
 #endif
           prefs.setCharPref(PREF_SELECTED_READER, "client");
           prefs.setComplexValue(PREF_SELECTED_APP, Ci.nsILocalFile, 
-                                selectedHandler.file);
+                                selectedItem.file);
           break;
         case "liveBookmarksMenuItem":
           defaultHandler = "bookmarks";

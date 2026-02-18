@@ -1613,7 +1613,8 @@ nsGlobalWindow::SetDocShell(nsIDocShell* aDocShell)
       nsIFocusController *focusController =
         nsGlobalWindow::GetRootFocusController();
       PRBool isActive = PR_FALSE;
-      focusController->GetActive(&isActive);
+      if (focusController)
+        focusController->GetActive(&isActive);
       // only restore OS chrome if the closing window was active
 
       if (isActive) {
@@ -7935,13 +7936,9 @@ nsNavigator::GetOnLine(PRBool* aOnline)
 NS_IMETHODIMP
 nsNavigator::GetBuildID(nsAString& aBuildID)
 {
-  nsresult rv = NS_ERROR_FAILURE;
-  long buildID = NS_BUILD_ID;
-  if (buildID) {
-    aBuildID = NS_LITERAL_STRING(NS_STRINGIFY(NS_BUILD_ID));
-    rv = NS_OK;
-  }
-  return rv;
+  aBuildID = NS_LITERAL_STRING(NS_STRINGIFY(NS_BUILD_ID));
+
+  return NS_OK;
 }
 
 NS_IMETHODIMP

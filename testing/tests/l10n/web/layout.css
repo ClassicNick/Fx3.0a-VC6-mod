@@ -99,9 +99,6 @@ td.locale {
 td.app-res { 
   width: 4em;
 }
-td { 
-  padding: 0px;
-}
 
 td.count { 
   padding-left:3px;
@@ -114,9 +111,23 @@ div.calbordered {
   float: none;
 }
 
+/* waterfall view */
+#log-dlg {
+  overflow: scroll;
+}
+.log-row {
+  margin: 0pt;
+}
+.ERROR {
+  background-color: coral;
+}
+
 /* search view */
 
 td.ordered {border: 2px solid black;}
 td.error {background-color: coral;}
 td.conflict {background-color: grey;}
 td.enUS {opacity: .5;}
+
+/* feedreader view */
+.feedreader { border: thin solid lightgrey }

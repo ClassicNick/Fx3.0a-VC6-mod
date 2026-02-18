@@ -212,12 +212,53 @@ calStorageCalendar.prototype = {
     // 
     QueryInterface: function (aIID) {
         if (!aIID.equals(Components.interfaces.nsISupports) &&
+            !aIID.equals(Components.interfaces.calICalendarProvider) &&
             !aIID.equals(Components.interfaces.calICalendar))
         {
             throw Components.results.NS_ERROR_NO_INTERFACE;
         }
 
         return this;
+    },
+
+    //
+    // calICalendarProvider interface
+    //
+    get prefChromeOverlay() {
+        return null;
+    },
+
+    get displayName() {
+        return calGetString("calendar", "storageName");
+    },
+
+    createCalendar: function stor_createCal() {
+        throw NS_ERROR_NOT_IMPLEMENTED;
+    },
+
+    deleteCalendar: function stor_deleteCal(cal, listener) {
+        cal = cal.wrappedJSObject;
+
+        for (var i in this.mDeleteEventExtras) {
+            this.mDeleteEventExtras[i].params.cal_id = cal.mCalId;
+            this.mDeleteEventExtras[i].execute();
+        }
+
+        for (var i in this.mDeleteTodoExtras) {
+            this.mDeleteTodoExtras[i].params.cal_id = cal.mCalId;
+            this.mDeleteTodoExtras[i].execute();
+        }
+
+        this.mDeleteAllEvents.params.cal_id = cal.mCalId;
+        this.mDeleteAllEvents.execute();
+
+        this.mDeleteAllTodos.params.cal_id = cal.mCalId;
+        this.mDeleteAllTodos.execute();
+
+        try {
+            listener.onDeleteCalendar(cal, Components.results.NS_OK, null);
+        } catch (ex) {
+        }
     },
 
     //
@@ -699,6 +740,8 @@ calStorageCalendar.prototype = {
             // to fall within the range
             sp = this.mSelectTodosByRange.params;
             sp.cal_id = this.mCalId;
+            sp.range_start = startTime;
+            sp.end_offset = aRangeStart ? aRangeStart.timezoneOffset * USECS_PER_SECOND : 0;
             sp.range_end = endTime;
             sp.end_offset = aRangeEnd ? aRangeEnd.timezoneOffset * USECS_PER_SECOND : 0;
 
@@ -1049,15 +1092,21 @@ calStorageCalendar.prototype = {
             "  AND cal_id = :cal_id AND recurrence_id IS NULL"
             );
 
-        var floatingTodoEntry = "todo_entry_tz = 'floating' AND todo_entry"
-        var nonFloatingTodoEntry = "todo_entry_tz != 'floating' AND todo_entry"
+        var floatingTodoEntry = "todo_entry_tz = 'floating' AND todo_entry";
+        var nonFloatingTodoEntry = "todo_entry_tz != 'floating' AND todo_entry";
+        var floatingTodoDue = "todo_due_tz = 'floating' AND todo_due";
+        var nonFloatingTodoDue = "todo_due_tz != 'floating' AND todo_due";
+
         this.mSelectTodosByRange = createStatement(
             this.mDB,
             "SELECT * FROM cal_todos " +
             "WHERE " +
+            " ((("+floatingTodoDue+" >= :range_start + :start_offset) OR " +
+            "   ("+nonFloatingTodoDue+" >= :range_start)) OR " +
+            "  (todo_due IS NULL)) AND " +
             " ((("+floatingTodoEntry+" < :range_end + :end_offset) OR " +
-            "   ("+nonFloatingTodoEntry+" < :range_end)) " +
-            "  OR (todo_entry IS NULL)) " +
+            "   ("+nonFloatingTodoEntry+" < :range_end)) OR " +
+            "  (todo_entry IS NULL)) " +
             " AND cal_id = :cal_id AND recurrence_id IS NULL"
             );
 
@@ -1191,6 +1240,37 @@ calStorageCalendar.prototype = {
             this.mDB,
             "DELETE FROM cal_recurrence WHERE item_id = :item_id"
             );
+
+        // These are only used when deleting an entire calendar
+        var extrasTables = [ "cal_attendees", "cal_properties", "cal_recurrence" ];
+
+        this.mDeleteEventExtras = new Array();
+        this.mDeleteTodoExtras = new Array();
+
+        for (var table in extrasTables) {
+            this.mDeleteEventExtras[table] = createStatement (
+                this.mDB,
+                "DELETE FROM " + extrasTables[table] + " WHERE item_id IN" +
+                "  (SELECT id FROM cal_events WHERE cal_id = :cal_id)"
+                );
+            this.mDeleteTodoExtras[table] = createStatement (
+                this.mDB,
+                "DELETE FROM " + extrasTables[table] + " WHERE item_id IN" +
+                "  (SELECT id FROM cal_todos WHERE cal_id = :cal_id)"
+                );
+        }
+
+        // Note that you must delete the "extras" _first_ using the above two
+        // statements, before you delete the events themselves.
+        this.mDeleteAllEvents = createStatement (
+            this.mDB,
+            "DELETE from cal_events WHERE cal_id = :cal_id"
+            );
+        this.mDeleteAllTodos = createStatement (
+            this.mDB,
+            "DELETE from cal_todos WHERE cal_id = :cal_id"
+            );
+
     },
 
 

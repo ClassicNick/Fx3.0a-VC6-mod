@@ -59,7 +59,7 @@ sub FILESYSTEM {
     my $templatedir   = bz_locations()->{'templatedir'};
     my $libdir        = bz_locations()->{'libpath'};
 
-    my $ws_group      = read_localconfig()->{'webservergroup'};
+    my $ws_group      = Bugzilla->localconfig->{'webservergroup'};
 
     # The set of permissions that we use:
 
@@ -107,9 +107,9 @@ sub FILESYSTEM {
         'whine.pl'        => { perms => $ws_executable },
         'customfield.pl'  => { perms => $owner_executable },
 
-        'docs/html/makedocs.pl' => { perms => $owner_executable },
-        'docs/rel_notes.txt'    => { perms => $ws_readable },
-        'docs/README.docs'      => { perms => $owner_readable },
+        'docs/makedocs.pl'   => { perms => $owner_executable },
+        'docs/rel_notes.txt' => { perms => $ws_readable },
+        'docs/README.docs'   => { perms => $owner_readable },
         "$datadir/bugzilla-update.xml" => { perms => $ws_writeable },
         "$datadir/params" => { perms => $ws_writeable },
     );
@@ -164,6 +164,8 @@ sub FILESYSTEM {
                                      dirs => $ws_dir_readable },
          'docs/images'         => { files => $ws_readable,
                                      dirs => $ws_dir_readable },
+         'docs/lib'            => { files => $owner_readable,
+                                     dirs => $owner_dir_readable },
          'docs/xml'            => { files => $owner_readable,
                                      dirs => $owner_dir_readable },
     );
@@ -182,6 +184,7 @@ sub FILESYSTEM {
         graphs                  => $ws_dir_writeable,
         $webdotdir              => $ws_dir_writeable,
         'skins/custom'          => $ws_dir_readable,
+        'skins/contrib'         => $ws_dir_readable,
     );
 
     # The name of each file, pointing at its default permissions and
@@ -494,7 +497,7 @@ sub fix_all_file_permissions {
 
     my $owner_id = POSIX::getuid();
     my $group_id = POSIX::getgid();
-    my $ws_group = read_localconfig()->{'webservergroup'};
+    my $ws_group = Bugzilla->localconfig->{'webservergroup'};
     if ($ws_group) {
         my $ws_group_id = getgrnam($ws_group);
         die "There is no such group: $ws_group. Check your \$webservergroup"

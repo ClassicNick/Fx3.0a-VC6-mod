@@ -280,10 +280,6 @@ nsXULElement::~nsXULElement()
     if (IsInDoc()) {
       UnbindFromTree();
     }
-
-    if (mListenerManager) {
-      mListenerManager->Disconnect();
-    }
 }
 
 nsXULElement::nsXULSlots::nsXULSlots(PtrBits aFlags)
@@ -437,8 +433,7 @@ nsXULElement::QueryInterface(REFNSIID aIID, void** aInstancePtr)
 // nsIDOMNode interface
 
 nsresult
-nsXULElement::Clone(nsINodeInfo *aNodeInfo, PRBool aDeep,
-                    nsIContent **aResult) const
+nsXULElement::Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const
 {
     *aResult = nsnull;
 
@@ -484,7 +479,7 @@ nsXULElement::Clone(nsINodeInfo *aNodeInfo, PRBool aDeep,
 
     // Note that we're _not_ copying mControllers.
 
-    nsresult rv = CopyInnerTo(element, aDeep);
+    nsresult rv = CopyInnerTo(element);
     if (NS_SUCCEEDED(rv)) {
         NS_ADDREF(*aResult = element);
     }
@@ -496,12 +491,6 @@ nsXULElement::Clone(nsINodeInfo *aNodeInfo, PRBool aDeep,
     }
 
     return rv;
-}
-
-NS_IMETHODIMP
-nsXULElement::CloneNode(PRBool aDeep, nsIDOMNode **aResult)
-{
-    return nsGenericElement::CloneNode(aDeep, this, aResult);
 }
 
 //----------------------------------------------------------------------
@@ -568,29 +557,6 @@ nsXULElement::GetEventListenerManagerForAttr(nsIEventListenerManager** aManager,
     return nsGenericElement::GetEventListenerManagerForAttr(aManager,
                                                             aTarget,
                                                             aDefer);
-}
-
-NS_IMETHODIMP
-nsXULElement::GetListenerManager(PRBool aCreateIfNotFound,
-                                 nsIEventListenerManager** aResult)
-{
-    if (!mListenerManager) {
-        if (!aCreateIfNotFound) {
-            *aResult = nsnull;
-            return NS_OK;
-        }
-
-        nsresult rv =
-            NS_NewEventListenerManager(getter_AddRefs(mListenerManager));
-        if (NS_FAILED(rv))
-            return rv;
-
-        mListenerManager->SetListenerTarget(NS_STATIC_CAST(nsIContent*, this));
-    }
-
-    *aResult = mListenerManager;
-    NS_ADDREF(*aResult);
-    return NS_OK;
 }
 
 PRBool
@@ -2326,9 +2292,18 @@ PopupListenerPropertyDtor(void* aObject, nsIAtom* aPropertyName,
 nsresult
 nsXULElement::AddPopupListener(nsIAtom* aName)
 {
+    XULPopupType popupType;
+    nsCOMPtr<nsIAtom> listenerAtom;
+    if (aName == nsXULAtoms::context || aName == nsXULAtoms::contextmenu) {
+        popupType = eXULPopupType_context;
+        listenerAtom = nsXULAtoms::contextmenulistener;
+    } else {
+        popupType = eXULPopupType_popup;
+        listenerAtom = nsXULAtoms::popuplistener;
+    }
+
     nsCOMPtr<nsIXULPopupListener> popupListener =
-        NS_STATIC_CAST(nsIXULPopupListener*,
-                       GetProperty(nsXULAtoms::popuplistener));
+        NS_STATIC_CAST(nsIXULPopupListener*, GetProperty(listenerAtom));
     if (popupListener) {
         // Popup listener is already installed.
         return NS_OK;
@@ -2340,14 +2315,6 @@ nsXULElement::AddPopupListener(nsIAtom* aName)
     NS_ASSERTION(NS_SUCCEEDED(rv), "Unable to create an instance of the popup listener object.");
     if (NS_FAILED(rv)) return rv;
 
-    XULPopupType popupType;
-    if (aName == nsXULAtoms::context || aName == nsXULAtoms::contextmenu) {
-        popupType = eXULPopupType_context;
-    }
-    else {
-        popupType = eXULPopupType_popup;
-    }
-
     // Add a weak reference to the node.
     popupListener->Init(this, popupType);
 
@@ -2355,7 +2322,7 @@ nsXULElement::AddPopupListener(nsIAtom* aName)
     nsCOMPtr<nsIDOMEventListener> eventListener = do_QueryInterface(popupListener);
     nsCOMPtr<nsIDOMEventTarget> target(do_QueryInterface(NS_STATIC_CAST(nsIContent *, this)));
     NS_ENSURE_TRUE(target, NS_ERROR_FAILURE);
-    rv = SetProperty(nsXULAtoms::popuplistener, popupListener,
+    rv = SetProperty(listenerAtom, popupListener,
                      PopupListenerPropertyDtor);
     NS_ENSURE_SUCCESS(rv, rv);
     nsIXULPopupListener* listener = popupListener;

@@ -1034,11 +1034,11 @@ FunctionDef(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
 {
     JSOp op, prevop;
     JSParseNode *pn, *body, *result;
+    JSTokenType tt;
     JSAtom *funAtom, *objAtom;
     JSStackFrame *fp;
     JSObject *varobj, *pobj;
     JSAtomListElement *ale;
-    JSTokenType tt;
     JSProperty *prop;
     JSFunction *fun;
     JSTreeContext funtc;
@@ -1055,7 +1055,15 @@ FunctionDef(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
         return NULL;
 
     /* Scan the optional function name into funAtom. */
-    funAtom = js_MatchToken(cx, ts, TOK_NAME) ? CURRENT_TOKEN(ts).t_atom : NULL;
+    ts->flags |= TSF_KEYWORD_IS_NAME;
+    tt = js_GetToken(cx, ts);
+    ts->flags &= ~TSF_KEYWORD_IS_NAME;
+    if (tt == TOK_NAME) {
+        funAtom = CURRENT_TOKEN(ts).t_atom;
+    } else {
+        funAtom = NULL;
+        js_UngetToken(ts);
+    }
 
     /* Find the nearest variable-declaring scope and use it as our parent. */
     fp = cx->fp;
@@ -1103,12 +1111,14 @@ FunctionDef(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
          * local variable to bind its name to its value, and not an activation
          * object property (it might also need the activation property, if the
          * outer function contains with statements, e.g., but the stack slot
-         * wins when jsemit.c's LookupArgOrVar can optimize a JSOP_NAME into a
+         * wins when jsemit.c's BindNameToSlot can optimize a JSOP_NAME into a
          * JSOP_GETVAR bytecode).
          */
         if (AT_TOP_LEVEL(tc) && (tc->flags & TCF_IN_FUNCTION)) {
+            JSScopeProperty *sprop;
+
             /*
-             * Define a property on the outer function so that LookupArgOrVar
+             * Define a property on the outer function so that BindNameToSlot
              * can properly optimize accesses.
              */
             JS_ASSERT(OBJ_GET_CLASS(cx, varobj) == &js_FunctionClass);
@@ -1119,16 +1129,26 @@ FunctionDef(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
             }
             if (prop)
                 OBJ_DROP_PROPERTY(cx, pobj, prop);
+            sprop = NULL;
             if (!prop ||
                 pobj != varobj ||
-                ((JSScopeProperty *)prop)->getter != js_GetLocalVariable) {
+                (sprop = (JSScopeProperty *)prop,
+                 sprop->getter != js_GetLocalVariable)) {
+                uintN sflags;
+
+                /*
+                 * Use SPROP_IS_DUPLICATE if there is a formal argument of the
+                 * same name, so the decompiler can find the parameter name.
+                 */
+                sflags = (sprop && sprop->getter == js_GetArgument)
+                         ? SPROP_IS_DUPLICATE | SPROP_HAS_SHORTID
+                         : SPROP_HAS_SHORTID;
                 if (!js_AddHiddenProperty(cx, varobj, ATOM_TO_JSID(funAtom),
                                           js_GetLocalVariable,
                                           js_SetLocalVariable,
                                           SPROP_INVALID_SLOT,
                                           JSPROP_PERMANENT | JSPROP_SHARED,
-                                          SPROP_HAS_SHORTID,
-                                          fp->fun->u.i.nvars)) {
+                                          sflags, fp->fun->u.i.nvars)) {
                     return NULL;
                 }
                 if (fp->fun->u.i.nvars == JS_BITMASK(16)) {
@@ -2070,6 +2090,12 @@ CheckDestructuring(JSContext *cx, BindData *data,
     JSParseNode *lhs, *rhs, *pn, *pn2;
     uint32 count;
 
+    if (left->pn_type == TOK_ARRAYCOMP) {
+        js_ReportCompileErrorNumber(cx, left, JSREPORT_PN | JSREPORT_ERROR,
+                                    JSMSG_ARRAY_COMP_LEFTSIDE);
+        return JS_FALSE;
+    }
+
     ok = JS_TRUE;
     fpvd.table.ops = NULL;
     lhs = left->pn_head;
@@ -2482,7 +2508,10 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
 
       case TOK_FUNCTION:
 #if JS_HAS_XML_SUPPORT
-        if (js_PeekToken(cx, ts) == TOK_DBLCOLON)
+        ts->flags |= TSF_KEYWORD_IS_NAME;
+        tt = js_PeekToken(cx, ts);
+        ts->flags &= ~TSF_KEYWORD_IS_NAME;
+        if (tt == TOK_DBLCOLON)
             goto expression;
 #endif
         return FunctionStmt(cx, ts, tc);
@@ -2721,10 +2750,15 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
 #if JS_HAS_BLOCK_SCOPE
             } else if (tt == TOK_LET) {
                 (void) js_GetToken(cx, ts);
-                pnlet = PushLexicalScope(cx, ts, tc, &blockInfo);
-                if (!pnlet)
-                    return NULL;
-                pn1 = Variables(cx, ts, tc);
+                if (js_PeekToken(cx, ts) == TOK_LP) {
+                    pn1 = LetBlock(cx, ts, tc, JS_FALSE);
+                    tt = TOK_LEXICALSCOPE;
+                } else {
+                    pnlet = PushLexicalScope(cx, ts, tc, &blockInfo);
+                    if (!pnlet)
+                        return NULL;
+                    pn1 = Variables(cx, ts, tc);
+                }
 #endif
             } else {
                 pn1 = Expr(cx, ts, tc);
@@ -3623,10 +3657,11 @@ Expr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
         pn = pn2;
         do {
 #if JS_HAS_GENERATORS
-            if (PN_LAST(pn)->pn_type == TOK_YIELD) {
-                js_ReportCompileErrorNumber(cx, ts,
-                                            JSREPORT_TS | JSREPORT_ERROR,
-                                            JSMSG_SYNTAX_ERROR);
+            pn2 = PN_LAST(pn);
+            if (pn2->pn_type == TOK_YIELD) {
+                js_ReportCompileErrorNumber(cx, pn2,
+                                            JSREPORT_PN | JSREPORT_ERROR,
+                                            JSMSG_BAD_YIELD_SYNTAX);
                 return NULL;
             }
 #endif
@@ -4104,6 +4139,14 @@ ArgumentList(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
             JSParseNode *argNode = AssignExpr(cx, ts, tc);
             if (!argNode)
                 return JS_FALSE;
+#if JS_HAS_GENERATORS
+            if (argNode->pn_type == TOK_YIELD) {
+                js_ReportCompileErrorNumber(cx, argNode,
+                                            JSREPORT_PN | JSREPORT_ERROR,
+                                            JSMSG_BAD_YIELD_SYNTAX);
+                return JS_FALSE;
+            }
+#endif
             PN_APPEND(listNode, argNode);
         } while (js_MatchToken(cx, ts, TOK_COMMA));
 
@@ -5031,7 +5074,9 @@ PrimaryExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
     switch (tt) {
       case TOK_FUNCTION:
 #if JS_HAS_XML_SUPPORT
+        ts->flags |= TSF_KEYWORD_IS_NAME;
         if (js_MatchToken(cx, ts, TOK_DBLCOLON)) {
+            ts->flags &= ~TSF_KEYWORD_IS_NAME;
             pn2 = NewParseNode(cx, ts, PN_NULLARY, tc);
             if (!pn2)
                 return NULL;
@@ -5041,6 +5086,7 @@ PrimaryExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
                 return NULL;
             break;
         }
+        ts->flags &= ~TSF_KEYWORD_IS_NAME;
 #endif
         pn = FunctionExpr(cx, ts, tc);
         if (!pn)

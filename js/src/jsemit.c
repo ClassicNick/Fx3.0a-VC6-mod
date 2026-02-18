@@ -2180,7 +2180,6 @@ CheckSideEffects(JSContext *cx, JSTreeContext *tc, JSParseNode *pn,
 
       case PN_UNARY:
         if (pn->pn_type == TOK_INC || pn->pn_type == TOK_DEC ||
-            pn->pn_type == TOK_DELETE ||
             pn->pn_type == TOK_THROW ||
 #if JS_HAS_GENERATORS
             pn->pn_type == TOK_YIELD ||
@@ -2188,6 +2187,25 @@ CheckSideEffects(JSContext *cx, JSTreeContext *tc, JSParseNode *pn,
             pn->pn_type == TOK_DEFSHARP) {
             /* All these operations have effects that we must commit. */
             *answer = JS_TRUE;
+        } else if (pn->pn_type == TOK_DELETE) {
+            pn2 = pn->pn_kid;
+            switch (pn2->pn_type) {
+              case TOK_NAME:
+              case TOK_DOT:
+#if JS_HAS_XML_SUPPORT
+              case TOK_DBLDOT:
+#endif
+#if JS_HAS_LVALUE_RETURN
+              case TOK_LP:
+#endif
+              case TOK_LB:
+                /* All these delete addressing modes have effects too. */
+                *answer = JS_TRUE;
+                break;
+              default:
+                ok = CheckSideEffects(cx, tc, pn2, answer);
+                break;
+            }
         } else {
             ok = CheckSideEffects(cx, tc, pn->pn_kid, answer);
         }
@@ -2435,10 +2453,8 @@ EmitElemOp(JSContext *cx, JSParseNode *pn, JSOp op, JSCodeGenerator *cg)
     }
 
     /* The right side of the descendant operator is implicitly quoted. */
-    if (op == JSOP_DESCENDANTS && right->pn_op == JSOP_STRING &&
-        js_NewSrcNote(cx, cg, SRC_UNQUOTE) < 0) {
-        return JS_FALSE;
-    }
+    JS_ASSERT(op != JSOP_DESCENDANTS || right->pn_type != TOK_STRING ||
+              right->pn_op == JSOP_QNAMEPART);
     if (!js_EmitTree(cx, cg, right))
         return JS_FALSE;
     if (js_NewSrcNote2(cx, cg, SRC_PCBASE, CG_OFFSET(cg) - top) < 0)
@@ -5338,6 +5354,20 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         pn2 = pn->pn_kid;
         JS_ASSERT(pn2->pn_type != TOK_RP);
         op = pn->pn_op;
+
+        /*
+         * Allocate another stack slot for GC protection in case the initial
+         * value being post-incremented or -decremented is not a number, but
+         * converts to a jsdouble.  In the TOK_NAME cases, op has 0 operand
+         * uses and 1 definition, so we don't need an extra stack slot -- we
+         * can use the one allocated for the def.
+         */
+        if (pn2->pn_type != TOK_NAME &&
+            (js_CodeSpec[op].format & JOF_POST) &&
+            (uintN)++cg->stackDepth > cg->maxStackDepth) {
+            cg->maxStackDepth = cg->stackDepth;
+        }
+
         switch (pn2->pn_type) {
           case TOK_NAME:
             pn2->pn_op = op;
@@ -5393,18 +5423,8 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             JS_ASSERT(0);
         }
 
-        /*
-         * Allocate another stack slot for GC protection in case the initial
-         * value being post-incremented or -decremented is not a number, but
-         * converts to a jsdouble.  In the TOK_NAME cases, op has 0 operand
-         * uses and 1 definition, so we don't need an extra stack slot -- we
-         * can use the one allocated for the def.
-         */
-        if (pn2->pn_type != TOK_NAME &&
-            (js_CodeSpec[op].format & JOF_POST) &&
-            (uintN)cg->stackDepth == cg->maxStackDepth) {
-            ++cg->maxStackDepth;
-        }
+        if (pn2->pn_type != TOK_NAME && (js_CodeSpec[op].format & JOF_POST))
+            --cg->stackDepth;
         break;
 
       case TOK_DELETE:
@@ -5454,17 +5474,30 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 return JS_FALSE;
             break;
           default:
+            /*
+             * If useless, just emit JSOP_TRUE; otherwise convert delete foo()
+             * to foo(), true (a comma expression, requiring SRC_PCDELTA).
+             */
             useful = JS_FALSE;
             if (!CheckSideEffects(cx, &cg->treeContext, pn2, &useful))
                 return JS_FALSE;
-            if (useful) {
+            if (!useful) {
+                off = noteIndex = -1;
+            } else {
                 if (!js_EmitTree(cx, cg, pn2))
                     return JS_FALSE;
-                if (js_Emit1(cx, cg, JSOP_POP) < 0)
+                off = CG_OFFSET(cg);
+                noteIndex = js_NewSrcNote2(cx, cg, SRC_PCDELTA, 0);
+                if (noteIndex < 0 || js_Emit1(cx, cg, JSOP_POP) < 0)
                     return JS_FALSE;
             }
             if (js_Emit1(cx, cg, JSOP_TRUE) < 0)
                 return JS_FALSE;
+            if (noteIndex >= 0) {
+                tmp = CG_OFFSET(cg);
+                if (!js_SetSrcNoteOffset(cx, cg, (uintN)noteIndex, 0, tmp-off))
+                    return JS_FALSE;
+            }
         }
         break;
 
@@ -6032,11 +6065,11 @@ JS_FRIEND_DATA(JSSrcNoteSpec) js_SrcNoteSpec[] = {
     {"while",           1,      0,      1},
     {"for",             3,      1,      1},
     {"continue",        0,      0,      0},
-    {"decl",            1,      0,      0},
+    {"decl",            1,      0,      1},
     {"pcdelta",         1,      0,      1},
     {"assignop",        0,      0,      0},
     {"cond",            1,      0,      1},
-    {"unquote",         0,      0,      0},
+    {"unused10",        0,      0,      0},
     {"hidden",          0,      0,      0},
     {"pcbase",          1,      0,     -1},
     {"label",           1,      0,      0},

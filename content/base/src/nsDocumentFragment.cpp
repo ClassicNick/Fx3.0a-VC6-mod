@@ -108,7 +108,8 @@ public:
   { return nsGenericElement::HasChildNodes(aReturn); }
   NS_IMETHOD    HasAttributes(PRBool* aReturn)
   { return nsGenericElement::HasAttributes(aReturn); }
-  NS_IMETHOD    CloneNode(PRBool aDeep, nsIDOMNode** aReturn);
+  NS_IMETHOD    CloneNode(PRBool aDeep, nsIDOMNode** aReturn)
+  { return nsGenericElement::CloneNode(aDeep, aReturn); }
   NS_IMETHOD    GetPrefix(nsAString& aPrefix)
   { return nsGenericElement::GetPrefix(aPrefix); }
   NS_IMETHOD    SetPrefix(const nsAString& aPrefix);
@@ -159,8 +160,7 @@ public:
   virtual PRBool IsNodeOfType(PRUint32 aFlags) const;
 
 protected:
-  nsresult Clone(nsINodeInfo *aNodeInfo, PRBool aDeep,
-                 nsIContent **aResult) const;
+  nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 };
 
 nsresult
@@ -230,7 +230,7 @@ nsDocumentFragment::SetPrefix(const nsAString& aPrefix)
   return NS_ERROR_DOM_NAMESPACE_ERR;
 }
 
-NS_IMPL_DOM_CLONENODE(nsDocumentFragment)
+NS_IMPL_ELEMENT_CLONE(nsDocumentFragment)
 
 NS_IMETHODIMP
 nsDocumentFragment::GetBaseURI(nsAString& aURI)

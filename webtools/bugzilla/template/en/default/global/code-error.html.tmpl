@@ -296,6 +296,18 @@
     a <code>[% param FILTER html %]</code> argument, and that
     argument was not set.
 
+  [% ELSIF error == "protection_violation" %]
+    The function <code>[% function FILTER html %]</code> was called
+    from
+   
+    [% IF caller %]
+        <code>[%+ caller FILTER html %]</code>, which is
+    [% END %]
+
+    outside the package. This function may only be called from
+    a subclass of <code>[% superclass FILTER html %]</code>.
+
+
   [% ELSIF error == "unknown_comparison_type" %]
     Specified comparison type is not supported.
 
@@ -317,6 +329,10 @@
     The setting name <em>[% name FILTER html %]</em> is not a valid
     option. Setting names must begin with a letter, and contain only
     letters, digits, or the symbols '_', '-', '.', or ':'.
+
+  [% ELSIF error == "setting_subclass_invalid" %]
+    There is no such Setting subclass as
+    <code>[% subclass FILTER html %]</code>.
 
   [% ELSIF error == "setting_value_invalid" %]
     The value "<code>[% value FILTER html %]</code>" is not in the list of
@@ -393,11 +409,9 @@
   [% END %]
 [% END %]
 
-[%# If we are in ERROR_MODE_DIE, we want the error message to be plain text,
-  # not HTML
-%]
+[%# We only want HTML error messages for ERROR_MODE_WEBPAGE %]
 [% USE Bugzilla %]
-[% IF Bugzilla.error_mode == ERROR_MODE_DIE %]
+[% IF Bugzilla.error_mode != constants.ERROR_MODE_WEBPAGE %]
   [% error_message FILTER none %]
   [% RETURN %]
 [% END %]

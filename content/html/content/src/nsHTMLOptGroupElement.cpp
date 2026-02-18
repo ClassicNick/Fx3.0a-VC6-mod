@@ -64,7 +64,7 @@ public:
   NS_DECL_ISUPPORTS_INHERITED
 
   // nsIDOMNode
-  NS_FORWARD_NSIDOMNODE_NO_CLONENODE(nsGenericHTMLElement::)
+  NS_FORWARD_NSIDOMNODE(nsGenericHTMLElement::)
 
   // nsIDOMElement
   NS_FORWARD_NSIDOMELEMENT(nsGenericHTMLElement::)
@@ -94,6 +94,7 @@ public:
     AfterSetAttr(aNameSpaceID, aAttribute, nsnull, aNotify);
     return rv;
   }
+  virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
 protected:
 
@@ -136,7 +137,7 @@ NS_HTML_CONTENT_INTERFACE_MAP_BEGIN(nsHTMLOptGroupElement,
 NS_HTML_CONTENT_INTERFACE_MAP_END
 
 
-NS_IMPL_DOM_CLONENODE(nsHTMLOptGroupElement)
+NS_IMPL_ELEMENT_CLONE(nsHTMLOptGroupElement)
 
 
 NS_IMPL_BOOL_ATTR(nsHTMLOptGroupElement, Disabled, disabled)
