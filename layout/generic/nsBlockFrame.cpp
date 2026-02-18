@@ -1657,12 +1657,22 @@ nsBlockFrame::RetargetInlineIncrementalReflow(nsReflowPath::iterator &aTarget,
   // Now fix the iterator, keeping track of how many lines we walk
   // back through.
   PRInt32 lineCount = 0;
+  const line_iterator begin = begin_lines();
   do {
     // XXX this might happen if the block is split; e.g.,
-    // printing or print preview. For now, panic.
-    NS_ASSERTION(aLine != begin_lines(),
-                 "ran out of lines before we ran out of prev-in-flows");
-
+    // printing or print preview.
+    if (aLine == begin) {
+#ifdef NS_DEBUG
+      if (GetParent() == aPrevInFlow->GetParent()) {
+        NS_ERROR("ran out of lines before we ran out of prev-in-flows");
+      }
+      else {
+        NS_ERROR("not yet implemented: retarget incremental reflow to"
+                 " prev-in-flow with different parent");
+      }
+#endif
+      break;
+    }
     // Is the previous line a ``hard'' break? If so, stop: these
     // continuations will be preserved during an unconstrained reflow.
     // XXXwaterson should this be `!= NS_STYLE_CLEAR_NONE'?
@@ -4871,10 +4881,10 @@ nsBlockFrame::HandleOverflowPlaceholdersForPulledFrame(
   nsBlockReflowState& aState, nsIFrame* aFrame)
 {
   if (nsLayoutAtoms::placeholderFrame != aFrame->GetType()) {
-    // Check the in-flow inline children. We should encounter only
-    // first-in-flow placeholders, so the frame subtree rooted at
-    // aFrame should not change.
-    if (!aFrame->GetStyleDisplay()->IsBlockLevel()) {
+    // Descend into children that are not float containing blocks.
+    // We should encounter only first-in-flow placeholders, so the
+    // frame subtree rooted at aFrame should not change.
+    if (!aFrame->IsFloatContainingBlock()) {
       for (nsIFrame* f = aFrame->GetFirstChild(nsnull); f; f = f->GetNextSibling()) {
 #ifdef DEBUG
         PRBool changed =

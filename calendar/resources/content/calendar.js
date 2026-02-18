@@ -131,6 +131,50 @@ function calendarInit()
 
    document.getElementById("view-deck")
            .addEventListener("dayselect", observeViewDaySelect, false);
+
+   // Handle commandline args
+   for (var i=0; i < window.arguments.length; i++) {
+       try {
+           var cl = window.arguments[i].QueryInterface(Components.interfaces.nsICommandLine);
+       } catch(ex) {
+           dump("unknown argument passed to main window\n");
+           continue;
+       }
+       handleCommandLine(cl);
+   }
+}
+
+function handleCommandLine(aComLine) {
+    var calurl;
+    try {
+        calurl = aComLine.handleFlagWithParam("subscribe", false);
+    } catch(ex) {}
+    if (calurl) {
+        var uri = makeURL(calurl);
+        var cal = getCalendarManager().createCalendar('ics', uri);
+        getCalendarManager().registerCalendar(cal);
+
+        // Strip ".ics" from filename for use as calendar name, taken from 
+        // calendarCreation.js
+        var fullPathRegex = new RegExp("([^/:]+)[.]ics$");
+        var prettyName = calurl.match(fullPathRegex);
+        var name;
+
+        if (prettyName && prettyName.length >= 1) {
+            name = decodeURIComponent(prettyName[1]);
+        } else {
+            name = calGetString("calendar", "untitledCalendarName");
+        }
+        cal.name = name;
+    }
+
+    var date;
+    try {
+        date = aComLine.handleFlagWithParam("showdate", false);
+    } catch(ex) {}
+    if (date) {
+        currentView().goToDay(jsDateToDateTime(new Date(date)));
+    }
 }
 
 /* Called at midnight to tell us to update the views and other ui bits */
@@ -392,12 +436,6 @@ function closeCalendar()
    self.close();
 }
 
-function calPrint()
-{
-    window.openDialog("chrome://calendar/content/printDialog.xul",
-                      "printdialog","chrome");
-}
-
 /* Change the only-workday checkbox */
 function changeOnlyWorkdayCheckbox() {
     var oldValue = (document.getElementById("toggle_workdays_only")
@@ -434,12 +472,6 @@ function changeDisplayToDoInViewCheckbox() {
     currentView.goToDay(currentView.selectedDay);
 }
 
-// about Sunbird dialog
-function openAboutDialog()
-{
-  window.openDialog("chrome://calendar/content/aboutDialog.xul", "About", "modal,centerscreen,chrome,resizable=no");
-}
-
 function openPreferences() {
     // Check to see if the prefwindow is already open
     var wm = Components.classes["@mozilla.org/appshell/window-mediator;1"]
@@ -472,30 +504,6 @@ function openReleaseNotes() {
     var relNotesURL = calendarBundle.getFormattedString("releaseNotesURL",
                                                         [appInfo.version]);
     launchBrowser(relNotesURL);
-}
-
-var strBundleService = null;
-function srGetStrBundle(path)
-{
-  var strBundle = null;
-
-  if (!strBundleService) {
-      try {
-          strBundleService =
-              Components.classes["@mozilla.org/intl/stringbundle;1"].getService();
-          strBundleService =
-              strBundleService.QueryInterface(Components.interfaces.nsIStringBundleService);
-      } catch (ex) {
-          dump("\n--** strBundleService failed: " + ex + "\n");
-          return null;
-      }
-  }
-
-  strBundle = strBundleService.createBundle(path);
-  if (!strBundle) {
-        dump("\n--** strBundle createInstance failed **--\n");
-  }
-  return strBundle;
 }
 
 function CalendarCustomizeToolbar()

@@ -48,34 +48,6 @@
 #endif
 #endif
 
-#ifdef OFFICIAL_BRANDING
-
-pref("startup.homepage_override_url","http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/%VERSION%/whatsnew/");
-pref("startup.homepage_welcome_url","http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/%VERSION%/firstrun/");
-// URL user can browse to manually if for some reason all update installation
-// attempts fail.
-pref("app.update.url.manual", "http://%LOCALE%.www.mozilla.com/%LOCALE%/products/%APP%/");
-// A default value for the "More information about this update" link
-// supplied in the "An update is available" page of the update wizard. 
-pref("app.update.url.details", "http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/releases/");
-
-// Release notes URL
-pref("app.releaseNotesURL", "http://%LOCALE%.www.mozilla.com/%LOCALE%/%APP%/%VERSION%/releasenotes/");
-#else
-
-pref("startup.homepage_override_url","http://www.mozilla.org/projects/%APP%/%VERSION%/whatsnew/");
-pref("startup.homepage_welcome_url","http://www.mozilla.org/projects/%APP%/%VERSION%/firstrun/");
-// URL user can browse to manually if for some reason all update installation
-// attempts fail.
-pref("app.update.url.manual", "http://www.mozilla.org/products/%APP%/");
-// A default value for the "More information about this update" link
-// supplied in the "An update is available" page of the update wizard. 
-pref("app.update.url.details", "http://www.mozilla.org/projects/%APP%/");
-
-// Release notes URL
-pref("app.releaseNotesURL", "http://www.mozilla.org/projects/%APP%/%VERSION%/releasenotes/");
-#endif
-
 pref("general.startup.browser", true);
 
 pref("browser.chromeURL","chrome://browser/content/");
@@ -531,7 +503,7 @@ pref("browser.safebrowsing.dataProvider", 0);
 // Does the provider name need to be localizable?
 pref("browser.safebrowsing.provider.0.name", "Google");
 pref("browser.safebrowsing.provider.0.lookupURL", "http://sb.google.com/safebrowsing/lookup?sourceid=firefox-antiphish&features=TrustRank&client={moz:client}&mozver={moz:version}-{moz:buildid}&");
-pref("browser.safebrowsing.provider.0.keyURL", "https://www.google.com/safebrowsing/getkey?");
+pref("browser.safebrowsing.provider.0.keyURL", "https://www.google.com/safebrowsing/getkey?client={moz:client}&");
 pref("browser.safebrowsing.provider.0.reportURL", "http://sb.google.com/safebrowsing/report?");
 
 // privacy policy -- must be chrome URL

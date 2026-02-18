@@ -35,29 +35,60 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#sidebar { 
+  float: right;
+  margin-top: -8px;
+}
+
+#menu li[selected] {
+  background-color: lightgrey;
+  border-style: inset inset none inset;
+}
+#menu li { 
+  display: block;
+  float: left;
+  font-weight: bold;
+  padding: .5em;
+  margin-left:1px;
+  margin-right:1px;
+  border-style: outset outset none outset;
+  -moz-border-radius-topleft: 15px;
+  -moz-border-radius-topright: 15px;
+}
+
+#main { 
+  clear: left;
+}
+body {
+  overflow: scroll;
+}
+#content { 
+  vertical-align: top;
+}
+
 div.is_good { 
   padding-left: 16px;
 }
 
-td.missing { 
+.missing, .busted { 
   background-color: red;
 }
 
-td.obsolete { 
+.obsolete, .fair { 
   background-color: orange;
 }
 
-td.zero { 
+.zero { 
   opacity: .3;
   background-color: green !important;
 }
 
 
-td.good { 
+.good { 
   background-color: limegreen;
 }
 
-td.void { 
+.void { 
   color: grey;
   background-color: lightgrey;
 }
@@ -79,10 +110,6 @@ td.count {
   text-align: right;
 }
 
-div#calContainer { 
-  float: right;
-  margin-top: -8px;
-}
 div.calbordered { 
   float: none;
 }

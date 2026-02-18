@@ -95,15 +95,14 @@ js_ThrowStopIteration(JSContext *cx, JSObject *obj);
 #if JS_HAS_GENERATORS
 
 /*
- * Generator state codes are actually flag bits, to allow RUNNING to be added
- * to OPEN, and CLOSING to be added to OPEN and RUNNING.
+ * Generator state codes.
  */
 typedef enum JSGeneratorState {
-    JSGEN_NEWBORN = 0,  /* not yet started */
-    JSGEN_OPEN    = 1,  /* started by a .next() or .send(undefined) call */
-    JSGEN_RUNNING = 2,  /* currently executing via .next(), etc., call */
-    JSGEN_CLOSING = 4,  /* close method is doing .send(GeneratorExit) */
-    JSGEN_CLOSED  = 8   /* closed, cannot be started or closed again */
+    JSGEN_NEWBORN,  /* not yet started */
+    JSGEN_OPEN,     /* started by a .next() or .send(undefined) call */
+    JSGEN_RUNNING,  /* currently executing via .next(), etc., call */
+    JSGEN_CLOSING,  /* close method is doing asynchronous return */
+    JSGEN_CLOSED    /* closed, cannot be started or closed again */
 } JSGeneratorState;
 
 struct JSGenerator {
@@ -124,12 +123,19 @@ js_NewGenerator(JSContext *cx, JSStackFrame *fp);
 extern JSBool
 js_CloseGeneratorObject(JSContext *cx, JSGenerator *gen);
 
+
+/*
+ * Special unique value to implement asynchronous return for
+ * generator.close(). Scripts never see it.
+ */
+
+#define JSVAL_ARETURN   BOOLEAN_TO_JSVAL(JS_TRUE + 1)
+
 #endif
 
 extern JSClass          js_GeneratorClass;
 extern JSClass          js_IteratorClass;
 extern JSClass          js_StopIterationClass;
-extern JSClass          js_GeneratorExitClass;
 
 extern JSObject *
 js_InitIteratorClasses(JSContext *cx, JSObject *obj);

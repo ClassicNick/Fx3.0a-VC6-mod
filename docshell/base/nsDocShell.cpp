@@ -77,6 +77,7 @@
 #include "nsIObserverService.h"
 #include "nsIPrompt.h"
 #include "nsIAuthPrompt.h"
+#include "nsIAuthPrompt2.h"
 #include "nsTextFormatter.h"
 #include "nsIChannelEventSink.h"
 #include "nsIUploadChannel.h"
@@ -128,6 +129,7 @@
 #include "nsIHistoryEntry.h"
 #include "nsISHistoryListener.h"
 #include "nsIWindowWatcher.h"
+#include "nsIPromptFactory.h"
 #include "nsIObserver.h"
 #include "nsINestedURI.h"
 
@@ -456,11 +458,11 @@ NS_IMETHODIMP nsDocShell::GetInterface(const nsIID & aIID, void **aSink)
         *aSink = prompt;
         return NS_OK;
     }
-    else if (aIID.Equals(NS_GET_IID(nsIAuthPrompt))) {
+    else if (aIID.Equals(NS_GET_IID(nsIAuthPrompt)) ||
+             aIID.Equals(NS_GET_IID(nsIAuthPrompt2))) {
         return NS_SUCCEEDED(
-                GetAuthPrompt(PROMPT_NORMAL, (nsIAuthPrompt **) aSink)) ?
+                GetAuthPrompt(PROMPT_NORMAL, aIID, aSink)) ?
                 NS_OK : NS_NOINTERFACE;
-
     }
     else if (aIID.Equals(NS_GET_IID(nsISHistory))) {
         nsCOMPtr<nsISHistory> shistory;
@@ -6412,14 +6414,16 @@ nsDocShell::InternalLoad(nsIURI * aURI,
                            getter_AddRefs(newWin));
 
             // In some cases the Open call doesn't actually result in a new
-            // window being opened (i.e. browser.link.open_newwindow is set
-            // to 1, forcing us to reuse the current window).  This will
-            // protect us against that use case but still isn't totally
-            // ideal since perhaps in some future use case newWin could be
-            // some other, already open window.
-            if (win != newWin) {
-                isNewWindow = PR_TRUE;
-                aFlags |= INTERNAL_LOAD_FLAGS_FIRST_LOAD;
+            // window being opened.  We can detect these cases by examining the
+            // document in |newWin|, if any.
+            nsCOMPtr<nsPIDOMWindow> piNewWin = do_QueryInterface(newWin);
+            if (piNewWin) {
+                nsCOMPtr<nsIDocument> newDoc =
+                    do_QueryInterface(piNewWin->GetExtantDocument());
+                if (!newDoc || newDoc->IsInitialDocument()) {
+                    isNewWindow = PR_TRUE;
+                    aFlags |= INTERNAL_LOAD_FLAGS_FIRST_LOAD;
+                }
             }
 
             nsCOMPtr<nsIWebNavigation> webNav = do_GetInterface(newWin);
@@ -8552,6 +8556,27 @@ nsDocShell::SetHasFocus(PRBool aHasFocus)
   return NS_OK;
 }
 
+// Find an nsICanvasFrame under aFrame.  Only search the principal
+// child lists.  aFrame must be non-null.
+static nsICanvasFrame* FindCanvasFrame(nsIFrame* aFrame)
+{
+    nsICanvasFrame* canvasFrame;
+    if (NS_SUCCEEDED(CallQueryInterface(aFrame, &canvasFrame))) {
+        return canvasFrame;
+    }
+
+    nsIFrame* kid = aFrame->GetFirstChild(nsnull);
+    while (kid) {
+        canvasFrame = FindCanvasFrame(kid);
+        if (canvasFrame) {
+            return canvasFrame;
+        }
+        kid = kid->GetNextSibling();
+    }
+
+    return nsnull;
+}
+
 //-------------------------------------------------------
 // Tells the HTMLFrame/CanvasFrame that is now has focus
 NS_IMETHODIMP
@@ -8568,17 +8593,28 @@ nsDocShell::SetCanvasHasFocus(PRBool aCanvasHasFocus)
   if (!doc) return NS_ERROR_FAILURE;
 
   nsIContent *rootContent = doc->GetRootContent();
-  if (!rootContent) return NS_ERROR_FAILURE;
-
-  nsIFrame* frame = presShell->GetPrimaryFrameFor(rootContent);
-  if (frame) {
-    frame = frame->GetParent();
-    if (frame) {
-      nsICanvasFrame* canvasFrame;
-      if (NS_SUCCEEDED(frame->QueryInterface(NS_GET_IID(nsICanvasFrame), (void**)&canvasFrame)))
-        return canvasFrame->SetHasFocus(aCanvasHasFocus);
-    }
+  if (rootContent) {
+      nsIFrame* frame = presShell->GetPrimaryFrameFor(rootContent);
+      if (frame) {
+          frame = frame->GetParent();
+          if (frame) {
+              nsICanvasFrame* canvasFrame;
+              if (NS_SUCCEEDED(CallQueryInterface(frame, &canvasFrame))) {
+                  return canvasFrame->SetHasFocus(aCanvasHasFocus);
+              }
+          }
+      }
+  } else {
+      // Look for the frame the hard way
+      nsIFrame* frame = presShell->GetRootFrame();
+      if (frame) {
+          nsICanvasFrame* canvasFrame = FindCanvasFrame(frame);
+          if (canvasFrame) {
+              return canvasFrame->SetHasFocus(aCanvasHasFocus);
+          }
+      }      
   }
+  
   return NS_ERROR_FAILURE;
 }
 
@@ -8819,8 +8855,9 @@ nsDocShell::SetBaseUrlForWyciwyg(nsIContentViewer * aContentViewer)
 // nsDocShell::nsIAuthPromptProvider
 //*****************************************************************************
 
-nsresult
-nsDocShell::GetAuthPrompt(PRUint32 aPromptReason, nsIAuthPrompt **aResult)
+NS_IMETHODIMP
+nsDocShell::GetAuthPrompt(PRUint32 aPromptReason, const nsIID& iid,
+                          void** aResult)
 {
     // a priority prompt request will override a false mAllowAuth setting
     PRBool priorityPrompt = (aPromptReason == PROMPT_PROXY);
@@ -8830,7 +8867,7 @@ nsDocShell::GetAuthPrompt(PRUint32 aPromptReason, nsIAuthPrompt **aResult)
 
     // we're either allowing auth, or it's a proxy request
     nsresult rv;
-    nsCOMPtr<nsIWindowWatcher> wwatch =
+    nsCOMPtr<nsIPromptFactory> wwatch =
       do_GetService(NS_WINDOWWATCHER_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -8842,7 +8879,8 @@ nsDocShell::GetAuthPrompt(PRUint32 aPromptReason, nsIAuthPrompt **aResult)
     // Get the an auth prompter for our window so that the parenting
     // of the dialogs works as it should when using tabs.
 
-    return wwatch->GetNewAuthPrompter(window, aResult);
+    return wwatch->GetPrompt(window, iid,
+                             NS_REINTERPRET_CAST(void**, aResult));
 }
 
 //*****************************************************************************

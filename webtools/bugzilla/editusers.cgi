@@ -191,36 +191,14 @@ if ($action eq 'search') {
                                                   action => "add",
                                                   object => "users"});
 
-    my $login        = $cgi->param('login');
-    my $password     = $cgi->param('password');
-    my $realname     = trim($cgi->param('name')         || '');
-    my $disabledtext = trim($cgi->param('disabledtext') || '');
-    my $disable_mail = $cgi->param('disable_mail') =~ /^(0|1)$/ ? $1 : 0;
+    my $new_user = Bugzilla::User->create({
+        login_name    => $cgi->param('login'),
+        cryptpassword => $cgi->param('password'),
+        realname      => $cgi->param('name'),
+        disabledtext  => $cgi->param('disabledtext'),
+        disable_mail  => $cgi->param('disable_mail')});
 
-    # Lock tables during the check+creation session.
-    $dbh->bz_lock_tables('profiles WRITE', 'profiles_activity WRITE',
-                         'email_setting WRITE', 'user_group_map WRITE',
-                         'groups READ', 'tokens READ', 'fielddefs READ');
-
-    # Validity checks
-    $login || ThrowUserError('user_login_required');
-    validate_email_syntax($login)
-      || ThrowUserError('illegal_email_address', {addr => $login});
-    is_available_username($login)
-      || ThrowUserError('account_exists', {email => $login});
-    validate_password($password);
-
-    # Login and password are validated now, and realname and disabledtext
-    # are allowed to contain anything
-    trick_taint($login);
-    trick_taint($realname);
-    trick_taint($password);
-    trick_taint($disabledtext);
-
-    insert_new_user($login, $realname, $password, $disabledtext, $disable_mail);
-    my $new_user_id = $dbh->bz_last_key('profiles', 'userid');
-    $dbh->bz_unlock_tables();
-    userDataToVars($new_user_id);
+    userDataToVars($new_user->id);
 
     $vars->{'message'} = 'account_created';
     $template->process('admin/users/edit.html.tmpl', $vars)
@@ -235,7 +213,6 @@ if ($action eq 'search') {
 } elsif ($action eq 'update') {
     my $otherUser = check_user($otherUserID, $otherUserLogin);
     $otherUserID = $otherUser->id;
-    my $oldprofile = new Bugzilla::User($otherUserID);
 
     my $logoutNeeded = 0;
     my @changedFields;
@@ -256,25 +233,18 @@ if ($action eq 'search') {
                                            action => "modify",
                                            object => "user"});
 
-    # Cleanups
-    my $loginold         = $cgi->param('loginold')         || '';
-    my $realnameold      = $cgi->param('nameold')          || '';
-    my $disabledtextold  = $cgi->param('disabledtextold')  || '';
-    my $disable_mail_old = $cgi->param('disable_mail_old') =~ /^(0|1)$/ ? 
-                           $1 : $oldprofile->email_disabled;
-
     my $login        = $cgi->param('login');
     my $password     = $cgi->param('password');
     my $realname     = trim($cgi->param('name')         || '');
     my $disabledtext = trim($cgi->param('disabledtext') || '');
-    my $disable_mail = $cgi->param('disable_mail') =~ /^(0|1)$/ ? $1 : 0;
+    my $disable_mail = $cgi->param('disable_mail') ? 1 : 0;
 
     # Update profiles table entry; silently skip doing this if the user
     # is not authorized.
     if ($editusers) {
         my @values;
 
-        if ($login ne $loginold) {
+        if ($login ne $otherUser->login) {
             # Validate, then trick_taint.
             $login || ThrowUserError('user_login_required');
             validate_email_syntax($login)
@@ -290,7 +260,7 @@ if ($action eq 'search') {
             # Since we change the login, silently delete any tokens.
             $dbh->do('DELETE FROM tokens WHERE userid = ?', {}, $otherUserID);
         }
-        if ($realname ne $realnameold) {
+        if ($realname ne $otherUser->name) {
             # The real name may be anything; we use a placeholder for our
             # INSERT, and we rely on displaying code to FILTER html.
             trick_taint($realname);
@@ -305,7 +275,7 @@ if ($action eq 'search') {
             push(@values, bz_crypt($password));
             $logoutNeeded = 1;
         }
-        if ($disabledtext ne $disabledtextold) {
+        if ($disabledtext ne $otherUser->disabledtext) {
             # The disable text may be anything; we use a placeholder for our
             # INSERT, and we rely on displaying code to FILTER html.
             trick_taint($disabledtext);
@@ -313,7 +283,7 @@ if ($action eq 'search') {
             push(@values, $disabledtext);
             $logoutNeeded = 1;
         }
-        if ($disable_mail != $disable_mail_old) {
+        if ($disable_mail != $otherUser->email_disabled) {
             trick_taint($disable_mail);
             push(@changedFields, 'disable_mail');
             push(@values, $disable_mail);
@@ -419,7 +389,7 @@ if ($action eq 'search') {
     userDataToVars($otherUserID);
 
     $vars->{'message'} = 'account_updated';
-    $vars->{'loginold'} = $loginold;
+    $vars->{'loginold'} = $otherUser->login;
     $vars->{'changed_fields'} = \@changedFields;
     $vars->{'groups_added_to'} = \@groupsAddedTo;
     $vars->{'groups_removed_from'} = \@groupsRemovedFrom;

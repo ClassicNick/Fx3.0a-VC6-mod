@@ -40,6 +40,7 @@
 
 #import "NSString+Utils.h"
 #import "NSSplitView+Utils.h"
+#import "NSMenu+Utils.h"
 
 #import "BrowserWindowController.h"
 #import "BrowserWindow.h"
@@ -137,7 +138,6 @@ static NSString* const CombinedLocationToolbarItemIdentifier  = @"Combined Locat
 static NSString* const BookmarksToolbarItemIdentifier   = @"Sidebar Toolbar Item";    // note legacy name
 static NSString* const PrintToolbarItemIdentifier       = @"Print Toolbar Item";
 static NSString* const ThrobberToolbarItemIdentifier    = @"Throbber Toolbar Item";
-static NSString* const SearchToolbarItemIdentifier      = @"Search Toolbar Item";
 static NSString* const ViewSourceToolbarItemIdentifier  = @"View Source Toolbar Item";
 static NSString* const BookmarkToolbarItemIdentifier    = @"Bookmark Toolbar Item";
 static NSString* const TextBiggerToolbarItemIdentifier  = @"Text Bigger Toolbar Item";
@@ -509,8 +509,6 @@ enum BWCOpenDest {
     mThrobberHandler = nil;
     mURLFieldEditor = nil;
     mProgressSuperview = nil;
-    mBookmarkToolbarItem = nil;
-    mSidebarToolbarItem = nil;
   
     // register for services
     NSArray* sendTypes = [NSArray arrayWithObjects:NSStringPboardType, nil];
@@ -933,18 +931,6 @@ enum BWCOpenDest {
       [[self window] setFrameOrigin: testBrowserFrame.origin];
     }
     
-    // if the search field is not on the toolbar, nil out the nextKeyView of the
-    // url bar so that we know to break off the toolbar when tabbing. If it is,
-    // and we're running on pre-panther, set the search bar as the tab view. We
-    // don't want to do this on panther because it will do it for us.
-    if (![mSearchBar window])
-      [mURLBar setNextKeyView:nil];
-    else {
-      const float kPantherAppKit = 743.0;
-      if (NSAppKitVersionNumber < kPantherAppKit)
-        [mURLBar setNextKeyView:mSearchBar];
-    }
-    
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(newTab:)
                                         name:kTabBarBackgroundDoubleClickedNotification object:mTabBrowser];
 
@@ -985,7 +971,7 @@ enum BWCOpenDest {
 {
   NSToolbar *toolbar = [[[NSToolbar alloc] initWithIdentifier:BrowserToolbarIdentifier] autorelease];
   
-  [toolbar setDisplayMode:NSToolbarDisplayModeDefault];
+  [toolbar setDisplayMode:NSToolbarDisplayModeIconOnly];
   [toolbar setAllowsUserCustomization:YES];
   [toolbar setAutosavesConfiguration:YES];
   [toolbar setDelegate:self];
@@ -1003,48 +989,23 @@ enum BWCOpenDest {
 // toolbarWillAddItem: (toolbar delegate method)
 //
 // Called when a button is about to be added to a toolbar. This is where we should
-// cache items we may need later. For instance, we want to hold onto the sidebar
-// toolbar item so we can change it when the drawer opens and closes.
-- (void)toolbarWillAddItem:(NSNotification *)notification
-{
-  NSToolbarItem* item = [[notification userInfo] objectForKey:@"item"];
-  if ( [[item itemIdentifier] isEqual:BookmarksToolbarItemIdentifier] )
-    mSidebarToolbarItem = item;
-  else if ( [[item itemIdentifier] isEqual:BookmarkToolbarItemIdentifier] )
-    mBookmarkToolbarItem = item;
-  else if ( [[item itemIdentifier] isEqual:SearchToolbarItemIdentifier] ) {
-    // restore the next key view of the url bar to the search bar, but only
-    // if we're on jaguar. On panther, we really don't know that it should
-    // be the search toolbar (it could be another toolbar button if full keyboard
-    // access is enabled) but it will fix itself automatically.
-    const float kPantherAppKit = 743.0;
-    if (NSAppKitVersionNumber < kPantherAppKit)
-      [mURLBar setNextKeyView:mSearchBar];
-  }
-}
+// cache items we may need later.
+// (void)toolbarWillAddItem:(NSNotification *)notification
+//{
+//  (Nothing needed at the moment.)
+//}
 
 //
 // toolbarDidRemoveItem: (toolbar delegate method)
 //
 // Called when a button is about to be removed from a toolbar. This is where we should
-// uncache items so we don't access them after they're gone. For instance, we want to
-// clear our ref to the sidebar toolbar item.
+// uncache items so we don't access them after they're gone.
 //
 - (void)toolbarDidRemoveItem:(NSNotification *)notification
 {
   NSToolbarItem* item = [[notification userInfo] objectForKey:@"item"];
-  if ( [[item itemIdentifier] isEqual:BookmarksToolbarItemIdentifier] )
-    mSidebarToolbarItem = nil;
-  else if ( [[item itemIdentifier] isEqual:ThrobberToolbarItemIdentifier] )
+  if ( [[item itemIdentifier] isEqual:ThrobberToolbarItemIdentifier] )
     [self stopThrobber];
-  else if ( [[item itemIdentifier] isEqual:BookmarkToolbarItemIdentifier] )
-    mBookmarkToolbarItem = nil;
-  else if ( [[item itemIdentifier] isEqual:SearchToolbarItemIdentifier] ) {
-    // search bar removed, set next key view of url bar to nil which tells
-    // it to break out of the toolbar tab ring on a tab.
-    [mURLBar setNextKeyView:nil];
-  }
-
 }
 
 - (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
@@ -1218,24 +1179,6 @@ enum BWCOpenDest {
     [toolbarItem setImage:[NSImage imageNamed:@"manager"]];
     [toolbarItem setTarget:self];
     [toolbarItem setAction:@selector(manageBookmarks:)];
-  }
-  else if ( [itemIdent isEqual:SearchToolbarItemIdentifier] ) {
-    NSMenuItem *menuFormRep = [[[NSMenuItem alloc] init] autorelease];
-
-    [toolbarItem setLabel:NSLocalizedString(@"Search", @"Search")];
-    [toolbarItem setPaletteLabel:NSLocalizedString(@"Search", @"Search")];
-    [toolbarItem setToolTip:NSLocalizedString(@"SearchToolTip", @"Search the Internet")];
-    [toolbarItem setView:mSearchBar];
-    [toolbarItem setMinSize:NSMakeSize(128, NSHeight([mSearchBar frame]))];
-    [toolbarItem setMaxSize:NSMakeSize(150, NSHeight([mSearchBar frame]))];
-    [toolbarItem setTarget:self];
-    [toolbarItem setAction:@selector(performSearch:)];
-
-    [menuFormRep setTarget:self];
-    [menuFormRep setAction:@selector(beginSearchSheet)];
-    [menuFormRep setTitle:[toolbarItem label]];
-
-    [toolbarItem setMenuFormRepresentation:menuFormRep];
   }
   else if ([itemIdent isEqual:ThrobberToolbarItemIdentifier]) {
     [toolbarItem setLabel:@""];
@@ -1428,10 +1371,8 @@ enum BWCOpenDest {
     return YES;
   else if (action == @selector(closeCurrentTab:))
     return ([mTabBrowser numberOfTabViewItems] > 1 && [[self window] isKeyWindow]);
-  else if (action == @selector(sendURL:)) {
-    NSString* curURL = [[self getBrowserWrapper] getCurrentURI];
-    return ![MainController isBlankURL:curURL];
-  }
+  else if (action == @selector(sendURL:) || action == @selector(fillForm:))
+    return ![[[self getBrowserWrapper] getCurrentURI] hasPrefix:@"about:"];
   else if (action == @selector(viewSource:)) {
     return (![self bookmarkManagerIsVisible] &&
             [[[self getBrowserWrapper] getBrowserView] isTextBasedContent]);
@@ -1536,9 +1477,6 @@ enum BWCOpenDest {
       action == @selector(closeOtherTabs:))
     return ([mTabBrowser numberOfTabViewItems] > 1);
 
-  if (action == @selector(fillForm:))
-    return ![self bookmarkManagerIsVisible];
-
   if (action == @selector(reloadSendersTab:)) {
     BrowserTabViewItem* sendersTab = [[self getTabBrowser] itemWithTag:[aMenuItem tag]];
     return [[sendersTab view] canReload];
@@ -1546,6 +1484,9 @@ enum BWCOpenDest {
 
   if (action == @selector(reload:))
     return [[self getBrowserWrapper] canReload];
+
+  if (action == @selector(fillForm:))
+    return ![[[self getBrowserWrapper] getCurrentURI] hasPrefix:@"about:"];
 
 
   return YES;
@@ -2040,39 +1981,41 @@ enum BWCOpenDest {
 {
   // trim off any whitespace around url
   NSString *theURL = [[inURLField stringValue] stringByTrimmingWhitespace];
-  
+
   if ([theURL length] == 0)
   {
     // re-focus the url bar if it's visible (might be in sheet?)
     if ([inURLField window] == [self window])
       [[self window] makeFirstResponder:inURLField];
-    
+
     return;
   }
 
   // look for bookmarks keywords match
   NSArray *resolvedURLs = [[BookmarkManager sharedBookmarkManager] resolveBookmarksKeyword:theURL];
-  
-  NSString* resolvedURL = nil;
-  if ([resolvedURLs count] == 1) {
-    resolvedURL = [resolvedURLs lastObject];
+
+  NSString* targetURL = nil;
+  if (!resolvedURLs || [resolvedURLs count] == 1) {
+    targetURL = resolvedURLs ? [resolvedURLs lastObject] : theURL;
+    BOOL allowPopups = resolvedURLs ? YES : NO; //Allow popups if it's a bookmark keyword
     if (inDest == kDestinationNewTab)
-      [self openNewTabWithURL:resolvedURL referrer:nil loadInBackground:inLoadInBG allowPopups:NO setJumpback:NO];
+      [self openNewTabWithURL:targetURL referrer:nil loadInBackground:inLoadInBG allowPopups:allowPopups setJumpback:NO];
     else if (inDest == kDestinationNewWindow)
-      [self openNewWindowWithURL:resolvedURL referrer:nil loadInBackground:inLoadInBG allowPopups:NO];
+      [self openNewWindowWithURL:targetURL referrer:nil loadInBackground:inLoadInBG allowPopups:allowPopups];
     else // if it's not a new window or a new tab, load into the current view
-      [self loadURL:resolvedURL];
-  } else {
-    if (inDest == kDestinationNewTab || inDest == kDestinationNewWindow)
-      [self openURLArray:resolvedURLs tabOpenPolicy:eAppendTabs allowPopups:NO];
-    else
-      [self openURLArray:resolvedURLs tabOpenPolicy:eReplaceTabs allowPopups:NO];
+      [self loadURL:targetURL referrer:nil focusContent:YES allowPopups:allowPopups];
   }
-  
+  else {
+    if (inDest == kDestinationNewTab || inDest == kDestinationNewWindow)
+      [self openURLArray:resolvedURLs tabOpenPolicy:eAppendTabs allowPopups:YES];
+    else
+      [self openURLArray:resolvedURLs tabOpenPolicy:eReplaceTabs allowPopups:YES];
+  }
+
   // global history needs to know the user typed this url so it can present it
   // in autocomplete. We use the URI fixup service to strip whitespace and remove
   // invalid protocols, etc. Don't save keyword-expanded urls.
-  if (resolvedURL && [theURL isEqualToString:resolvedURL] &&
+  if (!resolvedURLs &&
       mDataOwner &&
       mDataOwner->mGlobalHistory &&
       mDataOwner->mURIFixer && [theURL length] > 0)
@@ -2080,7 +2023,7 @@ enum BWCOpenDest {
     nsAutoString url;
     [theURL assignTo_nsAString:url];
     NS_ConvertUTF16toUTF8 utf8URL(url);
-    
+
     nsCOMPtr<nsIURI> fixedURI;
     mDataOwner->mURIFixer->CreateFixupURI(utf8URL, 0, getter_AddRefs(fixedURI));
     if (fixedURI)
@@ -3172,7 +3115,7 @@ enum BWCOpenDest {
 -(void)openNewTabWithURL:(NSString*)aURLSpec referrer:(NSString*)aReferrer loadInBackground:(BOOL)aLoadInBG 
         allowPopups:(BOOL)inAllowPopups setJumpback:(BOOL)inSetJumpback
 {
-  BrowserTabViewItem* previouslySelected = [mTabBrowser selectedTabViewItem];
+  BrowserTabViewItem* previouslySelected = (BrowserTabViewItem*)[mTabBrowser selectedTabViewItem];
   BrowserTabViewItem* newTab             = [self openNewTab:aLoadInBG];
   BOOL focusURLBar                       = [MainController isBlankURL:aURLSpec];
 
@@ -3195,7 +3138,7 @@ enum BWCOpenDest {
 //
 - (CHBrowserView*)createNewTabBrowser:(BOOL)inLoadInBG
 {
-  BrowserTabViewItem* previouslySelected = [mTabBrowser selectedTabViewItem];
+  BrowserTabViewItem* previouslySelected = (BrowserTabViewItem*)[mTabBrowser selectedTabViewItem];
   BrowserTabViewItem* newTab = [self openNewTab:inLoadInBG];
  
   // tell the tab browser to remember the currently selected tab to

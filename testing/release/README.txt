@@ -13,27 +13,28 @@ common  -> useful utility scripts
 Update verification
 --
 
-verify_aus.sh
+verify.sh
   does a low-level check of all advertised MAR files. Expects to have a
   file named all-locales, but does not (yet) handle platform exceptions, so 
   these should be removed from the locales file.
+
+  prints errors on both STDOUT and STDIN, the intention is to run the
+  script with STDOUT redirected to an output log. If there is not output
+  on the console and an exit code of 0 then all tests pass; otherwise one
+  or more tests failed.
 
   Does the following:
 
   1) download update.xml from AUS for a particular release
   2) download the partial and full mar advertised
   3) check that the partial and full match the advertised size and sha1sum
+  4) downloads the latest release, and an older release
+  5) applies MAR to the older release, and compares the two releases.
+  
+  Step 5 is repeated for both the complete and partial MAR.
 
-  This is really just a thin wrapper around the common/download_mars.sh 
-  functionality.
-
-verify_updates.sh 
-  downloads two consecutive releases, downloads the partial MAR for the older
-  release (using the technique described for verify_aus.sh), applies the
-  MAR to the older release, and compares the two releases.
-
-  Expects to have a file named all-locales, but does not (yet) handle platform 
-  exceptions, so these should be removed from the locales file.
+  Expects to have an updates.cfg file, describing all releases to try updating 
+  from.
 
 -
 Valid Platforms for AUS
@@ -46,7 +47,6 @@ Darwin_ppc-gcc3
 
 --
 l10n verification
-2A
 --
 
 verify_l10n.sh

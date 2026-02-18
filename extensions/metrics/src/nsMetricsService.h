@@ -39,11 +39,6 @@
 #ifndef nsMetricsService_h__
 #define nsMetricsService_h__
 
-// This must be before any #includes to enable logging in release builds
-#ifdef MOZ_LOGGING
-#define FORCE_PR_LOG
-#endif
-
 #include "nsIMetricsService.h"
 #include "nsMetricsModule.h"
 #include "nsMetricsConfig.h"
@@ -279,6 +274,14 @@ private:
   // for several hours.
   static const PRUint32 kMaxRetries;
 
+  // This is the logging format version that is sent with each upload.
+  // The version should be incremented whenver a change is made that
+  // affects the log output, including but not limited to:
+  //  - adding or removing a collector
+  //  - adding or removing a property
+  //  - changing the meaning or interpretation of a property value
+  static const PRUint32 kMetricsVersion;
+
   PRInt32 mEventCount;
   PRInt32 mSuspendCount;
   PRBool mUploading;
@@ -313,6 +316,10 @@ public:
 
   // Returns true if the docshell should be considered a subframe.
   static PRBool IsSubframe(nsIDocShellTreeItem *docShell);
+
+  // Finds the window id for the DOMWindow containing |node|.
+  // Returns 0 if the window could not be found.
+  static PRUint32 FindWindowForNode(nsIDOMNode *node);
 };
 
 #endif  // nsMetricsService_h__

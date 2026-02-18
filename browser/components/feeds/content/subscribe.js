@@ -50,12 +50,7 @@ var SubscribeHandler = {
     this._feedWriter.close();
   },
   
-  changeOptions: function SH_changeOptions() {
-    this._feedWriter.changeOptions();
-  },
-  
   subscribe: function FH_subscribe() {
     this._feedWriter.subscribe();
-  },
+  }
 };
-

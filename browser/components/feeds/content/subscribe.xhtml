@@ -13,6 +13,8 @@
   %feedDTD;
 ]>
 
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+
 <html id="feedHandler"
       xmlns="http://www.w3.org/1999/xhtml"
       xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
@@ -23,7 +25,7 @@
     <script type="application/x-javascript"
             src="chrome://browser/content/feeds/subscribe.js"/>
   </head>
-  <body onload="SubscribeHandler.init();" onpagehide="SubscribeHandler.uninit();">
+  <body onload="SubscribeHandler.init();" onunload="SubscribeHandler.uninit();">
     <div id="feedHeader" dir="&locale.dir;">
       <div id="feedIntroText">
         <p id="feedSubscriptionInfo1">

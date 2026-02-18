@@ -62,12 +62,6 @@ include $(topsrcdir)/config/insure.mk
 endif
 endif
 
-# SUBMAKEFILES: List of Makefiles for next level down.
-#   This is used to update or create the Makefiles before invoking them.
-ifneq ($(DIRS)$(TOOL_DIRS),)
-SUBMAKEFILES		:= $(addsuffix /Makefile, $(TOOL_DIRS) $(filter-out $(STATIC_MAKEFILES), $(DIRS)))
-endif
-
 # FINAL_TARGET specifies the location into which we copy end-user-shipped
 # build products (typelibs, components, chrome).
 #
@@ -495,6 +489,11 @@ else
 XPIDL_COMPILE 	= $(CYGWIN_WRAPPER) $(LIBXUL_DIST)/bin/xpidl$(BIN_SUFFIX)
 XPIDL_LINK	= $(CYGWIN_WRAPPER) $(LIBXUL_DIST)/bin/xpt_link$(BIN_SUFFIX)
 endif
+
+# Java macros
+JAVA_GEN_DIR  = _javagen
+JAVA_DIST_DIR = $(DEPTH)/$(JAVA_GEN_DIR)
+JAVA_IFACES_PKG_NAME = org/mozilla/xpcom
 
 REQ_INCLUDES	= $(foreach d,$(REQUIRES),-I$(DIST)/include/$d) -I$(DIST)/include 
 ifdef LIBXUL_SDK

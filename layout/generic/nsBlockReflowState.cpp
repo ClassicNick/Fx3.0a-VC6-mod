@@ -24,6 +24,7 @@
  *   Steve Clark <buster@netscape.com>
  *   Robert O'Callahan <roc+moz@cs.cmu.edu>
  *   L. David Baron <dbaron@dbaron.org>
+ *   Mats Palmgren <mats.palmgren@bredband.net>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -232,9 +233,10 @@ nsBlockReflowState::ComputeBlockAvailSpace(nsIFrame* aFrame,
   // text controls are not splittable
   // XXXldb Why not just set the frame state bit?
 
-  if ((NS_FRAME_SPLITTABLE_NON_RECTANGULAR == aSplitType ||   // normal blocks 
-       NS_FRAME_NOT_SPLITTABLE == aSplitType) &&              // things like images mapped to display: block
-      !(aFrame->GetStateBits() & NS_FRAME_REPLACED_ELEMENT))  // but not replaced elements
+  if ((NS_FRAME_SPLITTABLE_NON_RECTANGULAR == aSplitType ||    // normal blocks 
+       NS_FRAME_NOT_SPLITTABLE == aSplitType) &&               // things like images mapped to display: block
+      !(aFrame->GetStateBits() & NS_FRAME_REPLACED_ELEMENT) && // but not replaced elements
+      aFrame->GetType() != nsLayoutAtoms::scrollFrame)         // or scroll frames
   {
     if (mBand.GetFloatCount()) {
       // Use the float-edge property to determine how the child block
@@ -656,9 +658,19 @@ nsBlockReflowState::AddFloat(nsLineLayout&       aLineLayout,
       // prevent the placeholders being torn down. We will destroy any
       // placeholders later if PlaceBelowCurrentLineFloats finds the
       // float is complete.
-      aReflowStatus = NS_FRAME_NOT_COMPLETE;
+      nsSplittableType splitType;
+      aPlaceholder->IsSplittable(splitType);
+      if (splitType == NS_FRAME_NOT_SPLITTABLE) {
+        placed = PR_FALSE;
+      }
+      else {
+        placed = PR_TRUE;
+        aReflowStatus = NS_FRAME_NOT_COMPLETE;
+      }
     }
-    placed = PR_TRUE;
+    else {
+      placed = PR_TRUE;
+    }
   }
   return placed;
 }

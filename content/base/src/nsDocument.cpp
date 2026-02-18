@@ -5151,6 +5151,8 @@ nsDocument::Destroy()
   }
 
   mLayoutHistoryState = nsnull;
+
+  nsContentList::OnDocumentDestroy(this);
 }
 
 already_AddRefed<nsILayoutHistoryState>

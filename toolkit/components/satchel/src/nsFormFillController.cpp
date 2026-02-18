@@ -75,6 +75,7 @@
 #include "nsIDOMMouseEvent.h"
 #include "nsIGenericFactory.h"
 #include "nsToolkitCompsCID.h"
+#include "nsEmbedCID.h"
 
 NS_INTERFACE_MAP_BEGIN(nsFormFillController)
   NS_INTERFACE_MAP_ENTRY(nsIFormFillController)
@@ -219,8 +220,10 @@ nsFormFillController::SetPopupOpen(PRBool aPopupOpen)
       // make sure input field is visible before showing popup (bug 320938)
       nsCOMPtr<nsIContent> content = do_QueryInterface(mFocusedInput);
       nsCOMPtr<nsIDocShell> docShell = GetDocShellForInput(mFocusedInput);
+      NS_ENSURE_STATE(docShell);
       nsCOMPtr<nsIPresShell> presShell;
       docShell->GetPresShell(getter_AddRefs(presShell));
+      NS_ENSURE_STATE(presShell);
       nsIFrame *frame = presShell->GetPrimaryFrameFor(content.get());
       if (frame)
         presShell->ScrollFrameIntoView(frame,
@@ -1146,6 +1149,13 @@ static const nsModuleComponentInfo components[] =
   { "Password Manager",
     NS_PASSWORDMANAGER_CID,
     NS_PASSWORDMANAGER_CONTRACTID,
+    nsPasswordManagerConstructor,
+    nsPasswordManager::Register,
+    nsPasswordManager::Unregister },
+
+  { "Password Manager",
+    NS_PASSWORDMANAGER_CID,
+    NS_PWMGR_AUTHPROMPTFACTORY,
     nsPasswordManagerConstructor,
     nsPasswordManager::Register,
     nsPasswordManager::Unregister },

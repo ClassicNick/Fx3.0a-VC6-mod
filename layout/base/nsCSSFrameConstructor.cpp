@@ -5462,7 +5462,7 @@ nsCSSFrameConstructor::ConstructFieldSetFrame(nsFrameConstructorState& aState,
   // Set the scroll frame's initial child list
   newFrame->SetInitialChildList(nsnull, legendFrame ? legendFrame : areaFrame);
 
-  // our new frame retured is the top frame which is the list frame. 
+  // our new frame returned is the top frame which is the list frame. 
   aNewFrame = newFrame; 
 
   // yes we have already initialized our frame 
@@ -10984,6 +10984,13 @@ nsCSSFrameConstructor::CreateContinuingFrame(nsPresContext* aPresContext,
   nsIAtom* frameType = aFrame->GetType();
   nsIContent* content = aFrame->GetContent();
 
+#ifdef NS_DEBUG
+    nsSplittableType splitType;
+    aFrame->IsSplittable(splitType);
+    NS_ASSERTION(splitType != NS_FRAME_NOT_SPLITTABLE,
+                 "why CreateContinuingFrame for a non-splittable frame?");
+#endif
+  
   if (nsLayoutAtoms::textFrame == frameType) {
     newFrame = NS_NewContinuingTextFrame(shell, styleContext);
 

@@ -41,6 +41,7 @@
 @import url("chrome://global/skin/");
 
 @namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
+@namespace html url("http://www.w3.org/1999/xhtml");
 
 #toolbar-menubar {
 	display: none;
@@ -54,6 +55,10 @@
   color: GrayText;
 }
 	
+#wrapper-search-container #searchbar html|*.textbox-input {
+  visibility: hidden;
+}
+
 /* ::::: bookmark buttons ::::: */
 
 .bookmark-item[container] {
@@ -980,3 +985,13 @@ toolbarbutton.bookmark-item[dragover="true"][open="true"] {
   -moz-border-bottom-colors: #000000;
 }
 %endif
+
+#CustomizeToolbarSheet > #main-box {
+  border-top: none !important;
+  border-left: 2px solid;
+  border-right: 2px solid;
+  border-bottom: 3px solid;
+  -moz-border-right-colors: -moz-mac-menushadow ThreeDLightShadow  !important;
+  -moz-border-bottom-colors: -moz-mac-menushadow -moz-mac-menushadow ThreeDShadow  !important;
+  -moz-border-left-colors: ThreeDLightShadow ThreeDHighlight !important;
+}

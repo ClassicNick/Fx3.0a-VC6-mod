@@ -231,8 +231,11 @@ sub update_table_definitions {
 
     _update_bugs_activity_to_only_record_changes();
 
-    $dbh->bz_alter_column("profiles", "disabledtext",
-                          {TYPE => 'MEDIUMTEXT', NOTNULL => 1}, '');
+    # bug 90933: Make disabledtext NOT NULL
+    if (!$dbh->bz_column_info('profiles', 'disabledtext')->{NOTNULL}) {
+        $dbh->bz_alter_column("profiles", "disabledtext",
+                              {TYPE => 'MEDIUMTEXT', NOTNULL => 1}, '');
+    }
 
     $dbh->bz_add_column("bugs", "reporter_accessible",
                         {TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 'TRUE'});
@@ -327,9 +330,6 @@ sub update_table_definitions {
               " unknown...\n";
         $dbh->do('UPDATE quips SET userid = NULL WHERE userid = 0');
     }
-
-    $dbh->bz_add_index('bugs', 'bugs_short_desc_idx',
-                       {TYPE => 'FULLTEXT', FIELDS => [qw(short_desc)]});
 
     # Right now, we only create the "thetext" index on MySQL.
     if ($dbh->isa('Bugzilla::DB::Mysql')) {
@@ -481,6 +481,14 @@ sub update_table_definitions {
 
     # 2006-08-19 LpSolit@gmail.com - Bug 87795
     $dbh->bz_alter_column('tokens', 'userid', {TYPE => 'INT3'});
+
+    $dbh->bz_drop_index('bugs', 'bugs_short_desc_idx');
+
+    # The profiles table was missing some defaults.
+    $dbh->bz_alter_column('profiles', 'disabledtext',
+        {TYPE => 'MEDIUMTEXT', NOTNULL => 1, DEFAULT => "''"});
+    $dbh->bz_alter_column('profiles', 'realname',
+        {TYPE => 'varchar(255)', NOTNULL => 1, DEFAULT => "''"});
 
     ################################################################
     # New --TABLE-- changes should go *** A B O V E *** this point #

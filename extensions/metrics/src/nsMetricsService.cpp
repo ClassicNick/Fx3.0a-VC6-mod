@@ -36,11 +36,6 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-// This must be before any #includes to enable logging in release builds
-#ifdef MOZ_LOGGING
-#define FORCE_PR_LOG
-#endif
-
 #include "nsMetricsService.h"
 #include "nsMetricsEventItem.h"
 #include "nsIMetricsCollector.h"
@@ -92,6 +87,8 @@
 #include "nsIX509Cert.h"
 #include "nsAutoPtr.h"
 #include "nsIDOMWindow.h"
+#include "nsIDOMDocumentView.h"
+#include "nsIDOMAbstractView.h"
 
 // We need to suppress inclusion of nsString.h
 #define nsString_h___
@@ -122,6 +119,7 @@ static const char kEventCountPref[] = "metrics.event-count";
 static const char kEnablePref[] = "metrics.upload.enable";
 
 const PRUint32 nsMetricsService::kMaxRetries = 3;
+const PRUint32 nsMetricsService::kMetricsVersion = 1;
 
 //-----------------------------------------------------------------------------
 
@@ -1280,7 +1278,6 @@ nsMetricsService::UploadData()
     return NS_ERROR_ABORT;
   }
  
-  PRBool enable = PR_FALSE;
   nsCString spec;
   nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
   if (prefs) {
@@ -1436,7 +1433,8 @@ nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
 
   static const char METRICS_XML_HEAD[] =
       "<?xml version=\"1.0\"?>\n"
-      "<log xmlns=\"" NS_METRICS_NAMESPACE "\" clientid=\"%s\">\n";
+      "<log xmlns=\"" NS_METRICS_NAMESPACE "\" "
+           "version=\"%d\" clientid=\"%s\">\n";
   static const char METRICS_XML_TAIL[] = "</log>";
 
   nsCOMPtr<nsIFileInputStream> fileStream =
@@ -1454,7 +1452,7 @@ nsMetricsService::OpenCompleteXMLStream(nsILocalFile *dataFile,
       do_CreateInstance("@mozilla.org/io/string-input-stream;1");
   NS_ENSURE_STATE(stringStream);
 
-  char *head = PR_smprintf(METRICS_XML_HEAD, clientID.get());
+  char *head = PR_smprintf(METRICS_XML_HEAD, kMetricsVersion, clientID.get());
   rv = stringStream->SetData(head, -1);
   PR_smprintf_free(head);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1766,4 +1764,25 @@ nsMetricsUtils::IsSubframe(nsIDocShellTreeItem* docShell)
   nsCOMPtr<nsIDocShellTreeItem> parent;
   docShell->GetSameTypeParent(getter_AddRefs(parent));
   return (parent != nsnull);
+}
+
+
+/* static */ PRUint32
+nsMetricsUtils::FindWindowForNode(nsIDOMNode *node)
+{
+  nsCOMPtr<nsIDOMDocument> ownerDoc;
+  node->GetOwnerDocument(getter_AddRefs(ownerDoc));
+  NS_ENSURE_STATE(ownerDoc);
+
+  nsCOMPtr<nsIDOMDocumentView> docView = do_QueryInterface(ownerDoc);
+  NS_ENSURE_STATE(docView);
+
+  nsCOMPtr<nsIDOMAbstractView> absView;
+  docView->GetDefaultView(getter_AddRefs(absView));
+  NS_ENSURE_STATE(absView);
+
+  nsCOMPtr<nsIDOMWindow> window = do_QueryInterface(absView);
+  NS_ENSURE_STATE(window);
+
+  return nsMetricsService::GetWindowID(window);
 }

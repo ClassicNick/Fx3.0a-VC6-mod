@@ -591,6 +591,11 @@ public:
   NS_HIDDEN_(void)  FreeFrame(size_t aSize, void* aPtr);
 
 private:
+#ifdef DEBUG
+  // Number of frames in the pool
+  PRUint32 mFrameCount;
+#endif
+
 #if !defined(DEBUG_TRACEMALLOC_FRAMEARENA)
   // Underlying arena pool
   PLArenaPool mPool;
@@ -602,6 +607,9 @@ private:
 };
 
 FrameArena::FrameArena(PRUint32 aArenaSize)
+#ifdef DEBUG
+  : mFrameCount(0)
+#endif
 {
 #if !defined(DEBUG_TRACEMALLOC_FRAMEARENA)
   // Initialize the arena pool
@@ -614,6 +622,8 @@ FrameArena::FrameArena(PRUint32 aArenaSize)
 
 FrameArena::~FrameArena()
 {
+  NS_ASSERTION(mFrameCount == 0, "Some frame destructors were not called");
+ 
 #if !defined(DEBUG_TRACEMALLOC_FRAMEARENA)
   // Free the arena in the pool and finish using it
   PL_FinishArenaPool(&mPool);
@@ -623,11 +633,14 @@ FrameArena::~FrameArena()
 void*
 FrameArena::AllocateFrame(size_t aSize)
 {
-#if defined(DEBUG_TRACEMALLOC_FRAMEARENA)
-  return PR_Malloc(aSize);
-#else
   void* result = nsnull;
-  
+
+#if defined(DEBUG_TRACEMALLOC_FRAMEARENA)
+
+  result = PR_Malloc(aSize);
+
+#else
+
   // Ensure we have correct alignment for pointers.  Important for Tru64
   aSize = PR_ROUNDUP(aSize, sizeof(void*));
 
@@ -648,14 +661,22 @@ FrameArena::AllocateFrame(size_t aSize)
     PL_ARENA_ALLOCATE(result, &mPool, aSize);
   }
 
-  return result;
 #endif
+
+#ifdef DEBUG
+  if (result != nsnull)
+    ++mFrameCount;
+#endif
+
+  return result;
 }
 
 void
 FrameArena::FreeFrame(size_t aSize, void* aPtr)
 {
 #ifdef DEBUG
+  --mFrameCount;
+
   // Mark the memory with 0xdd in DEBUG builds so that there will be
   // problems if someone tries to access memory that they've freed.
   memset(aPtr, 0xdd, aSize);
@@ -5783,9 +5804,10 @@ nsresult PresShell::RetargetEventToParent(nsIView         *aView,
   // We do this for non-mouse events in zombie documents.
   // That way at least the UI key bindings can work.
 
-  // First, eliminate the focus ring in the current docshell, which 
-  // is  now a zombie. If we key navigate, it won't be within this
-  // docshell, until the newly loading document is displayed.
+  // First, eliminate the focus ring in the current docshell, which is
+  // now a zombie. If we key navigate, it won't be within this
+  // docshell, until the newly loading document is displayed or we
+  // have a root content again.
 
   nsCOMPtr<nsIPresShell> kungFuDeathGrip(this);
   // hold a reference to the ESM across event dispatch
@@ -5793,8 +5815,10 @@ nsresult PresShell::RetargetEventToParent(nsIView         *aView,
 
   esm->SetContentState(nsnull, NS_EVENT_STATE_FOCUS);
   esm->SetFocusedContent(nsnull);
-  ContentStatesChanged(mDocument, aZombieFocusedContent,
-                       nsnull, NS_EVENT_STATE_FOCUS);
+  if (aZombieFocusedContent) {
+    ContentStatesChanged(mDocument, aZombieFocusedContent,
+                         nsnull, NS_EVENT_STATE_FOCUS);
+  }
 
   // Next, update the display so the old focus ring is no longer visible
 
@@ -5998,7 +6022,7 @@ PresShell::HandleEvent(nsIView         *aView,
         }
         mCurrentEventFrame = nsnull; // XXXldb Isn't it already?
       }
-      if (mCurrentEventContent && InZombieDocument(mCurrentEventContent)) {
+      if (!mCurrentEventContent || InZombieDocument(mCurrentEventContent)) {
         return RetargetEventToParent(aView, aEvent, aEventStatus,
                                      mCurrentEventContent);
       }
@@ -6516,8 +6540,8 @@ PresShell::WillDoReflow()
 {
   // We just reflowed, tell the caret that its frame might have moved.
   if (mCaret) {
-    mCaret->UpdateCaretPosition();
     mCaret->InvalidateOutsideCaret();
+    mCaret->UpdateCaretPosition();
   }
 }
 
@@ -6531,8 +6555,12 @@ PresShell::DidDoReflow()
   // bugs 244435 and 238546.
   if (!mPaintingSuppressed && mViewManager)
     mViewManager->SynthesizeMouseMove(PR_FALSE);
-  if (mCaret)
+  if (mCaret) {
+    // Update the caret's position now to account for any changes created by
+    // the reflow.
     mCaret->InvalidateOutsideCaret();
+    mCaret->UpdateCaretPosition();
+  }
 }
 
 nsresult

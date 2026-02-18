@@ -20,7 +20,8 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *  Aaron Reed <aaronr@us.ibm.com>
+ *  Aaron Reed <aaronr@us.ibm.com> (original author)
+ *  Alexander Surkov <surkov.alexander@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -38,8 +39,22 @@
 
 #include "nsIXFormsUtilityService.h"
 
+/**
+ * The class implements "@mozilla.org/xforms-utility-service;1" XPCOM object
+ * that is used outside XForms extension by core modules, for example by
+ * accessibility.
+ */
+
 class nsXFormsUtilityService : public nsIXFormsUtilityService
 {
 public:
   NS_DECL_ISUPPORTS
+
+  // nsIXFormsUtilityService
+  NS_IMETHOD IsReadonly(nsIDOMNode *aElement, PRBool *aState);
+  NS_IMETHOD IsRelevant(nsIDOMNode *aElement, PRBool *aState);
+  NS_IMETHOD IsRequired(nsIDOMNode *aElement, PRBool *aState);
+  NS_IMETHOD IsValid(nsIDOMNode *aElement, PRBool *aState);
+  NS_IMETHOD GetValue(nsIDOMNode *aElement, nsAString& aValue);
 };
+

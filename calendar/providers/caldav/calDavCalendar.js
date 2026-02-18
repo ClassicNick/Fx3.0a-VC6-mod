@@ -175,9 +175,11 @@ calDavCalendar.prototype = {
         if (this.readOnly) {
             throw Components.interfaces.calIErrors.CAL_IS_READONLY;
         }
-
+        
+        // CalDAV UIDs are used to construct filenames, so we strip braces to avoid
+        // problems with servers which do not support names with {}
         if (aItem.id == null && aItem.isMutable)
-            aItem.id = getUUID();
+            aItem.id = getUUID().replace(/[{}]/g, '');
 
         if (aItem.id == null) {
             if (aListener)
@@ -511,7 +513,8 @@ calDavCalendar.prototype = {
                 var xSerializer = Components.classes
                     ['@mozilla.org/xmlextras/xmlserializer;1']
                     .getService(Components.interfaces.nsIDOMSerializer);
-                var response = xSerializer.serializeToString(aDetail);
+                // libical needs to see \r\n instead on \n\n in the case of "folded" lines
+                var response = xSerializer.serializeToString(aDetail).replace(/\n\n/g, "\r\n");
                 var responseElement = new XML(response);
 
                 // create calIItemBase from e4x object

@@ -208,6 +208,9 @@ function InitLanguageMenu(aCurLang)
           langLabel += "/" + menuStr2;
       }
 
+      if (langLabel && isoStrArray.length > 2 && isoStrArray[2])
+        langLabel += " (" + isoStrArray[2] + ")";
+
       if (!langLabel)
         langLabel = langId;
     }
@@ -570,7 +573,9 @@ function ExitSpellChecker()
         spellChecker.dictionary = curLang;
       }
       // now check the document over again with the new dictionary
-      if ("inlineSpellChecker" in window.opener.InlineSpellChecker)
+      // if we have an inline spellchecker
+      if (("InlineSpellChecker" in window.opener) &&
+          ("inlineSpellChecker" in window.opener.InlineSpellChecker))
         if (window.opener.InlineSpellChecker.inlineSpellChecker.enableRealTimeSpell)
           window.opener.InlineSpellChecker.checkDocument(window.opener.content.document);
     }

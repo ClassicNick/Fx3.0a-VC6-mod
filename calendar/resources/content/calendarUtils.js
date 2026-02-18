@@ -159,15 +159,24 @@ function getPrefSafe(aPrefName, aDefault) {
     const nsIPrefBranch = Components.interfaces.nsIPrefBranch;
     const prefB = Components.classes["@mozilla.org/preferences-service;1"]
                             .getService(nsIPrefBranch);
-    switch (prefB.getPrefType(aPrefName)) {
-        case nsIPrefBranch.PREF_BOOL:
-            return prefB.getBoolPref(aPrefName);
-        case nsIPrefBranch.PREF_INT:
-            return prefB.getIntPref(aPrefName);
-        case nsIPrefBranch.PREF_STRING:
-            return prefB.getCharPref(aPrefName);
-        default: // includes nsIPrefBranch.PREF_INVALID
-            return aDefault;
+    var value;
+    try {
+        switch (prefB.getPrefType(aPrefName)) {
+            case nsIPrefBranch.PREF_BOOL:
+                value = prefB.getBoolPref(aPrefName);
+                break;
+            case nsIPrefBranch.PREF_INT:
+                value = prefB.getIntPref(aPrefName);
+                break;
+            case nsIPrefBranch.PREF_STRING:
+                value = prefB.getCharPref(aPrefName);
+                break;
+            default: // includes nsIPrefBranch.PREF_INVALID
+                return aDefault;
+        }
+        return value;
+    } catch(ex) {
+        return aDefault;
     }
 }
 
@@ -250,34 +259,29 @@ function calGetString(aBundleName, aStringName)
     Otherwise return the previous ocurrence. **/
 function getCurrentNextOrPreviousRecurrence(calendarEvent)
 {
-    var isValid = false;
-    var eventStartDate;
-
-    if (calendarEvent.recur) {
-        var now = new Date();
-        var result = new Object();
-        var dur = calendarEvent.endDate.jsDate - calendarEvent.startDate.jsDate;
-
-        // To find current event when now is during event, look for occurrence
-        // starting duration ago.
-        var probeTime = now.getTime() - dur;
-        isValid = calendarEvent.getNextRecurrence(probeTime, result);
-
-        if (isValid) {
-            eventStartDate = new Date(result.value);
-        } else {
-            isValid = calendarEvent.getPreviousOccurrence(probeTime, result);
-            if (isValid) {
-                eventStartDate = new Date(result.value);
-            }
-        }
+    if (!calendarEvent.recurrenceInfo) {
+        return calendarEvent;
     }
-   
-    if (!isValid) {
-        eventStartDate = new Date( calendarEvent.startDate.jsDate );
+
+    var dur = calendarEvent.duration.clone();
+    dur.isNegative = true;
+
+    // To find current event when now is during event, look for occurrence
+    // starting duration ago.
+    var probeTime = now();
+    probeTime.addDuration(dur);
+    //XXX getNextOccurrence doesn't work, bug 337346
+    //var occ = calendarEvent.recurrenceInfo.getNextOccurrence(probeTime);
+    var occtime = calendarEvent.recurrenceInfo.getNextOccurrenceDate(probeTime);
+
+    var occ;
+    if (!occtime) {
+        var occs = calendarEvent.recurrenceInfo.getOccurrences(calendarEvent.startDate, probeTime, {});
+        occ = occs[occs.length -1];
+    } else {
+        occ = calendarEvent.recurrenceInfo.getOccurrenceFor(occtime);
     }
-      
-    return eventStartDate;
+    return occ;
 }
 
 //
@@ -526,4 +530,13 @@ function setDefaultAlarmValues(aItem)
                 "Failed to apply default alarm settings to task: " + ex);
         }
     }
+}
+
+/**
+ * Opens the print dialog
+ */
+function calPrint()
+{
+    window.openDialog("chrome://calendar/content/printDialog.xul", "Print",
+                      "centerscreen,chrome,resizable");
 }

@@ -119,10 +119,6 @@ var gChromeState = null; // chrome state before we went into print preview
 
 var gSanitizeListener = null;
 
-var gFormFillPrefListener = null;
-var gFormHistory = null;
-var gFormFillEnabled = true;
-
 var gURLBarAutoFillPrefListener = null;
 var gAutoHideTabbarPrefListener = null;
 
@@ -1041,11 +1037,6 @@ function delayedStartup()
 
   var pbi = gPrefService.QueryInterface(Components.interfaces.nsIPrefBranchInternal);
 
-  // Enable/Disable Form Fill
-  gFormFillPrefListener = new FormFillPrefListener();
-  pbi.addObserver(gFormFillPrefListener.domain, gFormFillPrefListener, false);
-  gFormFillPrefListener.toggleFormFill();
-
   // Enable/Disable URL Bar Auto Fill
   gURLBarAutoFillPrefListener = new URLBarAutoFillPrefListener();
   pbi.addObserver(gURLBarAutoFillPrefListener.domain, gURLBarAutoFillPrefListener, false);
@@ -1163,7 +1154,6 @@ function BrowserShutdown()
 
   try {
     var pbi = gPrefService.QueryInterface(Components.interfaces.nsIPrefBranchInternal);
-    pbi.removeObserver(gFormFillPrefListener.domain, gFormFillPrefListener);
     pbi.removeObserver(gURLBarAutoFillPrefListener.domain, gURLBarAutoFillPrefListener);
     pbi.removeObserver(gAutoHideTabbarPrefListener.domain, gAutoHideTabbarPrefListener);
     pbi.removeObserver(gHomeButton.prefDomain, gHomeButton);
@@ -1265,34 +1255,6 @@ function nonBrowserWindowDelayedStartup()
   gSanitizeListener = new SanitizeListener();
 }
 #endif
-
-function FormFillPrefListener()
-{
-  gBrowser.attachFormFill();
-}
-
-FormFillPrefListener.prototype =
-{
-  domain: "browser.formfill.enable",
-  observe: function (aSubject, aTopic, aPrefName)
-  {
-    if (aTopic != "nsPref:changed" || aPrefName != this.domain)
-      return;
-
-    this.toggleFormFill();
-  },
-
-  toggleFormFill: function ()
-  {
-    try {
-      gFormFillEnabled = gPrefService.getBoolPref(this.domain);
-    }
-    catch (e) {
-    }
-    var formController = Components.classes["@mozilla.org/satchel/form-fill-controller;1"].getService(Components.interfaces.nsIAutoCompleteInput);
-    formController.disableAutoComplete = !gFormFillEnabled;
-  }
-}
 
 function URLBarAutoFillPrefListener()
 {
@@ -3362,12 +3324,38 @@ function BrowserCustomizeToolbar()
   var cmd = document.getElementById("cmd_CustomizeToolbars");
   cmd.setAttribute("disabled", "true");
 
-  window.openDialog("chrome://global/content/customizeToolbar.xul", "CustomizeToolbar",
-                    "chrome,all,dependent", document.getElementById("navigator-toolbox"));
+#ifdef TOOLBAR_CUSTOMIZATION_SHEET
+  document.getElementById("customizeToolbarSheetBox").hidden = false;
+
+  /**
+   * XXXmano hack: when a new tab is added while the sheet is visible,
+   * the new tabpanel is overlaying the sheet. We workaround this issue by
+   * hiding and reopening the sheet when a new tab is added.
+   */
+  function TabOpenSheetHandler(aEvent) {
+    getBrowser().removeEventListener("TabOpen", TabOpenSheetHandler, false);
+
+    document.getElementById("customizeToolbarSheetIFrame")
+            .contentWindow.gCustomizeToolbarSheet.done();
+    document.getElementById("customizeToolbarSheetBox").hidden = true;
+    BrowserCustomizeToolbar();
+    
+  }
+  getBrowser().addEventListener("TabOpen", TabOpenSheetHandler, false);
+#else
+  window.openDialog("chrome://global/content/customizeToolbar.xul",
+                    "CustomizeToolbar",
+                    "chrome,all,dependent",
+                    document.getElementById("navigator-toolbox"));
+#endif
 }
 
 function BrowserToolboxCustomizeDone(aToolboxChanged)
 {
+#ifdef TOOLBAR_CUSTOMIZATION_SHEET
+  document.getElementById("customizeToolbarSheetBox").hidden = true;
+#endif
+
   // Update global UI elements that may have been added or removed
   if (aToolboxChanged) {
     gURLBar = document.getElementById("urlbar");
@@ -3437,8 +3425,10 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   bookmarksBar._init();
 #endif
 
+#ifndef TOOLBAR_CUSTOMIZATION_SHEET
   // XXX Shouldn't have to do this, but I do
   window.focus();
+#endif
 }
 
 var FullScreen =
@@ -4292,8 +4282,8 @@ var gHomeButton = {
     // use this if we can't find the pref
     if (!url) {
       var SBS = Cc["@mozilla.org/intl/stringbundle;1"].getService(Ci.nsIStringBundleService);
-      var configBundle = SBS.getBundle("resource:/browserconfig.properties");
-      url = configBundle.getString(this.prefDomain);
+      var configBundle = SBS.createBundle("resource:/browserconfig.properties");
+      url = configBundle.GetStringFromName(this.prefDomain);
     }
 
     return url;
@@ -4323,6 +4313,7 @@ function nsContextMenu( xulMenu ) {
     this.inDirList         = false;
     this.shouldDisplay     = true;
     this.isDesignMode      = false;
+    this.possibleSpellChecking = false;
 
     // Initialize new menu.
     this.initMenu( xulMenu );
@@ -4470,7 +4461,7 @@ nsContextMenu.prototype = {
         var canSpell = InlineSpellCheckerUI.canSpellCheck;
         var onMisspelling = InlineSpellCheckerUI.overMisspelling;
         this.showItem("spell-check-enabled", canSpell);
-        this.showItem("spell-separator", canSpell);
+        this.showItem("spell-separator", canSpell || this.possibleSpellChecking);
         if (canSpell)
             document.getElementById("spell-check-enabled").setAttribute("checked",
                                                                         InlineSpellCheckerUI.enabled);
@@ -4493,6 +4484,14 @@ nsContextMenu.prototype = {
             var dictMenu = document.getElementById("spell-dictionaries-menu");
             var dictSep = document.getElementById("spell-language-separator");
             InlineSpellCheckerUI.addDictionaryListToMenu(dictMenu, dictSep);
+            this.showItem("spell-add-dictionaries-main", false);
+        } else if (this.possibleSpellChecking) {
+            // when there is no spellchecker but we might be able to spellcheck
+            // add the add to dictionaries item. This will ensure that people
+            // with no dictionaries will be able to download them
+            this.showItem("spell-add-dictionaries-main", true);
+        } else {
+            this.showItem("spell-add-dictionaries-main", false);
         }
     },
     initClipboardItems : function () {
@@ -4562,6 +4561,7 @@ nsContextMenu.prototype = {
         this.inFrame           = false;
         this.hasBGImage        = false;
         this.bgImageURL        = "";
+        this.possibleSpellChecking = false;
 
         // Clear any old spellchecking items from the menu, this used to
         // be in the menu hiding code but wasn't getting called in all
@@ -4598,6 +4598,7 @@ nsContextMenu.prototype = {
                this.onTextInput = this.isTargetATextBox(this.target);
                // allow spellchecking UI on all writable text boxes except passwords
                if (this.onTextInput && ! this.target.readOnly && this.target.type != "password") {
+                   this.possibleSpellChecking = true;
                    InlineSpellCheckerUI.init(this.target.QueryInterface(Components.interfaces.nsIDOMNSEditableElement).editor);
                    InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
                }
@@ -4605,6 +4606,7 @@ nsContextMenu.prototype = {
             } else if ( this.target instanceof HTMLTextAreaElement ) {
                  this.onTextInput = true;
                  if (! this.target.readOnly) {
+                     this.possibleSpellChecking = true;
                      InlineSpellCheckerUI.init(this.target.QueryInterface(Components.interfaces.nsIDOMNSEditableElement).editor);
                      InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
                  }
@@ -4760,6 +4762,7 @@ nsContextMenu.prototype = {
             this.inFrame           = false;
             this.hasBGImage        = false;
             this.isDesignMode      = true;
+            this.possibleSpellChecking = true;
             InlineSpellCheckerUI.init(editingSession.getEditorForWindow(win));
             var canSpell = InlineSpellCheckerUI.canSpellCheck;
             InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
@@ -6563,13 +6566,21 @@ var FeedHandler = {
 #ifndef MOZ_PLACES
   /**
    * Adds a Live Bookmark to a feed
-   * @param   url
-   *          The URL of the feed being bookmarked
+   * @param     url
+   *            The URL of the feed being bookmarked
+   * @title     title
+   *            The title of the feed. Optional.
+   * @subtitle  subtitle
+   *            A short description of the feed. Optional.
    */
-  addLiveBookmark: function(url) {
+  addLiveBookmark: function(url, feedTitle, feedSubtitle) {
     var doc = gBrowser.selectedBrowser.contentDocument;
-    var title = doc.title;
-    var description = BookmarksUtils.getDescriptionFromDocument(doc);
+    var title = (arguments.length > 1) ? feedTitle : doc.title;
+    var description;
+    if (arguments.length > 2)
+      description = feedSubtitle;
+    else
+      description = BookmarksUtils.getDescriptionFromDocument(doc);
     BookmarksUtils.addLivemark(doc.baseURI, url, title, description);
   },
 #endif
@@ -6594,8 +6605,6 @@ var FeedHandler = {
    */
   updateFeeds: function() {
     var feedButton = document.getElementById("feed-button");
-    if (!feedButton)
-      return;
     if (!this._feedMenuitem)
       this._feedMenuitem = document.getElementById("subscribeToPageMenuitem");
     if (!this._feedMenupopup)
@@ -6603,30 +6612,37 @@ var FeedHandler = {
 
     var feeds = gBrowser.mCurrentBrowser.feeds;
     if (!feeds || feeds.length == 0) {
-      feedButton.removeAttribute("feeds");
-      feedButton.removeAttribute("feed");
-      feedButton.setAttribute("tooltiptext", 
-                              gNavigatorBundle.getString("feedNoFeeds"));
+      if (feedButton) {
+        feedButton.removeAttribute("feeds");
+        feedButton.removeAttribute("feed");
+        feedButton.setAttribute("tooltiptext", 
+                                gNavigatorBundle.getString("feedNoFeeds"));
+      }
       this._feedMenuitem.setAttribute("disabled", "true");
       this._feedMenupopup.setAttribute("hidden", "true");
       this._feedMenuitem.removeAttribute("hidden");
     } else {
-      feedButton.setAttribute("feeds", "true");
-      feedButton.setAttribute("tooltiptext", 
+      if (feedButton) {
+        feedButton.setAttribute("feeds", "true");
+        feedButton.setAttribute("tooltiptext", 
 #ifdef MOZ_FEEDS
-                              gNavigatorBundle.getString("feedHasFeedsNew"));
+                                gNavigatorBundle.getString("feedHasFeedsNew"));
 #else
-                              gNavigatorBundle.getString("feedHasFeeds"));
+                                gNavigatorBundle.getString("feedHasFeeds"));
 #endif
+      }
       // check for dupes before we pick which UI to expose
       feeds = this.harvestFeeds(feeds);
       
       if (feeds.length > 1) {
         this._feedMenuitem.setAttribute("hidden", "true");
         this._feedMenupopup.removeAttribute("hidden");
-        feedButton.removeAttribute("feed");
+        if (feedButton)
+          feedButton.removeAttribute("feed");
       } else {
-        feedButton.setAttribute("feed", feeds[0].href);
+        if (feedButton)
+          feedButton.setAttribute("feed", feeds[0].href);
+
         this._feedMenuitem.setAttribute("feed", feeds[0].href);
         this._feedMenuitem.removeAttribute("disabled");
         this._feedMenuitem.removeAttribute("hidden");
@@ -6875,17 +6891,12 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
   undoPopup.parentNode.removeAttribute("disabled");
 
   // populate menu
-  var undoItems = ss.getClosedTabData(window);
-  var keys = undoItems.getKeys({});
-  for (var i = 0; i < keys.length; i++) {
-    var key = keys[i];
-    var tabData = undoItems.getValue(key).wrappedJSObject;
+  var undoItems = eval("(" + ss.getClosedTabData(window) + ")");
+  for (var i = 0; i < undoItems.length; i++) {
     var m = undoPopup.appendChild(document.createElement("menuitem"));
-    m.setAttribute("label", tabData.title);
-    m.setAttribute("value", key);
-    m.addEventListener("command", function(aEvent) { 
-      undoCloseTab(aEvent.originalTarget.getAttribute("value"));
-    }, false);
+    m.setAttribute("label", undoItems[i].title);
+    m.setAttribute("value", i);
+    m.setAttribute("oncommand", "undoCloseTab(" + i + ");");
   }
 
   // "open in tabs"
@@ -6895,7 +6906,7 @@ HistoryMenu.populateUndoSubmenu = function PHM_populateUndoSubmenu() {
   m.setAttribute("label", strings.getString("menuOpenInTabs.label"));
   m.setAttribute("accesskey", strings.getString("menuOpenInTabs.accesskey"));
   m.addEventListener("command", function() {
-    for (var i = 0; i < keys.length; i++)
+    for (var i = 0; i < undoItems.length; i++)
       undoCloseTab();
   }, false);
 }

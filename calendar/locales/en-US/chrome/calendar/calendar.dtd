@@ -353,6 +353,7 @@
 <!ENTITY calendar.menu.options.modify           "Edit" >
 <!ENTITY calendar.menu.options.remove           "Delete" >
 <!ENTITY calendar.menu.options.close            "Close Window" >
+<!ENTITY calendar.menu.options.close.mac        "Close" >
 <!ENTITY calendar.menu.options.close.key        "W">
 <!ENTITY calendar.menu.options.close.accesskey  "C" >
 
@@ -559,14 +560,15 @@
 
 <!-- Calendar Printing -->
 <!ENTITY calendar.print.window.title "Print A Calendar">
-<!ENTITY calendar.print.title.label "Title">
-<!ENTITY calendar.print.layout.label "Layout">
-<!ENTITY calendar.print.range.label "Range to print">
+<!ENTITY calendar.print.title.label "Title:">
+<!ENTITY calendar.print.layout.label "Layout:">
+<!ENTITY calendar.print.range.label "What to Print">
 <!ENTITY calendar.print.currentview.label "Events in current view">
 <!ENTITY calendar.print.selected.label "Selected events">
-<!ENTITY calendar.print.custom.label "Custom:">
+<!ENTITY calendar.print.custom.label "Custom date range:">
 <!ENTITY calendar.print.from.label "From:">
 <!ENTITY calendar.print.to.label "To:">
+<!ENTITY calendar.print.settingsGroup.label "Print Settings">
 
 <!-- Error reporting -->
 <!ENTITY calendar.error.detail "Details...">
