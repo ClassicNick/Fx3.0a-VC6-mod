@@ -110,18 +110,30 @@ use constant REQUIRED_CREATE_FIELDS => qw(
 
 # There are also other, more complex validators that are called
 # from run_create_validators.
-use constant VALIDATORS => {
-    alias          => \&_check_alias,
-    bug_file_loc   => \&_check_bug_file_loc,
-    bug_severity   => \&_check_bug_severity,
-    deadline       => \&_check_deadline,
-    estimated_time => \&_check_estimated_time,
-    op_sys         => \&_check_op_sys,
-    priority       => \&_check_priority,
-    remaining_time => \&_check_remaining_time,
-    rep_platform   => \&_check_rep_platform,
-    short_desc     => \&_check_short_desc,
-    status_whiteboard => \&_check_status_whiteboard,
+sub VALIDATORS {
+    my $validators = {
+        alias          => \&_check_alias,
+        bug_file_loc   => \&_check_bug_file_loc,
+        bug_severity   => \&_check_bug_severity,
+        cc             => \&_check_cc,
+        deadline       => \&_check_deadline,
+        estimated_time => \&_check_estimated_time,
+        op_sys         => \&_check_op_sys,
+        priority       => \&_check_priority,
+        product        => \&_check_product,
+        remaining_time => \&_check_remaining_time,
+        rep_platform   => \&_check_rep_platform,
+        short_desc     => \&_check_short_desc,
+        status_whiteboard => \&_check_status_whiteboard,
+    };
+
+    my @select_fields = Bugzilla->get_fields({custom => 1, obsolete => 0,
+                                              type => FIELD_TYPE_SINGLE_SELECT});
+
+    foreach my $field (@select_fields) {
+        $validators->{$field->name} = \&_check_select_field;
+    }
+    return $validators;
 };
 
 # Used in LogActivityEntry(). Gives the max length of lines in the
@@ -223,12 +235,34 @@ sub new {
 #                     user is not a member of the timetrackinggroup.
 # C<deadline>       - For time-tracking. Will be ignored for the same
 #                     reasons as C<estimated_time>.
+sub create {
+    my $class  = shift;
+    my $dbh = Bugzilla->dbh;
+
+    $class->check_required_create_fields(@_);
+    my $params = $class->run_create_validators(@_);
+
+    # "cc" is not a field in the bugs table, so we don't pass it to
+    # insert_create_data.
+    my $cc_ids = $params->{cc};
+    delete $params->{cc};
+
+    my $bug = $class->insert_create_data($params);
+
+    my $sth_cc = $dbh->prepare('INSERT INTO cc (bug_id, who) VALUES (?,?)');
+    foreach my $user_id (@$cc_ids) {
+        $sth_cc->execute($bug->bug_id, $user_id);
+    }
+
+    return $bug;
+}
+
 
 sub run_create_validators {
     my $class  = shift;
-    my $params = shift;
+    my $params = $class->SUPER::run_create_validators(@_);
 
-    my $product = $class->_check_product($params->{product});
+    my $product = $params->{product};
     $params->{product_id} = $product->id;
     delete $params->{product};
 
@@ -254,8 +288,10 @@ sub run_create_validators {
     $params->{delta_ts} = $params->{creation_ts};
     $params->{remaining_time} = $params->{estimated_time};
 
-    unshift @_, $params;
-    return $class->SUPER::run_create_validators(@_);
+    $class->_check_strict_isolation($product, $params->{cc},
+                                    $params->{assigned_to}, $params->{qa_contact});
+
+    return $params;
 }
 
 # This is the correct way to delete bugs from the DB.
@@ -631,6 +667,12 @@ sub _check_version {
     return $version;
 }
 
+sub _check_select_field {
+    my ($invocant, $value, $field) = @_;
+    $value = trim($value);
+    check_field($field, $value);
+    return $value;
+}
 
 #####################################################################
 # Class Accessors

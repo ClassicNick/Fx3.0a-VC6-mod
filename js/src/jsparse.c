@@ -702,7 +702,7 @@ FunctionBody(JSContext *cx, JSTokenStream *ts, JSFunction *fun,
     JSStackFrame *fp, frame;
     JSObject *funobj;
     JSStmtInfo stmtInfo;
-    uintN oldflags;
+    uintN oldflags, firstLine;
     JSParseNode *pn;
 
     fp = cx->fp;
@@ -730,6 +730,13 @@ FunctionBody(JSContext *cx, JSTokenStream *ts, JSFunction *fun,
     oldflags = tc->flags;
     tc->flags &= ~(TCF_RETURN_EXPR | TCF_RETURN_VOID);
     tc->flags |= TCF_IN_FUNCTION;
+
+    /*
+     * Save the body's first line, and store it in pn->pn_pos.begin.lineno
+     * later, because we may have not peeked in ts yet, so Statements won't
+     * acquire a valid pn->pn_pos.begin from the current token.
+     */
+    firstLine = ts->lineno;
     pn = Statements(cx, ts, tc);
 
     js_PopStatement(tc);
@@ -745,14 +752,17 @@ FunctionBody(JSContext *cx, JSTokenStream *ts, JSFunction *fun,
      * function's code.  We must do this here, not in js_CompileFunctionBody,
      * in order to detect TCF_IN_FUNCTION among tc->flags.
      */
-    if (pn && (tc->flags & TCF_COMPILING)) {
-        JSCodeGenerator *cg = (JSCodeGenerator *) tc;
+    if (pn) {
+        pn->pn_pos.begin.lineno = firstLine;
+        if ((tc->flags & TCF_COMPILING)) {
+            JSCodeGenerator *cg = (JSCodeGenerator *) tc;
 
-        if (!js_FoldConstants(cx, pn, tc) ||
-            !js_AllocTryNotes(cx, cg) ||
-            !js_EmitTree(cx, cg, pn) ||
-            js_Emit1(cx, cg, JSOP_STOP) < 0) {
-            pn = NULL;
+            if (!js_FoldConstants(cx, pn, tc) ||
+                !js_AllocTryNotes(cx, cg) ||
+                !js_EmitTree(cx, cg, pn) ||
+                js_Emit1(cx, cg, JSOP_STOP) < 0) {
+                pn = NULL;
+            }
         }
     }
 
@@ -5534,9 +5544,22 @@ PrimaryExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
             return NULL;
 
         MUST_MATCH_TOKEN(TOK_RP, JSMSG_PAREN_IN_PAREN);
-        pn->pn_type = TOK_RP;
-        pn->pn_pos.end = CURRENT_TOKEN(ts).pos.end;
-        pn->pn_kid = pn2;
+        if (pn2->pn_type == TOK_RP) {
+            /*
+             * Avoid redundant JSOP_GROUP opcodes, for efficiency and mainly
+             * to help the decompiler look ahead from a JSOP_ENDINIT to see a
+             * JSOP_GROUP followed by a POP or POPV.  That sequence means the
+             * parentheses are mandatory, to disambiguate object initialisers
+             * as expression statements from block statements.
+             */
+            pn->pn_kid = NULL;
+            RecycleTree(pn, tc);
+            pn = pn2;
+        } else {
+            pn->pn_type = TOK_RP;
+            pn->pn_pos.end = CURRENT_TOKEN(ts).pos.end;
+            pn->pn_kid = pn2;
+        }
         break;
 
 #if JS_HAS_XML_SUPPORT
@@ -6148,6 +6171,8 @@ js_FoldConstants(JSContext *cx, JSParseNode *pn, JSTreeContext *tc)
 
       case TOK_HOOK:
         /* Reduce 'if (C) T; else E' into T for true C, E for false. */
+        while (pn1->pn_type == TOK_RP)
+            pn1 = pn1->pn_kid;
         switch (pn1->pn_type) {
           case TOK_NUMBER:
             if (pn1->pn_dval == 0)

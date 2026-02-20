@@ -48,6 +48,10 @@
   <!ENTITY % dtd3 SYSTEM "chrome://calendar/locale/calendar.dtd" > %dtd3;
 ]>
 
+<!-- This is used so that we can reuse the Thunderbird Notification bar style
+   - for our iMIP warning -->
+<?xml-stylesheet href="chrome://messenger/skin/primaryToolbar.css" type="text/css"?>
+<?xml-stylesheet href="chrome://messenger/skin/messageHeader.css" type="text/css"?>
 
 <?xml-stylesheet href="chrome://lightning/skin/lightning.css" type="text/css"?>
 
@@ -70,19 +74,47 @@
 <script type="application/x-javascript" src="chrome://lightning/content/calendar-management.js"/>
 <script type="application/x-javascript" src="chrome://lightning/content/messenger-overlay-sidebar.js"/>
 <script type="application/x-javascript" src="chrome://calendar/content/calendar-views.js"/>
+<script type="application/x-javascript" src="chrome://lightning/content/imip-bar.js"/>
 <window id="messengerWindow">
   <commandset id="calendar_commands">
     <command id="publish_calendar" oncommand="ltnPublishCalendar()"/>
     <command id="import_command" oncommand="loadEventsFromFile()"/>
     <command id="export_command" oncommand="exportEntireCalendar()"/>
+    <command id="reload_remote_calendars" oncommand="getCompositeCalendar().refresh();"/>
   </commandset>
 
   <popupset>
+    <!-- Popup for Calendars tab -->
     <popup id="calendartree-context-menu" onpopupshowing="return true;">
-      <menuitem label="&calendar.publish.label;" observes="publish_calendar"/>
-      <menuitem label="&calendar.import.into.label;" oncommand="loadEventsFromFile(ltnSelectedCalendar())"/>
-      <menuitem label="&calendar.export.specific.calendar;" oncommand="exportEntireCalendar(ltnSelectedCalendar())"/>
+      <menuitem id="calpopup-new"
+                label="&calendar.context.newserver.label;" 
+                accesskey="&calendar.context.newserver.accesskey;"
+                oncommand="ltnNewCalendar();"/>
+      <menuitem id="calpopup-delete"
+                label="&calendar.context.deleteserver.label;" 
+                accesskey="&calendar.context.deleteserver.accesskey;"
+                oncommand="ltnDeleteSelectedCalendar();"/>
+      <menuseparator/>
+      <menuitem id="calpopup-export"
+                label="&calendar.context.export.label;" 
+                accesskey="&calendar.context.export.accesskey;"
+                oncommand="exportEntireCalendar(ltnSelectedCalendar())"/>
+      <menuitem id="calpopup-publish"
+                label="&calendar.context.publish.label;" 
+                accesskey="&calendar.context.publish.accesskey;"
+                observes="publish_calendar"/>
+      <menuseparator/>
+      <menuitem id="calpopup-reload"
+                label="&calendar.context.reloadserver.label;"
+                accesskey="&calendar.context.reloadserver.accesskey;"
+                observes="reload_remote_calendars"/>
+      <menuseparator/>
+      <menuitem id="calpopup-edit"
+                label="&calendar.context.properties.label;" 
+                accesskey="&calendar.context.properties.accesskey;"
+                oncommand="ltnEditSelectedCalendar();"/>
     </popup>
+
     <popup id="calendar-view-context-menu" onpopupshowing="return true;">
       <!-- These labels are set dynamically, based on the current view -->
       <menuitem id="context_previous" label="" oncommand="moveView(-1)" disabled="true"
@@ -115,17 +147,17 @@
   <splitter id="folderpaneCalendarSplitter" collapse="after" persist="state"/>
 
   <vbox id="ltnSidebar" height="350" persist="height">
-    <hbox>
+    <hbox id="ltnMinimonthBox">
       <spacer flex="1"/>
       <minimonth id="ltnMinimonth" onchange="ltnMinimonthPick(this);" flex="2"/>
       <spacer flex="1"/>
     </hbox>
-    <hbox>
+    <hbox id="ltnDateTextPickerBox">
       <spacer width="10"/>
       <datetextpicker flex="1" id="ltnDateTextPicker" oncommand="ltnGoToDate()"/>
     </hbox>
 
-    <tabbox flex="1">
+    <tabbox id="ltnTabpanelBox" flex="1">
       <tabs>
         <tab label="&lightning.sidebar.agenda.label;"/>
         <tab label="&lightning.sidebar.todo.label;"/>
@@ -134,9 +166,10 @@
       <tabpanels flex="1">
         <vbox id="agenda-tab-panel"/>    
         <vbox id="todo-tab-panel"/>
-        <vbox flex="1">
-          <hbox>
-            <button label="&lightning.sidebar.new.label;" oncommand="ltnNewCalendar();"/>
+        <vbox id="calendar-tab-panel" flex="1">
+          <hbox id="ltnCalendarButtonsBox">
+            <button id="cal-sidebar-new-calendar" label="&lightning.sidebar.new.label;" 
+                    oncommand="ltnNewCalendar();"/>
             <button id="cal-sidebar-edit-calendar" label="&lightning.sidebar.edit.label;" 
                     oncommand="ltnEditSelectedCalendar();"/>
             <spacer orient="horizontal" flex="5"/>
@@ -176,6 +209,26 @@
                                    item-context="calendar-item-context-menu"/>
   </deck>
 </deck>
+
+<vbox id="messagepanebox">
+  <hbox id="imip-bar" collapsed="true" insertbefore="msgHeaderView">
+    <hbox id="imip-notificationbar"
+          align="center"
+          class="iMipNotificationBar"
+          flex="1">
+      <image id="lightningImage"
+             src="chrome://lightning/skin/cal-icon16.png"/>
+      <description id="imip-description"
+                   class="msgNotificationBarText"
+                   flex="1">
+        &lightning.imipbar.description;
+      </description>
+      <spacer flex="1"/>
+      <button id="imip-btn1" align="right"/>
+    </hbox>
+  </hbox>
+</vbox>
+
 </overlay>
 
 <!-- -*- Mode: xml; sgml-ident-step: 2; indent-tabs-mode: nil; -*- -->
