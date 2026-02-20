@@ -1313,7 +1313,7 @@ function my_list(word, file)
         this._list.file = new LocalFile(lfile.localFile, ">");
     }
 
-    if (word instanceof RegExp)
+    if (isinstance(word, RegExp))
     {
         this._list.regexp = word;
         this._list.string = "";
@@ -2942,6 +2942,14 @@ function my_dccfiledisconnect(e)
 }
 
 var CopyPasteHandler = new Object();
+
+CopyPasteHandler.allowDrop =
+CopyPasteHandler.allowStartDrag =
+CopyPasteHandler.onCopyOrDrag =
+function phand_bogus()
+{
+    return true;
+}
 
 CopyPasteHandler.onPasteOrDrop =
 function phand_onpaste(e, data)
