@@ -500,9 +500,7 @@ nsXFormsSubmissionElement::LoadReplaceInstance(nsIChannel *channel)
   nsCOMPtr<nsIURI> uri;
   nsresult rv = channel->GetURI(getter_AddRefs(uri));
   NS_ENSURE_SUCCESS(rv, rv);
-
-  // XXXbz is this the right principal?
-  rv = parser->Init(nsnull, uri, nsnull);
+  rv = parser->SetBaseURI(uri);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIDOMDocument> newDoc;
