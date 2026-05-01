@@ -70,6 +70,7 @@ private:
   FARPROC mGetMonitorInfoProc;
   FARPROC mMonitorFromRectProc;
   FARPROC mEnumDisplayMonitorsProc;
+  FARPROC mMonitorFromWindowProc;
 
     // cache the screens to avoid the memory allocations
   nsAutoVoidArray mScreenList;
