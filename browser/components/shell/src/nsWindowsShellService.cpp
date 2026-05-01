@@ -59,6 +59,7 @@
 #include "nsNativeCharsetUtils.h"
 #include "nsDirectoryServiceUtils.h"
 #include "nsAppDirectoryServiceDefs.h"
+#include "shlobj.h"
 
 #include <mbstring.h>
 
@@ -69,9 +70,6 @@
 #define MIDL_INTERFACE(x)   struct
 #endif //_MSC_VER
 #endif //MIDL_INTERFACE
-
-#define MOZ_HWND_BROADCAST_MSG_TIMEOUT 5000
-#define MOZ_BACKUP_REGISTRY "SOFTWARE\\Mozilla\\Desktop"
 
 #ifndef MAX_BUF
 #define MAX_BUF 4096
@@ -298,11 +296,9 @@ static SETTING gSettings[] = {
   //     firefox.exe\shell\safemode          (default)   REG_SZ  Firefox &Safe Mode
 };
 
- 
-#ifndef __shobjidl_h__
 
-// This block should be removed when our build environment
-// is migrated to the latest windows sdk.
+// Support for versions of shlobj.h that don't include the Vista API's
+#if !defined(IApplicationAssociationRegistration)
 
 typedef enum tagASSOCIATIONLEVEL
 {
@@ -399,18 +395,6 @@ nsWindowsShellService::SetDefaultBrowserVista()
   return PR_FALSE;
 }
 
-PRBool
-nsWindowsShellService::RestoreFileSettingsVista()
-{
-  // With the new vista API, there is no need to restore file setting.
-  
-  if (GetVersion() >= 6)
-    return PR_TRUE;
-  
-  return PR_FALSE;
-}
-
-
 NS_IMETHODIMP
 nsWindowsShellService::IsDefaultBrowser(PRBool aStartupCheck, PRBool* aIsDefaultBrowser)
 {
@@ -487,11 +471,6 @@ nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUs
   if (SetDefaultBrowserVista())
     return NS_OK;
 
-  // Locate the Backup key
-  HKEY backupKey;
-  nsresult rv = OpenKeyForWriting(MOZ_BACKUP_REGISTRY, &backupKey, aForAllUsers, PR_TRUE);
-  if (NS_FAILED(rv) && rv != NS_ERROR_FILE_NOT_FOUND) return rv;
-
   SETTING* settings;
   SETTING* end = gSettings + sizeof(gSettings)/sizeof(SETTING);
 
@@ -524,20 +503,20 @@ nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUs
     }
 
     PRBool replaceExisting = aClaimAllTypes ? PR_TRUE : !(settings->flags & NON_ESSENTIAL);
-    SetRegKey(key.get(), settings->valueName, data.get(),
-              PR_TRUE, backupKey, replaceExisting, aForAllUsers);
+    SetRegKey(key.get(), settings->valueName, data.get(), replaceExisting,
+              aForAllUsers);
   }
 
   // Select the Default Browser for the Windows XP Start Menu
-  SetRegKey(NS_LITERAL_CSTRING(SMI).get(), "", exeName.get(), PR_TRUE, 
-            backupKey, aClaimAllTypes, aForAllUsers);
+  SetRegKey(NS_LITERAL_CSTRING(SMI).get(), "", exeName.get(), aClaimAllTypes,
+            aForAllUsers);
 
   nsCOMPtr<nsIStringBundleService> bundleService(do_GetService("@mozilla.org/intl/stringbundle;1"));
   if (!bundleService)
     return NS_ERROR_FAILURE;
 
   nsCOMPtr<nsIStringBundle> bundle, brandBundle;
-  rv = bundleService->CreateBundle(SHELLSERVICE_PROPERTIES, getter_AddRefs(bundle));
+  nsresult rv = bundleService->CreateBundle(SHELLSERVICE_PROPERTIES, getter_AddRefs(bundle));
   NS_ENSURE_SUCCESS(rv, rv);
   rv = bundleService->CreateBundle(BRAND_PROPERTIES, getter_AddRefs(brandBundle));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -553,8 +532,8 @@ nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUs
   nsCAutoString key1(NS_LITERAL_CSTRING(SMI));
   key1.Append(exeName);
   key1.Append("\\");
-  SetRegKey(key1.get(), "", nativeFullName.get(), PR_TRUE, 
-            backupKey, aClaimAllTypes, aForAllUsers);
+  SetRegKey(key1.get(), "", nativeFullName.get(), aClaimAllTypes,
+            aForAllUsers);
 
   // Set the Options and Safe Mode start menu context menu item labels
   nsCAutoString optionsKey(NS_LITERAL_CSTRING(SMI "%APPEXE%\\shell\\properties"));
@@ -582,75 +561,21 @@ nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUs
   nsCAutoString nativeTitle;
   // For the now, we use 'A' APIs (see bug 240272,  239279)
   NS_CopyUnicodeToNative(optionsTitle, nativeTitle);
-  SetRegKey(optionsKey.get(), "", nativeTitle.get(), PR_TRUE, backupKey,
-            aClaimAllTypes, aForAllUsers);
+  SetRegKey(optionsKey.get(), "", nativeTitle.get(), aClaimAllTypes,
+            aForAllUsers);
   // For the now, we use 'A' APIs (see bug 240272,  239279)
   NS_CopyUnicodeToNative(safeModeTitle, nativeTitle);
-  SetRegKey(safeModeKey.get(), "", nativeTitle.get(), PR_TRUE, backupKey,
-            aClaimAllTypes, aForAllUsers);
-
-  // Close the key we opened.
-  ::RegCloseKey(backupKey);
+  SetRegKey(safeModeKey.get(), "", nativeTitle.get(), aClaimAllTypes,
+            aForAllUsers);
 
   // Refresh the Shell
-  ::SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, NULL,
-                       (LPARAM)"SOFTWARE\\Clients\\StartMenuInternet",
-                       SMTO_NORMAL|SMTO_ABORTIFHUNG,
-                       MOZ_HWND_BROADCAST_MSG_TIMEOUT, NULL);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsWindowsShellService::RestoreFileSettings(PRBool aForAllUsers)
-{
-  if (RestoreFileSettingsVista())
-    return NS_OK;
-
-  // Locate the Backup key
-  HKEY backupKey;
-  nsresult rv = OpenKeyForWriting(MOZ_BACKUP_REGISTRY, &backupKey, aForAllUsers, PR_FALSE);
-  if (NS_FAILED(rv)) return rv;
-
-  DWORD i = 0;
-  do {
-    char origKeyName[MAX_BUF];
-    DWORD len = sizeof origKeyName;
-    DWORD result = ::RegEnumValue(backupKey, i++, origKeyName, &len, 0, 0, 0, 0);
-    if (REG_SUCCEEDED(result)) {
-      char origValue[MAX_BUF];
-      DWORD len = sizeof origValue;
-      result = ::RegQueryValueEx(backupKey, origKeyName, NULL, NULL, (LPBYTE)origValue, &len);
-      if (REG_SUCCEEDED(result)) {
-        HKEY origKey;
-        result = ::RegOpenKeyEx(NULL, origKeyName, 0, KEY_READ, &origKey);
-        if (REG_SUCCEEDED(result))
-        {
-          result = ::RegSetValueEx(origKey, "", 0, REG_SZ, (LPBYTE)origValue, len);
-          // Close the key we opened.
-          ::RegCloseKey(origKey);
-        }
-      }
-    }
-    else
-      break;
-  }
-  while (1);
-  
-  // Close the key we opened.
-  ::RegCloseKey(backupKey);
-
-  // Refresh the Shell
-  ::SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, NULL,
-                       (LPARAM)"SOFTWARE\\Clients\\StartMenuInternet",
-                       SMTO_NORMAL|SMTO_ABORTIFHUNG,
-                       MOZ_HWND_BROADCAST_MSG_TIMEOUT, NULL);
+  SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0);
   return NS_OK;
 }
 
 void
 nsWindowsShellService::SetRegKey(const char* aKeyName, const char* aValueName, 
-                                 const char* aValue, PRBool aBackup,
-                                 HKEY aBackupKey, PRBool aReplaceExisting,
+                                 const char* aValue, PRBool aReplaceExisting,
                                  PRBool aForAllUsers)
 {
   char buf[MAX_BUF];
@@ -667,10 +592,6 @@ nsWindowsShellService::SetRegKey(const char* aKeyName, const char* aValueName,
 
   // Get the old value
   DWORD result = ::RegQueryValueEx(theKey, aValueName, NULL, NULL, (LPBYTE)buf, &len);
-
-  // Back up the old value
-  if (aBackup && REG_SUCCEEDED(result))
-    ::RegSetValueEx(aBackupKey, aKeyName, 0, REG_SZ, (LPBYTE)buf, len);
 
   // Set the new value
   if (REG_FAILED(result) || strcmp(buf, aValue) != 0)

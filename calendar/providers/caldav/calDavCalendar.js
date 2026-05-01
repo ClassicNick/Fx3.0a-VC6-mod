@@ -24,6 +24,8 @@
  *   Dan Mosedale <dan.mosedale@oracle.com>
  *   Mike Shaver <mike.x.shaver@oracle.com>
  *   Gary van der Merwe <garyvdm@gmail.com>
+ *   Bruno Browning <browning@uwalumni.com>
+ *   Matthew Willis <lilmatt@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -88,6 +90,12 @@ function makeOccurrence(item, start, end)
 const START_OF_TIME = -0x7fffffffffffffff;
 const END_OF_TIME = 0x7fffffffffffffff;
 
+// used by mAuthenticationStatus
+const kCaldavNoAuthentication = 0;
+const kCaldavFirstRequestSent = 1;      // Queueing subsequent requests
+const kCaldavFreshlyAuthenticated = 2;  // Need to process queue
+const kCaldavAuthenticated = 3;         // Queue being processed or empty
+
 calDavCalendar.prototype = {
     //
     // nsISupports interface
@@ -145,6 +153,11 @@ calDavCalendar.prototype = {
     set readOnly(bool) {
         this.mReadOnly = bool;
     },
+
+    // attribute PRUInt8 mAuthenticationStatus;
+    mAuthenticationStatus: 0,
+
+    mPendingStartupRequests: Array(),
 
     get canRefresh() {
         // refresh() is currently not implemented, but we may want to change that
@@ -401,9 +414,16 @@ calDavCalendar.prototype = {
             return;
         }
 
-        // XXX how are we REALLY supposed to figure this out?
         var eventUri = this.mCalendarUri.clone();
-        eventUri.spec = eventUri.spec + aItem.id + ".ics";
+        try {
+            eventUri.spec = this.mCalendarUri.spec +
+                            aItem.getProperty("X-MOZ-LOCATIONPATH");
+            LOG("using X-MOZ-LOCATIONPATH: " + eventUri.spec);
+        } catch (ex) {
+            // XXX how are we REALLY supposed to figure this out?
+            eventUri.spec = eventUri.spec + aItem.id + ".ics";
+        }
+
         var eventResource = new WebDavResource(eventUri);
 
         var listener = new WebDavListener();
@@ -619,6 +639,19 @@ calDavCalendar.prototype = {
                     LOG("reportInternal's onGetResult threw an"
                           + " exception " + ex + "; ignoring");
             }
+
+            // We have a result, so we must be authenticated
+            if (thisCalendar.mAuthenticationStatus == kCaldavFirstRequestSent) {
+                thisCalendar.mAuthenticationStatus = kCaldavFreshlyAuthenticated;
+            }
+
+            if (thisCalendar.mAuthenticationStatus == kCaldavFreshlyAuthenticated) {
+                thisCalendar.mAuthenticationStatus = kCaldavAuthenticated;
+                while (thisCalendar.mPendingStartupRequests.length > 0) {
+                    var req = thisCalendar.mPendingStartupRequests.pop();
+                    thisCalendar.getItems(req[0], req[1], req[2], req[3], req[4]);
+                }
+            }
             return;
         };
 
@@ -680,6 +713,15 @@ calDavCalendar.prototype = {
     {
         if (!aListener)
             return;
+
+        if (this.mAuthenticationStatus == kCaldavFirstRequestSent) {
+            var req = new Array(aItemFilter, aCount, aRangeStart, aRangeEnd, aListener);
+            this.mPendingStartupRequests.push(req);
+            return;
+        }
+        if (this.mAuthenticationStatus == kCaldavNoAuthentication) {
+            this.mAuthenticationStatus = kCaldavFirstRequestSent;
+        }
 
         // this is our basic report xml
         var C = new Namespace("C", "urn:ietf:params:xml:ns:caldav");

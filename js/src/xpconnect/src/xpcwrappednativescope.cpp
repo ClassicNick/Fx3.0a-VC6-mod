@@ -314,15 +314,18 @@ XPCWrappedNativeScope::FinishedMarkPhaseOfGC(JSContext* cx, XPCJSRuntime* rt)
             gDyingScopes = cur;
             cur = nsnull;
         }
-        else if(cur->mPrototypeJSObject &&
-                JS_IsAboutToBeFinalized(cx, cur->mPrototypeJSObject))
+        else
         {
-            cur->mPrototypeJSObject = nsnull;
-        }
-        else if(cur->mPrototypeJSFunction &&
-                JS_IsAboutToBeFinalized(cx, cur->mPrototypeJSFunction))
-        {
-            cur->mPrototypeJSFunction = nsnull;
+            if(cur->mPrototypeJSObject &&
+               JS_IsAboutToBeFinalized(cx, cur->mPrototypeJSObject))
+            {
+                cur->mPrototypeJSObject = nsnull;
+            }
+            if(cur->mPrototypeJSFunction &&
+               JS_IsAboutToBeFinalized(cx, cur->mPrototypeJSFunction))
+            {
+                cur->mPrototypeJSFunction = nsnull;
+            }
         }
         if(cur)
             prev = cur;

@@ -42,7 +42,6 @@
 
 #import "mozAccessibleProtocol.h"
 
-
 @class mozRootAccessible;
 
 @interface mozAccessible : NSObject <mozAccessible>
@@ -97,6 +96,9 @@
 
 // returns NO if for some reason we were unable to focus the element.
 - (BOOL)focus;
+
+// sends out a notification to listening accessible providers.
+- (void)didReceiveFocus;
 
 #pragma mark -
 

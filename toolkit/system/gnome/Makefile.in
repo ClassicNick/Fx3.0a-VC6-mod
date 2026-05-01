@@ -43,18 +43,6 @@ VPATH	  = @srcdir@
 include $(DEPTH)/config/autoconf.mk
 
 MODULE		= mozgnome
-
-XPIDLSRCS = \
-	nsIGConfService.idl \
-	nsIGnomeVFSService.idl \
-	$(NULL)
-
-
-# We always export these interfaces if we're building for gtk2, but
-# only compile the component if the required libraries are available.
-
-ifdef MOZ_ENABLE_GNOME_COMPONENT
-
 LIBRARY_NAME	= mozgnome
 FORCE_SHARED_LIB = 1
 IS_COMPONENT	= 1
@@ -81,8 +69,6 @@ EXTRA_DSO_LDOPTS += \
 		$(GLIB_LIBS) \
 		$(NULL)
 
-endif
-
 include $(topsrcdir)/config/rules.mk
 
 CXXFLAGS += \
@@ -91,4 +77,3 @@ CXXFLAGS += \
 	$(MOZ_LIBGNOME_CFLAGS) \
 	$(GLIB_CFLAGS) \
 	$(NULL)
-
