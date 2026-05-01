@@ -48,6 +48,7 @@
 #include "nsNSSCertHelper.h"
 #include "nsINSSCertCache.h"
 #include "nsIMutableArray.h"
+#include "nsArrayUtils.h"
 #include "nsISupportsPrimitives.h"
 #include "nsXPCOMCID.h"
 
@@ -716,7 +717,7 @@ nsCertTree::GetCellText(PRInt32 row, nsITreeColumn* col,
     if (NS_LITERAL_STRING("certcol").Equals(colID))
       _retval.Assign(el->orgName);
     else
-      _retval.SetCapacity(0);
+      _retval.Truncate();
     return NS_OK;
   }
   PRInt32 colIndex;
@@ -727,9 +728,7 @@ nsCertTree::GetCellText(PRInt32 row, nsITreeColumn* col,
     mCellText->GetLength(&arrayLength);
   }
   if (arrayIndex < arrayLength) {
-    nsCOMPtr<nsISupportsString> myString;
-    mCellText->QueryElementAt(arrayIndex,
-	nsISupportsString::GetIID(), getter_AddRefs(myString));
+    nsCOMPtr<nsISupportsString> myString(do_QueryElementAt(mCellText, arrayIndex));
     if (myString) {
       myString->GetData(_retval);
       return NS_OK;

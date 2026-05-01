@@ -100,10 +100,10 @@ struct nsMargin;
 typedef class nsIFrame nsIBox;
 
 // IID for the nsIFrame interface 
-// 48813f12-5e55-46af-8527-c8f408bac999
+// {7a2119bf-6c4e-4d11-afcd-1dce2eef1676}
 #define NS_IFRAME_IID \
-{ 0x48813f12, 0x5e55, 0x46af, \
-  { 0x85, 0x27, 0xc8, 0xf4, 0x08, 0xba, 0xc9, 0x99 } }
+{ 0x7a2119bf, 0x6c4e, 0x4d11, \
+  { 0xaf, 0xcd, 0x1d, 0xce, 0x2e, 0xef, 0x16, 0x76 } };
 
 /**
  * Indication of how the frame can be split. This is used when doing runaround
@@ -850,6 +850,9 @@ public:
    */
   ContentOffsets GetContentOffsetsFromPoint(nsPoint aPoint);
 
+  virtual ContentOffsets GetContentOffsetsFromPointExternal(nsPoint aPoint)
+  { return GetContentOffsetsFromPoint(aPoint); }
+
   /**
    * This structure holds information about a cursor. mContainer represents a
    * loaded image that should be preferred. If it is not possible to use it, or
@@ -1063,11 +1066,6 @@ public:
    * @return The return value is irrelevant.
    */
   NS_IMETHOD CanContinueTextRun(PRBool& aContinueTextRun) const = 0;
-
-  // Justification helper method used to distribute extra space in a
-  // line to leaf frames. aUsedSpace is filled in with the amount of
-  // space actually used.
-  NS_IMETHOD AdjustFrameSize(nscoord aExtraSpace, nscoord& aUsedSpace) = 0;
 
   // Justification helper method that is used to remove trailing
   // whitespace before justification.

@@ -536,21 +536,6 @@ txXPathNodeUtils::getNodeType(const txXPathNode& aNode)
     return txXPathNodeType::ATTRIBUTE_NODE;
 }
 
-static void appendTextContent(nsIContent* aElement, nsAString& aResult)
-{
-    nsIContent* content = aElement->GetChildAt(0);
-    PRUint32 i = 0;
-    while (content) {
-        if (content->IsNodeOfType(nsINode::eELEMENT)) {
-            appendTextContent(content, aResult);
-        }
-        else if (content->IsNodeOfType(nsINode::eTEXT)) {
-            content->AppendTextTo(aResult);
-        }
-        content = aElement->GetChildAt(++i);
-    }
-}
-
 /* static */
 void
 txXPathNodeUtils::appendNodeValue(const txXPathNode& aNode, nsAString& aResult)
@@ -565,17 +550,12 @@ txXPathNodeUtils::appendNodeValue(const txXPathNode& aNode, nsAString& aResult)
         return;
     }
 
-    if (aNode.isDocument()) {
-        nsIContent* content = aNode.mDocument->GetRootContent();
-        if (content) {
-            appendTextContent(content, aResult);
-        }
-
-        return;
-    }
-
-    if (aNode.mContent->IsNodeOfType(nsINode::eELEMENT)) {
-        appendTextContent(aNode.mContent, aResult);
+    if (aNode.isDocument() ||
+        aNode.mContent->IsNodeOfType(nsINode::eELEMENT)) {
+        nsINode* node = aNode.isDocument() ?
+                        NS_STATIC_CAST(nsINode*, aNode.mDocument) :
+                        NS_STATIC_CAST(nsINode*, aNode.mContent);
+        nsContentUtils::AppendNodeTextContent(node, PR_TRUE, aResult);
 
         return;
     }

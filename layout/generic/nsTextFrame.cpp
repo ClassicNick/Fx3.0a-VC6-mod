@@ -387,7 +387,6 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus& aStatus);
   NS_IMETHOD CanContinueTextRun(PRBool& aContinueTextRun) const;
-  NS_IMETHOD AdjustFrameSize(nscoord aExtraSpace, nscoord& aUsedSpace);
   NS_IMETHOD TrimTrailingWhiteSpace(nsPresContext* aPresContext,
                                     nsIRenderingContext& aRC,
                                     nscoord& aDeltaWidth,
@@ -2003,6 +2002,8 @@ nsTextFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
 {
   if (!IsVisibleForPainting(aBuilder))
     return NS_OK;
+
+  DO_GLOBAL_REFLOW_COUNT_DSP("nsTextFrame");
   
   if ((0 != (mState & TEXT_BLINK_ON)) && nsBlinkTimer::GetBlinkIsOff())
     return NS_OK;
@@ -5971,13 +5972,6 @@ nsTextFrame::CanContinueTextRun(PRBool& aContinueTextRun) const
 {
   // We can continue a text run through a text frame
   aContinueTextRun = PR_TRUE;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsTextFrame::AdjustFrameSize(nscoord aExtraSpace, nscoord& aUsedSpace)
-{
-  aUsedSpace = 0;
   return NS_OK;
 }
 

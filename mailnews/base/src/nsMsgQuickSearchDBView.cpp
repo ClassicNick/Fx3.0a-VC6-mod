@@ -262,16 +262,17 @@ nsMsgQuickSearchDBView::OnSearchDone(nsresult status)
     }
     nsMsgKey *staleHits;
     PRUint32 numBadHits;
-    m_db->RefreshCache(searchUri, m_hdrHits.Count(), keyArray.GetArray(), &numBadHits, &staleHits);
-    for (i = 0; i < numBadHits; i++)
+    if (m_db)
     {
-      nsMsgViewIndex staleHitIndex = FindKey(staleHits[i], PR_TRUE);
-      if (staleHitIndex != nsMsgViewIndex_None)
-        RemoveByIndex(staleHitIndex);
+      m_db->RefreshCache(searchUri, m_hdrHits.Count(), keyArray.GetArray(), &numBadHits, &staleHits);
+      for (i = 0; i < numBadHits; i++)
+      {
+        nsMsgViewIndex staleHitIndex = FindKey(staleHits[i], PR_TRUE);
+        if (staleHitIndex != nsMsgViewIndex_None)
+          RemoveByIndex(staleHitIndex);
+      }
+      delete [] staleHits;
     }
-    delete [] staleHits;
-    // we also need to add new hits - should we have RefreshCache calculate these?
-    // or just look through the view for each hit to see if we're already displaying it?
   }
   if (m_sortType != nsMsgViewSortType::byThread)//we do not find levels for the results.
   {
@@ -376,7 +377,11 @@ nsresult nsMsgQuickSearchDBView::GetFirstMessageHdrToDisplayInThread(nsIMsgThrea
           rv = m_db->GetMsgHdrForKey(parentId, getter_AddRefs(parent));
           if (parent)
           {
+            nsMsgKey saveParentId = parentId;
             parent->GetThreadParent(&parentId);
+            // message is it's own parent - bad, let's break out of here.
+            if (parentId == saveParentId)
+              break;
             level++;
           }
         }

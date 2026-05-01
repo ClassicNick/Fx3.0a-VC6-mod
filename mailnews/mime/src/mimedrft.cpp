@@ -72,7 +72,7 @@
 #include "nsIMsgComposeService.h"
 #include "nsMsgI18N.h"
 #include "nsNativeCharsetUtils.h"
-#include "nsSpecialSystemDirectory.h"
+#include "nsDirectoryServiceDefs.h"
 #include "nsIMsgMessageService.h"
 #include "nsMsgUtils.h"
 #include "nsXPIDLString.h"
@@ -121,12 +121,22 @@ nsFileSpec *
 nsMsgCreateTempFileSpec(const char *tFileName)
 {
   //Calling NS_MsgHashIfNecessary so that when Replies are forwarded - the ':' in the subject line doesn't cause problems
-  nsFileSpec *tmpSpec = new nsFileSpec(nsSpecialSystemDirectory(nsSpecialSystemDirectory::OS_TemporaryDirectory));
-  NS_ASSERTION(tmpSpec, "out of memory");
+  nsCOMPtr<nsIFile> tmpFile;
+  nsresult rv = NS_GetSpecialDirectory(NS_OS_TEMP_DIR, getter_AddRefs(tmpFile));
+  if (NS_FAILED(rv))
+    return nsnull;
+
+  nsCOMPtr<nsIFileSpec> tmpFileSpec;
+  rv = NS_NewFileSpecFromIFile(tmpFile, getter_AddRefs(tmpFileSpec));
+
+  if (NS_FAILED(rv))
+    return nsnull;
+  
+  nsFileSpec *tmpSpec = new nsFileSpec;
+  tmpFileSpec->GetFileSpec(tmpSpec);
   if (!tmpSpec)
     return nsnull;
 
-  nsresult rv = NS_OK;
   nsCAutoString tempName;
   if ((!tFileName) || (!*tFileName)) {
     tempName = SAFE_TMP_FILENAME;
@@ -682,9 +692,9 @@ mime_fix_up_html_address( char **addr)
 static void 
 mime_intl_insert_message_header_1(char        **body, 
                                   char        **hdr_value,
-                                  char        *hdr_str, 
+                                  const char  *hdr_str, 
                                   const char  *html_hdr_str,
-                                  char        *mailcharset,
+                                  const char  *mailcharset,
                                   PRBool      htmlEdit)
 {
   if (!body || !hdr_value || !hdr_str)

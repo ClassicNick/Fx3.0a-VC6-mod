@@ -892,17 +892,6 @@ public:
                                   nsIDOMNode *aDest);
 
   /**
-   * Copy the objects and UserDataHandlers for node aNode from aOldDocument to
-   * the current ownerDocument of aNode.
-   * Should only be used to implement the DOM Level 3 UserData API.
-   *
-   * @param aOldDocument the old document
-   * @param aNode canonical nsINode pointer of the node to copy objects
-   *              and UserDataHandlers for
-   */
-  static void CopyUserData(nsIDocument *aOldDocument, const nsINode *aNode);
-
-  /**
    * Creates a DocumentFragment from text using a context node to resolve
    * namespaces.
    *
@@ -937,6 +926,51 @@ public:
                                  nsIURI* aBaseURI,
                                  nsIPrincipal* aPrincipal,
                                  nsIDOMDocument** aResult);
+
+  /**
+   * Sets the text contents of a node by replacing all existing children
+   * with a single text child.
+   *
+   * The function always notifies.
+   *
+   * Will reuse the first text child if one is available. Will not reuse
+   * existing cdata children.
+   *
+   * @param aContent Node to set contents of.
+   * @param aValue   Value to set contents to.
+   * @param aTryReuse When true, the function will try to reuse an existing
+   *                  textnodes rather than always creating a new one.
+   */
+  static nsresult SetNodeTextContent(nsIContent* aContent,
+                                     const nsAString& aValue,
+                                     PRBool aTryReuse);
+
+  /**
+   * Get the textual contents of a node. This is a concatination of all
+   * textnodes that are direct or (depending on aDeep) indirect children
+   * of the node.
+   *
+   * NOTE! No serialization takes place and <br> elements
+   * are not converted into newlines. Only textnodes and cdata nodes are
+   * added to the result.
+   *
+   * @param aNode Node to get textual contents of.
+   * @param aDeep If true child elements of aNode are recursivly descended
+   *              into to find text children.
+   * @param aResult the result. Out param.
+   */
+  static void GetNodeTextContent(nsINode* aNode, PRBool aDeep,
+                                 nsAString& aResult)
+  {
+    aResult.Truncate();
+    AppendNodeTextContent(aNode, aDeep, aResult);
+  }
+
+  /**
+   * Same as GetNodeTextContents but appends the result rather than sets it.
+   */
+  static void AppendNodeTextContent(nsINode* aNode, PRBool aDeep,
+                                    nsAString& aResult);
 
 private:
   static nsresult doReparentContentWrapper(nsIContent *aChild,

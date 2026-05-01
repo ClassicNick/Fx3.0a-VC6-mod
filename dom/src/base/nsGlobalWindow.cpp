@@ -343,6 +343,36 @@ private:
 
 NS_IMPL_ISUPPORTS1(nsGlobalWindowObserver, nsIObserver)
 
+nsTimeout::nsTimeout()
+{
+#ifdef DEBUG_jst
+  {
+    extern int gTimeoutCnt;
+
+    ++gTimeoutCnt;
+  }
+#endif
+
+  memset(this, 0, sizeof(*this));
+
+  MOZ_COUNT_CTOR(nsTimeout);
+}
+
+nsTimeout::~nsTimeout()
+{
+#ifdef DEBUG_jst
+  {
+    extern int gTimeoutCnt;
+
+    --gTimeoutCnt;
+  }
+#endif
+
+  MOZ_COUNT_DTOR(nsTimeout);
+}
+
+
+  
 //*****************************************************************************
 //***    nsGlobalWindow: Object Management
 //*****************************************************************************
@@ -359,8 +389,7 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mBlockScriptedClosingFlag(PR_FALSE),
     mFireOfflineStatusChangeEventOnThaw(PR_FALSE),
     mGlobalObjectOwner(nsnull),
-    mTimeouts(nsnull),
-    mTimeoutInsertionPoint(&mTimeouts),
+    mTimeoutInsertionPoint(nsnull),
     mTimeoutPublicIdCounter(1),
     mTimeoutFiringDepth(0),
     mJSObject(nsnull),
@@ -374,6 +403,9 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
 
   // Initialize the PRCList (this).
   PR_INIT_CLIST(this);
+
+  // Initialize timeout storage
+  PR_INIT_CLIST(&mTimeouts);
 
   if (aOuterWindow) {
     // |this| is an inner window, add this inner window to the outer
@@ -591,7 +623,7 @@ nsGlobalWindow::FreeInnerObjects(nsIScriptContext *scx)
 
   if (scx)
     scx->ClearScope(mScriptGlobals[NS_STID_INDEX(scx->GetScriptTypeID())],
-                         PR_TRUE);
+                    PR_TRUE);
 }
 
 //*****************************************************************************
@@ -1030,19 +1062,17 @@ WindowStateHolder::~WindowStateHolder()
   if (mInnerWindow) {
     // This window was left in the bfcache and is now going away. We need to
     // free it up.
-    nsCOMPtr<nsIThreadJSContextStack> stack(do_GetService(sJSStackContractID));
-    JSContext *cx = nsnull;
-
-    if (stack)
-      stack->GetSafeJSContext(&cx);
-
-    if (!cx) {
-      NS_WARNING("Trusting GC to finish cleaning up this inner window");
-      return;
+    PRUint32 lang_id;
+    NS_STID_FOR_ID(lang_id) {
+      // Note that langCtx comes from an outer window for which
+      // mInnerWindow is not the current inner window.
+      nsIScriptContext *langCtx =
+        mInnerWindow->GetScriptContextInternal(lang_id);
+      if (langCtx)
+        // FreeInnerObjects calls ClearScope, which does the JSAutoRequest
+        // thing for JS
+        mInnerWindow->FreeInnerObjects(langCtx);
     }
-
-    JSAutoRequest ar(cx);
-    mInnerWindow->FreeInnerObjects(GetScriptContextFromJSContext(cx));
   }
 }
 
@@ -1106,18 +1136,6 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
 
   nsCOMPtr<nsIDocument> oldDoc(do_QueryInterface(mDocument));
 
-  // Always clear watchpoints, to deal with two cases:
-  // 1.  The first document for this window is loading, and a miscreant has
-  //     preset watchpoints on the window object in order to attack the new
-  //     document's privileged information.
-  // 2.  A document loaded and used watchpoints on its own window, leaving
-  //     them set until the next document loads. We must clean up window
-  //     watchpoints here.
-  // Watchpoints set on document and subordinate objects are all cleared
-  // when those sub-window objects are finalized, after JS_ClearScope and
-  // a GC run that finds them to be garbage.
-
-  // XXXjst: Update above comment.
   nsIScriptContext *scx = GetContextInternal();
   NS_ENSURE_TRUE(scx, NS_ERROR_NOT_INITIALIZED);
 
@@ -1217,23 +1235,6 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
 
     nsGlobalWindow *currentInner = GetCurrentInnerWindowInternal();
 
-    if (currentInner && !currentInner->IsFrozen()) {
-      if (!reUseInnerWindow) {
-        currentInner->ClearAllTimeouts();
-
-        currentInner->mChromeEventHandler = nsnull;
-      }
-
-      if (!reUseInnerWindow && currentInner->mListenerManager) {
-        currentInner->mListenerManager->Disconnect();
-        currentInner->mListenerManager = nsnull;
-      }
-
-      if (!reUseInnerWindow || aDocument != oldDoc) {
-        nsWindowSH::InvalidateGlobalScopePolluter(cx, currentInner->mJSObject);
-      }
-    }
-
     nsRefPtr<nsGlobalWindow> newInnerWindow;
 
     nsCOMPtr<nsIDOMChromeWindow> thisChrome =
@@ -1260,6 +1261,10 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
       NS_ASSERTION(!currentInner->IsFrozen(),
                    "We should never be reusing a shared inner window");
       newInnerWindow = currentInner;
+
+      if (aDocument != oldDoc) {
+        nsWindowSH::InvalidateGlobalScopePolluter(cx, currentInner->mJSObject);
+      }
     } else {
       if (aState) {
         nsCOMPtr<WindowStateHolder> wsh = do_QueryInterface(aState);
@@ -1385,17 +1390,16 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
         // Don't clear scope on our current inner window if it's going to be
         // held in the bfcache.
         if (!currentInner->IsFrozen()) {
-          // xxxmarkh - 'termfunc' still js impl specific...
-          if (!termFuncSet) {
-            scx->ClearScope(currentInner->mJSObject, PR_FALSE);
+          if (termFuncSet) {
+            // Passing null to FreeInnerObjects means it skips the
+            // ClearScope, which we need to do later.
+            currentInner->FreeInnerObjects(nsnull);
+          } else {
+            NS_STID_FOR_ID(st_id) {
+              nsIScriptContext *this_ctx = GetScriptContextInternal(st_id);
+              currentInner->FreeInnerObjects(scx);
+            }
           }
-
-          // Make the current inner window release its strong references
-          // to the document to prevent it from keeping everything
-          // around. But remember the document's principal.
-          currentInner->mDocument = nsnull;
-          currentInner->mDoc = nsnull;
-          currentInner->mDocumentPrincipal = oldPrincipal;
         }
       }
 
@@ -1575,19 +1579,29 @@ nsGlobalWindow::SetDocShell(nsIDocShell* aDocShell)
   // finalized by the JS GC).
 
   if (!aDocShell) {
-    NS_ASSERTION(!mTimeouts, "Uh, outer window holds timeouts!");
+    NS_ASSERTION(PR_CLIST_IS_EMPTY(&mTimeouts),
+                 "Uh, outer window holds timeouts!");
 
-    nsGlobalWindow *currentInner = GetCurrentInnerWindowInternal();
+    // Call FreeInnerObjects on all inner windows, not just the current
+    // one, since some could be held by WindowStateHolder objects that
+    // are GC-owned.
+    for (nsGlobalWindow *inner = (nsGlobalWindow *)PR_LIST_HEAD(this);
+         inner != this;
+         inner = (nsGlobalWindow*)PR_NEXT_LINK(inner)) {
+      NS_ASSERTION(inner->mOuterWindow == this, "bad outer window pointer");
 
-    if (currentInner) {
       NS_STID_FOR_ID(lang_id) {
         langCtx = mScriptContexts[NS_STID_INDEX(lang_id)];
         if (langCtx)
           // FreeInnerObjects calls ClearScope, which does the JSAutoRequest
           // thing for JS
-          currentInner->FreeInnerObjects(langCtx);
+          inner->FreeInnerObjects(langCtx);
       }
+    }
 
+    nsGlobalWindow *currentInner = GetCurrentInnerWindowInternal();
+
+    if (currentInner) {
       NS_ASSERTION(mDoc, "Must have doc!");
       
       // Remember the document's principal.
@@ -1601,9 +1615,7 @@ nsGlobalWindow::SetDocShell(nsIDocShell* aDocShell)
       NS_STID_FOR_ID(lang_id) {
         langCtx = mScriptContexts[NS_STID_INDEX(lang_id)];
         if (langCtx)
-          langCtx->ClearScope(
-                        currentInner->mScriptGlobals[NS_STID_INDEX(lang_id)],
-                        PR_TRUE);
+          langCtx->ClearScope(mScriptGlobals[NS_STID_INDEX(lang_id)], PR_TRUE);
       }
     }
 
@@ -6218,25 +6230,13 @@ void
 nsGlobalWindow::ClearWindowScope(nsISupports *aWindow)
 {
   nsCOMPtr<nsIScriptGlobalObject> sgo(do_QueryInterface(aWindow));
-  nsIScriptContext *jsscx = sgo->GetScriptContext(
-                              nsIProgrammingLanguage::JAVASCRIPT);
-  JSContext *cx = jsscx
-                  ? NS_STATIC_CAST(JSContext *, jsscx->GetNativeContext())
-                  : nsnull;
-  if (cx) {
-    JS_BeginRequest(cx);
-  }
-  
   PRUint32 lang_id;
   NS_STID_FOR_ID(lang_id) {
     nsIScriptContext *scx = sgo->GetScriptContext(lang_id);
     if (scx) {
       void *global = sgo->GetScriptGlobal(lang_id);
-      scx->ClearScope(global, PR_FALSE);
+      scx->ClearScope(global, PR_TRUE);
     }
-  }
-  if (cx) {
-    JS_EndRequest(cx);
   }
 }
 
@@ -6375,7 +6375,7 @@ nsGlobalWindow::SetTimeoutOrInterval(nsIScriptTimeoutHandler *aHandler,
     }
   }
 
-  InsertTimeoutIntoList(mTimeoutInsertionPoint, timeout);
+  InsertTimeoutIntoList(timeout);
 
   timeout->mPublicId = ++mTimeoutPublicIdCounter;
   *aReturn = timeout->mPublicId;
@@ -6413,8 +6413,8 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
   NS_ASSERTION(IsInnerWindow(), "Timeout running on outer window!");
   NS_ASSERTION(!IsFrozen(), "Timeout running on a window in the bfcache!");
 
-  nsTimeout *next, *prev, *timeout;
-  nsTimeout *last_expired_timeout, **last_insertion_point;
+  nsTimeout *nextTimeout, *timeout;
+  nsTimeout *last_expired_timeout, *last_insertion_point;
   nsTimeout dummy_timeout;
   PRUint32 firingDepth = mTimeoutFiringDepth + 1;
 
@@ -6444,7 +6444,7 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
   // timeout events fire "early", so we need to test the timer as well
   // as the deadline.
   last_expired_timeout = nsnull;
-  for (timeout = mTimeouts; timeout; timeout = timeout->mNext) {
+  for (timeout = FirstTimeout(); IsTimeout(timeout); timeout = timeout->Next()) {
     if (((timeout == aTimeout) || (timeout->mWhen <= deadline)) &&
         (timeout->mFiringDepth == 0)) {
       // Mark any timeouts that are on the list to be fired with the
@@ -6467,8 +6467,7 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
   // win_run_timeout(). This dummy timeout serves as the head of the
   // list for any timeouts inserted as a result of running a timeout.
   dummy_timeout.mFiringDepth = firingDepth;
-  dummy_timeout.mNext = last_expired_timeout->mNext;
-  last_expired_timeout->mNext = &dummy_timeout;
+  PR_INSERT_AFTER(&dummy_timeout, last_expired_timeout);
 
   // Don't let ClearWindowTimeouts throw away our stack-allocated
   // dummy timeout.
@@ -6476,17 +6475,16 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
   dummy_timeout.AddRef();
 
   last_insertion_point = mTimeoutInsertionPoint;
-  mTimeoutInsertionPoint = &dummy_timeout.mNext;
+  mTimeoutInsertionPoint = &dummy_timeout;
 
-  prev = nsnull;
-  for (timeout = mTimeouts; timeout != &dummy_timeout && !IsFrozen(); timeout = next) {
-    next = timeout->mNext;
+  for (timeout = FirstTimeout();
+       timeout != &dummy_timeout && !IsFrozen();
+       timeout = nextTimeout) {
+    nextTimeout = timeout->Next();
 
     if (timeout->mFiringDepth != firingDepth) {
       // We skip the timeout since it's on the list to run at another
       // depth.
-
-      prev = timeout;
 
       continue;
     }
@@ -6694,13 +6692,9 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
 
     // Running a timeout can cause another timeout to be deleted, so
     // we need to reset the pointer to the following timeout.
-    next = timeout->mNext;
+    nextTimeout = timeout->Next();
 
-    if (!prev) {
-      mTimeouts = next;
-    } else {
-      prev->mNext = next;
-    }
+    PR_REMOVE_LINK(timeout);
 
     // Release the timeout struct since it's out of the list
     timeout->Release();
@@ -6709,16 +6703,12 @@ nsGlobalWindow::RunTimeout(nsTimeout *aTimeout)
       // Reschedule an interval timeout. Insert interval timeout
       // onto list sorted in deadline order.
 
-      InsertTimeoutIntoList(mTimeoutInsertionPoint, timeout);
+      InsertTimeoutIntoList(timeout);
     }
   }
 
   // Take the dummy timeout off the head of the list
-  if (!prev) {
-    mTimeouts = dummy_timeout.mNext;
-  } else {
-    prev->mNext = dummy_timeout.mNext;
-  }
+  PR_REMOVE_LINK(&dummy_timeout);
 
   mTimeoutInsertionPoint = last_insertion_point;
 }
@@ -6754,9 +6744,11 @@ nsGlobalWindow::ClearTimeoutOrInterval(PRInt32 aTimerID)
   FORWARD_TO_INNER(ClearTimeoutOrInterval, (aTimerID), NS_ERROR_NOT_INITIALIZED);
 
   PRUint32 public_id = (PRUint32)aTimerID;
-  nsTimeout **top, *timeout;
+  nsTimeout *timeout;
 
-  for (top = &mTimeouts; (timeout = *top) != NULL; top = &timeout->mNext) {
+  for (timeout = FirstTimeout();
+       IsTimeout(timeout);
+       timeout = timeout->Next()) {
     if (timeout->mPublicId == public_id) {
       if (timeout->mRunning) {
         /* We're running from inside the timeout. Mark this
@@ -6766,7 +6758,7 @@ nsGlobalWindow::ClearTimeoutOrInterval(PRInt32 aTimerID)
       }
       else {
         /* Delete the timeout from the pending timeout list */
-        *top = timeout->mNext;
+        PR_REMOVE_LINK(timeout);
 
         if (timeout->mTimer) {
           timeout->mTimer->Cancel();
@@ -6836,18 +6828,18 @@ nsGlobalWindow::ClearTimeoutOrInterval()
 void
 nsGlobalWindow::ClearAllTimeouts()
 {
-  nsTimeout *timeout, *next;
+  nsTimeout *timeout, *nextTimeout;
 
-  for (timeout = mTimeouts; timeout; timeout = next) {
+  for (timeout = FirstTimeout(); IsTimeout(timeout); timeout = nextTimeout) {
     /* If RunTimeout() is higher up on the stack for this
        window, e.g. as a result of document.write from a timeout,
        then we need to reset the list insertion point for
        newly-created timeouts in case the user adds a timeout,
        before we pop the stack back to RunTimeout. */
     if (mRunningTimeout == timeout)
-      mTimeoutInsertionPoint = &mTimeouts;
+      mTimeoutInsertionPoint = nsnull;
 
-    next = timeout->mNext;
+    nextTimeout = timeout->Next();
 
     if (timeout->mTimer) {
       timeout->mTimer->Cancel();
@@ -6866,27 +6858,31 @@ nsGlobalWindow::ClearAllTimeouts()
     timeout->Release();
   }
 
-  mTimeouts = NULL;
+  // Clear out our list
+  PR_INIT_CLIST(&mTimeouts);
 }
 
 void
-nsGlobalWindow::InsertTimeoutIntoList(nsTimeout **aList, nsTimeout *aTimeout)
+nsGlobalWindow::InsertTimeoutIntoList(nsTimeout *aTimeout)
 {
   NS_ASSERTION(IsInnerWindow(),
                "InsertTimeoutIntoList() called on outer window!");
 
-  nsTimeout *to;
-
-  NS_ASSERTION(aList,
-               "nsGlobalWindow::InsertTimeoutIntoList null timeoutList");
-  while ((to = *aList) != nsnull) {
-    if (to->mWhen > aTimeout->mWhen)
-      break;
-    aList = &to->mNext;
+  // Start at mLastTimeout and go backwards.  Don't go further than
+  // mTimeoutInsertionPoint, though.  This optimizes for the common case of
+  // insertion at the end.
+  nsTimeout* prevSibling;
+  for (prevSibling = LastTimeout();
+       IsTimeout(prevSibling) && prevSibling != mTimeoutInsertionPoint &&
+         prevSibling->mWhen > aTimeout->mWhen;
+       prevSibling = prevSibling->Prev()) {
+    /* Do nothing; just searching */
   }
+
+  // Now link in aTimeout after prevSibling.
+  PR_INSERT_AFTER(aTimeout, prevSibling);
+
   aTimeout->mFiringDepth = 0;
-  aTimeout->mNext = to;
-  *aList = aTimeout;
 
   // Increment the timeout's reference count since it's now held on to
   // by the list
@@ -7200,8 +7196,13 @@ nsGlobalWindow::RestoreWindowState(nsISupports *aState)
       }
     }
 
-    if (!didFocusContent && focusedWindow)
+    if (!didFocusContent && focusedWindow) {
+      // Clear the focus controller's memory of any focused element so that
+      // the element does not get inadvertently focused again.
+      fc->ResetElementFocus();
+
       focusedWindow->Focus();
+    }
   } else if (focusedWindow) {
     // Just update the saved focus memory.
     fc->SetFocusedWindow(focusedWindow);
@@ -7222,7 +7223,7 @@ nsGlobalWindow::SuspendTimeouts()
   FORWARD_TO_INNER_VOID(SuspendTimeouts, ());
 
   PRTime now = PR_Now();
-  for (nsTimeout *t = mTimeouts; t; t = t->mNext) {
+  for (nsTimeout *t = FirstTimeout(); IsTimeout(t); t = t->Next()) {
     // Change mWhen to be the time remaining for this timer.    
     if (t->mWhen > now)
       t->mWhen -= now;
@@ -7282,7 +7283,7 @@ nsGlobalWindow::ResumeTimeouts()
   PRTime now = PR_Now();
   nsresult rv;
 
-  for (nsTimeout *t = mTimeouts; t; t = t->mNext) {
+  for (nsTimeout *t = FirstTimeout(); IsTimeout(t); t = t->Next()) {
     // Make sure to cast the unsigned PR_USEC_PER_MSEC to signed
     // PRTime to make the division do the right thing on 64-bit
     // platforms whether t->mWhen is positive or negative (which is

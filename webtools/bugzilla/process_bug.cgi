@@ -26,6 +26,7 @@
 #                 Jeff Hedlund <jeff.hedlund@matrixsi.com>
 #                 Frédéric Buclin <LpSolit@gmail.com>
 #                 Lance Larsh <lance.larsh@oracle.com>
+#                 Akamai Technologies <bugzilla-dev@akamai.com>
 
 # Implementation notes for this file:
 #
@@ -1147,8 +1148,8 @@ SWITCH: for ($cgi->param('knob')) {
         ChangeStatus('RESOLVED');
         ChangeResolution('DUPLICATE');
         my $comment = $cgi->param('comment');
-        $comment .= "\n\n*** This bug has been marked " .
-                    "as a duplicate of bug $duplicate ***";
+        $comment .= "\n\n" 
+                    . get_text('bug_duplicate_of', { dupe_of => $duplicate });
         $cgi->param('comment', $comment);
         last SWITCH;
     };
@@ -1369,6 +1370,18 @@ foreach my $id (@idlist) {
             else {
                 $query .= ", qa_contact = NULL";
             }
+        }
+
+        
+
+        # And add in the Default CC for the Component.
+        my $comp_obj = $component || new Bugzilla::Component($new_comp_id);
+        my @new_init_cc = @{$comp_obj->initial_cc};
+        foreach my $cc (@new_init_cc) {
+            # NewCC must be defined or the code below won't insert
+            # any CCs.
+            $cgi->param('newcc') || $cgi->param('newcc', []);
+            $cc_add{$cc->id} = $cc->login;
         }
     }
 
@@ -2025,11 +2038,10 @@ foreach my $id (@idlist) {
             $dbh->do(q{INSERT INTO cc (who, bug_id) VALUES (?, ?)},
                      undef, $reporter, $duplicate);
         }
-        # Bug 171639 - Duplicate notifications do not need to be private. 
-        AppendComment($duplicate, $whoid,
-                      "*** Bug " . $cgi->param('id') .
-                      " has been marked as a duplicate of this bug. ***",
-                      0, $timestamp);
+        my $dupe_comment = get_text('bug_has_duplicate',
+                                    { dupe => $cgi->param('id') });
+        # Bug 171639 - Duplicate notifications do not need to be private.
+        AppendComment($duplicate, $whoid, $dupe_comment, 0, $timestamp);
 
         $dbh->do(q{INSERT INTO duplicates VALUES (?, ?)}, undef,
                  $duplicate, $cgi->param('id'));

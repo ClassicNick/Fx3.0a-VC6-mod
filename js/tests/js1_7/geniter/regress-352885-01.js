@@ -1,4 +1,4 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -12,15 +12,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Gagan Saksena (original author)
+ * Contributor(s): Igor Bukanov
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,34 +34,27 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 352885;
+var summary = 'Do not crash iterating over gen.__proto__';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
-#ifndef nsAboutRedirector_h__
-#define nsAboutRedirector_h__
 
-#include "nsIAboutModule.h"
+//-----------------------------------------------------------------------------
+test();
+//-----------------------------------------------------------------------------
 
-class nsAboutRedirector : public nsIAboutModule
+function test()
 {
-public:
-    NS_DECL_ISUPPORTS
+  enterFunc ('test');
+  printBugNumber (bug);
+  printStatus (summary);
+  
+  for (j in ((function() { yield 3; })().__proto__)) 
+    writeLineToLog(j);
 
-    NS_DECL_NSIABOUTMODULE
+  reportCompare(expect, actual, summary);
 
-    nsAboutRedirector() {}
-    virtual ~nsAboutRedirector() {}
-
-    static NS_METHOD
-    Create(nsISupports *aOuter, REFNSIID aIID, void **aResult);
-
-protected:
-};
-
-#define NS_ABOUT_REDIRECTOR_MODULE_CID               \
-{ /*  f0acde16-1dd1-11b2-9e35-f5786fff5a66*/         \
-    0xf0acde16,                                      \
-    0x1dd1,                                          \
-    0x11b2,                                          \
-    {0x9e, 0x35, 0xf5, 0x78, 0x6f, 0xff, 0x5a, 0x66} \
+  exitFunc ('test');
 }
-
-#endif // nsAboutRedirector_h__

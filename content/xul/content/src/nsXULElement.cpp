@@ -83,6 +83,7 @@
 #include "nsIDOMNodeList.h"
 #include "nsIDOMXULCommandDispatcher.h"
 #include "nsIDOMXULElement.h"
+#include "nsIDOMElementCSSInlineStyle.h"
 #include "nsIDOMXULSelectCntrlItemEl.h"
 #include "nsIDocument.h"
 #include "nsIEventListenerManager.h"
@@ -261,6 +262,29 @@ PRUint32             nsXULPrototypeAttribute::gNumCacheSets;
 PRUint32             nsXULPrototypeAttribute::gNumCacheFills;
 #endif
 
+
+class nsXULElementTearoff : public nsIDOMElementCSSInlineStyle
+{
+  NS_DECL_ISUPPORTS
+
+  nsXULElementTearoff(nsXULElement *aElement)
+    : mElement(aElement)
+  {
+  }
+
+  NS_FORWARD_NSIDOMELEMENTCSSINLINESTYLE(mElement->)
+
+private:
+  nsRefPtr<nsXULElement> mElement;
+};
+
+NS_IMPL_ADDREF(nsXULElementTearoff)
+NS_IMPL_RELEASE(nsXULElementTearoff)
+
+NS_INTERFACE_MAP_BEGIN(nsXULElementTearoff)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMElementCSSInlineStyle)
+NS_INTERFACE_MAP_END_AGGREGATED(mElement)
+
 //----------------------------------------------------------------------
 // nsXULElement
 //
@@ -416,6 +440,10 @@ nsXULElement::QueryInterface(REFNSIID aIID, void** aInstancePtr)
         inst = NS_STATIC_CAST(nsIScriptEventHandlerOwner *, this);
     } else if (aIID.Equals(NS_GET_IID(nsIChromeEventHandler))) {
         inst = NS_STATIC_CAST(nsIChromeEventHandler *, this);
+    } else if (aIID.Equals(NS_GET_IID(nsIDOMElementCSSInlineStyle))) {
+        inst = NS_STATIC_CAST(nsIDOMElementCSSInlineStyle *,
+                              new nsXULElementTearoff(this));
+        NS_ENSURE_TRUE(inst, NS_ERROR_OUT_OF_MEMORY);
     } else if (aIID.Equals(NS_GET_IID(nsIClassInfo))) {
         inst = nsContentUtils::GetClassInfoInstance(eDOMClassInfo_XULElement_id);
         NS_ENSURE_TRUE(inst, NS_ERROR_OUT_OF_MEMORY);
@@ -862,11 +890,15 @@ nsXULElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
 
     if (oldOwnerDocument != newOwnerDocument) {
         if (oldOwnerDocument && HasProperties()) {
-            // Copy UserData to the new document.
-            nsContentUtils::CopyUserData(oldOwnerDocument, this);
+            nsPropertyTable *oldTable = oldOwnerDocument->PropertyTable();
+            if (newOwnerDocument) {
+                nsPropertyTable *newTable = newOwnerDocument->PropertyTable();
 
-            // Remove all properties.
-            oldOwnerDocument->PropertyTable()->DeleteAllPropertiesFor(this);
+                oldTable->TransferOrDeleteAllPropertiesFor(this, newTable);
+            }
+            else {
+                oldTable->DeleteAllPropertiesFor(this);
+            }
         }
 
         if (newOwnerDocument) {
@@ -2352,8 +2384,8 @@ nsXULElement::AddPopupListener(nsIAtom* aName)
     nsCOMPtr<nsIDOMEventListener> eventListener = do_QueryInterface(popupListener);
     nsCOMPtr<nsIDOMEventTarget> target(do_QueryInterface(NS_STATIC_CAST(nsIContent *, this)));
     NS_ENSURE_TRUE(target, NS_ERROR_FAILURE);
-    rv = SetProperty(listenerAtom, popupListener,
-                     PopupListenerPropertyDtor);
+    rv = SetProperty(listenerAtom, popupListener, PopupListenerPropertyDtor,
+                     PR_TRUE);
     NS_ENSURE_SUCCESS(rv, rv);
     nsIXULPopupListener* listener = popupListener;
     NS_ADDREF(listener);

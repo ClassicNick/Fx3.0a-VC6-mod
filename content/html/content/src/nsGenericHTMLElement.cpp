@@ -313,14 +313,14 @@ nsGenericHTMLElement::CopyInnerTo(nsGenericElement* aDst) const
   void* prop;
   if ((prop = GetProperty(nsHTMLAtoms::htmlBaseHref))) {
     rv = aDst->SetProperty(nsHTMLAtoms::htmlBaseHref, prop,
-                           nsPropertyTable::SupportsDtorFunc);
+                           nsPropertyTable::SupportsDtorFunc, PR_TRUE);
     if (NS_SUCCEEDED(rv)) {
       NS_ADDREF(NS_STATIC_CAST(nsIURI*, prop));
     }
   }
   if ((prop = GetProperty(nsHTMLAtoms::htmlBaseTarget))) {
     rv = aDst->SetProperty(nsHTMLAtoms::htmlBaseTarget, prop,
-                           nsPropertyTable::SupportsDtorFunc);
+                           nsPropertyTable::SupportsDtorFunc, PR_TRUE);
     if (NS_SUCCEEDED(rv)) {
       NS_ADDREF(NS_STATIC_CAST(nsIAtom*, prop));
     }
@@ -879,7 +879,7 @@ nsresult
 nsGenericHTMLElement::SetInnerHTML(const nsAString& aInnerHTML)
 {
   // Remove childnodes
-  nsNode3Tearoff::SetTextContent(this, EmptyString());
+  nsContentUtils::SetNodeTextContent(this, EmptyString(), PR_FALSE);
 
   nsCOMPtr<nsIDOMDocumentFragment> df;
 
@@ -2790,41 +2790,6 @@ nsGenericHTMLElement::MapScrollingAttributeInto(const nsMappedAttributes* aAttri
 }
 
 //----------------------------------------------------------------------
-
-nsresult
-nsGenericHTMLElement::ReplaceContentsWithText(const nsAString& aText,
-                                              PRBool aNotify)
-{
-  PRUint32 count = GetChildCount();
-  nsresult rv = NS_OK;
-
-  nsCOMPtr<nsIDOMText> textChild;
-
-  if (count > 0) {
-    // if we already have a DOMText child, reuse it.
-    textChild = do_QueryInterface(GetChildAt(0));
-
-    PRUint32 lastChild = textChild ? 1 : 0;
-    PRUint32 i = count - 1;
-    while (i-- > lastChild) {
-      RemoveChildAt(i, aNotify);
-    }
-  }
-
-  if (textChild) {
-    rv = textChild->SetData(aText);
-  } else {
-    nsCOMPtr<nsIContent> text;
-    rv = NS_NewTextNode(getter_AddRefs(text), mNodeInfo->NodeInfoManager());
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    text->SetText(aText, PR_TRUE);
-
-    rv = InsertChildAt(text, 0, aNotify);
-  }    
-      
-  return rv;
-}
 
 nsresult
 nsGenericHTMLElement::GetAttrHelper(nsIAtom* aAttr, nsAString& aValue)

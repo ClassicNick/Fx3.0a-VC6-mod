@@ -456,7 +456,8 @@ LocaleToUnicode(JSContext *cx, char *src, jsval *rval)
 
   if (gDecoder) {
     PRInt32 unicharLength = srcLength;
-    PRUnichar *unichars = (PRUnichar *)malloc((srcLength + 1) * sizeof(PRUnichar));
+    PRUnichar *unichars =
+      (PRUnichar *)JS_malloc(cx, (srcLength + 1) * sizeof(PRUnichar));
     if (unichars) {
       rv = gDecoder->Convert(src, &srcLength, unichars, &unicharLength);
       if (NS_SUCCEEDED(rv)) {
@@ -466,7 +467,8 @@ LocaleToUnicode(JSContext *cx, char *src, jsval *rval)
         // nsIUnicodeDecoder::Convert may use fewer than srcLength PRUnichars
         if (unicharLength + 1 < srcLength + 1) {
           PRUnichar *shrunkUnichars =
-            (PRUnichar *)realloc(unichars, (unicharLength + 1) * sizeof(PRUnichar));
+            (PRUnichar *)JS_realloc(cx, unichars,
+                                    (unicharLength + 1) * sizeof(PRUnichar));
           if (shrunkUnichars)
             unichars = shrunkUnichars;
         }
@@ -475,7 +477,7 @@ LocaleToUnicode(JSContext *cx, char *src, jsval *rval)
                              unicharLength);
       }
       if (!str)
-        free(unichars);
+        JS_free(cx, unichars);
     }
   }
 
@@ -603,7 +605,7 @@ PrintWinURI(nsGlobalWindow *win)
   }
 
   nsIURI *uri = doc->GetDocumentURI();
-  if (uri) {
+  if (!uri) {
     printf("Document doesn't have a URI.\n");
     return;
   }
@@ -2917,17 +2919,36 @@ nsJSContext::InitClasses(void *aGlobalObj)
 }
 
 void
-nsJSContext::ClearScope(void *aGlobalObj, PRBool aClearPolluter)
+nsJSContext::ClearScope(void *aGlobalObj, PRBool aClearFromProtoChain)
 {
   if (aGlobalObj) {
     JSObject *obj = (JSObject *)aGlobalObj;
     JSAutoRequest ar(mContext);
     ::JS_ClearScope(mContext, obj);
+
+    // Always clear watchpoints, to deal with two cases:
+    // 1.  The first document for this window is loading, and a miscreant has
+    //     preset watchpoints on the window object in order to attack the new
+    //     document's privileged information.
+    // 2.  A document loaded and used watchpoints on its own window, leaving
+    //     them set until the next document loads. We must clean up window
+    //     watchpoints here.
+    // Watchpoints set on document and subordinate objects are all cleared
+    // when those sub-window objects are finalized, after JS_ClearScope and
+    // a GC run that finds them to be garbage.
     ::JS_ClearWatchPointsForObject(mContext, obj);
 
-    // xxxmarkh: aClearPolluter is bogus???
-    if (aClearPolluter)
-        nsWindowSH::InvalidateGlobalScopePolluter(mContext, obj);
+    // Since the prototype chain is shared between inner and outer (and
+    // stays with the inner), we don't clear things from the prototype
+    // chain when we're clearing an outer window whose current inner we
+    // still want.
+    if (aClearFromProtoChain) {
+      nsWindowSH::InvalidateGlobalScopePolluter(mContext, obj);
+
+      for (JSObject *o = ::JS_GetPrototype(mContext, obj);
+           o; o = ::JS_GetPrototype(mContext, o))
+        ::JS_ClearScope(mContext, o);
+    }
   }
   ::JS_ClearRegExpStatics(mContext);
 
@@ -3013,6 +3034,8 @@ nsresult
 nsJSContext::SetTerminationFunction(nsScriptTerminationFunc aFunc,
                                     nsISupports* aRef)
 {
+  NS_PRECONDITION(mContext->fp, "should be executing script");
+
   nsJSContext::TerminationFuncClosure* newClosure =
     new nsJSContext::TerminationFuncClosure(aFunc, aRef, mTerminations);
   if (!newClosure) {

@@ -50,6 +50,7 @@
 #include "nsString.h"
 #include "nsReadableUtils.h"
 #include "nsEscape.h"
+#include "nsNetCID.h"
 #include "plbase64.h"
 #include "plstr.h"
 #include "prprf.h"
@@ -84,7 +85,7 @@ nsHttpDigestAuth::MD5Hash(const char *buf, PRUint32 len)
   // Cache a reference to the nsICryptoHash instance since we'll be calling
   // this function frequently.
   if (!mVerifier) {
-    mVerifier = do_CreateInstance("@mozilla.org/security/hash;1", &rv);
+    mVerifier = do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
     if (NS_FAILED(rv)) {
       LOG(("nsHttpDigestAuth: no crypto hash!\n"));
       return rv;

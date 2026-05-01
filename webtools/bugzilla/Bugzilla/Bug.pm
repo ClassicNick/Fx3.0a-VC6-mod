@@ -115,7 +115,8 @@ sub VALIDATORS {
         alias          => \&_check_alias,
         bug_file_loc   => \&_check_bug_file_loc,
         bug_severity   => \&_check_bug_severity,
-        cc             => \&_check_cc,
+        comment        => \&_check_comment,
+        commentprivacy => \&_check_commentprivacy,
         deadline       => \&_check_deadline,
         estimated_time => \&_check_estimated_time,
         keywords       => \&_check_keywords,
@@ -253,6 +254,9 @@ sub create {
     delete $params->{dependson};
     my $blocked = $params->{blocked};
     delete $params->{blocked};
+    my ($comment, $privacy) = ($params->{comment}, $params->{commentprivacy});
+    delete $params->{comment};
+    delete $params->{commentprivacy};
 
     # Set up the keyword cache for bug creation.
     my $keywords = $params->{keywords};
@@ -263,6 +267,10 @@ sub create {
     # protected by groups.
     my $timestamp = $params->{creation_ts}; 
     delete $params->{creation_ts};
+
+    $dbh->bz_lock_tables('bugs WRITE', 'bug_group_map WRITE', 
+        'longdescs WRITE', 'cc WRITE', 'keywords WRITE', 'dependencies WRITE',
+        'bugs_activity WRITE', 'fielddefs READ');
 
     my $bug = $class->insert_create_data($params);
 
@@ -296,14 +304,22 @@ sub create {
         $sth_deps->execute($bug->bug_id, $depends_on_id);
         # Log the reverse action on the other bug.
         LogActivityEntry($depends_on_id, 'blocked', '', $bug->bug_id,
-                         $bug->reporter->id, $timestamp);
+                         $bug->{reporter_id}, $timestamp);
     }
     foreach my $blocked_id (@$blocked) {
         $sth_deps->execute($blocked_id, $bug->bug_id);
         # Log the reverse action on the other bug.
         LogActivityEntry($blocked_id, 'dependson', '', $bug->bug_id,
-                         $bug->reporter->id, $timestamp);
+                         $bug->{reporter_id}, $timestamp);
     }
+
+    # And insert the comment. We always insert a comment on bug creation,
+    # but sometimes it's blank.
+    $dbh->do('INSERT INTO longdescs (bug_id, who, bug_when, thetext, isprivate)
+                   VALUES (?, ?, ?, ?, ?)', undef, 
+             $bug->bug_id, $bug->{reporter_id}, $timestamp, $comment, $privacy);
+
+    $dbh->bz_unlock_tables();
 
     return $bug;
 }
@@ -336,6 +352,8 @@ sub run_create_validators {
         $class->_check_assigned_to($component, $params->{assigned_to});
     $params->{qa_contact} =
         $class->_check_qa_contact($component, $params->{qa_contact});
+    $params->{cc} = $class->_check_cc($component, $params->{cc});
+
     # Callers cannot set Reporter, currently.
     $params->{reporter} = Bugzilla->user->id;
 
@@ -489,7 +507,7 @@ sub _check_bug_status {
 }
 
 sub _check_cc {
-    my ($invocant, $ccs) = @_;
+    my ($invocant, $component, $ccs) = @_;
     return [] unless $ccs;
 
     my %cc_ids;
@@ -498,15 +516,17 @@ sub _check_cc {
         my $id = login_to_id($person, THROW_ERROR);
         $cc_ids{$id} = 1;
     }
+
+    # Enforce Default CC
+    $cc_ids{$_->id} = 1 foreach (@{$component->initial_cc});
+
     return [keys %cc_ids];
 }
 
 sub _check_comment {
     my ($invocant, $comment) = @_;
 
-    if (!defined $comment) {
-        ThrowCodeError('undefined_field', { field => 'comment' });
-    }
+    $comment = '' unless defined $comment;
 
     # Remove any trailing whitespace. Leading whitespace could be
     # a valid part of the comment.
@@ -519,7 +539,18 @@ sub _check_comment {
         ThrowUserError("description_required");
     }
 
+    # On creation only, there must be a single-space comment, or
+    # email will be supressed.
+    $comment = ' ' if $comment eq '' && !ref($invocant);
+
     return $comment;
+}
+
+sub _check_commentprivacy {
+    my ($invocant, $comment_privacy) = @_;
+    my $insider_group = Bugzilla->params->{"insidergroup"};
+    return ($insider_group && Bugzilla->user->in_group($insider_group) 
+            && $comment_privacy) ? 1 : 0;
 }
 
 sub _check_component {

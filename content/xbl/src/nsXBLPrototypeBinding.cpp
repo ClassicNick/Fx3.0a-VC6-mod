@@ -482,7 +482,7 @@ nsXBLPrototypeBinding::AttributeChanged(nsIAtom* aAttribute,
         // Check to see if the src attribute is xbl:text.  If so, then we need to obtain the 
         // children of the real element and get the text nodes' values.
         if (aAttribute == nsHTMLAtoms::text && aNameSpaceID == kNameSpaceID_XBL) {
-          nsXBLBinding::GetTextData(aChangedElement, value);
+          nsContentUtils::GetNodeTextContent(aChangedElement, PR_FALSE, value);
           value.StripChar(PRUnichar('\n'));
           value.StripChar(PRUnichar('\r'));
           nsAutoString stripVal(value);
@@ -564,15 +564,15 @@ PRBool PR_CALLBACK InstantiateInsertionPoint(nsHashKey* aKey, void* aData, void*
     realContent = binding->GetBoundElement();
 
   // Now that we have the real content, look it up in our table.
-  nsVoidArray* points;
+  nsInsertionPointList* points = nsnull;
   binding->GetInsertionPointsFor(realContent, &points);
   nsXBLInsertionPoint* insertionPoint = nsnull;
-  PRInt32 count = points->Count();
+  PRInt32 count = points->Length();
   PRInt32 i = 0;
   PRInt32 currIndex = 0;  
   
   for ( ; i < count; i++) {
-    nsXBLInsertionPoint* currPoint = NS_STATIC_CAST(nsXBLInsertionPoint*, points->ElementAt(i));
+    nsXBLInsertionPoint* currPoint = points->ElementAt(i);
     currIndex = currPoint->GetInsertionIndex();
     if (currIndex == (PRInt32)index) {
       // This is a match. Break out of the loop and set our variable.
@@ -589,8 +589,7 @@ PRBool PR_CALLBACK InstantiateInsertionPoint(nsHashKey* aKey, void* aData, void*
     // We need to make a new insertion point.
     insertionPoint = new nsXBLInsertionPoint(realContent, index, defContent);
     if (insertionPoint) {
-      NS_ADDREF(insertionPoint);
-      points->InsertElementAt(insertionPoint, i);
+      points->InsertElementAt(i, insertionPoint);
     }
   }
 
@@ -791,12 +790,12 @@ nsXBLPrototypeBinding::LocateInstance(nsIContent* aBoundElement,
       binding = binding->GetBaseBinding();
     }
 
-    nsVoidArray* points;
+    nsInsertionPointList* points = nsnull;
     if (anonContent == copyParent)
       binding->GetInsertionPointsFor(aBoundElement, &points);
     else
       binding->GetInsertionPointsFor(copyParent, &points);
-    PRInt32 count = points->Count();
+    PRInt32 count = points->Length();
     for (PRInt32 i = 0; i < count; i++) {
       // Next we have to find the real insertion point for this proto insertion
       // point.  If it does not contain any default content, then we should 
@@ -852,7 +851,8 @@ PRBool PR_CALLBACK SetAttrs(nsHashKey* aKey, void* aData, void* aClosure)
   PRBool attrPresent = PR_TRUE;
 
   if (src == nsHTMLAtoms::text && srcNs == kNameSpaceID_XBL) {
-    nsXBLBinding::GetTextData(changeData->mBoundElement, value);
+    nsContentUtils::GetNodeTextContent(changeData->mBoundElement, PR_FALSE,
+                                       value);
     value.StripChar(PRUnichar('\n'));
     value.StripChar(PRUnichar('\r'));
     nsAutoString stripVal(value);

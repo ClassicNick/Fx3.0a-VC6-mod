@@ -917,6 +917,12 @@ nsIFrame::DisplayCaret(nsDisplayListBuilder* aBuilder,
       new (aBuilder) nsDisplayCaret(this, aBuilder->GetCaret()));
 }
 
+PRBool
+nsFrame::HasBorder()
+{
+  return GetStyleBorder()->GetBorder() != nsMargin(0,0,0,0);
+}
+
 nsresult
 nsFrame::DisplayBorderBackgroundOutline(nsDisplayListBuilder*   aBuilder,
                                         const nsDisplayListSet& aLists,
@@ -1149,8 +1155,6 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
   if ((GetStateBits() & NS_FRAME_REPLACED_ELEMENT) &&
       !IsVisibleForPainting(aBuilder))
     return NS_OK;
-  if (GetStyleVisibility()->mVisible == NS_STYLE_VISIBILITY_COLLAPSE)
-    return NS_OK;
 
   nsRect absPosClip;
   const nsStyleDisplay* disp = GetStyleDisplay();
@@ -1282,20 +1286,16 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   if (aChild->GetStateBits() & NS_FRAME_IS_UNFLOWABLE)
     return NS_OK;
   
-  nsIAtom* childType = aChild->GetType();
   const nsStyleDisplay* disp = aChild->GetStyleDisplay();
   // PR_TRUE if this is a real or pseudo stacking context
   PRBool pseudoStackingContext =
     (aFlags & DISPLAY_CHILD_FORCE_PSEUDO_STACKING_CONTEXT) != 0;
   // XXX we REALLY need a "are you an inline-block sort of thing?" here!!!
   if ((aFlags & DISPLAY_CHILD_INLINE) &&
-      (aChild->IsContainingBlock() ||
-       childType == nsLayoutAtoms::tableOuterFrame ||
-       childType == nsLayoutAtoms::listControlFrame ||
-       disp->mDisplay == NS_STYLE_DISPLAY_INLINE_BOX ||
-       disp->mDisplay == NS_STYLE_DISPLAY_INLINE_GRID ||
-       disp->mDisplay == NS_STYLE_DISPLAY_INLINE_STACK)) {
-    // child is a block or table-like frame in an inline context, i.e.,
+      (disp->mDisplay != NS_STYLE_DISPLAY_INLINE ||
+       aChild->IsContainingBlock() ||
+       (aChild->GetStateBits() & NS_FRAME_REPLACED_ELEMENT))) {
+    // child is a non-inline frame in an inline context, i.e.,
     // it acts like inline-block or inline-table. Therefore it is a
     // pseudo-stacking-context.
     pseudoStackingContext = PR_TRUE;
@@ -1304,6 +1304,7 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   // dirty rect in child-relative coordinates
   nsRect dirty = aDirtyRect - aChild->GetOffsetTo(this);
 
+  nsIAtom* childType = aChild->GetType();
   if (childType == nsLayoutAtoms::placeholderFrame) {
     nsPlaceholderFrame* placeholder = NS_STATIC_CAST(nsPlaceholderFrame*, aChild);
     aChild = placeholder->GetOutOfFlowFrame();
@@ -1334,19 +1335,29 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
     dirty.IntersectRect(dirty, aChild->GetOverflowRect());
   }
 
-  // If this child has a placeholder of interest then we must descend into
-  // it even if the child's descendant frames don't intersect the dirty
-  // area themselves.
-  // If the child is a scrollframe that we want to ignore, then we need
-  // to descend into it because its scrolled child may intersect the dirty
-  // area even if the scrollframe itself doesn't.
-  if (dirty.IsEmpty() &&
-      !(aChild->GetStateBits() & NS_FRAME_FORCE_DISPLAY_LIST_DESCEND_INTO) && 
-      aChild != aBuilder->GetIgnoreScrollFrame())
-    return NS_OK;
+  if (!(aChild->GetStateBits() & NS_FRAME_FORCE_DISPLAY_LIST_DESCEND_INTO)) {
+    // No need to descend into aChild to catch placeholders for visible
+    // positioned stuff. So see if we can short-circuit frame traversal here.
 
-  if (aChild->GetStyleVisibility()->mVisible == NS_STYLE_VISIBILITY_COLLAPSE)
-    return NS_OK;
+    // We can stop if aChild's intersection with the dirty area ended up empty.
+    // If the child is a scrollframe that we want to ignore, then we need
+    // to descend into it because its scrolled child may intersect the dirty
+    // area even if the scrollframe itself doesn't.
+    if (dirty.IsEmpty() && aChild != aBuilder->GetIgnoreScrollFrame())
+      return NS_OK;
+
+    // Note that aBuilder->GetRootMovingFrame() is non-null only if we're doing
+    // ComputeRepaintRegionForCopy.
+    if (aBuilder->GetRootMovingFrame() == this &&
+        !GetPresContext()->GetRenderedPositionVaryingContent()) {
+      // No position-varying content has been rendered in this prescontext.
+      // Therefore there is no need to descend into analyzing the moving frame's
+      // descendants looking for such content, because any bitblit will
+      // not be copying position-varying graphics.
+      return NS_OK;
+    }
+  }
+
   // XXX need to have inline-block and inline-table set pseudoStackingContext
   
   const nsStyleDisplay* ourDisp = GetStyleDisplay();
@@ -2089,12 +2100,20 @@ NS_IMETHODIMP nsFrame::HandleDrag(nsPresContext* aPresContext,
   }
   nsIPresShell *presShell = aPresContext->PresShell();
 
-  nsFrameSelection* frameselection = GetFrameSelection();
+  nsCOMPtr<nsFrameSelection> frameselection = GetFrameSelection();
   PRBool mouseDown = frameselection->GetMouseDownState();
   if (!mouseDown)
     return NS_OK;
 
   frameselection->StopAutoScrollTimer();
+
+  // If we have capturing view, it must be ensured that |this| doesn't 
+  // get deleted during HandleDrag.
+  nsWeakFrame weakFrame = GetNearestCapturingView(this) ? this : nsnull;
+#ifdef NS_DEBUG
+  PRBool frameAlive = weakFrame.IsAlive();
+#endif
+
   // Check if we are dragging in a table cell
   nsCOMPtr<nsIContent> parentContent;
   PRInt32 contentOffset;
@@ -2112,16 +2131,22 @@ NS_IMETHODIMP nsFrame::HandleDrag(nsPresContext* aPresContext,
     frameselection->HandleDrag(this, pt);
   }
 
-  nsIView* captureView = GetNearestCapturingView(this);
-  if (captureView) {
-    // Get the view that aEvent->point is relative to. This is disgusting.
-    nsIView* eventView = nsnull;
-    nsPoint pt = nsLayoutUtils::GetEventCoordinatesForNearestView(aEvent, this,
-                                                                  &eventView);
-    nsPoint capturePt = pt + eventView->GetOffsetTo(captureView);
-    frameselection->StartAutoScrollTimer(captureView, capturePt, 30);
+  if (weakFrame) {
+    nsIView* captureView = GetNearestCapturingView(this);
+    if (captureView) {
+      // Get the view that aEvent->point is relative to. This is disgusting.
+      nsIView* eventView = nsnull;
+      nsPoint pt = nsLayoutUtils::GetEventCoordinatesForNearestView(aEvent, this,
+                                                                    &eventView);
+      nsPoint capturePt = pt + eventView->GetOffsetTo(captureView);
+      frameselection->StartAutoScrollTimer(captureView, capturePt, 30);
+    }
   }
-
+#ifdef NS_DEBUG
+  if (frameAlive && !weakFrame.IsAlive()) {
+    NS_WARNING("nsFrame deleted during nsFrame::HandleDrag.");
+  }
+#endif
   return NS_OK;
 }
 
@@ -2784,13 +2809,6 @@ nsFrame::Reflow(nsPresContext*          aPresContext,
   }
   aStatus = NS_FRAME_COMPLETE;
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowState, aDesiredSize);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsFrame::AdjustFrameSize(nscoord aExtraSpace, nscoord& aUsedSpace)
-{
-  aUsedSpace = 0;
   return NS_OK;
 }
 
