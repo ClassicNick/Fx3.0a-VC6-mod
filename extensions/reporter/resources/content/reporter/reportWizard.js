@@ -122,7 +122,7 @@ function initForm() {
   document.getElementById('url').value = gURL;
 
   // Change next button to "submit report"
-  reportWizard.getButton('next').label = strbundle.getString("submitReport") + ">";
+  reportWizard.getButton('next').label = strbundle.getString("submitReport");
   reportWizard.getButton('next').setAttribute("accesskey",
                                               strbundle.getString("submitReport.accesskey"));
 
@@ -134,6 +134,9 @@ function initForm() {
 
   // We don't let the user go forward until they fufill certain requirements - see validateform()
   reportWizard.canAdvance = false;
+
+  document.getElementById("problem_type").focus();
+
 }
 
 function validateForm() {
@@ -241,6 +244,7 @@ function sendReport() {
     finishExtendedDoc.getElementById('emailStri').textContent       = emailStri;
 
     reportWizard.canRewind = false;
+
   } else {
     // If there was an error from the server
     finishExtendedSuccess.setAttribute("class", "hide");
@@ -258,8 +262,8 @@ function sendReport() {
     //finishExtendedDoc.getElementById('faultCode').textContent = gFaultCode;
     finishExtendedDoc.getElementById('faultMessage').textContent = gFaultMessage;
   }
+
   document.getElementById('finishExtendedFrame').collapsed = true;
-  reportWizard.canRewind = false;
   reportWizard.getButton("cancel").disabled = true;
 }
 

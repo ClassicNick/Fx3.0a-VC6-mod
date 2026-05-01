@@ -159,6 +159,10 @@ function reportCompare (expected, actual, description)
             reportFailure (description);
         reportFailure (output);   
     }
+    else
+    {
+        writeLineToLog(description + ' PASSED');
+    }
     return (output == ""); // true if passed
 }
 
@@ -481,4 +485,50 @@ JavaScriptOptions.prototype.reset = function ()
 {
   this.setOption('strict', this.orig.strict);
   this.setOption('werror', this.orig.werror);
+}
+
+function compareSource(expect, actual, summary)
+{
+    // compare source
+    var expectP = expect.
+        replace(/([(){},.:\[\]])/mg, ' $1 ').
+        replace(/(\w+)/mg, ' $1 ').
+        replace(/<(\/)? (\w+) (\/)?>/mg, '<$1$2$3>').
+        replace(/\s+/mg, ' ').
+        replace(/new (\w+)\s*\(\s*\)/mg, 'new $1');
+
+    var actualP = actual.
+        replace(/([(){},.:\[\]])/mg, ' $1 ').
+        replace(/(\w+)/mg, ' $1 ').
+        replace(/<(\/)? (\w+) (\/)?>/mg, '<$1$2$3>').
+        replace(/\s+/mg, ' ').
+        replace(/new (\w+)\s*\(\s*\)/mg, 'new $1');
+
+    writeLineToLog('expect:\n' + expectP);
+    writeLineToLog('actual:\n' + actualP);
+
+    reportCompare(true, expectP === actualP, summary + ': compare source');
+
+    // actual must be compilable if expect is?
+    try
+    {
+        var expectCompile = 'No Error';
+        var actualCompile;
+
+        eval(expect);
+        try
+        {
+            eval(actual);
+            actualCompile = 'No Error';
+        }
+        catch(ex1)
+        {
+            actualCompile = ex1 + '';
+        }
+        reportCompare(expectCompile, actualCompile, 
+                      summary + ': compile actual');
+    }
+    catch(ex)
+    {
+    }
 }

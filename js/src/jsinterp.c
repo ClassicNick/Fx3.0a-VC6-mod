@@ -1283,6 +1283,7 @@ have_fun:
         /* All arguments must be contiguous, so we may have to copy actuals. */
         nalloc = nslots;
         limit = (jsval *) cx->stackPool.current->limit;
+        JS_ASSERT((jsval *) cx->stackPool.current->base <= sp && sp <= limit);
         if (sp + nslots > limit) {
             /* Hit end of arena: we have to copy argv[-2..(argc+nslots-1)]. */
             nalloc += 2 + argc;
@@ -1401,10 +1402,6 @@ out:
         if (hook)
             hook(cx, &frame, JS_FALSE, &ok, hookData);
     }
-
-    /* If frame has block objects on its scope chain, cut them loose. */
-    if (frame.flags & JSFRAME_POP_BLOCKS)
-        ok &= PutBlockObjects(cx, &frame);
 
     /* If frame has a call object, sync values and clear back-pointer. */
     if (frame.callobj)
@@ -2386,6 +2383,18 @@ interrupt:
                 JSInlineFrame *ifp = (JSInlineFrame *) fp;
                 void *hookData = ifp->hookData;
 
+                /*
+                 * If fp has blocks on its scope chain, home their locals now,
+                 * before calling any debugger hook, and before freeing stack.
+                 * This matches the order of block putting and hook calling in
+                 * the "out-of-line" return code at the bottom of js_Interpret
+                 * and in js_Invoke.
+                 */
+                if (fp->flags & JSFRAME_POP_BLOCKS) {
+                    SAVE_SP_AND_PC(fp);
+                    ok &= PutBlockObjects(cx, fp);
+                }
+
                 if (hookData) {
                     JSInterpreterHook hook = cx->runtime->callHook;
                     if (hook) {
@@ -2393,12 +2402,6 @@ interrupt:
                         hook(cx, fp, JS_FALSE, &ok, hookData);
                         LOAD_INTERRUPT_HANDLER(rt);
                     }
-                }
-
-                /* If fp has blocks on its scope chain, cut them loose. */
-                if (fp->flags & JSFRAME_POP_BLOCKS) {
-                    SAVE_SP_AND_PC(fp);
-                    ok &= PutBlockObjects(cx, fp);
                 }
 
                 /*
@@ -3688,7 +3691,8 @@ interrupt:
                      * or decrement result, if converted to a jsdouble from
                      * a non-number value, from GC nesting in the setter.
                      */
-                    vp = sp++;
+                    vp = sp;
+                    PUSH(JSVAL_VOID);
                     SAVE_SP(fp);
                     --i;
                 }
@@ -6327,6 +6331,12 @@ no_catch:;
      * Restore the previous frame's execution state.
      */
     if (JS_LIKELY(mark != NULL)) {
+        /* If fp has blocks on its scope chain, home their locals now. */
+        if (fp->flags & JSFRAME_POP_BLOCKS) {
+            SAVE_SP_AND_PC(fp);
+            ok &= PutBlockObjects(cx, fp);
+        }
+
         fp->sp = fp->spbase;
         fp->spbase = NULL;
         js_FreeRawStack(cx, mark);

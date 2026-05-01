@@ -570,6 +570,7 @@ struct JSPrinter {
     uintN           indent;         /* indentation in spaces */
     JSPackedBool    pretty;         /* pretty-print: indent, use newlines */
     JSPackedBool    grouped;        /* in parenthesized expression context */
+    JSPackedBool    dvgflag;        /* js_DecompileValueGenerator magic flag */
     JSScript        *script;        /* script being printed */
     JSScope         *scope;         /* script function scope */
 #if JS_HAS_BLOCK_SCOPE
@@ -599,6 +600,7 @@ js_NewPrinter(JSContext *cx, const char *name, uintN indent, JSBool pretty)
     jp->indent = indent & ~JS_IN_GROUP_CONTEXT;
     jp->pretty = pretty;
     jp->grouped = (indent & JS_IN_GROUP_CONTEXT) != 0;
+    jp->dvgflag = JS_FALSE;
     jp->script = NULL;
     jp->scope = NULL;
 #if JS_HAS_BLOCK_SCOPE
@@ -634,14 +636,16 @@ js_GetPrinterOutput(JSPrinter *jp)
 
 #if !JS_HAS_BLOCK_SCOPE
 # define SET_MAYBE_BRACE(jp)    jp
+# define CLEAR_MAYBE_BRACE(jp)  jp
 #else
 # define SET_MAYBE_BRACE(jp)    ((jp)->braceState = MAYBE_BRACE, (jp))
+# define CLEAR_MAYBE_BRACE(jp)  ((jp)->braceState = ALWAYS_BRACE, (jp))
 
 static void
 SetDontBrace(JSPrinter *jp)
 {
     ptrdiff_t offset;
-    
+
     /* When not pretty-printing, newline after brace is chopped. */
     JS_ASSERT(jp->spaceOffset < 0);
     offset = jp->sprinter.offset - (jp->pretty ? 3 : 2);
@@ -680,7 +684,7 @@ js_printf(JSPrinter *jp, const char *format, ...)
             braceState = jp->braceState;
             jp->braceState = ALWAYS_BRACE;
             if (braceState == DONT_BRACE) {
-                ptrdiff_t offset, from;
+                ptrdiff_t offset, delta, from;
 
                 JS_ASSERT(format[1] == '\n' || format[1] == ' ');
                 offset = jp->spaceOffset;
@@ -690,10 +694,19 @@ js_printf(JSPrinter *jp, const char *format, ...)
                 bp = jp->sprinter.base;
                 JS_ASSERT(bp[offset+0] == ' ');
                 JS_ASSERT(bp[offset+1] == '{');
-                JS_ASSERT(!jp->pretty || bp[offset+2] == '\n');
-                from = offset + 2;
+                delta = 2;
+                if (jp->pretty) {
+                    /* If pretty, we don't have to worry about 'else'. */
+                    JS_ASSERT(bp[offset+2] == '\n');
+                } else if (bp[offset-1] != ')') {
+                    /* Must keep ' ' to avoid 'dolet' or 'elselet'. */
+                    ++offset;
+                    delta = 1;
+                }
+
+                from = offset + delta;
                 memmove(bp + offset, bp + from, jp->sprinter.offset - from);
-                jp->sprinter.offset -= 2;
+                jp->sprinter.offset -= delta;
                 jp->spaceOffset = -1;
 
                 format += 2;
@@ -759,20 +772,17 @@ typedef struct SprintStack {
 
 /*
  * These pseudo-ops help js_DecompileValueGenerator decompile JSOP_SETNAME,
- * JSOP_SETPROP, and JSOP_SETELEM, respectively.  See the first assertion in
- * PushOff.
+ * JSOP_SETPROP, and JSOP_SETELEM, respectively.  They are never stored in
+ * bytecode, so they don't preempt valid opcodes.
  */
-#define JSOP_GETPROP2   254
-#define JSOP_GETELEM2   255
+#define JSOP_GETPROP2   256
+#define JSOP_GETELEM2   257
 
 static JSBool
 PushOff(SprintStack *ss, ptrdiff_t off, JSOp op)
 {
     uintN top;
 
-#if JSOP_LIMIT > JSOP_GETPROP2
-#error JSOP_LIMIT must be <= JSOP_GETPROP2
-#endif
     if (!SprintAlloc(&ss->sprinter, PAREN_SLOP))
         return JS_FALSE;
 
@@ -865,7 +875,7 @@ DecompileSwitch(SprintStack *ss, TableEntry *table, uintN tableLength,
     off = isCondSwitch ? ss->offsets[ss->top-1] : PopOff(ss, JSOP_NOP);
     lval = OFF2STR(&ss->sprinter, off);
 
-    js_printf(jp, "\tswitch (%s) {\n", lval);
+    js_printf(CLEAR_MAYBE_BRACE(jp), "\tswitch (%s) {\n", lval);
 
     if (tableLength) {
         diff = table[0].offset - defaultOffset;
@@ -1123,19 +1133,81 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
          */
         lastop = saveop;
         op = saveop = (JSOp) *pc;
-        if (op >= JSOP_LIMIT) {
-            switch (op) {
-              case JSOP_GETPROP2:
-                saveop = JSOP_GETPROP;
-                break;
-              case JSOP_GETELEM2:
-                saveop = JSOP_GETELEM;
-                break;
-              default:;
-            }
-        }
         cs = &js_CodeSpec[saveop];
         len = oplen = cs->length;
+
+        if (jp->dvgflag && pc + oplen == endpc) {
+            uint32 format, mode, type;
+
+            format = cs->format;
+            if (format & (JOF_SET|JOF_DEL|JOF_INCDEC|JOF_IMPORT|JOF_FOR)) {
+                mode = (format & JOF_MODEMASK);
+                if (mode == JOF_NAME) {
+                    /*
+                     * JOF_NAME does not imply JOF_CONST, so we must check for
+                     * the QARG and QVAR format types, and translate those to
+                     * JSOP_GETARG or JSOP_GETVAR appropriately, instead of to
+                     * JSOP_NAME.
+                     */
+                    type = format & JOF_TYPEMASK;
+                    op = (type == JOF_QARG)
+                         ? JSOP_GETARG
+                         : (type == JOF_QVAR)
+                         ? JSOP_GETVAR
+                         : (type == JOF_LOCAL)
+                         ? JSOP_GETLOCAL
+                         : JSOP_NAME;
+                } else {
+                    /*
+                     * We must replace the faulting pc's bytecode with a
+                     * corresponding JSOP_GET* code.  For JSOP_SET{PROP,ELEM},
+                     * we must use the "2nd" form of JSOP_GET{PROP,ELEM}, to
+                     * throw away the assignment op's right-hand operand and
+                     * decompile it as if it were a GET of its left-hand
+                     * operand.
+                     */
+                    if (mode == JOF_PROP) {
+                        op = (format & JOF_SET) ? JSOP_GETPROP2 : JSOP_GETPROP;
+                    } else if (mode == JOF_ELEM) {
+                        op = (format & JOF_SET) ? JSOP_GETELEM2 : JSOP_GETELEM;
+                    } else {
+                        /*
+                         * Zero mode means precisely that op is uncategorized
+                         * for our purposes, so we must write per-op special
+                         * case code here.
+                         */
+                        switch (op) {
+                          case JSOP_ENUMELEM:
+                            op = JSOP_GETELEM;
+                            break;
+#if JS_HAS_LVALUE_RETURN
+                          case JSOP_SETCALL:
+                            op = JSOP_CALL;
+                            break;
+#endif
+                          default:
+                            JS_ASSERT(0);
+                        }
+                    }
+                }
+            }
+
+            saveop = op;
+            if (op >= JSOP_LIMIT) {
+                switch (op) {
+                  case JSOP_GETPROP2:
+                    saveop = JSOP_GETPROP;
+                    break;
+                  case JSOP_GETELEM2:
+                    saveop = JSOP_GETELEM;
+                    break;
+                  default:;
+                }
+            }
+            JS_ASSERT(js_CodeSpec[saveop].length == oplen);
+
+            jp->dvgflag = JS_FALSE;
+        }
 
         if (cs->token) {
             switch (cs->nuses) {
@@ -1266,7 +1338,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                     if (!rval)
                         return JS_FALSE;
                     RETRACT(&ss->sprinter, rval);
-                    js_printf(jp, "\t%s: {\n", rval);
+                    js_printf(CLEAR_MAYBE_BRACE(jp), "\t%s: {\n", rval);
                     jp->indent += 4;
                     break;
 
@@ -1304,7 +1376,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                     break;
 
                   case SRC_BRACE:
-                    js_printf(jp, "\t{\n");
+                    js_printf(CLEAR_MAYBE_BRACE(jp), "\t{\n");
                     jp->indent += 4;
                     len = js_GetSrcNoteOffset(sn, 0);
                     DECOMPILE_CODE(pc + oplen, len - oplen);
@@ -1319,8 +1391,22 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 
               case JSOP_GROUP:
                 cs = &js_CodeSpec[lastop];
-                if (cs->prec != 0 && cs->prec == js_CodeSpec[pc[1]].prec) {
-                    op = JSOP_NAME;     /* force parens */
+                if ((cs->prec != 0 && cs->prec == js_CodeSpec[pc[1]].prec) ||
+                    pc[1] == JSOP_PUSHOBJ) {
+                    /*
+                     * Force parens if this JSOP_GROUP forced re-association
+                     * against precedence, or if this is a call or constructor
+                     * expression.
+                     *
+                     * This is necessary to handle the operator new grammar,
+                     * by which new x(y).z means (new x(y))).z.  For example
+                     * new (x(y).z) must decompile with the constructor
+                     * parenthesized, but normal precedence has JSOP_GETPROP
+                     * (for the final .z) higher than JSOP_NEW.  In general,
+                     * if the call or constructor expression is parenthesized,
+                     * we preserve parens.
+                     */
+                    op = JSOP_NAME;
                     rval = POP_STR();
                     todo = SprintCString(&ss->sprinter, rval);
                 } else {
@@ -1355,14 +1441,14 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 break;
 
               case JSOP_TRY:
-                js_printf(jp, "\ttry {\n");
+                js_printf(CLEAR_MAYBE_BRACE(jp), "\ttry {\n");
                 jp->indent += 4;
                 todo = -2;
                 break;
 
               case JSOP_FINALLY:
                 jp->indent -= 4;
-                js_printf(jp, "\t} finally {\n");
+                js_printf(CLEAR_MAYBE_BRACE(jp), "\t} finally {\n");
                 jp->indent += 4;
 
                 /*
@@ -1484,7 +1570,8 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                     pc += JSOP_POP_LENGTH;
                     len = js_GetSrcNoteOffset(sn, 0);
                     if (pc[len] == JSOP_LEAVEBLOCK) {
-                        js_printf(jp, "\tlet (%s) {\n", POP_STR());
+                        js_printf(CLEAR_MAYBE_BRACE(jp), "\tlet (%s) {\n",
+                                  POP_STR());
                         jp->indent += 4;
                         DECOMPILE_CODE(pc, len);
                         jp->indent -= 4;
@@ -1512,12 +1599,16 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                     break;
 
                   default:
+                    /* Turn off parens around a yield statement. */
+                    if (ss->opcodes[ss->top-1] == JSOP_YIELD)
+                        op = JSOP_NOP;
+
                     rval = POP_STR();
                     if (*rval != '\0') {
 #if JS_HAS_BLOCK_SCOPE
                         /*
                          * If a let declaration is the only child of a control
-                         * structure that does not require braces, it must not 
+                         * structure that does not require braces, it must not
                          * be braced.  If it were braced explicitly, it would
                          * be bracketed by JSOP_ENTERBLOCK/JSOP_LEAVEBLOCK.
                          */
@@ -1617,7 +1708,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 switch (sn ? SN_TYPE(sn) : SRC_NULL) {
 #if JS_HAS_BLOCK_SCOPE
                   case SRC_BRACE:
-                    js_printf(jp, "\t{\n");
+                    js_printf(CLEAR_MAYBE_BRACE(jp), "\t{\n");
                     jp->indent += 4;
                     len = js_GetSrcNoteOffset(sn, 0);
                     ok = Decompile(ss, pc + oplen, len - oplen);
@@ -1630,7 +1721,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 
                   case SRC_CATCH:
                     jp->indent -= 4;
-                    js_printf(jp, "\t} catch (");
+                    js_printf(CLEAR_MAYBE_BRACE(jp), "\t} catch (");
 
                     pc2 = pc;
                     pc += oplen;
@@ -1887,19 +1978,26 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 
               case JSOP_IFEQ:
               case JSOP_IFEQX:
+              {
+                JSBool elseif = JS_FALSE;
+
+              if_again:
                 len = GetJumpOffset(pc, pc);
                 sn = js_GetSrcNote(jp->script, pc);
 
                 switch (sn ? SN_TYPE(sn) : SRC_NULL) {
                   case SRC_IF:
                   case SRC_IF_ELSE:
+                    op = JSOP_NOP;              /* turn off parens */
                     rval = POP_STR();
                     if (ss->inArrayInit) {
                         LOCAL_ASSERT(SN_TYPE(sn) == SRC_IF);
                         if (Sprint(&ss->sprinter, " if (%s)", rval) < 0)
                             return JS_FALSE;
                     } else {
-                        js_printf(SET_MAYBE_BRACE(jp), "\tif (%s) {\n", rval);
+                        js_printf(SET_MAYBE_BRACE(jp),
+                                  elseif ? " if (%s) {\n" : "\tif (%s) {\n",
+                                  rval);
                         jp->indent += 4;
                     }
 
@@ -1907,14 +2005,31 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                         DECOMPILE_CODE(pc + oplen, len - oplen);
                     } else {
                         LOCAL_ASSERT(!ss->inArrayInit);
-                        len = js_GetSrcNoteOffset(sn, 0);
-                        DECOMPILE_CODE(pc + oplen, len - oplen);
+                        tail = js_GetSrcNoteOffset(sn, 0);
+                        DECOMPILE_CODE(pc + oplen, tail - oplen);
                         jp->indent -= 4;
-                        pc += len;
+                        pc += tail;
                         LOCAL_ASSERT(*pc == JSOP_GOTO || *pc == JSOP_GOTOX);
                         oplen = js_CodeSpec[*pc].length;
                         len = GetJumpOffset(pc, pc);
                         js_printf(jp, "\t} else");
+
+                        /*
+                         * If the second offset for sn is non-zero, it tells
+                         * the distance from the goto around the else, to the
+                         * ifeq for the if inside the else that forms an "if
+                         * else if" chain.  Thus cond spans the condition of
+                         * the second if, so we simply decompile it and start
+                         * over at label if_again.
+                         */
+                        cond = js_GetSrcNoteOffset(sn, 1);
+                        if (cond != 0) {
+                            DECOMPILE_CODE(pc + oplen, cond - oplen);
+                            pc += cond;
+                            elseif = JS_TRUE;
+                            goto if_again;
+                        }
+
                         js_printf(SET_MAYBE_BRACE(jp), " {\n");
                         jp->indent += 4;
                         DECOMPILE_CODE(pc + oplen, len - oplen);
@@ -1965,6 +2080,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                     break;
                 }
                 break;
+              }
 
               case JSOP_IFNE:
               case JSOP_IFNEX:
@@ -2229,7 +2345,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 sn = js_GetSrcNote(jp->script, pc - 1);
                 if (sn && SN_TYPE(sn) == SRC_ASSIGNOP) {
                     todo = Sprint(&ss->sprinter, "%s %s= %s",
-                                  lval, 
+                                  lval,
                                   (lastop == JSOP_GETTER)
                                   ? js_getter_str
                                   : (lastop == JSOP_SETTER)
@@ -2269,32 +2385,13 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 LOCAL_ASSERT(ss->top >= 2);
                 (void) PopOff(ss, op);
 
-                /*
-                 * Get the callee's decompiled image in argv[0].  JSOP_NEW
-                 * has precedence 16, which is artificially low.  In the case
-                 * where the constructor is itself a call expression, pretend
-                 * op is JSOP_NAME (precedence 18, highest).  This causes the
-                 * call to be parenthesized.
-                 *
-                 * This means we'll overparenthesize in the following case
-                 *
-                 *   js> uneval(function () { new x.y(z).w })
-                 *   (function () {(new x.y(z)).w;})
-                 *
-                 * but not in any others (new x.y(z), new x.y, new (x(z))(w),
-                 * new (x(z)(w)), etc.).
-                 */
-                op = (saveop == JSOP_NEW &&
-                      ss->opcodes[ss->top-1] == JSOP_CALL)
-                     ? JSOP_NAME
-                     : saveop;
+                op = saveop;
                 argv[0] = JS_strdup(cx, POP_STR());
                 if (!argv[i])
                     ok = JS_FALSE;
 
                 lval = "(", rval = ")";
-                if (saveop == JSOP_NEW) {
-                    op = saveop;                /* in case it's JSOP_NAME */
+                if (op == JSOP_NEW) {
                     if (argc == 0)
                         lval = rval = "";
                     todo = Sprint(&ss->sprinter, "%s %s%s",
@@ -2604,7 +2701,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                               : "%s[%s] %s= %s",
                               lval, xval,
                               (sn && SN_TYPE(sn) == SRC_ASSIGNOP)
-                                ? (lastop == JSOP_GETTER)
+                              ? (lastop == JSOP_GETTER)
                                 ? js_getter_str
                                 : (lastop == JSOP_SETTER)
                                 ? js_setter_str
@@ -3531,15 +3628,14 @@ js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
                            JSString *fallback)
 {
     JSStackFrame *fp, *down;
-    jsbytecode *pc, *begin, *end, *tmp;
+    jsbytecode *pc, *begin, *end;
     jsval *sp, *base, *limit;
     JSScript *script;
     JSOp op;
     const JSCodeSpec *cs;
-    uint32 format, mode, type;
     intN depth;
     jssrcnote *sn;
-    uintN len, off;
+    uintN len;
     JSPrinter *jp;
     JSString *name;
 
@@ -3652,12 +3748,9 @@ js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
     if (op == JSOP_NULL)
         return ATOM_TO_STRING(cx->runtime->atomState.nullAtom);
 
-    cs = &js_CodeSpec[op];
-    format = cs->format;
-    mode = (format & JOF_MODEMASK);
-
     /* NAME ops are self-contained, but others require left context. */
-    if (mode == JOF_NAME) {
+    cs = &js_CodeSpec[op];
+    if ((cs->format & JOF_MODEMASK) == JOF_NAME) {
         begin = pc;
     } else {
         sn = js_GetSrcNote(script, pc);
@@ -3671,62 +3764,6 @@ js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
     end = pc + cs->length;
     len = PTRDIFF(end, begin, jsbytecode);
 
-    if (format & (JOF_SET | JOF_DEL | JOF_INCDEC | JOF_IMPORT | JOF_FOR)) {
-        tmp = (jsbytecode *) JS_malloc(cx, len * sizeof(jsbytecode));
-        if (!tmp)
-            return NULL;
-        memcpy(tmp, begin, len * sizeof(jsbytecode));
-        if (mode == JOF_NAME) {
-            /*
-             * JOF_NAME does not imply JOF_CONST, so we must check for the
-             * QARG and QVAR format types and translate those to JSOP_GETARG
-             * or JSOP_GETVAR appropriately, instead of JSOP_NAME.
-             */
-            type = format & JOF_TYPEMASK;
-            tmp[0] = (type == JOF_QARG)
-                     ? JSOP_GETARG
-                     : (type == JOF_QVAR)
-                     ? JSOP_GETVAR
-                     : JSOP_NAME;
-        } else {
-            /*
-             * We must replace the faulting pc's bytecode with a corresponding
-             * JSOP_GET* code.  For JSOP_SET{PROP,ELEM}, we must use the "2nd"
-             * form of JSOP_GET{PROP,ELEM}, to throw away the assignment op's
-             * right-hand operand and decompile it as if it were a GET of its
-             * left-hand operand.
-             */
-            off = len - cs->length;
-            JS_ASSERT(off == (uintN) PTRDIFF(pc, begin, jsbytecode));
-            if (mode == JOF_PROP) {
-                tmp[off] = (format & JOF_SET) ? JSOP_GETPROP2 : JSOP_GETPROP;
-            } else if (mode == JOF_ELEM) {
-                tmp[off] = (format & JOF_SET) ? JSOP_GETELEM2 : JSOP_GETELEM;
-            } else {
-                /*
-                 * A zero mode means precisely that op is uncategorized for our
-                 * purposes, so we must write per-op special case code here.
-                 */
-                switch (op) {
-                  case JSOP_ENUMELEM:
-                    tmp[off] = JSOP_GETELEM;
-                    break;
-#if JS_HAS_LVALUE_RETURN
-                  case JSOP_SETCALL:
-                    tmp[off] = JSOP_CALL;
-                    break;
-#endif
-                  default:
-                    JS_ASSERT(0);
-                }
-            }
-        }
-        begin = tmp;
-    } else {
-        /* No need to revise script bytecode. */
-        tmp = NULL;
-    }
-
     name = NULL;
     jp = js_NewPrinter(cx, "js_DecompileValueGenerator", 0, JS_FALSE);
     if (jp) {
@@ -3734,12 +3771,11 @@ js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
             JS_ASSERT(OBJ_IS_NATIVE(fp->fun->object));
             jp->scope = OBJ_SCOPE(fp->fun->object);
         }
+        jp->dvgflag = JS_TRUE;
         if (js_DecompileCode(jp, script, begin, len))
             name = js_GetPrinterOutput(jp);
         js_DestroyPrinter(jp);
     }
-    if (tmp)
-        JS_free(cx, tmp);
     return name;
 
   do_fallback:

@@ -2560,6 +2560,16 @@ EmitSwitch(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn,
         obj = ATOM_TO_OBJECT(atom);
         OBJ_SET_BLOCK_DEPTH(cx, obj, cg->stackDepth);
 
+        /*
+         * Push the body's block scope before discriminant code-gen for proper
+         * static block scope linkage in case the discriminant contains a let
+         * expression.  The block's locals must lie under the discriminant on
+         * the stack so that case-dispatch bytecodes can find the discriminant
+         * on top of stack.
+         */
+        js_PushBlockScope(&cg->treeContext, stmtInfo, atom, -1);
+        stmtInfo->type = STMT_SWITCH;
+
         count = OBJ_BLOCK_COUNT(cx, obj);
         cg->stackDepth += count;
         if ((uintN)cg->stackDepth > cg->maxStackDepth)
@@ -2570,6 +2580,15 @@ EmitSwitch(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn,
         if (!ale)
             return JS_FALSE;
         EMIT_ATOM_INDEX_OP(JSOP_ENTERBLOCK, ALE_INDEX(ale));
+
+        /*
+         * Pop the switch's statement info around discriminant code-gen.  Note
+         * how this leaves cg->treeContext.blockChain referencing the switch's
+         * block scope object, which is necessary for correct block parenting
+         * in the case where the discriminant contains a let expression.
+         */
+        cg->treeContext.topStmt = stmtInfo->down;
+        cg->treeContext.topScopeStmt = stmtInfo->downScope;
     }
 #ifdef __GNUC__
     else {
@@ -2594,12 +2613,11 @@ EmitSwitch(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn,
     if (pn2->pn_type == TOK_LC) {
         js_PushStatement(&cg->treeContext, stmtInfo, STMT_SWITCH, top);
     } else {
-        /* Recompute top now that the JSOP_ENTERBLOCK has been emitted. */
-        top = CG_OFFSET(cg);
+        /* Re-push the switch's statement info record. */
+        cg->treeContext.topStmt = cg->treeContext.topScopeStmt = stmtInfo;
 
-        /* Push the body's block scope after emitting the discriminant. */
-        js_PushBlockScope(&cg->treeContext, stmtInfo, atom, top);
-        stmtInfo->type = STMT_SWITCH;
+        /* Set the statement info record's idea of top. */
+        stmtInfo->update = top;
 
         /* Advance pn2 to refer to the switch case list. */
         pn2 = pn2->pn_expr;
@@ -3984,19 +4002,25 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         /* Emit code for the condition before pushing stmtInfo. */
         if (!js_EmitTree(cx, cg, pn->pn_kid1))
             return JS_FALSE;
+        top = CG_OFFSET(cg);
         if (stmtInfo.type == STMT_IF) {
-            js_PushStatement(&cg->treeContext, &stmtInfo, STMT_IF,
-                             CG_OFFSET(cg));
+            js_PushStatement(&cg->treeContext, &stmtInfo, STMT_IF, top);
         } else {
             /*
              * We came here from the goto further below that detects else-if
              * chains, so we must mutate stmtInfo back into a STMT_IF record.
              * Also (see below for why) we need a note offset for SRC_IF_ELSE
-             * to help the decompiler.
+             * to help the decompiler.  Actually, we need two offsets, one for
+             * decompiling any else clause and the second for decompiling an
+             * else-if chain without bracing, overindenting, or incorrectly
+             * scoping let declarations.
              */
             JS_ASSERT(stmtInfo.type == STMT_ELSE);
             stmtInfo.type = STMT_IF;
+            stmtInfo.update = top;
             if (!js_SetSrcNoteOffset(cx, cg, noteIndex, 0, jmp - beq))
+                return JS_FALSE;
+            if (!js_SetSrcNoteOffset(cx, cg, noteIndex, 1, top - jmp))
                 return JS_FALSE;
         }
 
@@ -5069,10 +5093,12 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         if (!ale)
             return JS_FALSE;
         pn2 = pn->pn_expr;
-        noteIndex = js_NewSrcNote2(cx, cg,
-                                   (pn2->pn_type == TOK_LC)
-                                   ? SRC_LABELBRACE
-                                   : SRC_LABEL,
+        noteType = (pn2->pn_type == TOK_LC ||
+                    (pn2->pn_type == TOK_LEXICALSCOPE &&
+                     pn2->pn_expr->pn_type == TOK_LC))
+                   ? SRC_LABELBRACE
+                   : SRC_LABEL;
+        noteIndex = js_NewSrcNote2(cx, cg, noteType,
                                    (ptrdiff_t) ALE_INDEX(ale));
         if (noteIndex < 0 ||
             js_Emit1(cx, cg, JSOP_NOP) < 0) {
@@ -5089,7 +5115,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             return JS_FALSE;
 
         /* If the statement was compound, emit a note for the end brace. */
-        if (pn2->pn_type == TOK_LC) {
+        if (noteType == SRC_LABELBRACE) {
             if (js_NewSrcNote(cx, cg, SRC_ENDBRACE) < 0 ||
                 js_Emit1(cx, cg, JSOP_NOP) < 0) {
                 return JS_FALSE;
@@ -5482,24 +5508,14 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 
       case TOK_INC:
       case TOK_DEC:
+      {
+        intN depth;
+
         /* Emit lvalue-specialized code for ++/-- operators. */
         pn2 = pn->pn_kid;
         JS_ASSERT(pn2->pn_type != TOK_RP);
         op = pn->pn_op;
-
-        /*
-         * Allocate another stack slot for GC protection in case the initial
-         * value being post-incremented or -decremented is not a number, but
-         * converts to a jsdouble.  In the TOK_NAME cases, op has 0 operand
-         * uses and 1 definition, so we don't need an extra stack slot -- we
-         * can use the one allocated for the def.
-         */
-        if (pn2->pn_type != TOK_NAME &&
-            (js_CodeSpec[op].format & JOF_POST) &&
-            (uintN)++cg->stackDepth > cg->maxStackDepth) {
-            cg->maxStackDepth = cg->stackDepth;
-        }
-
+        depth = cg->stackDepth;
         switch (pn2->pn_type) {
           case TOK_NAME:
             pn2->pn_op = op;
@@ -5523,15 +5539,18 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
           case TOK_DOT:
             if (!EmitPropOp(cx, pn2, op, cg))
                 return JS_FALSE;
+            ++depth;
             break;
           case TOK_LB:
             if (!EmitElemOp(cx, pn2, op, cg))
                 return JS_FALSE;
+            depth += 2;
             break;
 #if JS_HAS_LVALUE_RETURN
           case TOK_LP:
             if (!js_EmitTree(cx, cg, pn2))
                 return JS_FALSE;
+            depth = cg->stackDepth;
             if (js_NewSrcNote2(cx, cg, SRC_PCBASE,
                                CG_OFFSET(cg) - pn2->pn_offset) < 0) {
                 return JS_FALSE;
@@ -5547,6 +5566,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                 return JS_FALSE;
             if (js_Emit1(cx, cg, JSOP_BINDXMLNAME) < 0)
                 return JS_FALSE;
+            depth = cg->stackDepth;
             if (js_Emit1(cx, cg, op) < 0)
                 return JS_FALSE;
             break;
@@ -5555,9 +5575,20 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             JS_ASSERT(0);
         }
 
-        if (pn2->pn_type != TOK_NAME && (js_CodeSpec[op].format & JOF_POST))
-            --cg->stackDepth;
+        /*
+         * Allocate another stack slot for GC protection in case the initial
+         * value being post-incremented or -decremented is not a number, but
+         * converts to a jsdouble.  In the TOK_NAME cases, op has 0 operand
+         * uses and 1 definition, so we don't need an extra stack slot -- we
+         * can use the one allocated for the def.
+         */
+        if (pn2->pn_type != TOK_NAME &&
+            (js_CodeSpec[op].format & JOF_POST) &&
+            (uintN)depth == cg->maxStackDepth) {
+            ++cg->maxStackDepth;
+        }
         break;
+      }
 
       case TOK_DELETE:
         /*
@@ -6226,7 +6257,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
 JS_FRIEND_DATA(JSSrcNoteSpec) js_SrcNoteSpec[] = {
     {"null",            0,      0,      0},
     {"if",              0,      0,      0},
-    {"if-else",         1,      0,      1},
+    {"if-else",         2,      0,      1},
     {"while",           1,      0,      1},
     {"for",             3,      1,      1},
     {"continue",        0,      0,      0},

@@ -94,6 +94,7 @@ COMPONENT_LIBS += \
 	necko \
 	uconv \
 	i18n \
+	chardet \
 	jar$(VERSION_NUMBER) \
 	pref \
 	caps \
@@ -223,10 +224,6 @@ COMPONENT_LIBS += \
 	satchel \
 	pippki \
 	$(NULL)
-endif
-
-ifeq ($(OS_ARCH),WINNT)
-COMPONENT_LIBS += intlcmpt
 endif
 
 ifdef MOZ_MATHML

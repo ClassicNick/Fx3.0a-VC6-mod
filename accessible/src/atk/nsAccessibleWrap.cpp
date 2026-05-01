@@ -827,17 +827,13 @@ getRoleCB(AtkObject *aAtkObj)
 }
 
 AtkAttributeSet *
-getAttributesCB(AtkObject *aAtkObj)
+GetAttributeSet(nsIAccessible* aAccessible)
 {
-    NS_ENSURE_SUCCESS(CheckMaiAtkObject(aAtkObj), nsnull);
-    nsAccessibleWrap *accWrap =
-        NS_REINTERPRET_CAST(MaiAtkObject*, aAtkObj)->accWrap;
-
     AtkAttributeSet *objAttributeSet = nsnull;
     nsCOMPtr<nsIPersistentProperties> attributes;
-    accWrap->GetAttributes(getter_AddRefs(attributes));
-    if (attributes) {
+    aAccessible->GetAttributes(getter_AddRefs(attributes));
 
+    if (attributes) {
         nsCOMPtr<nsISimpleEnumerator> propEnum;
         nsresult rv = attributes->Enumerate(getter_AddRefs(propEnum));
         NS_ENSURE_SUCCESS(rv, nsnull);
@@ -865,6 +861,16 @@ getAttributesCB(AtkObject *aAtkObj)
     }
 
     return objAttributeSet;
+}
+
+AtkAttributeSet *
+getAttributesCB(AtkObject *aAtkObj)
+{
+    NS_ENSURE_SUCCESS(CheckMaiAtkObject(aAtkObj), nsnull);
+    nsAccessibleWrap *accWrap =
+        NS_REINTERPRET_CAST(MaiAtkObject*, aAtkObj)->accWrap;
+
+    return GetAttributeSet(accWrap);
 }
 
 AtkObject *
@@ -1056,17 +1062,21 @@ refRelationSetCB(AtkObject *aAtkObj)
                                nsIAccessible::RELATION_DESCRIPTION_FOR,
                                };
 
-    for (PRUint32 i = 0; i < NS_ARRAY_LENGTH(relationType); i++) { 
-      if (!atk_relation_set_contains(relation_set, NS_STATIC_CAST(AtkRelationType, relationType[i]))) {
-          nsIAccessible* accRelated;
-          nsresult rv = accWrap->GetAccessibleRelated(relationType[i], &accRelated);
-          if (NS_SUCCEEDED(rv) && accRelated) {
-              accessible_array[0] = NS_STATIC_CAST(nsAccessibleWrap*, accRelated)->GetAtkObject();
-              relation = atk_relation_new(accessible_array, 1,
-                                           NS_STATIC_CAST(AtkRelationType, relationType[i]));
-              atk_relation_set_add(relation_set, relation);
-          }
-      }
+    for (PRUint32 i = 0; i < NS_ARRAY_LENGTH(relationType); i++) {
+        relation = atk_relation_set_get_relation_by_type(relation_set, NS_STATIC_CAST(AtkRelationType, relationType[i]));
+        if (relation) {
+            atk_relation_set_remove(relation_set, relation);
+        }
+
+        nsIAccessible* accRelated;
+        nsresult rv = accWrap->GetAccessibleRelated(relationType[i], &accRelated);
+        if (NS_SUCCEEDED(rv) && accRelated) {
+            accessible_array[0] = NS_STATIC_CAST(nsAccessibleWrap*, accRelated)->GetAtkObject();
+            relation = atk_relation_new(accessible_array, 1,
+                                        NS_STATIC_CAST(AtkRelationType, relationType[i]));
+            atk_relation_set_add(relation_set, relation);
+            g_object_unref(relation);
+        }
     }
 
     return relation_set;

@@ -51,7 +51,7 @@ function test()
   printBugNumber (bug);
   printStatus (summary);
 
-  expect = 'function () {\n    let (a = 3) <x/>;\n}';
+  expect = 'function () {\n    (let (a = 3) <x/>);\n}';
   try
   {
     var f = eval('function () { let (a = 3) <x/>; }');
@@ -61,7 +61,7 @@ function test()
   {
     actual = ex + '';
   }
-  reportCompare(expect, actual, summary);
+  compareSource(expect, actual, summary);
 
   exitFunc ('test');
 }

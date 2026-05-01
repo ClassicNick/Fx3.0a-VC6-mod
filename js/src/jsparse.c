@@ -1388,7 +1388,6 @@ FunctionDef(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
          * sub-statement.
          */
         op = JSOP_CLOSURE;
-        tc->flags |= TCF_HAS_CLOSURE;
     } else {
         op = JSOP_NOP;
     }
@@ -1444,6 +1443,10 @@ Statements(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
             return NULL;
         }
         ts->flags |= TSF_OPERAND;
+
+        /* Detect a function statement for the TOK_LC case in Statement. */
+        if (pn2->pn_type == TOK_FUNCTION && !AT_TOP_LEVEL(tc))
+            tc->flags |= TCF_HAS_FUNCTION_STMT;
 
         /* If compiling top-level statements, emit as we go to save space. */
         if (!tc->topStmt && (tc->flags & TCF_COMPILING)) {
@@ -1599,6 +1602,8 @@ ImportExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
             if (js_MatchToken(cx, ts, TOK_STAR)) {
                 pn2->pn_op = JSOP_IMPORTALL;
                 pn2->pn_atom = NULL;
+                pn2->pn_slot = -1;
+                pn2->pn_attrs = 0;
             } else {
                 MUST_MATCH_TOKEN(TOK_NAME, JSMSG_NAME_AFTER_DOT);
                 pn2->pn_op = JSOP_GETPROP;
@@ -2380,6 +2385,8 @@ PushLexicalScope(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
     pn->pn_op = JSOP_LEAVEBLOCK;
     pn->pn_atom = atom;
     pn->pn_expr = NULL;
+    pn->pn_slot = -1;
+    pn->pn_attrs = 0;
     return pn;
 }
 
@@ -3366,6 +3373,8 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
             pn1->pn_pos = tc->blockNode->pn_pos;
             pn1->pn_atom = atom;
             pn1->pn_expr = tc->blockNode;
+            pn1->pn_slot = -1;
+            pn1->pn_attrs = 0;
             tc->blockNode = pn1;
         }
 
@@ -3388,7 +3397,7 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
         uintN oldflags;
 
         oldflags = tc->flags;
-        tc->flags = oldflags & ~TCF_HAS_CLOSURE;
+        tc->flags = oldflags & ~TCF_HAS_FUNCTION_STMT;
         js_PushStatement(tc, &stmtInfo, STMT_BLOCK, -1);
         pn = Statements(cx, ts, tc);
         if (!pn)
@@ -3401,7 +3410,7 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
          * If we contain a function statement and our container is top-level
          * or another block, flag pn to preserve braces when decompiling.
          */
-        if ((tc->flags & TCF_HAS_CLOSURE) &&
+        if ((tc->flags & TCF_HAS_FUNCTION_STMT) &&
             (!tc->topStmt || tc->topStmt->type == STMT_BLOCK)) {
             pn->pn_extra |= PNX_NEEDBRACES;
         }
@@ -4263,6 +4272,8 @@ MemberExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
             pn2 = NewParseNode(cx, ts, PN_NAME, tc);
             if (!pn2)
                 return NULL;
+            pn2->pn_slot = -1;
+            pn2->pn_attrs = 0;
 #if JS_HAS_XML_SUPPORT
             ts->flags |= TSF_OPERAND | TSF_KEYWORD_IS_NAME;
             tt = js_GetToken(cx, ts);

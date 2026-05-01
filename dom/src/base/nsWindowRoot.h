@@ -47,6 +47,7 @@ class nsIDOMEvent;
 class nsEventChainPreVisitor;
 class nsEventChainPostVisitor;
 
+#include "nsISupportsUtils.h"
 #include "nsIDOMEventReceiver.h"
 #include "nsIDOM3EventTarget.h"
 #include "nsIDOMNSEventTarget.h"

@@ -40,6 +40,7 @@
 #ifndef nsXULDocument_h__
 #define nsXULDocument_h__
 
+#include "nsISupportsUtils.h"
 #include "nsCOMPtr.h"
 #include "nsXMLDocument.h"
 #include "nsElementMap.h"

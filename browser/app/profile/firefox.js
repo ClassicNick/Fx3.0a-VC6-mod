@@ -223,9 +223,6 @@ pref("browser.search.order.Yahoo.1",          "chrome://branding/content/searchc
 pref("browser.search.order.Yahoo.2",          "chrome://branding/content/searchconfig.properties");
 pref("browser.search.order.Yahoo",            "chrome://branding/content/searchconfig.properties");
 
-pref("browser.search.param.yahoo-fr", "moz2");
-pref("browser.search.param.yahoo-fr-cjkt", "fx2-moz-1");
-
 // search bar results always open in a new tab
 pref("browser.search.openintab", false);
 
@@ -264,7 +261,13 @@ pref("browser.tabs.loadDivertedInBackground", false);
 pref("browser.tabs.loadBookmarksInBackground", false);
 pref("browser.tabs.tabMinWidth", 100);
 pref("browser.tabs.tabClipWidth", 140);
-pref("browser.tabs.disableBackgroundClose", false);
+
+// Where to show tab close buttons:
+// 0  on active tab only
+// 1  on all tabs until tabClipWidth is reached, then active tab only
+// 2  no close buttons at all
+// 3  at the end of the tabstrip
+pref("browser.tabs.closeButtons", 1);
 
 // When tabs opened by links in other tabs via a combination of 
 // browser.link.open_newwindow being set to 3 and target="_blank" etc are
@@ -377,7 +380,6 @@ pref("custtoolbar.personal_toolbar_folder", "");
 pref("alerts.slideIncrement", 1);
 pref("alerts.slideIncrementTime", 10);
 pref("alerts.totalOpenTime", 4000);
-pref("alerts.height", 50);
 
 pref("browser.xul.error_pages.enabled", true);
 
@@ -522,3 +524,11 @@ pref("browser.safebrowsing.provider.0.reportPhishURL", "http://{moz:locale}.phis
 // FAQ URL
 pref("browser.safebrowsing.warning.infoURL", "http://%LOCALE%.www.mozilla.com/%LOCALE%/firefox/phishing-protection/");
 #endif
+
+// defaults to true
+pref("browser.EULA.2.accepted", true);
+
+// if we rev the EULA again, we should bump this so users agree to the new EULA
+pref("browser.EULA.version", 2);
+
+

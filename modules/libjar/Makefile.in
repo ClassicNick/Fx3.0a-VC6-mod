@@ -58,6 +58,11 @@ endif
 endif
 endif
 
+ifdef ENABLE_TESTS
+TOOL_DIRS += test
+endif
+
+
 MODULE		= jar
 LIBRARY_NAME	= jar$(VERSION_NUMBER)
 EXPORT_LIBRARY = 1

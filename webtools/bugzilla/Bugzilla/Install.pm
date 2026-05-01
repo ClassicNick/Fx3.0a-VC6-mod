@@ -32,6 +32,7 @@ use Bugzilla::Group;
 use Bugzilla::Product;
 use Bugzilla::User;
 use Bugzilla::User::Setting;
+use Bugzilla::Util qw(get_text);
 use Bugzilla::Version;
 
 use constant SETTINGS => {
@@ -57,6 +58,55 @@ use constant SETTINGS => {
     skin               => { subclass => 'Skin', default => 'standard' },
 
 };
+
+use constant SYSTEM_GROUPS => (
+    {
+        name        => 'admin',
+        description => 'Administrators'
+    },
+    {
+        name        => 'tweakparams',
+        description => 'Can change Parameters'
+    },
+    {
+        name        => 'editusers',
+        description => 'Can edit or disable users'
+    },
+    {
+        name        => 'creategroups',
+        description => 'Can create and destroy groups'
+    },
+    {
+        name        => 'editclassifications',
+        description => 'Can create, destroy, and edit classifications'
+    },
+    {
+        name        => 'editcomponents',
+        description => 'Can create, destroy, and edit components'
+    },
+    {
+        name        => 'editkeywords',
+        description => 'Can create, destroy, and edit keywords'
+    },
+    {
+        name        => 'editbugs',
+        description => 'Can edit all bug fields',
+        userregexp  => '.*'
+    },
+    {
+        name        => 'canconfirm',
+        description => 'Can confirm a bug or mark it a duplicate'
+    },
+    {
+        name        => 'bz_canusewhines',
+        description => 'User can configure whine reports for self'
+    },
+    {
+        name        => 'bz_sudoers',
+        description => 'Can perform actions as other users'
+    },
+    # There are also other groups created in update_system_groups.
+);
 
 use constant DEFAULT_CLASSIFICATION => {
     name        => 'Unclassified',
@@ -87,6 +137,73 @@ sub update_settings {
     }
 }
 
+sub update_system_groups {
+    my $dbh = Bugzilla->dbh;
+
+    # Create most of the system groups
+    foreach my $definition (SYSTEM_GROUPS) {
+        my $exists = new Bugzilla::Group({ name => $definition->{name} });
+        $definition->{isbuggroup} = 0;
+        Bugzilla::Group->create($definition) unless $exists;
+    }
+
+    # Certain groups need something done after they are created. We do
+    # that here.
+
+    # Make sure people who can whine at others can also whine.
+    if (!new Bugzilla::Group({name => 'bz_canusewhineatothers'})) {
+        my $whineatothers = Bugzilla::Group->create({
+            name        => 'bz_canusewhineatothers',
+            description => 'Can configure whine reports for other users',
+            isbuggroup  => 0 });
+        my $whine = new Bugzilla::Group({ name => 'bz_canusewhines' });
+
+        $dbh->do('INSERT INTO group_group_map (grantor_id, member_id) 
+                       VALUES (?,?)', undef, $whine->id, $whineatothers->id);
+    }
+
+    # Make sure sudoers are automatically protected from being sudoed.
+    if (!new Bugzilla::Group({name => 'bz_sudo_protect'})) {
+        my $sudo_protect = Bugzilla::Group->create({
+            name        => 'bz_sudo_protect',
+            description => 'Can not be impersonated by other users',
+            isbuggroup  => 0 });
+        my $sudo = new Bugzilla::Group({ name => 'bz_sudoers' });
+        $dbh->do('INSERT INTO group_group_map (grantor_id, member_id) 
+                       VALUES (?,?)', undef, $sudo_protect->id, $sudo->id);
+    }
+
+    # Re-evaluate all regexps, to keep them up-to-date.
+    my $sth = $dbh->prepare(
+        "SELECT profiles.userid, profiles.login_name, groups.id, 
+                groups.userregexp, user_group_map.group_id
+           FROM (profiles CROSS JOIN groups)
+                LEFT JOIN user_group_map
+                ON user_group_map.user_id = profiles.userid
+                   AND user_group_map.group_id = groups.id
+                   AND user_group_map.grant_type = ?
+          WHERE userregexp != '' OR user_group_map.group_id IS NOT NULL");
+
+    my $sth_add = $dbh->prepare(
+        "INSERT INTO user_group_map (user_id, group_id, isbless, grant_type)
+              VALUES (?, ?, 0, " . GRANT_REGEXP . ")");
+
+    my $sth_del = $dbh->prepare(
+        "DELETE FROM user_group_map
+          WHERE user_id  = ? AND group_id = ? AND isbless = 0 
+                AND grant_type = " . GRANT_REGEXP);
+
+    $sth->execute(GRANT_REGEXP);
+    while (my ($uid, $login, $gid, $rexp, $present) = $sth->fetchrow_array()) {
+        if ($login =~ m/$rexp/i) {
+            $sth_add->execute($uid, $gid) unless $present;
+        } else {
+            $sth_del->execute($uid, $gid) if $present;
+        }
+    }
+
+}
+
 # This function should be called only after creating the admin user.
 sub create_default_product {
     my $dbh = Bugzilla->dbh;
@@ -94,7 +211,8 @@ sub create_default_product {
     # Make the default Classification if it doesn't already exist.
     if (!$dbh->selectrow_array('SELECT 1 FROM classifications')) {
         my $class = DEFAULT_CLASSIFICATION;
-        print "Creating default classification '$class->{name}'...\n";
+        print get_text('install_default_classification', 
+                       { name => $class->{name} }) . "\n";
         $dbh->do('INSERT INTO classifications (name, description)
                        VALUES (?, ?)',
                  undef, $class->{name}, $class->{description});
@@ -103,7 +221,8 @@ sub create_default_product {
     # And same for the default product/component.
     if (!$dbh->selectrow_array('SELECT 1 FROM products')) {
         my $default_prod = DEFAULT_PRODUCT;
-        print "Creating initial dummy product '$default_prod->{name}'...\n";
+        print get_text('install_default_product', 
+                       { name => $default_prod->{name} }) . "\n";
 
         $dbh->do(q{INSERT INTO products (name, description)
                         VALUES (?,?)}, 
@@ -192,8 +311,10 @@ sub create_admin {
 
         print get_text('install_admin_get_password') . ' ';
         $password = <STDIN>;
+        chomp $password;
         print "\n", get_text('install_admin_get_password2') . ' ';
         my $pass2 = <STDIN>;
+        chomp $pass2;
         eval { validate_password($password, $pass2); };
         if ($@) {
             print "\n$@\n";
@@ -247,18 +368,6 @@ sub _create_admin_exit {
     # re-enable input echoing
     system("stty","echo") unless ON_WINDOWS;
     exit 1;
-}
-
-sub get_text {
-    my ($name, $vars) = @_;
-    my $template = Bugzilla->template;
-    $vars ||= {};
-    $vars->{'message'} = $name;
-    my $message;
-    $template->process('global/message.txt.tmpl', $vars, \$message)
-        || ThrowTemplateError($template->error());
-    $message =~ s/^\s+//gm;
-    return $message;
 }
 
 1;

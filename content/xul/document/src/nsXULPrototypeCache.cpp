@@ -40,6 +40,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsISupportsUtils.h"
 #include "nsCOMPtr.h"
 #include "nsXPIDLString.h"
 #include "nsContentUtils.h"

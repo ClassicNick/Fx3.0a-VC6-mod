@@ -8145,8 +8145,12 @@ nsNavigator::RegisterContentHandler(const nsAString& aMIMEType,
 {
   nsCOMPtr<nsIWebContentHandlerRegistrar> registrar = 
     do_GetService(NS_WEBCONTENTHANDLERREGISTRAR_CONTRACTID);
-  if (registrar)
-    return registrar->RegisterContentHandler(aMIMEType, aURI, aTitle);
+  if (registrar && mDocShell) {
+    nsCOMPtr<nsIDOMWindow> contentDOMWindow(do_GetInterface(mDocShell));
+    if (contentDOMWindow)
+      return registrar->RegisterContentHandler(aMIMEType, aURI, aTitle,
+                                               contentDOMWindow);
+  }
 
   return NS_OK;
 }
@@ -8158,9 +8162,12 @@ nsNavigator::RegisterProtocolHandler(const nsAString& aProtocol,
 {
   nsCOMPtr<nsIWebContentHandlerRegistrar> registrar = 
     do_GetService(NS_WEBCONTENTHANDLERREGISTRAR_CONTRACTID);
-  if (registrar)
-    return registrar->RegisterProtocolHandler(aProtocol, aURI, aTitle);
+  if (registrar && mDocShell) {
+    nsCOMPtr<nsIDOMWindow> contentDOMWindow(do_GetInterface(mDocShell));
+    if (contentDOMWindow)
+      return registrar->RegisterProtocolHandler(aProtocol, aURI, aTitle,
+                                                contentDOMWindow);
+  }
 
   return NS_OK;
 }
-

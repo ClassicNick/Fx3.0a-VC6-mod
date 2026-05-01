@@ -6,7 +6,7 @@
 
 # PATH=/local/bin:/c/mozilla-build//wget:/c/mozilla-build//7zip:/c/mozilla-build//blat261/full:/c/mozilla-build//python25:/c/mozilla-build//svn-win32-1.4.2/bin:/c/mozilla-build//upx203w:/c/mozilla-build//xemacs/XEmacs-21.4.19/i586-pc-win32:/c/mozilla-build//info-zip:/c/mozilla-build//nsis-2.22:/c/mozilla-build//nsis-2.33u:.:/usr/local/bin:/mingw/bin:/bin:/c/PROGRA~1/MICROS~2/Common/msdev98/BIN:/c/PROGRA~1/MICROS~2/VC98/BIN:/c/PROGRA~1/MICROS~2/Common/TOOLS/WINNT:/c/PROGRA~1/MICROS~2/Common/TOOLS:/c/WINDOWS/System32:/c/WINDOWS:/c/WINDOWS/System32/Wbem:/c/mozilla-build/moztools-180compat/bin
 MOZ_MAKE_FLAGS=-j3
-MOZ_OBJDIR=/h/browsers/vc5compat/objdir/obj-fxvc5sp3-release/
+MOZ_OBJDIR=/j/Browsers/VC5SP3compat/objdir/obj-fxWinNT-release/
 # --target=i586-pc-msvc is used by configure (not client.mk)
 # --enable-application=browser is used by configure (not client.mk)
 # --enable-optimize is used by configure (not client.mk)

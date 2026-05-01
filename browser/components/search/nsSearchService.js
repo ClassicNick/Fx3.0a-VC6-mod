@@ -737,11 +737,19 @@ function QueryParameter(aName, aValue) {
 function ParamSubstitution(aParamValue, aSearchTerms, aEngine) {
   var value = aParamValue;
 
+  var distributionID = MOZ_DISTRIBUTION_ID;
+  try {
+    var prefB = Cc["@mozilla.org/preferences-service;1"].
+                getService(Ci.nsIPrefBranch);
+    distributionID = prefB.getCharPref(BROWSER_SEARCH_PREF + "distributionID");
+  }
+  catch (ex) { }
+
   // Custom search parameters. These are only available to app-shipped search
   // engines.
   if (aEngine._isInAppDir) {
     value = value.replace(MOZ_PARAM_LOCALE, getLocale());
-    value = value.replace(MOZ_PARAM_DIST_ID, MOZ_DISTRIBUTION_ID);
+    value = value.replace(MOZ_PARAM_DIST_ID, distributionID);
     value = value.replace(MOZ_PARAM_OFFICIAL, MOZ_OFFICIAL);
   }
 
@@ -1798,6 +1806,7 @@ Engine.prototype = {
     this._description = searchSection["description"] || "";
     this._queryCharset = searchSection["querycharset"] ||
                          queryCharsetFromCode(searchSection["queryencoding"]);
+    this._searchForm = searchSection["searchform"];
 
     this._updateInterval = parseInt(browserSection["updatecheckdays"]);
 
@@ -2672,12 +2681,36 @@ SearchService.prototype = {
                "SRCH_SVC_moveEngine: Index out of bounds!");
     ENSURE_ARG(aEngine instanceof Ci.nsISearchEngine,
                "SRCH_SVC_moveEngine: Invalid engine passed to moveEngine!");
+    ENSURE(!aEngine.hidden, "moveEngine: Can't move a hidden engine!",
+           Cr.NS_ERROR_FAILURE);
 
     var engine = aEngine.wrappedJSObject;
 
     var currentIndex = this._sortedEngines.indexOf(engine);
     ENSURE(currentIndex != -1, "moveEngine: Can't find engine to move!",
            Cr.NS_ERROR_UNEXPECTED);
+
+    // Our callers only take into account non-hidden engines when calculating
+    // aNewIndex, but we need to move it in the array of all engines, so we
+    // need to adjust aNewIndex accordingly. To do this, we count the number
+    // of hidden engines in the list before the engine that we're taking the
+    // place of. We do this by first finding newIndexEngine (the engine that
+    // we were supposed to replace) and then iterating through the complete 
+    // engine list until we reach it, increasing aNewIndex for each hidden
+    // engine we find on our way there.
+    //
+    // This could be further simplified by having our caller pass in
+    // newIndexEngine directly instead of aNewIndex.
+    var newIndexEngine = this._getSortedEngines(false)[aNewIndex];
+    ENSURE(newIndexEngine, "moveEngine: Can't find engine to replace!",
+           Cr.NS_ERROR_UNEXPECTED);
+
+    for (var i = 0; i < this._sortedEngines.length; ++i) {
+      if (newIndexEngine == this._sortedEngines[i])
+        break;
+      if (this._sortedEngines[i].hidden)
+        aNewIndex++;
+    }
 
     if (currentIndex == aNewIndex)
       return; // nothing to do!
