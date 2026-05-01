@@ -12493,7 +12493,11 @@ browser)
   MOZ_PHOENIX=1
   MOZ_PLACES=
   # always enabled for form history
+if test "$_CC_MAJOR_VERSION" = "11"; then
+  MOZ_MORKREADER=
+else
   MOZ_MORKREADER=1
+fi
   MOZ_SAFE_BROWSING=1
   MOZ_APP_VERSION=$FIREFOX_VERSION
   MOZ_NO_XPCOM_OBSOLETE=1

@@ -62,6 +62,14 @@
 
 #include <mbstring.h>
 
+#ifndef MIDL_INTERFACE
+#if _MSC_VER >= 1100
+#define MIDL_INTERFACE(x)   struct __declspec(uuid(x)) __declspec(novtable)
+#else
+#define MIDL_INTERFACE(x)   struct
+#endif //_MSC_VER
+#endif //MIDL_INTERFACE
+
 #define MOZ_HWND_BROADCAST_MSG_TIMEOUT 5000
 #define MOZ_BACKUP_REGISTRY "SOFTWARE\\Mozilla\\Desktop"
 
