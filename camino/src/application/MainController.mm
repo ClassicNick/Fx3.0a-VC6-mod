@@ -322,7 +322,7 @@ const int kReuseWindowOnAE = 2;
                                       button1:NSLocalizedString(@"QuitButtonText", @"")
                                       button2:NSLocalizedString(@"CancelButtonText", @"")
                                       button3:nil
-                                     checkMsg:NSLocalizedString(@"QuitWithMultipleTabsCheckboxLabel", @"")
+                                     checkMsg:NSLocalizedString(@"DontShowWarningAgainCheckboxLabel", @"")
                                    checkValue:&dontShowAgain];
     NS_HANDLER
     NS_ENDHANDLER
@@ -381,8 +381,12 @@ const int kReuseWindowOnAE = 2;
 
 - (NSMenu *)applicationDockMenu:(NSApplication *)sender
 {
+  // The OS check is needed because 10.3 can't handle alternates in dock menus.  Remove it (and the |withAlternates| params
+  // that exist to deal with it) once we're 10.4+
+  BOOL isTigerOrHigher = [NSWorkspace isTigerOrHigher];
+
   // the dock menu doesn't get the usual show notifications, so we rebuild it explicitly here
-  [mDockMenu rebuildMenuIncludingSubmenus:YES];
+  [mDockMenu rebuildMenuIncludingSubmenus:YES withAlternates:isTigerOrHigher];
   return mDockMenu;
 }
 
@@ -680,7 +684,7 @@ Otherwise, we return the URL we originally got. Right now this supports .url,
                                             button1:NSLocalizedString(@"OKButtonText", @"")
                                             button2:NSLocalizedString(@"CancelButtonText", @"")
                                             button3:nil
-                                           checkMsg:NSLocalizedString(@"CloseMultipleWindowsCheckboxLabel", @"")
+                                           checkMsg:NSLocalizedString(@"DontShowWarningAgainCheckboxLabel", @"")
                                          checkValue:&dontShowAgain];
       NS_HANDLER
       NS_ENDHANDLER
@@ -1235,6 +1239,9 @@ Otherwise, we return the URL we originally got. Right now this supports .url,
     if ([aSender keyEquivalentModifierMask] & NSCommandKeyMask)
       openBehavior = eBookmarkOpenBehavior_NewPreferred;
   }
+  // safeguard for bookmark menus that don't have alternates yet
+  else if ([[NSApp currentEvent] modifierFlags] & NSCommandKeyMask)
+    openBehavior = eBookmarkOpenBehavior_NewPreferred;
 
   [self loadBookmark:item withBWC:[self getMainWindowBrowserController] openBehavior:openBehavior reverseBgToggle:reverseBackgroundPref];
 }
@@ -1314,18 +1321,19 @@ Otherwise, we return the URL we originally got. Right now this supports .url,
   return YES;    
 }
 
-- (IBAction)biggerTextSize:(id)aSender
+- (IBAction)makeTextBigger:(id)aSender
 {
-  BrowserWindowController* browserController = [self getMainWindowBrowserController];
-  if (browserController)
-    [browserController biggerTextSize:aSender];
+  [[self getMainWindowBrowserController] makeTextBigger:aSender];
 }
 
-- (IBAction)smallerTextSize:(id)aSender
+- (IBAction)makeTextSmaller:(id)aSender
 {
-  BrowserWindowController* browserController = [self getMainWindowBrowserController];
-  if (browserController)
-    [browserController smallerTextSize:aSender];
+  [[self getMainWindowBrowserController] makeTextSmaller:aSender];
+}
+
+- (IBAction)makeTextDefaultSize:(id)aSender
+{
+  [[self getMainWindowBrowserController] makeTextDefaultSize:aSender];
 }
 
 -(IBAction) viewSource:(id)aSender
@@ -1516,15 +1524,14 @@ Otherwise, we return the URL we originally got. Right now this supports .url,
     return (browserController && [[browserController getTabBrowser] numberOfTabViewItems] > 1);
   }
 
-  if (action == @selector(biggerTextSize:))
-    return (browserController &&
-            ![[browserController getBrowserWrapper] isEmpty] &&
-            [[[browserController getBrowserWrapper] getBrowserView] canMakeTextBigger]);
+  if (action == @selector(makeTextBigger:))
+    return (browserController && [browserController canMakeTextBigger]);
 
-  if (action == @selector(smallerTextSize:))
-    return (browserController &&
-            ![[browserController getBrowserWrapper] isEmpty] &&
-            [[[browserController getBrowserWrapper] getBrowserView] canMakeTextSmaller]);
+  if (action == @selector(makeTextSmaller:))
+    return (browserController && [browserController canMakeTextSmaller]);
+
+  if (action == @selector(makeTextDefaultSize:))
+    return (browserController && [browserController canMakeTextDefaultSize]);
 
   // don't allow View Source on the bookmark manager or on non-text content
   if (action == @selector(viewSource:)) {
@@ -1558,6 +1565,14 @@ Otherwise, we return the URL we originally got. Right now this supports .url,
 
   if (action == @selector(sendURL:))
     return ![[[browserController getBrowserWrapper] getCurrentURI] hasPrefix:@"about:"];
+
+  // key alternates
+  if (action == @selector(openMenuBookmark:) && [aMenuItem isAlternate]) {
+    if ([[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.opentabfor.middleclick" withSuccess:NULL])
+      [aMenuItem setTitle:NSLocalizedString(@"Open in New Tabs", nil)];
+    else
+      [aMenuItem setTitle:NSLocalizedString(@"Open in Tabs in New Window", nil)];
+  }
 
   // default return
   return YES;

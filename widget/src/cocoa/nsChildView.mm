@@ -79,6 +79,14 @@ CG_EXTERN void CGContextResetClip (CGContextRef);
 #include "nsGfxUtils.h" // for StPortSetter
 #endif
 
+#ifdef ACCESSIBILITY
+#include "nsIAccessible.h"
+
+// import the accessible protocol so we can connect the root accessible as a the 
+// direct accessible child of our top ChildView.
+#import "mozAccessibleProtocol.h"
+#endif
+
 static NSView* sLastViewEntered = nil;
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_3
@@ -132,6 +140,10 @@ static NSView* sLastViewEntered = nil;
  // called on a timer two seconds after a mouse down to see if we should display
  // a context menu (click-hold)
 - (void)clickHoldCallback:(id)inEvent;
+#endif
+
+#ifdef ACCESSIBILITY
+- (id<mozAccessible>)accessible;
 #endif
 
 @end
@@ -1185,16 +1197,17 @@ NS_IMETHODIMP nsChildView::Invalidate(PRBool aIsSynchronous)
   if (!mView || !mVisible)
     return NS_OK;
 
-  if (aIsSynchronous)
+  if (aIsSynchronous) {
     [mView display];
-  else if ([NSView focusView])
-  {
+  }
+  else if ([NSView focusView]) {
     // if a view is focussed (i.e. being drawn), then postpone the invalidate so that we
     // don't lose it.
     [mView performSelector:@selector(setNeedsDisplayWithValue:) withObject:nil afterDelay:0];
   }
-  else
+  else {
     [mView setNeedsDisplay:YES];
+  }
 
   return NS_OK;
 }
@@ -1210,19 +1223,20 @@ NS_IMETHODIMP nsChildView::Invalidate(const nsRect &aRect, PRBool aIsSynchronous
     return NS_OK;
 
   NSRect r;
-  GeckoRectToNSRect ( aRect, r );
+  GeckoRectToNSRect(aRect, r);
   
-  if (aIsSynchronous)
+  if (aIsSynchronous) {
     [mView displayRect:r];
-  else if ([NSView focusView])
-  {
+  }
+  else if ([NSView focusView]) {
     // if a view is focussed (i.e. being drawn), then postpone the invalidate so that we
     // don't lose it.
     [mView performSelector:@selector(setNeedsDisplayWithValue:) withObject:[NSValue valueWithRect:r] afterDelay:0];
   }
-  else
+  else {
     [mView setNeedsDisplayInRect:r];
-  
+  }
+
   return NS_OK;
 }
 
@@ -1283,14 +1297,12 @@ void nsChildView::StartDraw(nsIRenderingContext* aRenderingContext)
     return;
   mDrawing = PR_TRUE;
 
-  if (aRenderingContext == nsnull)
-  {
+  if (aRenderingContext == nsnull) {
     // make sure we have a rendering context
     mTempRenderingContext = getter_AddRefs(GetRenderingContext());
     mTempRenderingContextMadeHere = PR_TRUE;
   }
-  else
-  {
+  else {
     // if we already have a rendering context, save its state
     mTempRenderingContext = aRenderingContext;
     mTempRenderingContextMadeHere = PR_FALSE;
@@ -1302,8 +1314,7 @@ void nsChildView::StartDraw(nsIRenderingContext* aRenderingContext)
 
   // set the widget font. nsMacControl implements SetFont, which is where
   // the font should get set.
-  if (mFontMetrics)
-  {
+  if (mFontMetrics) {
     mTempRenderingContext->SetFont(mFontMetrics);
   }
 
@@ -2048,6 +2059,40 @@ nsChildView::GetThebesSurface()
   gfxASurface *surf = mTempThebesSurface.get();
   NS_ADDREF(surf);
   return surf;
+}
+#endif
+
+#ifdef ACCESSIBILITY
+PRBool
+nsChildView::DispatchAccessibleEvent(nsIAccessible** aAccessible)
+{
+  PRBool result = PR_FALSE;
+  nsAccessibleEvent event(PR_TRUE, NS_GETACCESSIBLE, this);
+  
+  *aAccessible = nsnull;
+  
+  nsEventStatus status;
+  DispatchEvent(&event, status);
+  result = (nsEventStatus_eConsumeNoDefault == status) ? PR_TRUE : PR_FALSE;
+  
+  // if the event returned an accessible get it.
+  if (event.accessible)
+    *aAccessible = event.accessible;
+  
+  return result;
+}
+
+void
+nsChildView::GetDocumentAccessible(nsIAccessible** aAccessible)
+{
+  *aAccessible = nsnull;
+  
+  // maybe we can figure out a way to cache this?
+  nsIAccessible *acc = nsnull;
+  DispatchAccessibleEvent(&acc);
+  NS_IF_ADDREF(*aAccessible = acc);
+  
+  return;
 }
 #endif
 
@@ -3889,5 +3934,114 @@ static PRBool IsSpecialRaptorKey(UInt32 macKeyCode)
 {
   return [scroller floatValue];
 }
+
+#ifdef ACCESSIBILITY
+
+/* Every ChildView has a corresponding mozDocAccessible object that is doing all
+   the heavy lifting. The topmost ChildView corresponds to a mozRootAccessible
+   object.
+
+   All ChildView needs to do is to route all accessibility calls (from the NSAccessibility APIs)
+   down to its object, pretending that they are the same.
+*/
+- (id<mozAccessible>)accessible
+{
+  id <mozAccessible> nativeAccessible = nil;
+  
+  nsCOMPtr<nsIAccessible> accessible;
+  mGeckoChild->GetDocumentAccessible (getter_AddRefs (accessible));
+  accessible->GetNativeInterface ((void**)&nativeAccessible);
+
+#if 0
+  static PRBool testInit = PR_FALSE;
+  if (!testInit && [[nativeAccessible role] isEqualToString:@"mozRootAccessible"]) {
+    [nativeAccessible printHierarchy];
+    testInit = PR_TRUE;
+  }
+#endif
+  
+  return nativeAccessible;
+}
+
+/* Implementation of formal mozAccessible formal protocol (enabling mozViews
+   to talk to mozAccessible objects in the accessibility module). */
+
+- (NSString*)role
+{
+  return [[self accessible] role];
+}
+
+#ifdef DEBUG
+- (void)printHierarchy
+{
+  [[self accessible] printHierarchy];
+}
+#endif
+
+#pragma mark -
+
+// general
+
+- (BOOL)accessibilityIsIgnored
+{
+  return [[self accessible] accessibilityIsIgnored];
+}
+
+- (id)accessibilityHitTest:(NSPoint)point
+{
+  return [[self accessible] accessibilityHitTest:point];
+}
+
+- (id)accessibilityFocusedUIElement
+{
+  return [[self accessible] accessibilityFocusedUIElement];
+}
+
+// actions
+
+- (NSArray*)accessibilityActionNames
+{
+  return [[self accessible] accessibilityActionNames];
+}
+
+- (NSString*)accessibilityActionDescription:(NSString*)action
+{
+  return [[self accessible] accessibilityActionDescription:action];
+}
+
+- (void)accessibilityPerformAction:(NSString*)action
+{
+  return [[self accessible] accessibilityPerformAction:action];
+}
+
+// attributes
+
+- (NSArray*)accessibilityAttributeNames
+{
+  return [[self accessible] accessibilityAttributeNames];
+}
+
+- (BOOL)accessibilityIsAttributeSettable:(NSString*)attribute
+{
+  return [[self accessible] accessibilityIsAttributeSettable:attribute];
+}
+
+- (id)accessibilityAttributeValue:(NSString*)attribute
+{
+  id <mozAccessible> accessible = [self accessible];
+  
+  // if we're the root (topmost) accessible, we need to return our native AXParent as we
+  // traverse outside to the hierarchy of whoever embeds us. thus, fall back on NSView's
+  // default implementation for this attribute.
+  if ([attribute isEqualToString:NSAccessibilityParentAttribute] && 
+    [[accessible role] isEqualToString:@"mozRootAccessible"]) {
+    id parentAccessible = [super accessibilityAttributeValue:attribute];
+    return parentAccessible;
+  }
+
+  return [accessible accessibilityAttributeValue:attribute];
+}
+
+#endif /* ACCESSIBILITY */
 
 @end

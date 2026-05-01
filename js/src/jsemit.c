@@ -3498,12 +3498,12 @@ EmitVariables(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn,
     JSBool let, forInVar;
 #if JS_HAS_BLOCK_SCOPE
     JSBool forInLet, popScope;
+    JSStmtInfo *stmt, *scopeStmt;
 #endif
     ptrdiff_t off, noteIndex, tmp;
     JSParseNode *pn2, *pn3;
     JSOp op;
     jsatomid atomIndex;
-    JSStmtInfo *stmt, *scopeStmt;
     uintN oldflags;
 
     /* Default in case of JS_HAS_BLOCK_SCOPE early return, below. */
@@ -3776,7 +3776,7 @@ GettableNoteForNextOp(JSCodeGenerator *cg)
 {
     ptrdiff_t offset, target;
     jssrcnote *sn, *end;
-   
+
     offset = 0;
     target = CG_OFFSET(cg);
     for (sn = CG_NOTES(cg), end = sn + CG_NOTE_COUNT(cg); sn < end;
@@ -4169,11 +4169,14 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             top = CG_OFFSET(cg);
             SET_STATEMENT_TOP(&stmtInfo, top);
 
-#if JS_HAS_XML_SUPPORT
-            /* Emit a prefix opcode if 'for each (... in ...)' was used. */
-            if (pn->pn_op != JSOP_NOP && js_Emit1(cx, cg, pn->pn_op) < 0)
+            /*
+             * Emit a prefix bytecode to set flags distinguishing kinds of
+             * for-in loops (for-in, for-each-in, destructuring for-in) for
+             * the immediately subsequent JSOP_FOR* bytecode.
+             */
+            JS_ASSERT(pn->pn_op != JSOP_NOP);
+            if (js_Emit1(cx, cg, pn->pn_op) < 0)
                 return JS_FALSE;
-#endif
 
             /* Compile a JSOP_FOR* bytecode based on the left hand side. */
             emitIFEQ = JS_TRUE;
@@ -4724,7 +4727,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
          * [throwing] opcode in front of the [setsp][gosub] finally sequence.
          * This opcode will restore cx->throwing to true before running the
          * finally.
-         * 
+         *
          * For rethrowing after a try-catch(guard) without a finally, we emit
          * [throwing] before the [setsp][exception][throw] rethrow sequence.
          */
@@ -6202,7 +6205,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
         ale = js_IndexAtom(cx, pn->pn_atom2, &cg->atomList);
         if (!ale)
             return JS_FALSE;
-        if (!EmitAtomIndexOp(cx, JSOP_STRING, ALE_INDEX(ale), cg))
+        if (!EmitAtomIndexOp(cx, JSOP_QNAMEPART, ALE_INDEX(ale), cg))
             return JS_FALSE;
         if (!EmitAtomOp(cx, pn, JSOP_XMLPI, cg))
             return JS_FALSE;

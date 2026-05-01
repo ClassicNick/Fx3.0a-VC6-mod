@@ -1144,7 +1144,6 @@ FeedProcessor.prototype = {
     }
     finally {
       this._result = null;
-      this._reader = null;
     }
   },
 
@@ -1153,11 +1152,13 @@ FeedProcessor.prototype = {
     this._init(uri);
     this._reader.parseFromStream(stream, null, stream.available(), 
                                  "application/xml");
+    this._reader = null;
   },
 
   parseFromString: function FP_parseFromString(inputString, uri) {
     this._init(uri);
-    this._reader.parseFromString(inputString,"application/xml");
+    this._reader.parseFromString(inputString, "application/xml");
+    this._reader = null;
   },
 
   parseAsync: function FP_parseAsync(requestObserver, uri) {
@@ -1174,7 +1175,12 @@ FeedProcessor.prototype = {
   },
 
   onStopRequest: function FP_onStopRequest(request, context, statusCode) {
-    this._reader.onStopRequest(request, context, statusCode);
+    try {
+      this._reader.onStopRequest(request, context, statusCode);
+    }
+    finally {
+      this._reader = null;
+    }
   },
 
   onDataAvailable:
@@ -1374,12 +1380,9 @@ FeedProcessor.prototype = {
     var obj, key, prefix;
 
     // If the container is an entry/item, it'll need to have its 
-    // more esoteric properties put in the 'fields' property bag, and set its
-    // parent.
+    // more esoteric properties put in the 'fields' property bag.
     if (elementInfo.containerClass == Cc[ENTRY_CONTRACTID]) {
       obj = elementInfo.containerClass.createInstance(Ci.nsIFeedEntry);
-      // Set the parent property of the entry.
-      obj.parent = this._result.doc;
       obj.baseURI = this._xmlBaseStack[this._xmlBaseStack.length - 1];
       this._mapAttributes(obj.fields, attributes);
     }

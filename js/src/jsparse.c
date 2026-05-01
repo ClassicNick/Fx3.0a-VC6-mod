@@ -2339,6 +2339,7 @@ ReturnOrYield(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
     return pn;
 }
 
+#if JS_HAS_BLOCK_SCOPE
 static JSStmtInfo *
 FindMaybeScopeStatement(JSTreeContext *tc)
 {
@@ -2352,6 +2353,7 @@ FindMaybeScopeStatement(JSTreeContext *tc)
     }
     return NULL;
 }
+#endif
 
 static JSParseNode *
 PushLexicalScope(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
@@ -2732,25 +2734,21 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
             return NULL;
         js_PushStatement(tc, &stmtInfo, STMT_FOR_LOOP, -1);
 
-#if JS_HAS_XML_SUPPORT
-        pn->pn_op = JSOP_NOP;
+        pn->pn_op = JSOP_FORIN;
         if (js_MatchToken(cx, ts, TOK_NAME)) {
             if (CURRENT_TOKEN(ts).t_atom == cx->runtime->atomState.eachAtom)
                 pn->pn_op = JSOP_FOREACH;
             else
                 js_UngetToken(ts);
         }
-#endif
 
         MUST_MATCH_TOKEN(TOK_LP, JSMSG_PAREN_AFTER_FOR);
         ts->flags |= TSF_OPERAND;
         tt = js_PeekToken(cx, ts);
         ts->flags &= ~TSF_OPERAND;
         if (tt == TOK_SEMI) {
-#if JS_HAS_XML_SUPPORT
             if (pn->pn_op == JSOP_FOREACH)
                 goto bad_for_each;
-#endif
 
             /* No initializer -- set first kid of left sub-node to null. */
             pn1 = NULL;
@@ -2886,10 +2884,9 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
                 return NULL;
             pn->pn_left = pn2;
         } else {
-#if JS_HAS_XML_SUPPORT
             if (pn->pn_op == JSOP_FOREACH)
                 goto bad_for_each;
-#endif
+            pn->pn_op = JSOP_NOP;
 
             /* Parse the loop condition or null into pn2. */
             MUST_MATCH_TOKEN(TOK_SEMI, JSMSG_SEMI_AFTER_FOR_INIT);
@@ -2950,13 +2947,11 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
         js_PopStatement(tc);
         return pn;
 
-#if JS_HAS_XML_SUPPORT
       bad_for_each:
         js_ReportCompileErrorNumber(cx, pn,
                                     JSREPORT_PN | JSREPORT_ERROR,
                                     JSMSG_BAD_FOR_EACH_LOOP);
         return NULL;
-#endif
       }
 
       case TOK_TRY: {
@@ -3410,7 +3405,7 @@ Statement(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
             (!tc->topStmt || tc->topStmt->type == STMT_BLOCK)) {
             pn->pn_extra |= PNX_NEEDBRACES;
         }
-        tc->flags = oldflags | (tc->flags & TCF_FUN_FLAGS);
+        tc->flags = oldflags | (tc->flags & (TCF_FUN_FLAGS | TCF_RETURN_FLAGS));
         return pn;
       }
 
@@ -3540,6 +3535,7 @@ Variables(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
 {
     JSTokenType tt;
     JSBool let;
+    JSStmtInfo *scopeStmt;
     BindData data;
     JSParseNode *pn, *pn2;
     JSStackFrame *fp;
@@ -3556,8 +3552,14 @@ Variables(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
     JS_ASSERT(let || tt == TOK_VAR);
 
     /* Make sure that Statement set the tree context up correctly. */
-    JS_ASSERT(!let ||
-              (tc->topScopeStmt && (tc->topScopeStmt->flags & SIF_SCOPE)));
+    scopeStmt = tc->topScopeStmt;
+    if (let) {
+        while (scopeStmt && !(scopeStmt->flags & SIF_SCOPE)) {
+            JS_ASSERT(!STMT_MAYBE_SCOPE(scopeStmt));
+            scopeStmt = scopeStmt->downScope;
+        }
+        JS_ASSERT(scopeStmt);
+    }
 
     data.pn = NULL;
     data.ts = ts;
@@ -3580,7 +3582,7 @@ Variables(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc)
      */
     fp = cx->fp;
     if (let) {
-        JS_ASSERT(tc->blockChain == ATOM_TO_OBJECT(tc->topScopeStmt->atom));
+        JS_ASSERT(tc->blockChain == ATOM_TO_OBJECT(scopeStmt->atom));
         data.obj = tc->blockChain;
         data.u.let.index = OBJ_BLOCK_COUNT(cx, data.obj);
         data.u.let.overflow = JSMSG_TOO_MANY_FUN_VARS;
@@ -4249,6 +4251,9 @@ MemberExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
             pn2->pn_arity = PN_UNARY;
             pn2->pn_kid = pn;
             pn2->pn_next = NULL;
+#if JS_HAS_XML_SUPPORT
+            pn2->pn_ts = ts;
+#endif
             pn = pn2;
         }
     }
@@ -4873,7 +4878,6 @@ XMLElementOrList(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
                  JSBool allowList)
 {
     JSParseNode *pn, *pn2, *list;
-    JSBool hadSpace;
     JSTokenType tt;
     JSAtom *startAtom, *endAtom;
 
@@ -4883,7 +4887,6 @@ XMLElementOrList(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
         return NULL;
 
     ts->flags |= TSF_XMLTAGMODE;
-    hadSpace = js_MatchToken(cx, ts, TOK_XMLSPACE);
     tt = js_GetToken(cx, ts);
     if (tt == TOK_ERROR)
         return NULL;
@@ -4945,7 +4948,6 @@ XMLElementOrList(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
             if (!XMLElementContent(cx, ts, pn, tc))
                 return NULL;
 
-            js_MatchToken(cx, ts, TOK_XMLSPACE);
             tt = js_GetToken(cx, ts);
             XML_CHECK_FOR_ERROR_AND_EOF(tt, NULL);
             if (tt != TOK_XMLNAME && tt != TOK_LC) {
@@ -4996,7 +4998,7 @@ XMLElementOrList(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
 
         /* Set pn_op now that pn has been updated to its final value. */
         pn->pn_op = JSOP_TOXML;
-    } else if (!hadSpace && allowList && tt == TOK_XMLTAGC) {
+    } else if (allowList && tt == TOK_XMLTAGC) {
         /* XMLList Initialiser. */
         pn->pn_type = TOK_XMLLIST;
         pn->pn_op = JSOP_TOXMLLIST;
@@ -5286,6 +5288,7 @@ PrimaryExpr(JSContext *cx, JSTokenStream *ts, JSTreeContext *tc,
                     if (!pn2)
                         return NULL;
 
+                    pn2->pn_op = JSOP_FORIN;
                     if (js_MatchToken(cx, ts, TOK_NAME)) {
                         if (CURRENT_TOKEN(ts).t_atom == rt->atomState.eachAtom)
                             pn2->pn_op = JSOP_FOREACH;
@@ -6375,6 +6378,8 @@ js_FoldConstants(JSContext *cx, JSParseNode *pn, JSTreeContext *tc)
         break;
 
       case TOK_UNARYOP:
+        while (pn1->pn_type == TOK_RP)
+            pn1 = pn1->pn_kid;
         if (pn1->pn_type == TOK_NUMBER) {
             jsdouble d;
             int32 i;

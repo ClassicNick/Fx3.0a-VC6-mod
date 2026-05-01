@@ -118,6 +118,7 @@ sub VALIDATORS {
         cc             => \&_check_cc,
         deadline       => \&_check_deadline,
         estimated_time => \&_check_estimated_time,
+        keywords       => \&_check_keywords,
         op_sys         => \&_check_op_sys,
         priority       => \&_check_priority,
         product        => \&_check_product,
@@ -242,16 +243,66 @@ sub create {
     $class->check_required_create_fields(@_);
     my $params = $class->run_create_validators(@_);
 
-    # "cc" is not a field in the bugs table, so we don't pass it to
+    # These are not a fields in the bugs table, so we don't pass them to
     # insert_create_data.
     my $cc_ids = $params->{cc};
     delete $params->{cc};
+    my $groups = $params->{groups};
+    delete $params->{groups};
+    my $depends_on = $params->{dependson};
+    delete $params->{dependson};
+    my $blocked = $params->{blocked};
+    delete $params->{blocked};
+
+    # Set up the keyword cache for bug creation.
+    my $keywords = $params->{keywords};
+    $params->{keywords} = join(', ', sort {lc($a) cmp lc($b)} 
+                                          map($_->name, @$keywords));
+
+    # We don't want the bug to appear in the system until it's correctly
+    # protected by groups.
+    my $timestamp = $params->{creation_ts}; 
+    delete $params->{creation_ts};
 
     my $bug = $class->insert_create_data($params);
 
+    # Add the group restrictions
+    my $sth_group = $dbh->prepare(
+        'INSERT INTO bug_group_map (bug_id, group_id) VALUES (?, ?)');
+    foreach my $group_id (@$groups) {
+        $sth_group->execute($bug->bug_id, $group_id);
+    }
+
+    $dbh->do('UPDATE bugs SET creation_ts = ? WHERE bug_id = ?', undef,
+             $timestamp, $bug->bug_id);
+
+    # Add the CCs
     my $sth_cc = $dbh->prepare('INSERT INTO cc (bug_id, who) VALUES (?,?)');
     foreach my $user_id (@$cc_ids) {
         $sth_cc->execute($bug->bug_id, $user_id);
+    }
+
+    # Add in keywords
+    my $sth_keyword = $dbh->prepare(
+        'INSERT INTO keywords (bug_id, keywordid) VALUES (?, ?)');
+    foreach my $keyword_id (map($_->id, @$keywords)) {
+        $sth_keyword->execute($bug->bug_id, $keyword_id);
+    }
+
+    # Set up dependencies (blocked/dependson)
+    my $sth_deps = $dbh->prepare(
+        'INSERT INTO dependencies (blocked, dependson) VALUES (?, ?)');
+    foreach my $depends_on_id (@$depends_on) {
+        $sth_deps->execute($bug->bug_id, $depends_on_id);
+        # Log the reverse action on the other bug.
+        LogActivityEntry($depends_on_id, 'blocked', '', $bug->bug_id,
+                         $bug->reporter->id, $timestamp);
+    }
+    foreach my $blocked_id (@$blocked) {
+        $sth_deps->execute($blocked_id, $bug->bug_id);
+        # Log the reverse action on the other bug.
+        LogActivityEntry($blocked_id, 'dependson', '', $bug->bug_id,
+                         $bug->reporter->id, $timestamp);
     }
 
     return $bug;
@@ -274,6 +325,9 @@ sub run_create_validators {
 
     $params->{version} = $class->_check_version($product, $params->{version});
 
+    $params->{groups} = $class->_check_groups($product,
+        $params->{groups});
+
     my $component = $class->_check_component($product, $params->{component});
     $params->{component_id} = $component->id;
     delete $params->{component};
@@ -290,6 +344,9 @@ sub run_create_validators {
 
     $class->_check_strict_isolation($product, $params->{cc},
                                     $params->{assigned_to}, $params->{qa_contact});
+
+    ($params->{dependson}, $params->{blocked}) = 
+        $class->_check_dependencies($params->{dependson}, $params->{blocked});
 
     return $params;
 }
@@ -521,19 +578,65 @@ sub _check_estimated_time {
     return $_[0]->_check_time($_[1], 'estimated_time');
 }
 
+sub _check_groups {
+    my ($invocant, $product, $group_ids) = @_;
+
+    my $user = Bugzilla->user;
+
+    my %add_groups;
+    my $controls = $product->group_controls;
+
+    foreach my $id (@$group_ids) {
+        my $group = new Bugzilla::Group($id)
+            || ThrowUserError("invalid_group_ID");
+
+        # This can only happen if somebody hacked the enter_bug form.
+        ThrowCodeError("inactive_group", { name => $group->name })
+            unless $group->is_active;
+
+        my $membercontrol = $controls->{$id}
+                            && $controls->{$id}->{membercontrol};
+        my $othercontrol  = $controls->{$id} 
+                            && $controls->{$id}->{othercontrol};
+        
+        my $permit = ($membercontrol && $user->in_group($group->name))
+                     || $othercontrol;
+
+        $add_groups{$id} = 1 if $permit;
+    }
+
+    foreach my $id (keys %$controls) {
+        next unless $controls->{$id}->{isactive};
+        my $membercontrol = $controls->{$id}->{membercontrol} || 0;
+        my $othercontrol  = $controls->{$id}->{othercontrol}  || 0;
+
+        # Add groups required
+        if ($membercontrol == CONTROLMAPMANDATORY
+            || ($othercontrol == CONTROLMAPMANDATORY
+                && !$user->in_group_id($id))) 
+        {
+            # User had no option, bug needs to be in this group.
+            $add_groups{$id} = 1;
+        }
+    }
+
+    my @add_groups = keys %add_groups;
+    return \@add_groups;
+}
+
 sub _check_keywords {
     my ($invocant, $keyword_string) = @_;
     $keyword_string = trim($keyword_string);
     return [] if (!$keyword_string || !Bugzilla->user->in_group('editbugs'));
 
-    my %keyword_ids;
+    my %keywords;
     foreach my $keyword (split(/[\s,]+/, $keyword_string)) {
         next unless $keyword;
         my $obj = new Bugzilla::Keyword({ name => $keyword });
         ThrowUserError("unknown_keyword", { keyword => $keyword }) if !$obj;
-        $keyword_ids{$obj->id} = 1;
+        $keywords{$obj->id} = $obj;
     }
-    return [keys %keyword_ids];
+    return [values %keywords];
 }
 
 sub _check_product {

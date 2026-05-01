@@ -173,8 +173,9 @@ NS_NewHTMLCanvasFrame (nsIPresShell* aPresShell, nsStyleContext* aContext);
 #include "nsSVGAtoms.h"
 #include "nsISVGTextContentMetrics.h"
 #include "nsStyleUtil.h"
-#include "nsSVGUtils.h"
 
+PRBool
+NS_SVGEnabled();
 nsIFrame*
 NS_NewSVGOuterSVGFrame(nsIPresShell* aPresShell, nsIContent* aContent, nsStyleContext* aContext);
 nsIFrame*
@@ -1908,6 +1909,7 @@ GetChildListNameFor(nsIFrame*       aChildFrame)
       }
 #endif // DEBUG
 
+      // XXX FIXME: Bug 350740
       // Return here, because the postcondition for this function actually
       // fails for this case, since the popups are not in a "real" frame list
       // in the popup set.
@@ -3521,8 +3523,7 @@ IsSpecialContent(nsIContent*     aContent,
       PR_FALSE;
 
 #ifdef MOZ_SVG
-  if (aNameSpaceID == kNameSpaceID_SVG &&
-      nsSVGUtils::SVGEnabled()) {
+  if (aNameSpaceID == kNameSpaceID_SVG && NS_SVGEnabled()) {
     // All SVG content is special...
     return PR_TRUE;
   }
@@ -4596,7 +4597,10 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
   // by the style system, so we can assume that display->mDisplay is
   // either NONE, BLOCK, or TABLE.
 
-  PRBool docElemIsTable = display->mDisplay == NS_STYLE_DISPLAY_TABLE;
+  PRBool docElemIsTable = (display->mDisplay == NS_STYLE_DISPLAY_TABLE) &&
+                          !IsSpecialContent(aDocElement, aDocElement->Tag(),
+                                            aDocElement->GetNameSpaceID(),
+                                            styleContext);
 
   if (docElemIsTable) {
     // if the document is a table then just populate it.
@@ -4615,8 +4619,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
     else
 #endif 
 #ifdef MOZ_SVG
-    if (aDocElement->GetNameSpaceID() == kNameSpaceID_SVG &&
-        nsSVGUtils::SVGEnabled()) {
+    if (aDocElement->GetNameSpaceID() == kNameSpaceID_SVG && NS_SVGEnabled()) {
       contentFrame = NS_NewSVGOuterSVGFrame(mPresShell, aDocElement, styleContext);
     }
     else 
@@ -8137,7 +8140,7 @@ nsCSSFrameConstructor::ConstructFrameInternal( nsFrameConstructorState& aState,
   if (NS_SUCCEEDED(rv) &&
       (!frameItems->childList || lastChild == frameItems->lastChild) &&
       aNameSpaceID == kNameSpaceID_SVG &&
-      nsSVGUtils::SVGEnabled()) {
+      NS_SVGEnabled()) {
     PRBool haltProcessing;
     rv = ConstructSVGFrame(aState, aContent, adjParentFrame, aTag,
                            aNameSpaceID, styleContext,

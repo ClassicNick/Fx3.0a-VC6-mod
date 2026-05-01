@@ -1012,9 +1012,10 @@ js_PeekTokenSameLine(JSContext *cx, JSTokenStream *ts)
     JSTokenType tt;
 
     JS_ASSERT(ts->lookahead == 0 ||
+              (ts->flags & TSF_ERROR) ||
               ON_CURRENT_LINE(ts, CURRENT_TOKEN(ts).pos) ||
-              ts->tokens[(ts->cursor + ts->lookahead) & NTOKENS_MASK].type
-                  == TOK_EOL);
+              (tt = ts->tokens[(ts->cursor+ts->lookahead) & NTOKENS_MASK].type,
+               tt == TOK_EOL || tt == TOK_EOF));
     ts->flags |= TSF_NEWLINES;
     tt = js_PeekToken(cx, ts);
     ts->flags &= ~TSF_NEWLINES;
@@ -1696,19 +1697,21 @@ retry:
                     }
                     ADD_TO_TOKENBUF(c);
                 }
+                if (targetLength == 0)
+                    goto bad_xml_markup;
+                if (!TOKENBUF_OK())
+                    goto error;
                 if (contentIndex < 0) {
                     atom = cx->runtime->atomState.emptyAtom;
                 } else {
-                    if (!TOKENBUF_OK())
-                        goto error;
                     atom = js_AtomizeChars(cx,
                                            &TOKENBUF_CHAR(contentIndex),
                                            TOKENBUF_LENGTH() - contentIndex,
                                            0);
                     if (!atom)
                         goto error;
-                    TRIM_TOKENBUF(targetLength);
                 }
+                TRIM_TOKENBUF(targetLength);
                 tp->t_atom2 = atom;
                 tt = TOK_XMLPI;
 

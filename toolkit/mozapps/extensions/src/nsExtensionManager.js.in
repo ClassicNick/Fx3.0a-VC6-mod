@@ -3246,12 +3246,9 @@ ExtensionManager.prototype = {
           var item = this._getItemForDroppedFile(entry, location);
           if (item) {
             droppedInFiles.push({ file: entry, location: location });
-
-            var zipReader = Components.classes["@mozilla.org/libjar/zip-reader;1"]
-                                      .createInstance(Components.interfaces.nsIZipReader);
-            zipReader.open(entry);
             var prettyName = "";
             try {
+              var zipReader = getZipReaderForFile(entry);
               var principal = { };
               var certPrincipal = zipReader.getCertificatePrincipal(null, principal);
               // XXXbz This string could be empty.  This needs better
@@ -3259,6 +3256,8 @@ ExtensionManager.prototype = {
               prettyName = principal.value.prettyName;
             }
             catch (e) { }
+            if (zipReader)
+              zipReader.close();
             xpinstallStrings = xpinstallStrings.concat([item.name, 
                                                         getURLSpecFromFile(entry),
                                                         item.iconURL, 
@@ -7871,6 +7870,42 @@ ExtensionsDataSource.prototype = {
     var id = item.Value;
     if (id in this._progressData)
       return EM_I(this._progressData[id].progress);
+    return null;
+  },
+
+  /**
+   * Get the em:appManaged property. This prevents extensions from hiding
+   * extensions installed into locations other than the app-global location.
+   */
+  _rdfGet_appManaged: function(item, property) {
+    var id = stripPrefix(item.Value, PREFIX_ITEM_URI);
+    var locationKey = this.getItemProperty(id, "installLocation");
+    if (locationKey != KEY_APP_GLOBAL)
+      return EM_L("false");
+    return null;
+  },
+
+  /**
+   * Get the em:hidden property. This prevents extensions from hiding
+   * extensions installed into locations other than restricted locations.
+   */
+  _rdfGet_hidden: function(item, property) {
+    var id = stripPrefix(item.Value, PREFIX_ITEM_URI);
+    var installLocation = InstallLocations.get(this.getInstallLocationKey(id));
+    if (!installLocation.restricted)
+      return EM_L("false");
+    return null;
+  },
+
+  /**
+   * Get the em:locked property. This prevents extensions from locking
+   * extensions installed into locations other than restricted locations.
+   */
+  _rdfGet_locked: function(item, property) {
+    var id = stripPrefix(item.Value, PREFIX_ITEM_URI);
+    var installLocation = InstallLocations.get(this.getInstallLocationKey(id));
+    if (!installLocation.restricted)
+      return EM_L("false");
     return null;
   },
 

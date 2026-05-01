@@ -87,6 +87,8 @@ class nsISecureBrowserUI;
 - (void)onPopupBlocked:(nsIDOMPopupBlockedEvent*)data;
 // Called when a "shortcut icon" link element is noticed
 - (void)onFoundShortcutIcon:(NSString*)inIconURI;
+// Called when a feed link element is noticed
+- (void)onFeedDetected:(NSString*)inFeedURI feedTitle:(NSString*)inFeedTitle;
 
 @end
 
@@ -114,6 +116,7 @@ typedef enum {
 // Return whether the container prefers to create new windows or to re-use
 // the existing one (will return YES if implementing "single-window mode")
 - (BOOL)shouldReuseExistingWindow;
+- (int)respectWindowOpenCallsWithSizeAndPosition;
 
 - (NSMenu*)contextMenu;
 - (NSWindow*)nativeWindow;
@@ -246,11 +249,13 @@ typedef enum {
 - (BOOL)canUndo;
 - (BOOL)canRedo;
 
-- (void)biggerTextSize;
-- (void)smallerTextSize;
+- (void)makeTextBigger;
+- (void)makeTextSmaller;
+- (void)makeTextDefaultSize;
 
 - (BOOL)canMakeTextBigger;
 - (BOOL)canMakeTextSmaller;
+- (BOOL)isTextDefaultSize;
 
 // ideally these would not have to be called from outside the CHBrowerView, but currently
 // the cocoa impl of nsIPromptService is at the app level, so it needs to call down

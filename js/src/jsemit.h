@@ -151,6 +151,7 @@ struct JSTreeContext {              /* tree context for semantic checks */
 #define TCF_IN_FUNCTION        0x02 /* parsing inside function body */
 #define TCF_RETURN_EXPR        0x04 /* function has 'return expr;' */
 #define TCF_RETURN_VOID        0x08 /* function has 'return;' */
+#define TCF_RETURN_FLAGS       0x0C /* propagate these out of blocks */
 #define TCF_IN_FOR_INIT        0x10 /* parsing init expr of for; exclude 'in' */
 #define TCF_FUN_CLOSURE_VS_VAR 0x20 /* function and var with same name */
 #define TCF_FUN_USES_NONLOCALS 0x40 /* function refers to non-local names */
@@ -436,7 +437,7 @@ js_LookupCompileTimeConstant(JSContext *cx, JSCodeGenerator *cg, JSAtom *atom,
  *
  * If a WITH statement is reached along the scope stack, return its statement
  * info record, so callers can tell that atom is ambiguous.  If slotp is not
- * null, then if atom is found, set *slotp to its stack slot, otherwise to -1. 
+ * null, then if atom is found, set *slotp to its stack slot, otherwise to -1.
  * This means that if slotp is not null, all the block objects on the lexical
  * scope chain must have had their depth slots computed by the code generator,
  * so the caller must be under js_EmitTree.
@@ -526,6 +527,8 @@ typedef enum JSSrcNoteType {
  * to be adjusted, but these "offsets" are too small to span a span-dependent
  * instruction, so can be used to denote distinct declaration syntaxes to the
  * decompiler.
+ *
+ * NB: the var_prefix array in jsopcode.c depends on these dense indexes.
  */
 #define SRC_DECL_VAR             0
 #define SRC_DECL_CONST           1
