@@ -1845,7 +1845,16 @@ nsMathMLmtableCreator::CreateTableRowFrame(nsStyleContext* aStyleContext)
 nsIFrame*
 nsMathMLmtableCreator::CreateTableCellFrame(nsIFrame* aParentFrame, nsStyleContext* aStyleContext)
 {
-  NS_ASSERTION(!IsBorderCollapse(aParentFrame), "not implemented");
+  // <mtable> is border separate in mathml.css and the MathML code doesn't implement
+  // border collapse. For those users who style <mtable> with border collapse,
+  // give them the default non-MathML table frames that understand border collpase.
+  // This won't break us because MathML table frames are all subclasses of the default
+  // table code, and so we can freely mix <mtable> with <mtr> or <tr>, <mtd> or <td>.
+  // What will happen is just that non-MathML frames won't understand MathML attributes
+  // and will therefore miss the special handling that the MathML code does.
+  if (IsBorderCollapse(aParentFrame))
+    return NS_NewTableCellFrame(mPresShell, aStyleContext, PR_TRUE);
+
   return NS_NewMathMLmtdFrame(mPresShell, aStyleContext);
 }
 
@@ -7267,7 +7276,9 @@ nsCSSFrameConstructor::ConstructMathMLFrame(nsFrameConstructorState& aState,
                                                    mrowContext);
     
     // then, create a block frame that will wrap the table frame
-    nsIFrame* blockFrame = NS_NewBlockFrame(mPresShell, blockContext);
+    nsIFrame* blockFrame = NS_NewBlockFrame(mPresShell, blockContext,
+                                            NS_BLOCK_SPACE_MGR |
+                                            NS_BLOCK_MARGIN_ROOT);
     if (NS_UNLIKELY(!newFrame)) {
       return NS_ERROR_OUT_OF_MEMORY;
     }

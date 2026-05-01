@@ -626,9 +626,7 @@ PangoFont*
 gfxPangoFont::GetPangoFont()
 {
     RealizeFont();
-
-    PangoFontMap* map = pango_context_get_font_map(mPangoCtx);
-    return pango_font_map_load_font(map, mPangoCtx, mPangoFontDesc);
+    return pango_context_load_font(mPangoCtx, mPangoFontDesc);
 }
 
 static const char *sCJKLangGroup[] = {
@@ -1762,10 +1760,10 @@ GetMozLanguage(const PangoLanguage *aLang, nsACString &aMozLang)
         return;
 
     nsCAutoString lang(pango_language_to_string(aLang));
-    if (lang.Equals("xx"))
+    if (lang.IsEmpty() || lang.Equals("xx"))
         return;
 
-    do {
+    while (1) {
         for (PRUint32 i = 0; i < NUM_PANGO_ALL_LANG_GROUPS; ++i) {
             if (lang.Equals(PangoAllLangGroup[i].PangoLang)) {
                 if (PangoAllLangGroup[i].mozLangGroup)
@@ -1779,6 +1777,7 @@ GetMozLanguage(const PangoLanguage *aLang, nsACString &aMozLang)
             lang.Cut(hyphen, lang.Length());
             continue;
         }
-    } while (0);
+        break;
+    }
 }
 

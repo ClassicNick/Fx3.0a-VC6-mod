@@ -31,6 +31,7 @@ html {
   -moz-padding-start: 2.9em;
   font-size: 110%;
   background: url("chrome://browser/skin/feeds/feedIcon.png") 0% 10% no-repeat InfoBackground;
+  color: InfoText;
 }
 
 #feedHeader[dir="rtl"] {
@@ -76,6 +77,13 @@ html {
 
 #feedHeader[dir="rtl"] #handlersMenuList > menupopup {
   direction: rtl;
+}
+
+/* Don't print subscription UI */
+@media print {
+  #feedHeaderContainer {
+    display: none;
+  }
 }
 
 body {

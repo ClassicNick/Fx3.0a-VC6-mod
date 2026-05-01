@@ -37,7 +37,6 @@ use base 'Litmus::DBI';
 
 use Date::Manip;
 #use Litmus::DB::Testresult;
-use Memoize;
 #use Litmus::Error;
 
 our $default_relevance_threshold = 1.0;
@@ -48,6 +47,7 @@ Litmus::DB::Testcase->table('testcases');
 
 Litmus::DB::Testcase->columns(Primary => qw/testcase_id/);
 Litmus::DB::Testcase->columns(Essential => qw/summary details enabled community_enabled format_id regression_bug_id product_id steps expected_results author_id creation_date last_updated version testrunner_case_id testrunner_case_version/);
+Litmus::DB::Testcase->columns(TEMP => qw //);
 
 Litmus::DB::Testcase->column_alias("testcase_id", "testid");
 Litmus::DB::Testcase->column_alias("testcase_id", "test_id");
@@ -109,7 +109,6 @@ ORDER BY tsg.sort_order ASC, t.testcase_id ASC
 # Check whether we have test results for the current test that correspond
 # to the provided platform, build_id, and user(optional).
 #########################################################################
-memoize('is_completed');
 sub is_completed {
   my $self = shift;
   my $platform = shift;

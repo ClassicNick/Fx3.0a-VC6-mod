@@ -1730,7 +1730,9 @@ ImportProperty(JSContext *cx, JSObject *obj, jsid id)
             ok = OBJ_SET_PROPERTY(cx, target, id, &value);
         } else {
             ok = OBJ_DEFINE_PROPERTY(cx, target, id, value, NULL, NULL,
-                                     attrs & ~JSPROP_EXPORTED,
+                                     attrs & ~(JSPROP_EXPORTED |
+                                               JSPROP_GETTER |
+                                               JSPROP_SETTER),
                                      NULL);
         }
         if (prop)
@@ -5330,7 +5332,6 @@ interrupt:
              * Getters and setters are just like watchpoints from an access
              * control point of view.
              */
-            SAVE_SP_AND_PC(fp);
             ok = OBJ_CHECK_ACCESS(cx, obj, id, JSACC_WATCH, &rtmp, &attrs);
             if (!ok)
                 goto out;

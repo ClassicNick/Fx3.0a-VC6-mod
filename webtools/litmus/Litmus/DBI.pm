@@ -101,14 +101,14 @@ my $db_options = { __PACKAGE__->_default_attributes };
 
 __PACKAGE__->_remember_handle('Main'); # so dbi_commit works
 
-# override default to avoid using Ima::DBI closure
+# override default to avoid using Ima::DBI closure for mod_perl compatibility
 sub db_Main {
    my $dbh;
    if ( $ENV{'MOD_PERL'} and !$Apache::ServerStarting ) {
 	   $dbh = Apache->request()->pnotes('dbh');
    }
    if ( !$dbh ) {
-	   $dbh = DBI->connect(
+	   $dbh = DBI->connect_cached(
 		   $dsn,  $Litmus::Config::db_user,
 		   $Litmus::Config::db_pass, $db_options
 	   );
@@ -119,5 +119,20 @@ sub db_Main {
    return $dbh;
 }
 
-1;
+# hack around a bug where auto_increment columns don't work properly unless 
+# the auto_increment key is explicitly set to null in insert statements:
+sub _auto_increment_value {
+	my $self = shift;
+	my $dbh  = $self->db_Main;
+	my $id;
+	eval { 
+		my $sth = $dbh->prepare("SELECT LAST_INSERT_ID()");
+		$sth->execute();
+		my @data = $sth->fetchrow_array();
+		$id = $data[0];
+	} or return $self->SUPER::_auto_increment_value();
+	if (! defined $id) { return $self->SUPER::_auto_increment_value() }
+	return $id;
+}
 
+1;

@@ -58,7 +58,6 @@
 #include "nsSVGGeometryFrame.h"
 #include "nsSVGPatternFrame.h"
 #include "nsISVGCairoCanvas.h"
-#include "nsISVGCairoSurface.h"
 
 #ifdef DEBUG_scooter
 static void printCTM(char *msg, nsIDOMSVGMatrix *aCTM);
@@ -291,7 +290,7 @@ nsSVGPatternFrame::PaintPattern(nsISVGRendererCanvas* canvas,
     return NS_ERROR_FAILURE;
 
   // Push the surface
-  if (NS_FAILED(canvas->PushCairoSurface(patternSurface, PR_FALSE))) {
+  if (NS_FAILED(canvas->PushSurface(patternSurface, PR_FALSE))) {
     cairo_surface_destroy(patternSurface);
     return NS_ERROR_FAILURE; //?
   }

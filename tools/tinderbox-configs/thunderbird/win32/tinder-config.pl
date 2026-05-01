@@ -98,7 +98,7 @@ $Make          = 'make';       # Must be GNU make
 #$CVSCO         = 'checkout -P';
 
 # win32 usually doesn't have /bin/mail
-$blat           = 'c:/moztools/bin/blat';
+$blat           = 'd:/moztools/bin/blat';
 $use_blat       = 1;
 
 # Set moz_cvsroot to something like:
@@ -158,7 +158,7 @@ $BinaryName = 'thunderbird.exe';
 #$ShellOverride = '';
 
 # Release build options
-$ReleaseBuild  = 1;
+$ReleaseBuild  = 0;
 $shiptalkback  = 1;
 $build_hour    = "3";
 $package_creation_path = "/mail/installer";
