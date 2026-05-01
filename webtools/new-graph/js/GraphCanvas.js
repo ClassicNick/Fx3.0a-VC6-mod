@@ -440,6 +440,24 @@ Graph.prototype = {
                         continue;
                     }
 
+                    for (baseline in this.dataSets[i].baselines) {
+                        save();
+                        var v = ch - Math.round((this.dataSets[i].baselines[baseline] - yoffs) * this.yScale);
+                        var x0 = Math.round((this.startTime - xoffs) * xscale);
+                        var x1 = Math.round((this.endTime - xoffs) * xscale);
+                        beginPath();
+                        moveTo(x0-0.5, v+0.5);
+                        lineTo(x1+0.5, v+0.5);
+                        strokeStyle = colorToRgbString(this.dataSets[i].color);
+                        globalAlpha = 0.2;
+                        lineWidth = 5.0;
+                        stroke();
+                        restore();
+                        strokeStyle = colorToRgbString(this.dataSets[i].color);
+                        lineWidth = 1.0;
+                        stroke();
+                    }
+
                     //log ("ds start end", this.startTime, this.endTime, "timediff:", (this.endTime - this.startTime));
                     save();
                     scale(xscale, -this.yScale);
@@ -954,7 +972,7 @@ function formatTime(ltime, twoLines) {
         var yr = d.getYear();
         if (yr > 100) yr -= 100;
         if (yr < 10) yr = "0" + yr;
-        var s2 = d.getMonth() + "/" + d.getDate() + "/" + yr;
+        var s2 = (d.getMonth()+1) + "/" + d.getDate() + "/" + yr;
         return s2 + " " + s1;
     }
 }

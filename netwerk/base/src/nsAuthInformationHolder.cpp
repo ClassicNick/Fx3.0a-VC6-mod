@@ -11,11 +11,11 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Netscape security libraries.
+ * The Original Code is mozilla.org networking code.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1994-2000
+ * Google Inc.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
@@ -34,46 +34,73 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-/*
- *  jarevil.h
- *
- *  dot H file for calls to mozilla thread
- *  from within jarver.c 
- *
- */
+#include "nsAuthInformationHolder.h"
 
-#include "certt.h"
-#include "secpkcs7.h"
+NS_IMPL_ISUPPORTS1(nsAuthInformationHolder, nsIAuthInformation)
 
-extern SECStatus jar_moz_encode
-      (
-      SEC_PKCS7ContentInfo *cinfo,
-      SEC_PKCS7EncoderOutputCallback  outputfn,
-      void *outputarg,
-      PK11SymKey *bulkkey,
-      SECKEYGetPasswordKey pwfn,
-      void *pwfnarg
-      );
+NS_IMETHODIMP
+nsAuthInformationHolder::GetFlags(PRUint32* aFlags)
+{
+    *aFlags = mFlags;
+    return NS_OK;
+}
 
-extern SECStatus jar_moz_verify
-      (
-      SEC_PKCS7ContentInfo *cinfo,
-      SECCertUsage certusage,
-      SECItem *detached_digest,
-      HASH_HashType digest_type,
-      PRBool keepcerts
-      );
+NS_IMETHODIMP
+nsAuthInformationHolder::GetRealm(nsAString& aRealm)
+{
+    aRealm = mRealm;
+    return NS_OK;
+}
 
-extern CERTCertificate *jar_moz_nickname 
-   (CERTCertDBHandle *certdb, char *nickname);
+NS_IMETHODIMP
+nsAuthInformationHolder::GetAuthenticationScheme(nsACString& aScheme)
+{
+    aScheme = mAuthType;
+    return NS_OK;
+}
 
-extern SECStatus jar_moz_perm 
-  (CERTCertificate *cert, char *nickname, CERTCertTrust *trust);
- 
-extern CERTCertificate *jar_moz_certkey 
-  (CERTCertDBHandle *certdb, CERTIssuerAndSN *seckey);
+NS_IMETHODIMP
+nsAuthInformationHolder::GetUsername(nsAString& aUserName)
+{
+    aUserName = mUser;
+    return NS_OK;
+}
 
-extern CERTCertificate *jar_moz_issuer (CERTCertificate *cert);
+NS_IMETHODIMP
+nsAuthInformationHolder::SetUsername(const nsAString& aUserName)
+{
+    if (!(mFlags & ONLY_PASSWORD))
+        mUser = aUserName;
+    return NS_OK;
+}
 
-extern CERTCertificate *jar_moz_dup (CERTCertificate *cert);
+NS_IMETHODIMP
+nsAuthInformationHolder::GetPassword(nsAString& aPassword)
+{
+    aPassword = mPassword;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAuthInformationHolder::SetPassword(const nsAString& aPassword)
+{
+    mPassword = aPassword;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAuthInformationHolder::GetDomain(nsAString& aDomain)
+{
+    aDomain = mDomain;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAuthInformationHolder::SetDomain(const nsAString& aDomain)
+{
+    if (mFlags & NEED_DOMAIN)
+        mDomain = aDomain;
+    return NS_OK;
+}
+
 

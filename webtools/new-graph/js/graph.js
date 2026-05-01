@@ -65,7 +65,8 @@ function loadingDone() {
     Tinderbox = new TinderboxData();
     Tinderbox.init();
 
-    Bonsai = new BonsaiService();
+    if (BonsaiService)
+        Bonsai = new BonsaiService();
 
     SmallPerfGraph = new CalendarTimeGraph("smallgraph");
     SmallPerfGraph.yLabelHeight = 20;
@@ -207,7 +208,7 @@ function onGraph() {
 
 function onGraphLoadRemainder(baselineDataSet) {
     for each (var graphModule in GraphFormModules) {
-        log ("onGraphLoadRemainder: ", graphModule.id, graphModule.testId, "color:", graphModule.color);
+        log ("onGraphLoadRemainder: ", graphModule.id, graphModule.testId, "color:", graphModule.color, "average:", graphModule.average);
 
         // this would have been loaded earlier
         if (graphModule.baseline)
@@ -239,16 +240,16 @@ function onGraphLoadRemainder(baselineDataSet) {
                     if (baselineDataSet)
                         ds = ds.createRelativeTo(baselineDataSet);
 
-                    log ("got ds:", ds.firstTime, ds.lastTime, ds.data.length);
+                    log ("got ds: (", module.id, ")", ds.firstTime, ds.lastTime, ds.data.length);
                     var avgds = null;
                     if (baselineDataSet == null &&
-                        graphModule.average)
+                        module.average)
                     {
                         avgds = ds.createAverage(gAverageInterval);
                     }
 
                     if (avgds)
-                        log ("got avgds:", avgds.firstTime, avgds.lastTime, avgds.data.length);
+                        log ("got avgds: (", module.id, ")", avgds.firstTime, avgds.lastTime, avgds.data.length);
 
                     for each (g in [BigPerfGraph, SmallPerfGraph]) {
                         g.addDataSet(ds);
@@ -336,12 +337,10 @@ function handleHash(hash) {
     }
 
     var ctr = 1;
-    while (("m" + ctr + "tb") in qsdata) {
+    while (("m" + ctr + "tid") in qsdata) {
         var prefix = "m" + ctr;
-
-        var m = addGraphForm();
-        m.handleQueryStringData(prefix, qsdata);
-
+        addGraphForm({testid: qsdata[prefix + "tid"],
+                      average: qsdata[prefix + "avg"]});
         ctr++;
     }
 
@@ -352,6 +351,11 @@ function handleHash(hash) {
     var tend = new Number(qsdata["spend"]);
 
     Tinderbox.defaultLoadRange = [tstart, tend];
+
+    Tinderbox.requestTestList(function (tests) {
+        setTimeout (onGraph, 0); // let the other handlers do their thing
+    });
+
 }
 
 function showStatus(s) {
@@ -397,10 +401,16 @@ function lighterColor(col) {
 }
 
 function colorToRgbString(col) {
-    return "rgba("
+    if (col[3] < 1) {
+        return "rgba("
+            + Math.floor(col[0]*255) + ","
+            + Math.floor(col[1]*255) + ","
+            + Math.floor(col[2]*255) + ","
+            + col[3]
+            + ")";
+    }
+    return "rgb("
         + Math.floor(col[0]*255) + ","
         + Math.floor(col[1]*255) + ","
-        + Math.floor(col[2]*255) + ","
-        + col[3]
-        + ")";
+        + Math.floor(col[2]*255) + ")";
 }

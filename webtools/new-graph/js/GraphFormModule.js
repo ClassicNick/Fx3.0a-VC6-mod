@@ -60,6 +60,7 @@ GraphFormModule.prototype = {
         
         this.cfg = new YAHOO.util.Config(this);
         this.cfg.addProperty("testid", { suppressEvent: true });
+        this.cfg.addProperty("average", { suppressEvent: true });
         this.cfg.addProperty("baseline", { suppressEvent: true });
 
         if (userConfig)
@@ -81,10 +82,8 @@ GraphFormModule.prototype = {
         form.appendChild(td);
 
         td = new SPAN();
-        el = new IMG({ style: "border: 1px solid black; vertical-align: middle; margin: 3px;",
-                       width: 15,
-                       height: 15,
-                       src: "js/img/clear.png" });
+        el = new DIV({ id: "whee", style: "display: inline; border: 1px solid black; height: 15; " +
+                              "padding-right: 15; vertical-align: middle; margin: 3px;" });
         this.colorDiv = el;
         td.appendChild(el);
         form.appendChild(td);
@@ -109,10 +108,16 @@ GraphFormModule.prototype = {
         this.setBody (form);
 
         var forceTestId = null;
+        this.average = false;
         if (userConfig) {
             forceTestId = this.cfg.getProperty("testid");
+            avg = this.cfg.getProperty("average");
             baseline = this.cfg.getProperty("baseline");
-            if (baseline)
+            if (avg == 1) {
+                this.averageCheckbox.checked = true;
+                this.average = true;
+            }
+            if (baseline == 1)
                 this.onBaseLineRadioClick();
         }
 
@@ -130,7 +135,7 @@ GraphFormModule.prototype = {
                                                                    });
 
                                       for each (var test in sortedTests) {
-                                          var tstr = test.machine + " - " + test.test + " (" + test.test_type + ")";
+                                          var tstr = test.machine + " - " + test.test;
                                           opts.push(new OPTION({ value: test.id }, tstr));
                                       }
                                       replaceChildNodes(self.testSelect, opts);
@@ -147,26 +152,9 @@ GraphFormModule.prototype = {
     },
 
     getQueryString: function (prefix) {
-        return prefix + "tid=" + this.testId + "&" + prefix + "bl=" + (this.baseline ? "1" : "0");
+        return prefix + "tid=" + this.testId + "&" + prefix + "bl=" + (this.baseline ? "1" : "0")
+            + "&" + prefix + "avg=" + (this.average? "1" : "0");
     },
-
-/*
-    handleQueryStringData: function (prefix, qsdata) {
-        var tbox = qsdata[prefix + "tb"];
-        var tname = qsdata[prefix + "tn"];
-        var baseline = (qsdata[prefix + "bl"] == "1");
-
-        if (baseline)
-            this.onBaseLineRadioClick();
-
-        this.forcedTinderbox = tbox;
-        this.tinderboxSelect.value = tbox;
-
-        this.forcedTestname = tname;
-        this.testSelect.value = tname;
-        this.onChangeTinderbox();
-    },
-*/
 
     onChangeTest: function (forceTestId) {
         this.testId = this.testSelect.value;

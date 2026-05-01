@@ -50,6 +50,7 @@
 #include "nsIDOMDocumentView.h"
 #include "nsIDOMAbstractView.h"
 #include "nsIDOMWindowInternal.h"
+#include "nsIAttribute.h"
 #include "nsIStringBundle.h"
 #include "nsAutoBuffer.h"
 #include "nsIEventStateManager.h"
@@ -69,15 +70,11 @@ public:
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSIXFORMSUPLOADELEMENT
 
-  NS_IMETHOD Refresh();
+  NS_IMETHOD IsTypeAllowed(PRUint16 aType, PRBool *aIsAllowed,
+                           nsRestrictionFlag *aRestriction,
+                           nsAString &aAllowedTypes);
 
 private:
-  /**
-   * Returns the nsISchemaBuiltinType of the node to which this element is
-   * bound.
-   */
-  PRUint16 GetBoundType();
-
   /**
    * Sets file path/contents into instance data.  If aFile is nsnull,
    * this clears the data.
@@ -107,55 +104,31 @@ NS_IMPL_ISUPPORTS_INHERITED1(nsXFormsUploadElement,
                              nsIXFormsUploadElement)
 
 NS_IMETHODIMP
-nsXFormsUploadElement::Refresh()
+nsXFormsUploadElement::IsTypeAllowed(PRUint16 aType, PRBool *aIsAllowed,
+                                     nsRestrictionFlag *aRestriction,
+                                     nsAString &aAllowedTypes)
 {
-  // This is called when the 'bind', 'ref' or 'model' attribute has changed.
-  // So we need to make sure that the element is still bound to a node of
-  // type 'anyURI', 'base64Binary', or 'hexBinary'.
-
-  nsresult rv = nsXFormsDelegateStub::Refresh();
-  if (NS_FAILED(rv) || rv == NS_OK_XFORMS_NOREFRESH)
-    return rv;
-
-  if (!mBoundNode)
-    return NS_OK;
+  NS_ENSURE_ARG_POINTER(aRestriction);
+  NS_ENSURE_ARG_POINTER(aIsAllowed);
+  *aRestriction = eTypes_Inclusive;
+  *aIsAllowed = PR_FALSE;
 
   // If it is not bound to 'anyURI', 'base64Binary', 'hexBinary', or an
   // extension or derivation of one of these three types, then put an error in
   // the console.  CSS and XBL will make sure that the control won't appear in
   // the form.
-  PRUint16 boundType = GetBoundType();
-  if (boundType == nsISchemaBuiltinType::BUILTIN_TYPE_HEXBINARY ||
-      boundType == nsISchemaBuiltinType::BUILTIN_TYPE_BASE64BINARY ||
-      boundType == nsISchemaBuiltinType::BUILTIN_TYPE_ANYURI) {
+
+  if (aType == nsISchemaBuiltinType::BUILTIN_TYPE_HEXBINARY ||
+      aType == nsISchemaBuiltinType::BUILTIN_TYPE_BASE64BINARY ||
+      aType == nsISchemaBuiltinType::BUILTIN_TYPE_ANYURI) {
+
+    *aIsAllowed = PR_TRUE;
     return NS_OK;
   }
 
-  nsXFormsUtils::ReportError(NS_LITERAL_STRING("uploadBoundTypeError"),
-                             mElement);
+  // build the string of types that upload can bind to
+  aAllowedTypes.AssignLiteral("xsd:anyURI xsd:base64Binary xsd:hexBinary");
   return NS_OK;
-}
-
-PRUint16
-nsXFormsUploadElement::GetBoundType()
-{
-  if (!mModel)
-    return 0;
-
-  // get type of bound instance data
-  nsCOMPtr<nsISchemaType> schemaType;
-  nsresult rv = mModel->GetTypeForControl(this, getter_AddRefs(schemaType));
-  if (NS_FAILED(rv)) {
-    return 0;
-  }
-
-  PRUint16 builtinType = 0;
-  rv = mModel->GetRootBuiltinType(schemaType, &builtinType);
-  if (NS_FAILED(rv) || !builtinType) {
-    return 0;
-  }
-
-  return builtinType;
 }
 
 static void
@@ -305,19 +278,29 @@ nsXFormsUploadElement::SetFile(nsILocalFile *aFile)
 
   nsresult rv;
 
-  nsCOMPtr<nsINode> node = do_QueryInterface(mBoundNode);
-  NS_ENSURE_STATE(node);
+  nsCOMPtr<nsIContent> content = do_QueryInterface(mBoundNode);
+  nsCOMPtr<nsIAttribute> attr;
+  if (!content) {
+    attr = do_QueryInterface(mBoundNode);
+    NS_ENSURE_STATE(attr);
+  }
 
   PRBool dataChanged = PR_FALSE;
   if (!aFile) {
     // clear instance data
-    node->DeleteProperty(nsXFormsAtoms::uploadFileProperty);
+    if (content) {
+      content->DeleteProperty(nsXFormsAtoms::uploadFileProperty);
+    } else {
+      attr->DeleteProperty(nsXFormsAtoms::uploadFileProperty);
+    }
     rv = mModel->SetNodeValue(mBoundNode, EmptyString(), PR_FALSE,
                               &dataChanged);
   } else {
     // set file into instance data
 
-    PRUint16 type = GetBoundType();
+    PRUint16 type = 0;
+    rv = GetBoundBuiltinType(&type);
+    NS_ENSURE_SUCCESS(rv, rv);
     if (type == nsISchemaBuiltinType::BUILTIN_TYPE_ANYURI) {
       // set fully qualified path as value in instance data node
       nsCAutoString spec;
@@ -346,8 +329,13 @@ nsXFormsUploadElement::SetFile(nsILocalFile *aFile)
       nsIFile *fileCopy = nsnull;
       rv = aFile->Clone(&fileCopy);
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = node->SetProperty(nsXFormsAtoms::uploadFileProperty, fileCopy,
-                                ReleaseObject);
+      if (content) {
+        rv = content->SetProperty(nsXFormsAtoms::uploadFileProperty, fileCopy,
+                                  ReleaseObject);
+      } else {
+        rv = attr->SetProperty(nsXFormsAtoms::uploadFileProperty, fileCopy,
+                               ReleaseObject);
+      }
     }
   }
   NS_ENSURE_SUCCESS(rv, rv);

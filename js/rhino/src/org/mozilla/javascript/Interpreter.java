@@ -2405,7 +2405,7 @@ public class Interpreter
                             // the capturedFrame, not branchFrame
                             --enterCount;
                             x = enterFrames[enterCount];
-                            enterFrame(cx, x, ScriptRuntime.emptyArgs);
+                            enterFrame(cx, x, ScriptRuntime.emptyArgs, true);
                         }
 
                         // Continuation jump is almost done: capturedFrame
@@ -3832,7 +3832,7 @@ switch (op) {
             }
         }
 
-        enterFrame(cx, frame, args);
+        enterFrame(cx, frame, args, false);
     }
 
     private static boolean isFrameEnterExitRequired(CallFrame frame)
@@ -3840,16 +3840,47 @@ switch (op) {
         return frame.debuggerFrame != null || frame.idata.itsNeedsActivation;
     }
 
-    private static void enterFrame(Context cx, CallFrame frame, Object[] args)
+    private static void enterFrame(Context cx, CallFrame frame, Object[] args, boolean continuationRestart)
     {
-        if (frame.debuggerFrame != null) {
-            frame.debuggerFrame.onEnter(cx, frame.scope, frame.thisObj, args);
-        }
-        if (frame.idata.itsNeedsActivation) {
-            // Enter activation only when itsNeedsActivation true, not when
-            // useActivation holds since debugger should not interfere
-            // with activation chaining
-            ScriptRuntime.enterActivationFunction(cx, frame.scope);
+        boolean usesActivation = frame.idata.itsNeedsActivation; 
+        boolean isDebugged = frame.debuggerFrame != null;
+        if(usesActivation || isDebugged) {
+            Scriptable scope = frame.scope;
+            if(scope == null) {
+                Kit.codeBug();
+            } else if(continuationRestart) {
+                // Walk the parent chain of frame.scope until a NativeCall is 
+                // found. Normally, frame.scope is a NativeCall when called 
+                // from initFrame() for a debugged or activatable function. 
+                // However, when called from interpreterLoop() as part of 
+                // restarting a continuation, it can also be a NativeWith if 
+                // the continuation was captured within a "with" or "catch" 
+                // block ("catch" implicitly uses NativeWith to create a scope 
+                // to expose the exception variable).
+                for(;;) {
+                    if(scope instanceof NativeCall) {
+                        break;
+                    } else {
+                        scope = scope.getParentScope();
+                        if(scope == null || (frame.parentFrame != null && frame.parentFrame.scope == scope)) {
+                            // If we get here, we didn't find a NativeCall in 
+                            // the call chain before reaching parent frame's 
+                            // scope. This should not be possible.
+                            Kit.codeBug();
+                            break; // Never reached, but keeps the static analyzer happy about "scope" not being null 5 lines above.
+                        }
+                    }
+                }
+            }
+            if (isDebugged) {
+                frame.debuggerFrame.onEnter(cx, scope, frame.thisObj, args);
+            }
+            // Enter activation only when itsNeedsActivation true, 
+            // since debugger should not interfere with activation 
+            // chaining
+            if (usesActivation) {
+                ScriptRuntime.enterActivationFunction(cx, (NativeCall)scope);
+            }
         }
     }
 

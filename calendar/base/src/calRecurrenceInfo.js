@@ -21,6 +21,7 @@
  *
  * Contributor(s):
  *   Vladimir Vukicevic <vladimir.vukicevic@oracle.com>
+ *   Matthew Willis <lilmatt@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -346,9 +347,17 @@ calRecurrenceInfo.prototype = {
         try {
             var duration = this.mBaseItem.duration.clone();
             duration.isNegative = true;
+            searchStart.isDate = false; // workaround for UTC+ timezones
             searchStart.addDuration(duration);
         } catch(ex) {
             dump("recurrence tweaking exception:"+ex+'\n');
+        }
+
+        // workaround for UTC- timezones
+        var rangeEnd = aRangeEnd;
+        if (rangeEnd && rangeEnd.isDate) {
+            rangeEnd = aRangeEnd.clone();
+            rangeEnd.isDate = false;
         }
 
         var startDate = this.mBaseItem.recurrenceStartDate;
@@ -411,10 +420,16 @@ calRecurrenceInfo.prototype = {
             // if both range start and end are specified, we ask for all of the occurrences,
             // to make sure we catch all possible exceptions.  If aRangeEnd isn't specified,
             // then we have to ask for aMaxCount, and hope for the best.
-            if (aRangeStart && aRangeEnd)
-                cur_dates = ritem.getOccurrences(startDate, searchStart, aRangeEnd, 0, {});
-            else
-                cur_dates = ritem.getOccurrences(startDate, searchStart, aRangeEnd, aMaxCount, {});
+            var maxCount;
+            if (aRangeStart && aRangeEnd) {
+                maxCount = 0;
+            } else {
+                maxCount = aMaxCount;
+            }
+            cur_dates = ritem.getOccurrences(startDate,
+                                             searchStart,
+                                             rangeEnd,
+                                             maxCount, {});
 
             if (cur_dates.length == 0)
                 continue;

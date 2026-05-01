@@ -146,6 +146,14 @@ nsDOMStorageManager::Initialize()
   return NS_OK;
 }
 
+//static
+void
+nsDOMStorageManager::Shutdown()
+{
+  NS_IF_RELEASE(gStorageManager);
+  gStorageManager = nsnull;
+}
+
 PR_STATIC_CALLBACK(PLDHashOperator)
 ClearStorage(nsDOMStorageEntry* aEntry, void* userArg)
 {
@@ -184,7 +192,7 @@ nsDOMStorageManager::RemoveFromStoragesHash(nsDOMStorage* aStorage)
 {
  nsDOMStorageEntry* entry = mStorages.GetEntry(aStorage);
   if (entry)
-    mStorages.RemoveEntry(entry);
+    mStorages.RemoveEntry(aStorage);
 }
 
 //

@@ -67,10 +67,12 @@ autoflush STDERR 1;
 ##
 
 use vars qw($PID_FILE
-            $DEFAULT_HASH_TYPE);
+            $DEFAULT_HASH_TYPE
+            $DEFAULT_CVSROOT );
 
 $PID_FILE = 'patcher2.pid';
 $DEFAULT_HASH_TYPE = 'SHA1';
+$DEFAULT_CVSROOT = ':pserver:anonymous@cvs-mirror.mozilla.org:/cvsroot';
 
 sub main {
     Startup();
@@ -155,7 +157,7 @@ sub BuildTools {
 
     { # Create and execute CVS checkout command.
         printf("Checking out source code... \n");
-        my $cvsroot = ':pserver:anonymous@cvs-mirror.mozilla.org:/cvsroot';
+        my $cvsroot = $ENV{'CVSROOT'} || $DEFAULT_CVSROOT;
         my $checkout  = "cvs -d $cvsroot co mozilla/client.mk";
         my $rv = RunShellCommand(command => $checkout, output => 1);
         if ($rv->{'exit_value'} != 0) {
@@ -501,7 +503,7 @@ sub CreateCompletePatches {
                     my $start_time = time();
 
                     # copy complete to the expected result
-                    PrintProgress(total => $total, current => $i,
+                    PrintProgress(total => $total, current => ++$i,
                      string => "$u/$p/$l");
                     $complete_pathname =~ m/^(.*)\/[^\/]*/;
                     my $parentdir = $1;
@@ -699,8 +701,6 @@ sub CreateCompletePatchinfo {
     #printf("%s", Data::Dumper::Dumper($config->{'app_config'}->{'update_data'}));
 
     for my $u (@updates) {
-        my $details = $u_config->{$u}->{'details'};
-
         my $complete = $u_config->{$u}->{'complete'};
         my $complete_path = $complete->{'path'};
         my $complete_url = $complete->{'url'};
@@ -736,6 +736,11 @@ sub CreateCompletePatchinfo {
                                                    platform => $p,
                                                    locale => $l );
 
+                my $detailsUrl = SubstitutePath(
+                 path => $u_config->{$u}->{'details'},
+                 locale => $l,
+                 version => $to->{'appv'});
+
                 for my $c (@channels) {
                     my $aus_prefix = "$u/aus2/$from_aus_app/$from_aus_version/$from_aus_platform/$from_aus_buildid/$l/$c";
 
@@ -767,7 +772,7 @@ sub CreateCompletePatchinfo {
                     $complete_patch->{'size'} = (stat($to_path))[7];
                     $complete_patch->{'url'} = $gen_complete_url;
 
-                    $complete_patch->{'details'} = $details;
+                    $complete_patch->{'details'} = $detailsUrl;
 
                     write_patch_info(patch => $complete_patch);
 
@@ -907,6 +912,11 @@ sub CreatePastReleasePatchinfo {
                                                     platform => $toPlatform,
                                                     locale => $locale );
 
+                my $detailsUrl = SubstitutePath(
+                 path => $config->GetCurrentUpdate()->{'details'},
+                 locale => $locale,
+                 version => $patchLocaleNode->{'appv'});
+
                 foreach my $channel (@{$pastUpd->{'channels'}}) {
                     my $ausDir = ($channel =~ /test$/) ? 'aus2.test' : 'aus2';
                     my $ausPrefix = "$prefixStr/$ausDir/$fromAusApp/$fromAusVersion/$fromAusPlatform/$fromAusBuildId/$locale/$channel";
@@ -936,7 +946,7 @@ sub CreatePastReleasePatchinfo {
                     $completePatch->{'url'} = ($channel =~ /test$/) ? 
                      $genCompleteTestUrl : $genCompleteUrl;
 
-                    $completePatch->{'details'} = $config->GetCurrentUpdate()->{'details'};
+                    $completePatch->{'details'} = $detailsUrl;
 
                     write_patch_info(patch => $completePatch);
                     print("done\n");
@@ -1035,6 +1045,11 @@ sub CreatePartialPatchinfo {
                                                   platform => $p,
                                                   locale => $l );
 
+                my $detailsUrl = SubstitutePath(
+                 path => $u_config->{$u}->{'details'},
+                 locale => $l,
+                 version => $to->{'appv'});
+
                 for my $c (@channels) {
                     my $aus_prefix = "$u/aus2/$from_aus_app/$from_aus_version/$from_aus_platform/$from_aus_buildid/$l/$c";
 
@@ -1062,6 +1077,7 @@ sub CreatePartialPatchinfo {
                     $partial_patch->{'extv'} = $to->{'extv'};
                     $partial_patch->{'size'} = (stat($partial_pathname))[7];
                     $partial_patch->{'url'} = $gen_partial_url;
+                    $partial_patch->{'details'} = $detailsUrl;
 
                     write_patch_info(patch => $partial_patch);
 

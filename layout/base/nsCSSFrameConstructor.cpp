@@ -1,4 +1,4 @@
- /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 // vim:cindent:ts=2:et:sw=2:
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
@@ -62,7 +62,6 @@
 #include "nsIDOMHTMLDocument.h"
 #include "nsIDOMHTMLTableColElement.h"
 #include "nsIDOMHTMLTableCaptionElem.h"
-#include "nsTableCellFrame.h" // to get IS_CELL_FRAME
 #include "nsHTMLParts.h"
 #include "nsIPresShell.h"
 #include "nsStyleSet.h"
@@ -1946,6 +1945,7 @@ nsCSSFrameConstructor::nsCSSFrameConstructor(nsIDocument *aDocument,
   , mUpdateCount(0)
   , mQuotesDirty(PR_FALSE)
   , mCountersDirty(PR_FALSE)
+  , mInitialContainingBlockIsAbsPosContainer(PR_FALSE)
 {
   if (!gGotXBLFormPrefs) {
     gGotXBLFormPrefs = PR_TRUE;
@@ -4643,6 +4643,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
   *aNewFrame = contentFrame;
 
   mInitialContainingBlock = contentFrame;
+  mInitialContainingBlockIsAbsPosContainer = PR_FALSE;
 
   // if it was a table then we don't need to process our children.
   if (!docElemIsTable) {
@@ -4655,6 +4656,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
       PRBool haveFirstLetterStyle, haveFirstLineStyle;
       HaveSpecialBlockStyle(aDocElement, styleContext,
                             &haveFirstLetterStyle, &haveFirstLineStyle);
+      mInitialContainingBlockIsAbsPosContainer = PR_TRUE;
       aState.PushAbsoluteContainingBlock(contentFrame, absoluteSaveState);
       aState.PushFloatContainingBlock(contentFrame, floatSaveState,
                                       haveFirstLetterStyle,
@@ -7323,15 +7325,20 @@ nsCSSFrameConstructor::ConstructMathMLFrame(nsFrameConstructorState& aState,
       newFrame->AddStateBits(NS_FRAME_EXCLUDE_IGNORABLE_WHITESPACE);
     }
 
-    InitAndRestoreFrame(aState, aContent, 
-                        aState.GetGeometricParent(disp, aParentFrame),
-                        nsnull, newFrame);
+    // Only <math> elements can be floated or positioned.  All other MathML
+    // should be in-flow.
+    PRBool isMath = aTag == nsMathMLAtoms::math;
+
+    nsIFrame* geometricParent =
+      isMath ? aState.GetGeometricParent(disp, aParentFrame) : aParentFrame;
+    
+    InitAndRestoreFrame(aState, aContent, geometricParent, nsnull, newFrame);
 
     // See if we need to create a view, e.g. the frame is absolutely positioned
     nsHTMLContainerFrame::CreateViewForFrame(newFrame, aParentFrame, PR_FALSE);
 
     rv = aState.AddChild(newFrame, aFrameItems, disp, aContent, aStyleContext,
-                         aParentFrame);
+                         aParentFrame, isMath, isMath);
     if (NS_FAILED(rv)) {
       return rv;
     }
@@ -8323,11 +8330,13 @@ nsCSSFrameConstructor::GetAbsoluteContainingBlock(nsIFrame* aFrame)
   }
 
   // If we found an absolutely positioned containing block, then use the first-in-flow.
-  // If we didn't find it, then use the initial containing block. 
-  return (containingBlock) ?
-    AdjustAbsoluteContainingBlock(mPresShell->GetPresContext(),
-                                  containingBlock) :
-    mInitialContainingBlock;
+  if (containingBlock)
+    return AdjustAbsoluteContainingBlock(mPresShell->GetPresContext(),
+                                         containingBlock);
+
+  // If we didn't find it, then use the initial containing block if it
+  // supports abs pos kids.
+  return mInitialContainingBlockIsAbsPosContainer ? mInitialContainingBlock : nsnull;
 }
 
 nsIFrame*
@@ -10069,6 +10078,7 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*     aContainer,
 
     if (mInitialContainingBlock == childFrame) {
       mInitialContainingBlock = nsnull;
+      mInitialContainingBlockIsAbsPosContainer = PR_FALSE;
     }
 
     if (haveFLS && mInitialContainingBlock) {

@@ -90,11 +90,6 @@ END
 # This hash usually comes from the "mailrecipients" var in a template call.
 sub Send {
     my ($id, $forced) = (@_);
-    return ProcessOneBug($id, $forced);
-}
-
-sub ProcessOneBug {
-    my ($id, $forced) = (@_);
 
     my @headerlist;
     my %defmailhead;
@@ -168,7 +163,10 @@ sub ProcessOneBug {
     
     # Convert to names, for later display
     $values{'changer'} = $changer;
-    $values{'changername'} = Bugzilla::User->new({name => $changer})->name;
+    # If no changer is specified, then it has no name.
+    if ($changer) {
+        $values{'changername'} = Bugzilla::User->new({name => $changer})->name;
+    }
     $values{'assigned_to'} = user_id_to_login($values{'assigned_to'});
     $values{'reporter'} = user_id_to_login($values{'reporter'});
     if ($values{'qa_contact'}) {
@@ -418,7 +416,8 @@ sub ProcessOneBug {
                                           $relationship, 
                                           $diffs, 
                                           $newcomments, 
-                                          $changer))
+                                          $changer,
+                                          !$start))
                 {
                     $rels_which_want{$relationship} = 
                         $recipients{$user_id}->{$relationship};

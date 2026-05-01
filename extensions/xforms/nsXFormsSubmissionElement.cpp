@@ -66,6 +66,7 @@
 #include "nsIDOMDOMImplementation.h"
 #include "nsIDOMProcessingInstruction.h"
 #include "nsIDOMParser.h"
+#include "nsIAttribute.h"
 #include "nsComponentManagerUtils.h"
 #include "nsStringStream.h"
 #include "nsIDocShell.h"
@@ -1236,12 +1237,19 @@ nsXFormsSubmissionElement::CreateAttachments(nsIModelElementPrivate *aModel,
         encType == ELEMENT_ENCTYPE_URI) {
       // ok, looks like we have a local file to upload
 
+      void* uploadFileProperty = nsnull;
       nsCOMPtr<nsIContent> content = do_QueryInterface(currentNode);
-      NS_ENSURE_STATE(content);
+      if (content) {
+        uploadFileProperty =
+          content->GetProperty(nsXFormsAtoms::uploadFileProperty);
+      } else {
+        nsCOMPtr<nsIAttribute> attr = do_QueryInterface(currentNode);
+        NS_ENSURE_STATE(attr);
+        uploadFileProperty =
+          attr->GetProperty(nsXFormsAtoms::uploadFileProperty);
+      }
 
-      nsIFile *file =
-        NS_STATIC_CAST(nsIFile *,
-                       content->GetProperty(nsXFormsAtoms::uploadFileProperty));
+      nsIFile *file = NS_STATIC_CAST(nsIFile *, uploadFileProperty);
       // NOTE: this value may be null if a file hasn't been selected.
 
       nsCString cid;
@@ -1755,12 +1763,19 @@ nsXFormsSubmissionElement::AppendMultipartFormData(nsIDOMNode *data,
     nsCOMPtr<nsIInputStream> fileStream;
     if (encType == ELEMENT_ENCTYPE_URI)
     {
+      void* uploadFileProperty = nsnull;
       nsCOMPtr<nsIContent> content = do_QueryInterface(data);
-      NS_ENSURE_STATE(content);
-
-      nsIFile *file =
-          NS_STATIC_CAST(nsIFile *,
-                         content->GetProperty(nsXFormsAtoms::uploadFileProperty));
+      if (content) {
+        uploadFileProperty =
+          content->GetProperty(nsXFormsAtoms::uploadFileProperty);
+      } else {
+        nsCOMPtr<nsIAttribute> attr = do_QueryInterface(data);
+        NS_ENSURE_STATE(attr);
+        uploadFileProperty =
+          attr->GetProperty(nsXFormsAtoms::uploadFileProperty);
+      }
+      
+      nsIFile *file = NS_STATIC_CAST(nsIFile *, uploadFileProperty);
 
       nsAutoString leafName;
       if (file)
@@ -1853,9 +1868,6 @@ nsXFormsSubmissionElement::GetElementEncodingType(nsIDOMNode             *node,
                                                   nsIModelElementPrivate *aModel)
 {
   *encType = ELEMENT_ENCTYPE_STRING; // default
-
-  nsCOMPtr<nsIDOMElement> element = do_QueryInterface(node);
-  NS_ENSURE_STATE(element);
 
   // check for 'xsd:base64Binary', 'xsd:hexBinary', or 'xsd:anyURI'
   nsAutoString type, nsuri;

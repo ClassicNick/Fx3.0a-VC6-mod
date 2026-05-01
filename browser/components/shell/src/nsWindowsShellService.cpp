@@ -53,7 +53,6 @@
 #include "nsNetUtil.h"
 #include "nsShellService.h"
 #include "nsWindowsShellService.h"
-#include "nsIObserverService.h"
 #include "nsIProcess.h"
 #include "nsICategoryManager.h"
 #include "nsBrowserCompsCID.h"
@@ -76,7 +75,7 @@
 #define REG_FAILED(val) \
   (val != ERROR_SUCCESS)
 
-NS_IMPL_ISUPPORTS3(nsWindowsShellService, nsIWindowsShellService, nsIShellService, nsIObserver)
+NS_IMPL_ISUPPORTS2(nsWindowsShellService, nsIWindowsShellService, nsIShellService)
 
 static nsresult
 OpenUserKeyForReading(HKEY aStartKey, const char* aKeyName, HKEY* aKey)
@@ -193,6 +192,7 @@ typedef struct {
 #define SOP "\\shell\\open\\command"
 #define DDE "\\shell\\open\\ddeexec\\"
 #define DDE_NAME "Firefox" // This must be kept in sync with ID_DDE_APPLICATION_NAME as defined in splash.rc
+#define APP_REG_NAME L"Firefox"
 #define DDE_COMMAND "\"%1\",,0,0,,,,"
 #define DDE_IFEXEC ",,0,0,,,,"
 #define EXE "firefox.exe"
@@ -290,27 +290,126 @@ static SETTING gSettings[] = {
   //     firefox.exe\shell\safemode          (default)   REG_SZ  Firefox &Safe Mode
 };
 
-NS_IMETHODIMP
-nsWindowsShellService::Register(nsIComponentManager *aCompMgr, nsIFile *aPath, const char *registryLocation,
-                                const char *componentType, const nsModuleComponentInfo *info)
-{
-    nsresult rv;
-    nsCOMPtr<nsICategoryManager> catman = do_GetService(NS_CATEGORYMANAGER_CONTRACTID, &rv);
-    if (NS_FAILED(rv)) return rv;
+ 
+#ifndef __shobjidl_h__
 
-    return catman->AddCategoryEntry("app-startup", "Windows Shell Service", "service," NS_SHELLSERVICE_CONTRACTID, PR_TRUE, PR_TRUE, nsnull);
+// This block should be removed when our build environment
+// is migrated to the latest windows sdk.
+
+typedef enum tagASSOCIATIONLEVEL
+{
+  AL_MACHINE,
+  AL_EFFECTIVE,
+  AL_USER
+} ASSOCIATIONLEVEL;
+
+typedef enum tagASSOCIATIONTYPE
+{
+  AT_FILEEXTENSION,
+  AT_URLPROTOCOL,
+  AT_STARTMENUCLIENT,
+  AT_MIMETYPE
+} ASSOCIATIONTYPE;
+
+MIDL_INTERFACE("4e530b0a-e611-4c77-a3ac-9031d022281b")
+IApplicationAssociationRegistration : public IUnknown
+{
+ public:
+  virtual HRESULT STDMETHODCALLTYPE QueryCurrentDefault(LPCWSTR pszQuery,
+                                                        ASSOCIATIONTYPE atQueryType,
+                                                        ASSOCIATIONLEVEL alQueryLevel,
+                                                        LPWSTR *ppszAssociation) = 0;
+  virtual HRESULT STDMETHODCALLTYPE QueryAppIsDefault(LPCWSTR pszQuery,
+                                                      ASSOCIATIONTYPE atQueryType,
+                                                      ASSOCIATIONLEVEL alQueryLevel,
+                                                      LPCWSTR pszAppRegistryName,
+                                                      BOOL *pfDefault) = 0;
+  virtual HRESULT STDMETHODCALLTYPE QueryAppIsDefaultAll(ASSOCIATIONLEVEL alQueryLevel,
+                                                         LPCWSTR pszAppRegistryName,
+                                                         BOOL *pfDefault) = 0;
+  virtual HRESULT STDMETHODCALLTYPE SetAppAsDefault(LPCWSTR pszAppRegistryName,
+                                                    LPCWSTR pszSet,
+                                                    ASSOCIATIONTYPE atSetType) = 0;
+  virtual HRESULT STDMETHODCALLTYPE SetAppAsDefaultAll(LPCWSTR pszAppRegistryName) = 0;
+  virtual HRESULT STDMETHODCALLTYPE ClearUserAssociations( void) = 0;
+};
+#endif
+
+static const CLSID CLSID_ApplicationAssociationReg = {0x591209C7,0x767B,0x42B2,{0x9F,0xBA,0x44,0xEE,0x46,0x15,0xF2,0xC7}};
+static const IID   IID_IApplicationAssociationReg  = {0x4e530b0a,0xe611,0x4c77,{0xa3,0xac,0x90,0x31,0xd0,0x22,0x28,0x1b}};
+
+
+PRBool
+nsWindowsShellService::IsDefaultBrowserVista(PRBool aStartupCheck, PRBool* aIsDefaultBrowser)
+{
+  IApplicationAssociationRegistration* pAAR;
+  
+  HRESULT hr = CoCreateInstance (CLSID_ApplicationAssociationReg,
+                                 NULL,
+                                 CLSCTX_INPROC,
+                                 IID_IApplicationAssociationReg,
+                                 (void**)&pAAR);
+  
+  if (SUCCEEDED(hr))
+  {
+    hr = pAAR->QueryAppIsDefaultAll(AL_EFFECTIVE,
+                                    APP_REG_NAME,
+                                    aIsDefaultBrowser);
+    
+    // If this is the first browser window, maintain internal state that we've
+    // checked this session (so that subsequent window opens don't show the 
+    // default browser dialog).
+    if (aStartupCheck)
+      mCheckedThisSession = PR_TRUE;
+    
+    pAAR->Release();
+    return PR_TRUE;
+  }
+  
+  return PR_FALSE;
 }
 
-nsWindowsShellService::nsWindowsShellService()
-:mCheckedThisSession(PR_FALSE)
+PRBool
+nsWindowsShellService::SetDefaultBrowserVista()
 {
-  nsCOMPtr<nsIObserverService> obsServ (do_GetService("@mozilla.org/observer-service;1"));
-  obsServ->AddObserver(this, "quit-application", PR_FALSE);
+  IApplicationAssociationRegistration* pAAR;
+  
+  HRESULT hr = CoCreateInstance (CLSID_ApplicationAssociationReg,
+                                 NULL,
+                                 CLSCTX_INPROC,
+                                 IID_IApplicationAssociationReg,
+                                 (void**)&pAAR);
+  
+  if (SUCCEEDED(hr))
+  {
+    hr = pAAR->SetAppAsDefaultAll(APP_REG_NAME);
+    
+    pAAR->Release();
+    return PR_TRUE;
+  }
+  
+  return PR_FALSE;
 }
+
+PRBool
+nsWindowsShellService::RestoreFileSettingsVista()
+{
+  // With the new vista API, there is no need to restore file setting.
+  
+  if (GetVersion() >= 6)
+    return PR_TRUE;
+  
+  return PR_FALSE;
+}
+
 
 NS_IMETHODIMP
 nsWindowsShellService::IsDefaultBrowser(PRBool aStartupCheck, PRBool* aIsDefaultBrowser)
 {
+
+  if (IsDefaultBrowserVista(aStartupCheck, aIsDefaultBrowser))
+    return NS_OK;
+
   SETTING* settings;
   SETTING* end = gSettings + sizeof(gSettings)/sizeof(SETTING);
 
@@ -377,6 +476,9 @@ nsWindowsShellService::IsDefaultBrowser(PRBool aStartupCheck, PRBool* aIsDefault
 NS_IMETHODIMP
 nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUsers)
 {
+  if (SetDefaultBrowserVista())
+    return NS_OK;
+
   // Locate the Backup key
   HKEY backupKey;
   nsresult rv = OpenKeyForWriting(MOZ_BACKUP_REGISTRY, &backupKey, aForAllUsers, PR_TRUE);
@@ -493,6 +595,9 @@ nsWindowsShellService::SetDefaultBrowser(PRBool aClaimAllTypes, PRBool aForAllUs
 NS_IMETHODIMP
 nsWindowsShellService::RestoreFileSettings(PRBool aForAllUsers)
 {
+  if (RestoreFileSettingsVista())
+    return NS_OK;
+
   // Locate the Backup key
   HKEY backupKey;
   nsresult rv = OpenKeyForWriting(MOZ_BACKUP_REGISTRY, &backupKey, aForAllUsers, PR_FALSE);
@@ -512,9 +617,9 @@ nsWindowsShellService::RestoreFileSettings(PRBool aForAllUsers)
         result = ::RegOpenKeyEx(NULL, origKeyName, 0, KEY_READ, &origKey);
         if (REG_SUCCEEDED(result))
         {
-		result = ::RegSetValueEx(origKey, "", 0, REG_SZ, (LPBYTE)origValue, len);
-		// Close the key we opened.
-		::RegCloseKey(origKey);
+          result = ::RegSetValueEx(origKey, "", 0, REG_SZ, (LPBYTE)origValue, len);
+          // Close the key we opened.
+          ::RegCloseKey(origKey);
         }
       }
     }
@@ -978,8 +1083,8 @@ nsWindowsShellService::GetMailAccountKey(HKEY* aResult)
       result = ::RegOpenKeyEx(mailKey, subkeyName, 0, KEY_READ, &accountKey);
       if (REG_SUCCEEDED(result)) {
         *aResult = accountKey;
-		
-	 // Close the key we opened.
+    
+        // Close the key we opened.
         ::RegCloseKey(mailKey);
 	 
         return PR_TRUE;
@@ -993,28 +1098,6 @@ nsWindowsShellService::GetMailAccountKey(HKEY* aResult)
   // Close the key we opened.
   ::RegCloseKey(mailKey);
   return PR_FALSE;
-}
-
-NS_IMETHODIMP
-nsWindowsShellService::Observe(nsISupports* aObject, const char* aTopic, const PRUnichar* aMessage)
-{
-  if (!nsCRT::strcmp("app-startup", aTopic)) {
-    PRBool isDefault;
-    IsDefaultBrowser(PR_FALSE, &isDefault);
-    if (!isDefault)
-      return NS_OK;
-  }
-  else if (!nsCRT::strcmp("quit-application", aTopic)) {
-    PRBool isDefault;
-    IsDefaultBrowser(PR_FALSE, &isDefault);
-    if (!isDefault)
-      return NS_OK;
-
-    nsCOMPtr<nsIObserverService> os(do_GetService("@mozilla.org/observer-service;1"));
-    os->RemoveObserver(this, "quit-application");
-  }
-
-  return NS_OK;
 }
 
 NS_IMETHODIMP

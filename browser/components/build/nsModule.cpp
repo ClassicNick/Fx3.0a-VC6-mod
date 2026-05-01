@@ -120,8 +120,7 @@ static const nsModuleComponentInfo components[] =
   { "Browser Shell Service",
     NS_SHELLSERVICE_CID,
     NS_SHELLSERVICE_CONTRACTID,
-    nsWindowsShellServiceConstructor,
-    nsWindowsShellService::Register },
+    nsWindowsShellServiceConstructor},
 
 #elif defined(MOZ_WIDGET_GTK2)
   { "Browser Shell Service",
@@ -141,6 +140,11 @@ static const nsModuleComponentInfo components[] =
   { "Bookmarks",
     NS_BOOKMARKS_SERVICE_CID,
     NS_BOOKMARKS_DATASOURCE_CONTRACTID,
+    nsBookmarksServiceConstructor },
+
+  { "Bookmarks",
+    NS_BOOKMARKS_SERVICE_CID,
+    "@mozilla.org/embeddor.implemented/bookmark-charset-resolver;1",
     nsBookmarksServiceConstructor },
 
   { "Bookmarks Forward Proxy Inference Data Source",
