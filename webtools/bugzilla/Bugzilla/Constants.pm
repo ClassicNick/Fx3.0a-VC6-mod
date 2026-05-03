@@ -113,6 +113,7 @@ use File::Basename;
     USAGE_MODE_BROWSER
     USAGE_MODE_CMDLINE
     USAGE_MODE_WEBSERVICE
+    USAGE_MODE_EMAIL
 
     ERROR_MODE_WEBPAGE
     ERROR_MODE_DIE
@@ -123,6 +124,8 @@ use File::Basename;
     ON_WINDOWS
 
     MAX_TOKEN_AGE
+
+    SAFE_PROTOCOLS
 );
 
 @Bugzilla::Constants::EXPORT_OK = qw(contenttypes);
@@ -130,7 +133,7 @@ use File::Basename;
 # CONSTANTS
 #
 # Bugzilla version
-use constant BUGZILLA_VERSION => "2.23.2+";
+use constant BUGZILLA_VERSION => "2.23.3+";
 
 #
 # ControlMap constants for group_control_map.
@@ -302,6 +305,11 @@ use constant FIELD_TYPE_SINGLE_SELECT => 2;
 # The maximum number of days a token will remain valid.
 use constant MAX_TOKEN_AGE => 3;
 
+# Protocols which are considered as safe.
+use constant SAFE_PROTOCOLS => ('afs', 'cid', 'ftp', 'gopher', 'http', 'https',
+                                'irc', 'mid', 'news', 'nntp', 'prospero', 'telnet',
+                                'view-source', 'wais');
+
 # States that are considered to be "open" for bugs.
 use constant BUG_STATE_OPEN => ('NEW', 'REOPENED', 'ASSIGNED', 
                                 'UNCONFIRMED');
@@ -310,6 +318,7 @@ use constant BUG_STATE_OPEN => ('NEW', 'REOPENED', 'ASSIGNED',
 use constant USAGE_MODE_BROWSER    => 0;
 use constant USAGE_MODE_CMDLINE    => 1;
 use constant USAGE_MODE_WEBSERVICE => 2;
+use constant USAGE_MODE_EMAIL      => 3;
 
 # Error modes. Default set by Bugzilla->usage_mode (so ERROR_MODE_WEBPAGE
 # usually). Use with Bugzilla->error_mode.

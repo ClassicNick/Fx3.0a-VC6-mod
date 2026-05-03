@@ -26,8 +26,10 @@
 
 [% PROCESS "global/field-descs.none.tmpl" %]
 
+[% title = BLOCK %]Enter [% terms.Bug %]: [% product.name FILTER html %][% END %]
+
 [% PROCESS global/header.html.tmpl
-  title = "Enter $terms.Bug: $product.name"
+  title = title
   style_urls = [ 'skins/standard/create_attachment.css' ]
   javascript_urls = [ "js/attachment.js" ]
 %]
@@ -526,7 +528,7 @@ function handleWantsAttachment(wants_attachment) {
         <input type="checkbox" id="bit-[% g.bit %]"
           name="bit-[% g.bit %]" value="1"
           [% " checked=\"checked\"" IF g.checked %]>
-          <label for="bit-[% g.bit %]">[% g.description %]</label><br>
+          <label for="bit-[% g.bit %]">[% g.description FILTER html_light %]</label><br>
       [% END %]
       <br>
     [% END %]

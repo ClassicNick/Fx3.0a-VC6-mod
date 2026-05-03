@@ -35,9 +35,9 @@
 [% END %]
 
 [% IF last_action == "copy" %]
-  [% title = "Create Flag Type Based on $type.name" %]
+  [% title = BLOCK %]Create Flag Type Based on [% type.name FILTER html %][% END %]
 [% ELSIF last_action == "edit" %]
-  [% title = "Edit Flag Type $type.name" %]
+  [% title = BLOCK %]Edit Flag Type [% type.name FILTER html %][% END %]
 [% END %]
 
 [% PROCESS global/header.html.tmpl
@@ -53,6 +53,7 @@
 <form method="post" action="editflagtypes.cgi">
   <input type="hidden" name="action" value="[% action %]">
   <input type="hidden" name="id" value="[% type.id %]">
+  <input type="hidden" name="token" value="[% token FILTER html %]">
   <input type="hidden" name="target_type" value="[% type.target_type %]">
   [% FOREACH category = type.inclusions %]
     <input type="hidden" name="inclusions" value="[% category.value FILTER html %]">

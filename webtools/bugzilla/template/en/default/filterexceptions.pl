@@ -85,6 +85,10 @@
   'status.name',
 ],
 
+'search/tabs.html.tmpl' => [
+  'content',
+],
+
 'request/queue.html.tmpl' => [
   'column_headers.$group_field', 
   'column_headers.$column', 
@@ -112,7 +116,6 @@
 ],
 
 'reports/keywords.html.tmpl' => [
-  'keyword.description', 
   'keyword.bug_count', 
 ],
 
@@ -189,14 +192,8 @@
 
 'list/edit-multiple.html.tmpl' => [
   'group.id', 
-  'group.description',
-  'group.description FILTER inactive', 
   'knum', 
   'menuname', 
-],
-
-'list/list-simple.html.tmpl' => [
-  'title', 
 ],
 
 'list/list.rdf.tmpl' => [
@@ -225,10 +222,6 @@
   'h.html', 
 ],
 
-'global/choose-classification.html.tmpl' => [
-  'class.description', 
-],
-
 'global/choose-product.html.tmpl' => [
   'target',
 ],
@@ -243,9 +236,10 @@
   'javascript', 
   'style', 
   'onload',
-  'h1',
-  'h2',
-  'h3', 
+  'title',
+  '" &ndash; $header" IF header',
+  'subheader',
+  'header_addl_info', 
   'message', 
 ],
 
@@ -257,6 +251,10 @@
 'global/select-menu.html.tmpl' => [
   'options', 
   'size', 
+],
+
+'global/tabs.html.tmpl' => [
+  'content', 
 ],
 
 'global/common-links.html.tmpl' => [
@@ -314,13 +312,10 @@
   'bug.bug_id', 
   'bug.votes', 
   'group.bit', 
-  'group.description', 
   'dep.title', 
   'dep.fieldname', 
   'bug.${dep.fieldname}.join(\', \')', 
   'selname',
-  'depbug FILTER bug_link(depbug)',
-  '"${bug.dup_id}" FILTER bug_link(bug.dup_id)',
   '" accesskey=\"$accesskey\"" IF accesskey',
   'inputname',
   '" colspan=\"$colspan\"" IF $colspan',
@@ -342,7 +337,6 @@
 
 'bug/show-multiple.html.tmpl' => [
   'bug.bug_id', 
-  'depbug FILTER bug_link(depbug)',
   'attachment.id', 
   'flag.status',
 ],
@@ -402,7 +396,6 @@
 
 'bug/create/create.html.tmpl' => [
   'g.bit',
-  'g.description',
   'sel.name',
   'sel.description',
   'cloned_bug_id',
@@ -451,7 +444,7 @@
 ],
 
 'attachment/show-multiple.html.tmpl' => [
-  'a.attachid', 
+  'a.id',
   'flag.status'
 ],
 
@@ -482,10 +475,6 @@
 
 'admin/table.html.tmpl' => [
   'link_uri'
-],
-
-'admin/classifications/select.html.tmpl' => [
-  'cl.description', 
 ],
 
 'admin/products/groupcontrol/confirm-edit.html.tmpl' => [
@@ -531,7 +520,6 @@
 
 'admin/flag-type/list.html.tmpl' => [
   'type.id', 
-  'type.flag_count', 
 ],
 
 
@@ -572,11 +560,6 @@
   'comp.bug_count'
 ],
 
-'admin/settings/edit.html.tmpl' => [
-  'name',
-  'checkbox_name'
-],
-
 'account/login.html.tmpl' => [
   'target', 
 ],
@@ -587,11 +570,6 @@
   'prefname',
 ],
 
-'account/prefs/permissions.html.tmpl' => [
-  'bit_description.name', 
-  'bit_description.desc', 
-],
-
 'account/prefs/prefs.html.tmpl' => [
   'current_tab.label',
   'current_tab.name',
@@ -599,11 +577,6 @@
 
 'account/prefs/saved-searches.html.tmpl' => [
   'group.id',
-],
-
-'account/prefs/settings.html.tmpl' => [
-  'name',
-  'default_name'
 ],
 
 );

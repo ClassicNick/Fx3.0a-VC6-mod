@@ -44,7 +44,7 @@
 </tr>
 <tr>
   <td valign="top">Component Description:</td>
-  <td valign="top">[% comp.description FILTER html %]</td>
+  <td valign="top">[% comp.description FILTER html_light %]</td>
 </tr>
 <tr>
   <td valign="top">Default assignee:</td>
@@ -66,7 +66,7 @@
 </tr>
 <tr>
   <td valign="top">Product Description:</td>
-  <td valign="top">[% product.description FILTER html %]</td>
+  <td valign="top">[% product.description FILTER html_light %]</td>
 [% END %]
 
 [% IF Param('usetargetmilestone') %]
@@ -150,6 +150,7 @@
   <input type="hidden" name="action" value="delete">
   <input type="hidden" name="product" value="[% product.name FILTER html %]">
   <input type="hidden" name="component" value="[% comp.name FILTER html %]">
+  <input type="hidden" name="token" value="[% token FILTER html %]">
   </form>
 
 [% END %]

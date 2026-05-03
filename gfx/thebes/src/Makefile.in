@@ -27,9 +27,8 @@ CPPSRCS	= \
 	gfxImageSurface.cpp \
 	gfxFont.cpp \
 	gfxPlatform.cpp \
+	gfxTextRunCache.cpp \
 	$(NULL)
-
-DEFINES += -DIMPL_THEBES
 
 ifdef MOZ_TREE_CAIRO
 SHARED_LIBRARY_LIBS += \
@@ -103,6 +102,12 @@ REQUIRES += 	glitz
 CPPSRCS +=	gfxGlitzSurface.cpp
 
 SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)mozglitz.$(LIB_SUFFIX)
+
+ifeq ($(MOZ_GFX_TOOLKIT),windows)
+REQUIRES +=	glitzwgl
+SHARED_LIBRARY_LIBS += $(DIST)/lib/$(LIB_PREFIX)mozglitzwgl.$(LIB_SUFFIX)
+OS_LIBS += opengl32.lib 
+endif
 
 ifeq ($(MOZ_GFX_TOOLKIT),gtk2)
 REQUIRES +=	glitzglx

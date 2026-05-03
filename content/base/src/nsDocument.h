@@ -643,6 +643,13 @@ public:
 
 protected:
 
+  /**
+   * Check that aId is not empty and log a message to the console
+   * service if it is.
+   * @returns PR_TRUE if aId looks correct, PR_FALSE otherwise.
+   */
+  static PRBool CheckGetElementByIdArg(const nsAString& aId);
+
   void DispatchContentLoadedEvents();
 
   void RetrieveRelevantHeaders(nsIChannel *aChannel);
@@ -664,9 +671,6 @@ protected:
   nsresult ResetStylesheetsToURI(nsIURI* aURI);
   virtual nsStyleSet::sheetType GetAttrSheetType();
   void FillStyleSet(nsStyleSet* aStyleSet);
-
-  nsresult CreateElement(nsINodeInfo *aNodeInfo, PRInt32 aElementType,
-                         nsIContent** aResult);
 
   // Return whether all the presshells for this document are safe to flush
   PRBool IsSafeToFlush() const;

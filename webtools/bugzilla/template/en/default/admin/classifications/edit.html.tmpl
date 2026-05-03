@@ -59,7 +59,7 @@
                 <th align=right valign=top>[% product.name FILTER html %]</th>
                 <td valign=top>
                   [% IF product.description %]
-                    [% product.description FILTER none %]
+                    [% product.description FILTER html_light %]
                   [% ELSE %]
                     <font color="red">description missing</font>
                   [% END %]
@@ -77,6 +77,7 @@
   <input type=hidden name="classificationold" 
          value="[% classification.name FILTER html %]">
   <input type=hidden name="action" value="update">
+  <input type="hidden" name="token" value="[% token FILTER html %]">
   <input type=submit value="Update">
 </form>
 

@@ -24,17 +24,15 @@
 
 [%# *** Knob *** %]
 
-  <br>
-  <input type="radio" id="knob-leave" name="knob" value="none" checked="checked">
-  <label for="knob-leave">
-    Leave as <b>[% status_descs.${bug.bug_status} FILTER html %]&nbsp;
-                [% get_resolution(bug.resolution) FILTER html %]</b>
-  </label>
-  <br>
+<br>
+<div id="knob">
+  <div id="knob-options">
 
   [% knum = 1 %]
+  [% initial_action_shown = 0 %]
 
   [% IF bug.isunconfirmed && bug.user.canconfirm %]
+    [% PROCESS initial_action %]
     <input type="radio" id="knob-confirm" name="knob" value="confirm">
     <label for="knob-confirm">
       Confirm [% terms.bug %] (change status to <b>[% status_descs.NEW FILTER html %]</b>)
@@ -45,6 +43,7 @@
 
   [% IF bug.isopened && bug.bug_status != "ASSIGNED" && bug.user.canedit
         && (!bug.isunconfirmed || bug.user.canconfirm) %]
+    [% PROCESS initial_action %]
     <input type="radio" id="knob-accept" name="knob" value="accept">
     <label for="knob-accept">
       Accept [% terms.bug %] (
@@ -58,6 +57,7 @@
   [% IF bug.user.canedit || bug.user.isreporter %]
     [% IF bug.isopened %]
       [% IF bug.resolution %]
+        [% PROCESS initial_action %]
         <input type="radio" id="knob-clear" name="knob" value="clearresolution">
         <label for="knob-clear">
           Clear the resolution (remove the current resolution of
@@ -67,6 +67,7 @@
         [% knum = knum + 1 %]
       [% END %]
 
+      [% PROCESS initial_action %]
       <input type="radio" id="knob-resolve" name="knob" value="resolve">
       <label for="knob-resolve">
         Resolve [% terms.bug %], changing 
@@ -120,6 +121,7 @@
     [% ELSE %]
       [% IF bug.resolution != "MOVED" ||
            (bug.resolution == "MOVED" && bug.user.canmove) %]
+        [% PROCESS initial_action %]
         <input type="radio" id="knob-change-resolution" name="knob" value="change_resolution">
         <label for="knob-change-resolution">
           Change <a href="page.cgi?id=fields.html#resolution">resolution</a> to
@@ -136,6 +138,7 @@
         [% knum = knum + 1 %]
       [% END %]
       [% IF bug.bug_status == "RESOLVED" %]
+        [% PROCESS initial_action %]
         <input type="radio" id="knob-verify" name="knob" value="verify">
         <label for="knob-verify">
           Mark [% terms.bug %] as <b>[% status_descs.VERIFIED FILTER html %]</b>
@@ -144,6 +147,7 @@
         [% knum = knum + 1 %]
       [% END %]
       [% IF bug.bug_status != "CLOSED" %]
+        [% PROCESS initial_action %]
         <input type="radio" id="knob-close" name="knob" value="close">
         <label for="knob-close">
           Mark [% terms.bug %] as <b>[% status_descs.CLOSED FILTER html %]</b>
@@ -153,7 +157,9 @@
       [% END %]
     [% END %]
   [% END %]
+  </div>
 
+  <div id="knob-buttons">
   <input type="submit" value="Commit" id="commit">
   <p>
     <font size="+1">
@@ -177,9 +183,23 @@
              value="[% Param("move-button-text") %]">
     [% END %]
   </p>
-
+  </div>
+</div>
 
 [%# Common actions %]
+
+[% BLOCK initial_action %]
+  [%# Only show 'Leave as' action in combination with another knob %]
+  [% IF !initial_action_shown %]
+    <input type="radio" id="knob-leave" name="knob" value="none" checked="checked">
+    <label for="knob-leave">
+      Leave as <b>[% status_descs.${bug.bug_status} FILTER html %]&nbsp;
+                  [% get_resolution(bug.resolution) FILTER html %]</b>
+    </label>
+    <br>
+    [% initial_action_shown = 1 %]
+  [% END %]
+[% END %]
 
 [% BLOCK select_resolution %]
   <select name="resolution"

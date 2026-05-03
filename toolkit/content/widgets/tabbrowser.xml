@@ -180,6 +180,9 @@
       <field name="mContextTab">
         null
       </field>
+      <field name="mModalDialogShowing">
+        false
+      </field>
       <field name="arrowKeysShouldWrap" readonly="true">
 #ifdef XP_MACOSX
         true
@@ -685,8 +688,6 @@
 
             // Update the URL bar.
             var loc = this.mCurrentBrowser.currentURI;
-            if (!loc)
-              loc = ({ spec: "" });
 
             var webProgress = this.mCurrentBrowser.webProgress;
             var securityUI = this.mCurrentBrowser.securityUI;
@@ -909,7 +910,7 @@
           <![CDATA[
             var browser = this.getBrowserForTab(aTab);
             var crop = "end";
-            var title = browser.contentDocument.title;
+            var title = browser.contentTitle;
 
             if (!title) {
               if (browser.currentURI.spec) {
@@ -1698,8 +1699,6 @@
         </body>
       </method>
 
-      <field name="mDragTime">0</field>
-      <field name="mDragOverDelay">350</field>
       <method name="onDragOver">
         <parameter name="aEvent"/>
         <parameter name="aFlavour"/>
@@ -1727,13 +1726,8 @@
               }
 
               var isTabDrag = (aDragSession.sourceNode.parentNode == this.mTabContainer);
-              if (!isTabDrag && aEvent.target.localName == "tab") {
-                if (!this.mDragTime) 
-                  this.mDragTime = Date.now();
-                if (Date.now() >= this.mDragTime + this.mDragOverDelay)
-                  this.mTabContainer.selectedItem = aEvent.target;
+              if (!isTabDrag)
                 return;
-              }
 
               var newIndex = this.getNewIndex(aEvent);
 
@@ -1892,8 +1886,6 @@
         <parameter name="aDragSession"/>
         <body>
           <![CDATA[
-            this.mDragTime = 0;
-
             if (aDragSession.sourceNode &&
                 aDragSession.sourceNode.parentNode == this.mTabContainer &&
                 aDragSession.canDrop) {
@@ -2390,6 +2382,9 @@
                 onget="return this.mCurrentBrowser.userTypedValue;"
                 onset="return this.mCurrentBrowser.userTypedValue = val;"/>
 
+      <property name="forceSyncURLBarUpdate"
+                onget="return this.mModalDialogShowing;"/>
+
       <method name="createTooltip">
         <parameter name="event"/>
         <body>
@@ -2483,11 +2478,20 @@
 
           for (var i = 0; i < browsers.length; ++i) {
             if (this.getBrowserAtIndex(i).contentWindow == targetTop) {
+              this.mModalDialogShowing = true;
               this.selectedTab = this.mTabContainer.childNodes[i];
 
               break;
             }
           }
+        ]]>
+      </handler>
+      <handler event="DOMModalDialogClosed" phase="capturing">
+        <![CDATA[
+          if (!event.isTrusted)
+            return;
+
+          this.mModalDialogShowing = false;
         ]]>
       </handler>
     </handlers>
@@ -2649,7 +2653,7 @@
           this.adjustTabstrip();
 
           pb2.addObserver("browser.tabs.closeButtons", 
-                          this._prefObserver, true);
+                          this._prefObserver, false);
 
           var self = this;
           function onResize() {
@@ -2676,6 +2680,11 @@
 
       <destructor>
         <![CDATA[
+          var pb2 =
+              Components.classes['@mozilla.org/preferences-service;1'].
+              getService(Components.interfaces.nsIPrefBranch2);
+          pb2.removeObserver("browser.tabs.closeButtons", this._prefObserver);
+
           // Release timer to avoid reference cycles.
           if (this._animateTimer) {
             this._animateTimer.cancel();
@@ -2705,20 +2714,17 @@
           if (topic == "nsPref:changed") {
             switch (data) {
             case "browser.tabs.closeButtons":
-              var pb2 =
-                  Components.classes['@mozilla.org/preferences-service;1'].
-                  getService(Components.interfaces.nsIPrefBranch2);
-              this.tabbox.mCloseButtons = pb2.getIntPref("browser.tabs.closeButtons");
+              subject.QueryInterface(Components.interfaces.nsIPrefBranch);
+              this.tabbox.mCloseButtons = subject.getIntPref("browser.tabs.closeButtons");
               this.tabbox.adjustTabstrip();
               break;
             }
           }
         },
   
-        QueryInterface : function(aIID)
+        QueryInterface: function(aIID)
         {
           if (aIID.equals(Components.interfaces.nsIObserver) ||
-              aIID.equals(Components.interfaces.nsISupportsWeakReference) ||
               aIID.equals(Components.interfaces.nsISupports))
             return this;
           throw Components.results.NS_NOINTERFACE;

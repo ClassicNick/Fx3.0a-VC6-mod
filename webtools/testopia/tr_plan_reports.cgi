@@ -32,13 +32,11 @@ use Bugzilla::Testopia::Util;
 
 use vars qw($template $vars);
 my $template = Bugzilla->template;
+my $cgi = Bugzilla->cgi;
 
 Bugzilla->login();
-print Bugzilla->cgi->header();
+print $cgi->header();
    
-my $dbh = Bugzilla->dbh;
-my $cgi = Bugzilla->cgi;
-my $template = Bugzilla->template;
 my $plan_id = trim(Bugzilla->cgi->param('plan_id') || '');
 
 unless ($plan_id){

@@ -44,8 +44,10 @@
   #                           created
   #%]
 
+[% title = BLOCK %]Confirm deletion of user [% otheruser.login FILTER html %][% END %]
+
 [% PROCESS global/header.html.tmpl
-  title = "Confirm deletion of user $otheruser.login"
+  title = title
   style_urls = ['skins/standard/admin.css',
                 'skins/standard/editusers.css']
 %]
@@ -446,6 +448,7 @@
       <input type="submit" id="delete" value="Yes, delete"/>
       <input type="hidden" name="action" value="delete" />
       <input type="hidden" name="userid" value="[% otheruser.id %]" />
+      <input type="hidden" name="token" value="[% token FILTER html %]">
       [% INCLUDE listselectionhiddenfields %]
     </p>
   </form>

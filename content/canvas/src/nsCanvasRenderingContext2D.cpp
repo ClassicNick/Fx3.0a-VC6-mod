@@ -71,6 +71,7 @@
 #include "nsIImage.h"
 #include "nsIFrame.h"
 #include "nsDOMError.h"
+#include "nsIScriptError.h"
 
 #include "nsICSSParser.h"
 
@@ -543,28 +544,22 @@ nsCanvasRenderingContext2D::SetStyleFromVariant(nsIVariant* aStyle, PRInt32 aWhi
     rv = aStyle->GetDataType(&paramType);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (paramType == nsIDataType::VTYPE_DOMSTRING) {
-        nsString str;
-        rv = aStyle->GetAsDOMString(str);
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        rv = mCSSParser->ParseColorString(str, nsnull, 0, PR_TRUE, &color);
-        if (NS_FAILED(rv))
-            return NS_ERROR_DOM_SYNTAX_ERR;
-
-        CurrentState().SetColorStyle(aWhichStyle, color);
-
-        mDirtyStyle[aWhichStyle] = PR_TRUE;
-        return NS_OK;
-    } else if (paramType == nsIDataType::VTYPE_WSTRING_SIZE_IS) {
+    if (paramType == nsIDataType::VTYPE_DOMSTRING ||
+        paramType == nsIDataType::VTYPE_WSTRING_SIZE_IS) {
         nsAutoString str;
 
-        rv = aStyle->GetAsAString(str);
+        if (paramType == nsIDataType::VTYPE_DOMSTRING) {
+            rv = aStyle->GetAsDOMString(str);
+        } else {
+            rv = aStyle->GetAsAString(str);
+        }
         NS_ENSURE_SUCCESS(rv, rv);
 
         rv = mCSSParser->ParseColorString(str, nsnull, 0, PR_TRUE, &color);
-        if (NS_FAILED(rv))
-            return NS_ERROR_DOM_SYNTAX_ERR;
+        if (NS_FAILED(rv)) {
+            // Error reporting happens inside the CSS parser
+            return NS_OK;
+        }
 
         CurrentState().SetColorStyle(aWhichStyle, color);
 
@@ -592,7 +587,16 @@ nsCanvasRenderingContext2D::SetStyleFromVariant(nsIVariant* aStyle, PRInt32 aWhi
         }
     }
 
-    return NS_ERROR_DOM_SYNTAX_ERR;
+    nsContentUtils::ReportToConsole(
+        nsContentUtils::eDOM_PROPERTIES,
+        "UnexpectedCanvasVariantStyle",
+        nsnull, 0,
+        nsnull,
+        EmptyString(), 0, 0,
+        nsIScriptError::warningFlag,
+        "Canvas");
+
+    return NS_OK;
 }
 
 void
@@ -605,11 +609,14 @@ nsCanvasRenderingContext2D::StyleColorToString(const nscolor& aColor, nsAString&
                                         NS_GET_B(aColor)),
                         aStr);
     } else {
-        CopyUTF8toUTF16(nsPrintfCString(100, "rgba(%d,%d,%d,%0.2f)",
+        // "%0.5f" in nsPrintfCString would use the locale-specific
+        // decimal separator. That's why we have to do this:
+        PRUint32 alpha = NS_GET_A(aColor) * 100000 / 255;
+        CopyUTF8toUTF16(nsPrintfCString(100, "rgba(%d, %d, %d, 0.%d)",
                                         NS_GET_R(aColor),
                                         NS_GET_G(aColor),
                                         NS_GET_B(aColor),
-                                        NS_GET_A(aColor) / 255.0f),
+                                        alpha),
                         aStr);
     }
 }
