@@ -12,7 +12,7 @@
     <?php echo $html->tagErrorMsg('User/name', 'You must enter a name.')?>
   </div>
   <div>
-    <label for="name" class="label-large">Website:</label>
+    <label for="UserWebsite" class="label-large">Website:</label>
     <?php echo $html->input('User/website', array('size' => 40)); ?>
   </div>
   <div>
@@ -46,10 +46,11 @@
                  '9' => 'GMT+9',
                  '10' => 'GMT+10',
                  '11' => 'GMT+11',
-                 '12' => 'GMT+12');
+                 '12' => 'GMT+12',
+                 '13' => 'GMT+13');
       echo $html->selectTag('User/tz', $tzs, $utz, null, null, false); 
     ?>
-    (current time is <?php echo gmdate("Y-m-d H:i:s"); ?>GMT)
+    (current time is <?php echo gmdate("Y-m-d H:i:s"); ?> GMT)
   </div>
   <?php if(GMAP_API_KEY != null): ?>
   <script src="http://maps.google.com/maps?file=api&amp;v=2&amp;key=<?php echo GMAP_API_KEY; ?>"
@@ -80,19 +81,23 @@
   <div>
     <label for="UserShowemail" class="label-large">Show email:</label>
     <?php echo $html->checkbox('User/showemail'); ?><br/>
+  </div>
+  <div>
     <label for="UserShowloc" class="label-large">Show location:</label>
     <?php echo $html->checkbox('User/showloc'); ?><br/>
+  </div>
+  <div>
     <label for="UserShowmap" class="label-large">Show map:</label>
     <?php echo $html->checkbox('User/showmap'); ?><br/>
   </div>
   <h1>Password</h1>
   <div>
     <label for="UserPassword" class="label-large">New password:</label>
-    <?php echo $html->password('User/password', array('size' => 20)); ?>
+    <?php echo $html->password('User/password', array('size' => 20, 'autocomplete' => 'off')); ?>
   </div>
   <div>
-    <label for="UserConfpassword" class="label-large">Confirm  new password:</label>
-    <?php echo $html->password('User/confpassword', array('size' => 20)); ?>
+    <label for="UserConfpassword" class="label-large">Confirm new password:</label>
+    <?php echo $html->password('User/confpassword', array('size' => 20, 'autocomplete' => 'off')); ?>
     <?php echo $html->tagErrorMsg('User/confpassword', 'The supplied passwords do not match!')?>
   </div>
   <?php echo $html->submit('Update'); ?>

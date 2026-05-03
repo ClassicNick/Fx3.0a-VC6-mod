@@ -42,6 +42,7 @@
  * as <frame>, <iframe>, and some <object>s
  */
 
+#include "nsISupportsUtils.h"
 #include "nsCOMPtr.h"
 #include "nsLeafFrame.h"
 #include "nsGenericHTMLElement.h"

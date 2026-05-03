@@ -34,7 +34,7 @@ $ENV{CVS_RSH} = "ssh";
 #$BuildDebug        = 0;      # Debug or Opt (Darwin)
 #$ReportStatus      = 1;      # Send results to server, or not
 #$ReportFinalStatus = 1;      # Finer control over $ReportStatus.
-$UseTimeStamp      = 0;      # Use the CVS 'pull-by-timestamp' option, or not
+#$UseTimeStamp      = 1;      # Use the CVS 'pull-by-timestamp' option, or not
 #$BuildOnce         = 0;      # Build once, don't send results to server
 #$TestOnly          = 0;      # Only run tests, don't pull/build
 #$BuildEmbed        = 0;      # After building seamonkey, go build embed app.
@@ -44,7 +44,8 @@ $UseTimeStamp      = 0;      # Use the CVS 'pull-by-timestamp' option, or not
 # Tests
 $CleanProfile             = 1;
 #$ResetHomeDirForTests     = 1;
-$ProductName              = "Sunbird";
+#$ProductName              = "Sunbird";
+$ProductName              = "Calendar";
 $VendorName               = 'Mozilla';
 
 $RunMozillaTests          = 0;  # Allow turning off of all tests if needed.
@@ -182,7 +183,7 @@ $BuildTree  = 'Sunbird';
 $LocaleTree = 'Mozilla-l10n';
 
 #$BuildName = '';
-$BuildTag = 'SUNBIRD_0_3_BRANCH';
+#$BuildTag = 'SUNBIRD_0_3_BRANCH';
 #$BuildConfigDir = 'mozilla/config';
 #$Topsrcdir = 'mozilla';
 

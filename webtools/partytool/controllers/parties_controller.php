@@ -57,7 +57,7 @@ class PartiesController extends AppController {
     $this->set('map', 'mapInit()');
 
     if(empty($this->data)) {
-      $this->set('utz', '0');
+      $this->set('utz', $_SESSION['User']['tz']);
       $this->render();
     }
 
@@ -199,7 +199,7 @@ class PartiesController extends AppController {
 
       //Paginate!
       $count = $this->Party->findCount();
-      $pages = ceil($count/10);
+      $pages = ceil($count/100);
       if ($page == null)
         $page = 1;
       if ($page > 1)
@@ -207,7 +207,9 @@ class PartiesController extends AppController {
       if ($page < $pages)
         $this->set('next', $page + 1);
 
-      $this->set('parties', $this->Party->findAll(null, null, "name ASC", 10, $page));
+      $deck = $this->Party->findAll(null, null, "id ASC", 100, $page);
+      shuffle($deck);
+      $this->set('parties', $deck);
     }
 
     else if (is_numeric($id)) {
@@ -243,8 +245,9 @@ class PartiesController extends AppController {
     $this->pageTitle = "Invite a Guest";
     if (is_numeric($id)) {
       $party = $this->Party->findById($id);
-      if (empty($party['Party']['id']) &&
-          $party['Party']['owner'] !== $_SESSION['User']['id'])
+      if (empty($party['Party']['id']) ||
+          $party['Party']['owner'] != $_SESSION['User']['id'] ||
+          $party['Party']['canceled'] == 1)
         $this->redirect('/parties/view/all');
 
       else {
@@ -366,6 +369,57 @@ class PartiesController extends AppController {
 
     else
       $this->redirect('/parties/view/all');
+  }
+  
+  function cancel($pid) {
+    $this->pageTitle = "Cancel Party";
+    if (!is_numeric($pid) || !isset($_SESSION['User']['id']))
+      $this->redirect('/');
+
+    else
+      $this->set('pid', $pid);
+
+    $party = $this->Party->findById($pid);
+    if ($_SESSION['User']['id'] != $party['Party']['owner'])
+      die();
+
+    if (!empty($this->data) && $_SESSION['User']['id'] == $party['Party']['owner']) {
+      if ($this->data['Party']['confcancel'] == 1) {
+        $guests = $this->Party->getGuests($pid);
+        $guest_count = count($guests);
+
+        foreach($guests as $guest) {
+          $message = array('from'     => APP_NAME.' <'.APP_EMAIL.'>',
+                           'envelope' => APP_EMAIL,
+                           'to'       => $guest['users']['email'],
+                           'reply'    => $_SESSION['User']['email'],
+                           'subject'  => 'Party Cancellation Notice',
+                           'link'     => APP_BASE.'/parties/view/'.$pid,
+                           'type'     => 'cancel');
+
+          $this->Mail->mail($message);
+          $this->Mail->send();
+        }
+
+        $this->Party->query("DELETE FROM guests WHERE pid = $pid LIMIT $guest_count");
+        $this->Party->query("UPDATE parties SET canceled = '1', invitecode = '0' WHERE parties.id = $pid LIMIT 1");
+
+        $this->redirect('/parties/view/'.$pid);
+      }
+    }
+  }
+  
+  function uncancel($pid) {
+    if (!is_numeric($pid) || !isset($_SESSION['User']['id']))
+      $this->redirect('/');
+
+    $party = $this->Party->findById($pid);
+    if ($_SESSION['User']['id'] != $party['Party']['owner'])
+      die();
+
+    $key = $this->Hash->keygen(10);
+    $this->Party->query("UPDATE parties SET canceled = '0', invitecode = '$key' WHERE parties.id = $pid LIMIT 1");
+    $this->redirect('/parties/view/'.$pid);
   }
 
   function js() {

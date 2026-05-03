@@ -37,7 +37,7 @@
 class Party extends AppModel {
   var $name = 'Party';
   var $validate = array(
-    'name' => VALID_NOT_EMPTY,
+    'name' => "/^\S/",
     'einvite' => VALID_EMAIL,
     'duration' => VALID_NUMBER
   );
@@ -67,7 +67,7 @@ class Party extends AppModel {
   }
 
   function getGuests($pid) {
-    $rv = $this->query("SELECT users.id, users.name, guests.invited
+    $rv = $this->query("SELECT users.id, users.name, users.email, guests.invited
                         FROM users
                         LEFT JOIN guests 
                           ON users.id = guests.uid

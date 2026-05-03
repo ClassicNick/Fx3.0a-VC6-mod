@@ -40,11 +40,13 @@
 
 #include "pluginbase.h"
 #include "nsScriptablePeer.h"
+#include "nsCOMPtr.h"
+#include "nsIPluginInstance.h"
 
 class nsPluginInstance : public nsPluginInstanceBase
 {
 public:
-  nsPluginInstance(NPP aInstance);
+  nsPluginInstance(nsPluginCreateData * aCreateDataStruct);
   ~nsPluginInstance();
 
   NPBool init(NPWindow* aWindow);
@@ -57,13 +59,16 @@ public:
   NPError	GetValue(NPPVariable variable, void *value);
 
   // locals
+  NS_IMETHOD HasPlugletForMimeType(const char *aMimeType, PRBool *outResult);
 
   nsScriptablePeer* getScriptablePeer();
 
 private:
   NPP mInstance;
   NPBool mInitialized;
+  nsCOMPtr<nsIPluginInstance> mPluglet;
   nsScriptablePeer * mScriptablePeer;
+  nsPluginCreateData mCreateDataStruct;
 
 public:
   char mString[128];
