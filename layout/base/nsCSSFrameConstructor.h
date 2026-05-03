@@ -286,7 +286,9 @@ private:
    * the child list of the outer frame, and will put any pseudo frames it had
    * to create into aChildItems.  The newly-created outer frame will either be
    * in aChildItems or a descendant of a pseudo in aChildItems (unless it's
-   * positioned, in which case its placeholder will be in aChildItems).
+   * positioned or floated, in which case its placeholder will be in
+   * aChildItems).  If aAllowOutOfFlow is false, the table frame will be forced
+   * to be in-flow no matter what its float or position values are.
    */ 
   nsresult ConstructTableFrame(nsFrameConstructorState& aState,
                                nsIContent*              aContent,
@@ -295,6 +297,7 @@ private:
                                nsTableCreator&          aTableCreator,
                                PRBool                   aIsPseudo,
                                nsFrameItems&            aChildItems,
+                               PRBool                   aAllowOutOfFlow,
                                nsIFrame*&               aNewOuterFrame,
                                nsIFrame*&               aNewInnerFrame);
 
@@ -579,12 +582,8 @@ private:
                                  nsIContent*              aParent,
                                  nsIDocument*             aDocument,
                                  nsIFrame*                aNewFrame,
-                                 PRBool                   aForceBindingParent,
                                  PRBool                   aAppendToExisting,
-                                 nsFrameItems&            aChildItems,
-                                 nsIFrame*                aAnonymousCreator,
-                                 nsIContent*              aInsertionNode,
-                                 PRBool                   aAnonymousParentIsBlock);
+                                 nsFrameItems&            aChildItems);
 
 //MathML Mod - RBS
 #ifdef MOZ_MATHML
@@ -984,17 +983,6 @@ private:
       mCounterManager.RecalcAll();
   }
 
-  inline NS_HIDDEN_(nsresult)
-    CreateInsertionPointChildren(nsFrameConstructorState &aState,
-                                 nsIFrame *aNewFrame,
-                                 nsIContent *aContent,
-                                 PRBool aUseInsertionFrame = PR_TRUE);
-
-  NS_HIDDEN_(nsresult)
-    CreateInsertionPointChildren(nsFrameConstructorState &aState,
-                                 nsIFrame *aNewFrame,
-                                 PRBool aUseInsertionFrame);
-                                 
 public:
   struct RestyleData;
   friend struct RestyleData;

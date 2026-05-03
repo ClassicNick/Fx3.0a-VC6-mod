@@ -933,8 +933,9 @@ js_obj_toSource(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
              * Remove '(function ' from the beginning of valstr and ')' from the
              * end so that we can put "get" in front of the function definition.
              */
-            if (gsop[j]) {
-                int n = strlen(js_function_str) + 2;
+            if (gsop[j] && VALUE_IS_FUNCTION(cx, val[j])) {
+                size_t n = strlen(js_function_str) + 2;
+                JS_ASSERT(vlength > n);
                 vchars += n;
                 vlength -= n + 1;
             }
@@ -1022,8 +1023,7 @@ js_obj_toSource(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
             }
             js_strncpy(&chars[nchars], idstrchars, idstrlength);
             nchars += idstrlength;
-            if (!gsop[j])
-                chars[nchars++] = ':';
+            chars[nchars++] = gsop[j] ? ' ' : ':';
 #endif
             if (vsharplength) {
                 js_strncpy(&chars[nchars], vsharp, vsharplength);
@@ -4529,10 +4529,10 @@ js_TryMethod(JSContext *cx, JSObject *obj, JSAtom *atom,
     }
     if (!ok)
         JS_ClearPendingException(cx);
-    ok = JSVAL_IS_PRIMITIVE(fval) ||
-         js_InternalCall(cx, obj, fval, argc, argv, rval);
     JS_SetErrorReporter(cx, older);
-    return ok;
+
+    return JSVAL_IS_PRIMITIVE(fval) ||
+           js_InternalCall(cx, obj, fval, argc, argv, rval);
 }
 
 #if JS_HAS_XDR
@@ -4862,7 +4862,7 @@ js_SetRequiredSlot(JSContext *cx, JSObject *obj, uint32 slot, jsval v)
 /* Routines to print out values during debugging. */
 
 void printChar(jschar *cp) {
-    fprintf(stderr, "jschar* (0x%p) \"", (void *)cp);
+    fprintf(stderr, "jschar* (%p) \"", (void *)cp);
     while (*cp)
         fputc(*cp++, stderr);
     fputc('"', stderr);
@@ -4872,7 +4872,7 @@ void printChar(jschar *cp) {
 void printString(JSString *str) {
     size_t i, n;
     jschar *s;
-    fprintf(stderr, "string (0x%p) \"", (void *)str);
+    fprintf(stderr, "string (%p) \"", (void *)str);
     s = JSSTRING_CHARS(str);
     for (i=0, n=JSSTRING_LENGTH(str); i < n; i++)
         fputc(s[i], stderr);
@@ -4887,21 +4887,21 @@ void printObj(JSContext *cx, JSObject *jsobj) {
     jsval val;
     JSClass *clasp;
 
-    fprintf(stderr, "object 0x%p\n", (void *)jsobj);
+    fprintf(stderr, "object %p\n", (void *)jsobj);
     clasp = OBJ_GET_CLASS(cx, jsobj);
-    fprintf(stderr, "class 0x%p %s\n", (void *)clasp, clasp->name);
+    fprintf(stderr, "class %p %s\n", (void *)clasp, clasp->name);
     for (i=0; i < jsobj->map->nslots; i++) {
         fprintf(stderr, "slot %3d ", i);
         val = jsobj->slots[i];
         if (JSVAL_IS_OBJECT(val))
-            fprintf(stderr, "object 0x%p\n", (void *)JSVAL_TO_OBJECT(val));
+            fprintf(stderr, "object %p\n", (void *)JSVAL_TO_OBJECT(val));
         else
             printVal(cx, val);
     }
 }
 
 void printVal(JSContext *cx, jsval val) {
-    fprintf(stderr, "val %d (0x%p) = ", (int)val, (void *)val);
+    fprintf(stderr, "val %d (%p) = ", (int)val, (void *)val);
     if (JSVAL_IS_NULL(val)) {
         fprintf(stderr, "null\n");
     } else if (JSVAL_IS_VOID(val)) {
@@ -4923,7 +4923,7 @@ void printVal(JSContext *cx, jsval val) {
 }
 
 void printId(JSContext *cx, jsid id) {
-    fprintf(stderr, "id %d (0x%p) is ", (int)id, (void *)id);
+    fprintf(stderr, "id %d (%p) is ", (int)id, (void *)id);
     printVal(cx, ID_TO_VALUE(id));
 }
 

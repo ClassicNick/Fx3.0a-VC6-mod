@@ -346,6 +346,13 @@ var BookmarksEventHandler = {
         node = node.parentNode;
       }
     }
+    // The event target we get if someone middle clicks on a bookmark in the
+    // bookmarks toolbar overflow menu is different from if they click on a
+    // bookmark in a folder or in the bookmarks menu; handle this case
+    // separately.
+    var bookmarksBar = document.getElementById("bookmarksBarContent");
+    if (bookmarksBar._chevron.getAttribute("open") == "true")
+      bookmarksBar._chevron.firstChild.hidePopupAndChildPopups();
   },
   
   /**
@@ -606,15 +613,17 @@ var PlacesMenuDNDController = {
     bookmarksMenu.firstChild.hidePopupAndChildPopups();
 
     var bookmarksBar = document.getElementById("bookmarksBarContent");
-    // Close the overflow chevron menu and all its children
-    bookmarksBar._chevron.firstChild.hidePopupAndChildPopups();
-    
-    // Close all popups on the bookmarks toolbar
-    var toolbarItems = bookmarksBar.childNodes;
-    for (var i = 0; i < toolbarItems.length; ++i) {
-      var item = toolbarItems[i]
-      if (this._isContainer(item))
-        item.firstChild.hidePopupAndChildPopups();
+    if (bookmarksBar) {
+      // Close the overflow chevron menu and all its children
+      bookmarksBar._chevron.firstChild.hidePopupAndChildPopups();
+
+      // Close all popups on the bookmarks toolbar
+      var toolbarItems = bookmarksBar.childNodes;
+      for (var i = 0; i < toolbarItems.length; ++i) {
+        var item = toolbarItems[i]
+        if (this._isContainer(item))
+          item.firstChild.hidePopupAndChildPopups();
+      }
     }
   },
   

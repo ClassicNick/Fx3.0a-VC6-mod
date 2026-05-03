@@ -306,6 +306,20 @@ gfxWindowsFont::ComputeMetrics()
         } else {
             mMetrics->xHeight = gm.gmptGlyphOrigin.y;
         }
+        // The MS (P)Gothic and MS (P)Mincho are not having suitable values
+        // in them super script offset. If the values are not suitable,
+        // we should use x-height instead of them.
+        // See https://bugzilla.mozilla.org/show_bug.cgi?id=353632
+        if (mMetrics->superscriptOffset == 0 ||
+            mMetrics->superscriptOffset >= metrics.tmAscent) {
+            mMetrics->superscriptOffset = mMetrics->xHeight;
+        }
+        // And also checking the case of sub script offset.
+        // The old gfx has checked this too.
+        if (mMetrics->subscriptOffset == 0 ||
+            mMetrics->subscriptOffset >= metrics.tmAscent) {
+            mMetrics->subscriptOffset = mMetrics->xHeight;
+        }
     } else {
         // Make a best-effort guess at extended metrics
         // this is based on general typographic guidelines
@@ -1184,8 +1198,16 @@ TRY_AGAIN_HOPE_FOR_THE_BEST_2:
 
             if (PR_LOG_TEST(gFontLog, PR_LOG_DEBUG)) {
                 PR_LOG(gFontLog, PR_LOG_DEBUG, ("Looking for other fonts to support the string:"));
-                for (PRUint32 la = 0; la < mLength; la++)
-                    PR_LOG(gFontLog, PR_LOG_DEBUG, (" - 0x%04x", mString[la]));
+                for (PRUint32 la = 0; la < mLength; la++) {
+                    PRUint32 ch = mString[la];
+
+                    if ((la+1 < mLength) && IS_HIGH_SURROGATE(ch) && IS_LOW_SURROGATE(mString[la+1])) {
+                        la++;
+                        ch = SURROGATE_TO_UCS4(ch, mString[la]);
+                    }
+
+                    PR_LOG(gFontLog, PR_LOG_DEBUG, (" - 0x%04x", ch));
+                }
             }
             
             platform->FindOtherFonts(mString, mLength,

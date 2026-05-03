@@ -124,6 +124,9 @@ const CAPABILITIES = [
   "Subframes", "Plugins", "Javascript", "MetaRedirects", "Images"
 ];
 
+// sandbox to evaluate JavaScript code from non-trustable sources
+var EVAL_SANDBOX = new Components.utils.Sandbox("about:blank");
+
 function debug(aMsg) {
   aMsg = ("SessionStore: " + aMsg).replace(/\S{80}/g, "$&\n");
   Cc["@mozilla.org/consoleservice;1"].getService(Ci.nsIConsoleService)
@@ -966,7 +969,7 @@ SessionStoreService.prototype = {
           }
         }
         if (aBrowser.currentURI.spec == "about:config") {
-          text = ["#textbox=" + encodeURI(aBrowser.contentDocument.getElementById("textbox").value)];
+          text = ["#textbox=" + encodeURI(aBrowser.contentDocument.getElementById("textbox").wrappedJSObject.value)];
         }
         tabData.text = text.join(" ");
         
@@ -1218,8 +1221,7 @@ SessionStoreService.prototype = {
       }
     }
     if (winData._closedTabs && (root._firstTabs || aOverwriteTabs)) {
-      //XXXzeniko remove the slice call as soon as _closedTabs instanceof Array
-      this._windows[aWindow.__SSi]._closedTabs = winData._closedTabs.slice();
+      this._windows[aWindow.__SSi]._closedTabs = winData._closedTabs;
     }
     
     this.restoreHistoryPrecursor(aWindow, winData.tabs, (aOverwriteTabs ?
@@ -1462,8 +1464,11 @@ SessionStoreService.prototype = {
     }
     
     var content = aEvent.originalTarget.defaultView;
-    if (this.currentURI.spec == "about:config")
-      content = aEvent.originalTarget.defaultView;
+    if (this.currentURI.spec == "about:config") {
+      // unwrap the document for about:config because otherwise the properties
+      // of the XBL bindings - as the textbox - aren't accessible (see bug 350718)
+      content = content.wrappedJSObject;
+    }
     restoreTextDataAndScrolling(content, this.__SS_restore_data, "");
     
     // notify the tabbrowser that this document has been completely restored
@@ -1870,8 +1875,7 @@ SessionStoreService.prototype = {
    * safe eval'ing
    */
   _safeEval: function sss_safeEval(aStr) {
-    var s = new Components.utils.Sandbox("about:blank");
-    return Components.utils.evalInSandbox(aStr, s);
+    return Components.utils.evalInSandbox(aStr, EVAL_SANDBOX);
   },
 
   /**
@@ -1913,7 +1917,7 @@ SessionStoreService.prototype = {
       else if (aObj == null) {
         parts.push("null");
       }
-      else if (aObj instanceof Array) {
+      else if (aObj instanceof Array || aObj instanceof EVAL_SANDBOX.Array) {
         parts.push("[");
         for (var i = 0; i < aObj.length; i++) {
           jsonIfy(aObj[i]);

@@ -41,12 +41,12 @@ class UnicodeComponent extends Object {
   function unicode2utf($char) {
     if ($char < 128) {
       $rv = chr($char);
-    } 
+    }
 
     else if ($char < 2048) {
       $rv = chr(192 + (($char - ($char % 64)) / 64));
       $rv .= chr(128 + ($char % 64));
-    } 
+    }
 
     else {
       $rv = chr(224 + (($char - ($char % 4096)) / 4096));
@@ -56,11 +56,11 @@ class UnicodeComponent extends Object {
 
     return $rv;
   }
-  
+
   function utf2unicode($char) {
     if (ord($char{0}) < 128)
       $rv = ord($char);
-  
+
     else if (ord($char{0}) < 224)
       $rv = ((ord($char{0}) - 192) * 64) + (ord($char{1}) - 128);
 

@@ -101,7 +101,6 @@ var gNavigatorBundle = null;
 var gIsLoadingBlank = false;
 var gLastValidURLStr = "";
 var gLastValidURL = null;
-var gHaveUpdatedToolbarState = false;
 var gClickSelectsAll = false;
 var gMustLoadSidebar = false;
 var gProgressMeterPanel = null;
@@ -996,7 +995,8 @@ function delayedStartup()
           .controllers.appendController(BookmarksMenuController);
 #else
   var toolbar = document.getElementById("bookmarksBarContent");
-  toolbar._init();
+  if (toolbar)
+    toolbar._init();
   var menu = document.getElementById("bookmarksMenuPopup");
   menu._init();
   PlacesMenuDNDController.init();
@@ -2448,32 +2448,6 @@ var urlbarObserver = {
     }
 }
 
-function updateToolbarStates(toolbarMenuElt)
-{
-  if (!gHaveUpdatedToolbarState) {
-    var mainWindow = document.getElementById("main-window");
-    if (mainWindow.hasAttribute("chromehidden")) {
-      gHaveUpdatedToolbarState = true;
-      var i;
-      for (i = 0; i < toolbarMenuElt.childNodes.length; ++i)
-        document.getElementById(toolbarMenuElt.childNodes[i].getAttribute("observes")).removeAttribute("checked");
-      var toolbars = document.getElementsByTagName("toolbar");
-
-      // Start i at 1, since we skip the menubar.
-      for (i = 1; i < toolbars.length; ++i) {
-        if (toolbars[i].getAttribute("class").indexOf("chromeclass") != -1)
-          toolbars[i].setAttribute("collapsed", "true");
-      }
-      var statusbars = document.getElementsByTagName("statusbar");
-      for (i = 1; i < statusbars.length; ++i) {
-        if (statusbars[i].getAttribute("class").indexOf("chromeclass") != -1)
-          statusbars[i].setAttribute("collapsed", "true");
-      }
-      mainWindow.removeAttribute("chromehidden");
-    }
-  }
-}
-
 function BrowserImport()
 {
 #ifdef XP_MACOSX
@@ -3427,7 +3401,8 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
   }
 #else
   var bookmarksBar = document.getElementById("bookmarksBarContent");
-  bookmarksBar._init();
+  if (bookmarksBar)
+    bookmarksBar._init();
 #endif
 
 #ifndef TOOLBAR_CUSTOMIZATION_SHEET
@@ -5530,7 +5505,7 @@ function handleLinkClick(event, href, linkNode)
   var docURL = event.target.ownerDocument.location.href;
 
   switch (event.button) {
-    case 0:
+    case 0:    // if left button clicked
 #ifdef XP_MACOSX
       if (event.metaKey) { // Cmd
 #else
@@ -5540,8 +5515,7 @@ function handleLinkClick(event, href, linkNode)
         event.stopPropagation();
         return true;
       }
-                                                       // if left button clicked
-#ifdef MOZ_FEEDS
+
       if (event.shiftKey && event.altKey) {
         var feedService = 
             Cc["@mozilla.org/browser/feeds/result-service;1"].
@@ -5550,7 +5524,6 @@ function handleLinkClick(event, href, linkNode)
         loadURI(href, null, null, false);
         return false;
       }
-#endif
                                                        
       if (event.shiftKey) {
         openNewWindowWith(href, docURL, null, false);
@@ -5565,7 +5538,7 @@ function handleLinkClick(event, href, linkNode)
       }
 
       return false;
-    case 1:                                                         // if middle button clicked
+    case 1:    // if middle button clicked
       var tab;
       try {
         tab = gPrefService.getBoolPref("browser.tabs.opentabfor.middleclick")
@@ -6445,11 +6418,7 @@ var FeedHandler = {
       var feedInfo = feeds[i];
       var menuItem = document.createElement("menuitem");
       var baseTitle = feedInfo.title || feedInfo.href;
-#ifdef MOZ_FEEDS
       var labelStr = gNavigatorBundle.getFormattedString("feedShowFeedNew", [baseTitle]);
-#else
-      var labelStr = gNavigatorBundle.getFormattedString("feedShowFeed", [baseTitle]);
-#endif
       menuItem.setAttribute("label", labelStr);
       menuItem.setAttribute("feed", feedInfo.href);
       menuItem.setAttribute("tooltiptext", feedInfo.href);
@@ -6472,19 +6441,13 @@ var FeedHandler = {
    *          to open the preview UI. (Optional, unless href is null)
    */
   subscribeToFeed: function(href, event) {
-#ifdef MOZ_FEEDS
-      // Just load the feed in the content area to either subscribe or show the
-      // preview UI
-      if (!href)
-        href = event.target.getAttribute("feed");
-      this.loadFeed(href, event);
-#else
-#ifdef MOZ_PLACES
-      PlacesCommandHook.addLiveBookmark(feeds[0].href);
-#else
-      this.addLiveBookmark(feeds[0].href);
-#endif
-#endif
+    // Just load the feed in the content area to either subscribe or show the
+    // preview UI
+    if (!href)
+      href = event.target.getAttribute("feed");
+    urlSecurityCheck(href, gBrowser.currentURI.spec,
+                     Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT_OR_DATA);
+    this.loadFeed(href, event);
   },
 
   /**
@@ -6572,8 +6535,7 @@ var FeedHandler = {
     BookmarksUtils.addLivemark(doc.baseURI, url, title, description);
   },
 #endif
-  
-#ifdef MOZ_FEEDS
+
   loadFeed: function(href, event) {
     var feeds = gBrowser.selectedBrowser.feeds;
     try {
@@ -6585,7 +6547,6 @@ var FeedHandler = {
       gBrowser.selectedBrowser.feeds = feeds;
     }
   },
-#endif
 
   /**
    * Update the browser UI to show whether or not feeds are available when
@@ -6613,11 +6574,7 @@ var FeedHandler = {
       if (feedButton) {
         feedButton.setAttribute("feeds", "true");
         feedButton.setAttribute("tooltiptext", 
-#ifdef MOZ_FEEDS
                                 gNavigatorBundle.getString("feedHasFeedsNew"));
-#else
-                                gNavigatorBundle.getString("feedHasFeeds"));
-#endif
       }
       // check for dupes before we pick which UI to expose
       feeds = this.harvestFeeds(feeds);
@@ -6686,6 +6643,16 @@ var FeedHandler = {
       if (browserForLink.feeds != null)
         feeds = browserForLink.feeds;
       var wrapper = event.target;
+
+      try { 
+        urlSecurityCheck(wrapper.href, gBrowser.currentURI.spec,
+                         Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT_OR_DATA);
+      }
+      catch (ex) {
+        dump(ex.message);
+        return; // doesn't pass security check
+      }
+
       feeds.push({ href: wrapper.href,
                    type: etype,
                    title: wrapper.title});
@@ -6695,11 +6662,7 @@ var FeedHandler = {
         if (feedButton) {
           feedButton.setAttribute("feeds", "true");
           feedButton.setAttribute("tooltiptext", 
-#ifdef MOZ_FEEDS
                                   gNavigatorBundle.getString("feedHasFeedsNew"));
-#else
-                                  gNavigatorBundle.getString("feedHasFeeds"));
-#endif
         }
       }
     }

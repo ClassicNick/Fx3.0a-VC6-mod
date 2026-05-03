@@ -471,8 +471,26 @@ js_GetScopeChain(JSContext *cx, JSStackFrame *fp)
 
     obj = fp->blockChain;
     if (!obj) {
+        /*
+         * Don't force a call object for a lightweight function call, but do
+         * insist that there is a call object for a heavyweight function call.
+         */
+        JS_ASSERT(!fp->fun ||
+                  !(fp->fun->flags & JSFUN_HEAVYWEIGHT) ||
+                  fp->callobj);
         JS_ASSERT(fp->scopeChain);
         return fp->scopeChain;
+    }
+
+    /*
+     * We have one or more lexical scopes to reflect into fp->scopeChain, so
+     * make sure there's a call object at the current head of the scope chain,
+     * if this frame is a call frame.
+     */
+    if (fp->fun && !fp->callobj) {
+        JS_ASSERT(OBJ_GET_CLASS(cx, fp->scopeChain) != &js_BlockClass);
+        if (!js_GetCallObject(cx, fp, fp->scopeChain))
+            return NULL;
     }
 
     /*
@@ -480,7 +498,8 @@ js_GetScopeChain(JSContext *cx, JSStackFrame *fp)
      * the cloned child after we clone the parent. In the following loop when
      * clonedChild is null it indicates the first iteration when no special GC
      * rooting is necessary. On the second and the following iterations we
-     * have to protect clonedChild against the GC during cloning of the parent.
+     * have to protect cloned so far chain against the GC during cloning of
+     * the cursor object.
      */
     cursor = obj;
     clonedChild = NULL;
@@ -499,22 +518,25 @@ js_GetScopeChain(JSContext *cx, JSStackFrame *fp)
             return NULL;
         }
         if (!clonedChild) {
+            /*
+             * The first iteration. Check if other follow and root obj if so
+             * to protect the whole cloned chain against GC.
+             */
             obj = cursor;
-            if (parent)
-                JS_PUSH_SINGLE_TEMP_ROOT(cx, cursor, &tvr);
+            if (!parent)
+                break;
+            JS_PUSH_SINGLE_TEMP_ROOT(cx, obj, &tvr);
         } else {
             /*
              * Avoid OBJ_SET_PARENT overhead as clonedChild cannot escape to
              * other threads.
              */
             clonedChild->slots[JSSLOT_PARENT] = OBJECT_TO_JSVAL(cursor);
-            JS_ASSERT(tvr.u.value == OBJECT_TO_JSVAL(clonedChild));
-            tvr.u.value = OBJECT_TO_JSVAL(cursor);
-        }
-        if (!parent) {
-            if (clonedChild)
+            if (!parent) {
+                JS_ASSERT(tvr.u.value == OBJECT_TO_JSVAL(obj));
                 JS_POP_TEMP_ROOT(cx, &tvr);
-            break;
+                break;
+            }
         }
         clonedChild = cursor;
         cursor = parent;

@@ -57,6 +57,7 @@
 #include "nsIStreamListener.h"
 
 #include "nsIHttpChannel.h"
+#include "nsIMIMEHeaderParam.h"
 
 #define TYPE_ATOM "application/atom+xml"
 #define TYPE_RSS "application/rss+xml"
@@ -111,6 +112,143 @@ nsFeedSniffer::ConvertEncodedData(nsIRequest* request,
   return rv;
 }
 
+// XXXsayrer put this in here to get on the branch with minimal delay.
+// Trunk really needs to factor this out. This is the third usage.
+PRBool
+HasAttachmentDisposition(nsIHttpChannel* httpChannel)
+{
+  if (!httpChannel)
+    return PR_FALSE;
+  
+  nsCAutoString contentDisposition;
+  nsresult rv = 
+    httpChannel->GetResponseHeader(NS_LITERAL_CSTRING("content-disposition"),
+                                   contentDisposition);
+  
+  if (NS_SUCCEEDED(rv) && !contentDisposition.IsEmpty()) {
+    nsCOMPtr<nsIURI> uri;
+    httpChannel->GetURI(getter_AddRefs(uri));
+    nsCOMPtr<nsIMIMEHeaderParam> mimehdrpar =
+      do_GetService(NS_MIMEHEADERPARAM_CONTRACTID, &rv);
+    if (NS_SUCCEEDED(rv))
+    {
+      nsCAutoString fallbackCharset;
+      if (uri)
+        uri->GetOriginCharset(fallbackCharset);
+      nsAutoString dispToken;
+      // Get the disposition type
+      rv = mimehdrpar->GetParameter(contentDisposition, "", fallbackCharset,
+                                    PR_TRUE, nsnull, dispToken);
+      // RFC 2183, section 2.8 says that an unknown disposition
+      // value should be treated as "attachment"
+      // XXXbz this code is duplicated in GetFilenameAndExtensionFromChannel in
+      // nsExternalHelperAppService.  Factor it out!
+      if (NS_FAILED(rv) || 
+          (// Some broken sites just send
+           // Content-Disposition: ; filename="file"
+           // screen those out here.
+           !dispToken.IsEmpty() &&
+           !dispToken.LowerCaseEqualsLiteral("inline") &&
+          // Broken sites just send
+          // Content-Disposition: filename="file"
+          // without a disposition token... screen those out.
+           !dispToken.EqualsIgnoreCase("filename", 8)) &&
+          // Also in use is Content-Disposition: name="file"
+           !dispToken.EqualsIgnoreCase("name", 4))
+        // We have a content-disposition of "attachment" or unknown
+        return PR_TRUE;
+    }
+  } 
+  
+  return PR_FALSE;
+}
+
+/**
+ *
+ * Determine if a substring is the "documentElement" in the document.
+ *
+ * All of our sniffed substrings: <rss, <feed, <rdf:RDF must be the "document"
+ * element within the XML DOM, i.e. the root container element. Otherwise,
+ * it's possible that someone embedded one of these tags inside a document of
+ * another type, e.g. a HTML document, and we don't want to show the preview
+ * page if the document isn't actually a feed.
+ * 
+ * @param   dataString
+ *          The data being sniffed
+ * @param   substring
+ *          The substring being tested for document-element-ness
+ * @param   indicator
+ *          An iterator initialized to the end of |substring|, located in
+ *          |dataString|
+ * @returns PR_TRUE if the substring is the documentElement, PR_FALSE 
+ *          otherwise.
+ */
+static PRBool
+IsDocumentElement(nsACString& dataString, const nsACString& substring, 
+                  nsACString::const_iterator& indicator)
+{
+  nsACString::const_iterator start, end, endOfString;
+
+  dataString.BeginReading(start);
+  endOfString = end = indicator;
+
+  // For every tag in the buffer, check to see if it's a PI, Doctype or 
+  // comment, our desired substring or something invalid.
+  while (FindCharInReadable('<', start, end)) {
+    ++start;
+    if (start == endOfString)
+      return PR_FALSE;
+
+    // Check to see if the character following the '<' is either '?' or '!'
+    // (processing instruction or doctype or comment)... these are valid nodes
+    // to have in the prologue. 
+    if (*start != '?' && *start != '!') {
+      // Check to see if the string following the '<' is our indicator substring.
+      // If it's not, it's an indication that the indicator substring was 
+      // embedded in some other kind of document, e.g. HTML.
+      return substring.Equals(Substring(--start, indicator));
+    }
+    
+    // Reset end so we can re-scan the entire remaining section of the 
+    // string, and advance start so we don't loop infinitely.
+    dataString.EndReading(end);
+
+    // Now advance the iterator until the '>' (We do this because we don't want
+    // to sniff indicator substrings that are embedded within other nodes, e.g.
+    // comments: <!-- <rdf:RDF .. > -->
+    if (!FindCharInReadable('>', start, end))
+      return PR_FALSE;
+    
+    // Reset end again
+    dataString.EndReading(end);
+  }
+  return PR_TRUE;
+}
+
+/**
+ * Determines whether or not a string exists as the root element in an XML data
+ * string buffer.
+ * @param   dataString
+ *          The data being sniffed
+ * @param   substring
+ *          The substring being tested for existence and root-ness.
+ * @returns PR_TRUE if the substring exists and is the documentElement, PR_FALSE
+ *          otherwise.
+ */
+static PRBool
+ContainsTopLevelSubstring(nsACString& dataString, const nsACString& substring) 
+{
+  nsACString::const_iterator start, end;
+
+  dataString.BeginReading(start);
+  dataString.EndReading(end);
+
+  PRBool isFeed = FindInReadable(substring, start, end);
+
+  // Only do the validation when we find the substring. 
+  return isFeed ? IsDocumentElement(dataString, substring, end) : isFeed;
+}
+
 NS_IMETHODIMP
 nsFeedSniffer::GetMIMETypeFromContent(nsIRequest* request, 
                                       const PRUint8* data, 
@@ -154,6 +292,13 @@ nsFeedSniffer::GetMIMETypeFromContent(nsIRequest* request,
   channel->GetContentType(contentType);
   if (contentType.EqualsLiteral(TYPE_RSS) ||
       contentType.EqualsLiteral(TYPE_ATOM)) {
+    
+    // check for an attachment after we have a likely feed.
+    if(HasAttachmentDisposition(channel)) {
+      sniffedType.Truncate();
+      return NS_OK;
+    }
+    
     sniffedType.AssignLiteral(TYPE_MAYBE_FEED);
     return NS_OK;
   }
@@ -185,23 +330,15 @@ nsFeedSniffer::GetMIMETypeFromContent(nsIRequest* request,
   PRBool isFeed = PR_FALSE;
 
   // RSS 0.91/0.92/2.0
-  dataString.BeginReading(start_iter);
-  dataString.EndReading(end_iter);
-
-  isFeed = FindInReadable(NS_LITERAL_CSTRING("<rss"), start_iter, end_iter);
+  isFeed = ContainsTopLevelSubstring(dataString, NS_LITERAL_CSTRING("<rss"));
 
   // Atom 1.0
-  if (!isFeed) {
-    dataString.BeginReading(start_iter);
-    dataString.EndReading(end_iter);
-    isFeed = FindInReadable(NS_LITERAL_CSTRING("<feed"), start_iter, end_iter);
-  }
+  if (!isFeed)
+    isFeed = ContainsTopLevelSubstring(dataString, NS_LITERAL_CSTRING("<feed"));
 
   // RSS 1.0
   if (!isFeed) {
-    dataString.BeginReading(start_iter);
-    dataString.EndReading(end_iter);
-    isFeed = FindInReadable(NS_LITERAL_CSTRING("<rdf:RDF"), start_iter, end_iter);
+    isFeed = ContainsTopLevelSubstring(dataString, NS_LITERAL_CSTRING("<rdf:RDF"));
     if (isFeed) {
       dataString.BeginReading(start_iter);
       dataString.EndReading(end_iter);
@@ -215,7 +352,7 @@ nsFeedSniffer::GetMIMETypeFromContent(nsIRequest* request,
   }
 
   // If we sniffed a feed, coerce our internal type
-  if (isFeed)
+  if (isFeed && !HasAttachmentDisposition(channel))
     sniffedType.AssignLiteral(TYPE_MAYBE_FEED);
   else
     sniffedType.Truncate();
