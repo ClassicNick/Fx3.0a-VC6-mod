@@ -1534,7 +1534,6 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 
     static const char exception_cookie[] = "/*EXCEPTION*/";
     static const char retsub_pc_cookie[] = "/*RETSUB_PC*/";
-    static const char iter_cookie[]      = "/*ITER*/";
     static const char forelem_cookie[]   = "/*FORELEM*/";
     static const char with_cookie[]      = "/*WITH*/";
     static const char dot_format[]       = "%s.%s";
@@ -1925,16 +1924,8 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 break;
 
               case JSOP_STARTITER:
-                if (ss->inArrayInit) {
-                    ss->offsets[ss->top++] = ss->sprinter.offset;
-                    ss->offsets[ss->top++] = ss->sprinter.offset;
-                    ss->opcodes[ss->top-1] = ss->opcodes[ss->top-2] = op;
-                    break;
-                }
-                todo = Sprint(&ss->sprinter, iter_cookie);
-                if (todo < 0 || !PushOff(ss, todo, op))
-                    return NULL;
-                /* FALL THROUGH */
+                todo = -2;
+                break;
 
               case JSOP_PUSH:
 #if JS_HAS_DESTRUCTURING
@@ -2256,15 +2247,8 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 if (sn && SN_TYPE(sn) == SRC_HIDDEN)
                     break;
                 (void) PopOff(ss, op);
-                if (ss->inArrayInit) {
-                    ss->top -= 2;
-                    break;
-                }
-                (void) PopOff(ss, op);
-                if (op == JSOP_ENDITER) {
-                    rval = POP_STR();
-                    LOCAL_ASSERT(!strcmp(rval, iter_cookie));
-                }
+                if (op == JSOP_POP2)
+                    (void) PopOff(ss, op);
                 break;
 
               case JSOP_ENTERWITH:
@@ -2508,12 +2492,15 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
 
                 rval = POP_STR();
                 pos = ss->top;
-                while (ss->opcodes[--pos] != JSOP_ENTERBLOCK)
+                while ((op = ss->opcodes[--pos]) != JSOP_ENTERBLOCK &&
+                       op != JSOP_NEWINIT) {
                     LOCAL_ASSERT(pos != 0);
+                }
                 blockpos = pos;
-                while (ss->opcodes[--pos] == JSOP_ENTERBLOCK) {
+                while (ss->opcodes[pos] == JSOP_ENTERBLOCK) {
                     if (pos == 0)
                         break;
+                    --pos;
                 }
                 LOCAL_ASSERT(ss->opcodes[pos] == JSOP_NEWINIT);
                 startpos = pos;
@@ -3530,7 +3517,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
               {
                 ptrdiff_t jmplen, off, off2;
                 jsint j, n, low, high;
-                TableEntry *table, pivot;
+                TableEntry *table, *tmp;
 
                 sn = js_GetSrcNote(jp->script, pc);
                 LOCAL_ASSERT(sn && SN_TYPE(sn) == SRC_SWITCH);
@@ -3549,6 +3536,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 if (n == 0) {
                     table = NULL;
                     j = 0;
+                    ok = JS_TRUE;
                 } else {
                     table = (TableEntry *)
                             JS_malloc(cx, (size_t)n * sizeof *table);
@@ -3573,12 +3561,21 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                         }
                         pc2 += jmplen;
                     }
-                    js_HeapSort(table, (size_t) j, &pivot, sizeof(TableEntry),
-                                CompareOffsets, NULL);
+                    tmp = (TableEntry *)
+                          JS_malloc(cx, (size_t)j * sizeof *table);
+                    if (tmp) {
+                        ok = js_MergeSort(table, (size_t)j, sizeof(TableEntry),
+                                          CompareOffsets, NULL, tmp);
+                        JS_free(cx, tmp);
+                    } else {
+                        ok = JS_FALSE;
+                    }
                 }
 
-                ok = DecompileSwitch(ss, table, (uintN)j, pc, len, off,
-                                     JS_FALSE);
+                if (ok) {
+                    ok = DecompileSwitch(ss, table, (uintN)j, pc, len, off,
+                                         JS_FALSE);
+                }
                 JS_free(cx, table);
                 if (!ok)
                     return NULL;

@@ -44,10 +44,10 @@ $UseTimeStamp      = 0;      # Use the CVS 'pull-by-timestamp' option, or not
 #$TestOnly          = 0;      # Only run tests, don't pull/build
 #$BuildEmbed        = 0;      # After building seamonkey, go build embed app.
 #$SkipMozilla       = 0;      # Use to debug post-mozilla.pl scripts.
-#$BuildLocales      = 0;      # Do l10n packaging?
+#$BuildLocales      = 1;      # Do l10n packaging?
 
 # Tests
-#$CleanProfile             = 0;
+$CleanProfile             = 1;
 #$ResetHomeDirForTests     = 1;
 $ProductName              = "Sunbird";
 $VendorName               = 'Mozilla';
@@ -72,6 +72,14 @@ $VendorName               = 'Mozilla';
 #$StartupPerformanceTest   = 0;  # Ts
 #@CompareLocaleDirs        = (); # Run compare-locales test on these directories
 # ("network","dom","toolkit","security/manager");
+@CompareLocaleDirs = (
+  "netwerk",
+  "calendar",
+  "dom",
+  "toolkit",
+  "security/manager",
+  "other-licenses/branding/sunbird",
+);
 #$CompareLocalesAviary     = 0;  # Should the compare-locales commands use the
                                 # aviary directory structure?
 
@@ -154,6 +162,15 @@ $BuildNameExtra = 'Sb-Release';
 # ex: $UserComment = "ip = 208.12.36.108";
 #$UserComment = 0;
 
+# Configure only, don't build.
+#$ConfigureOnly = 0;
+%WGetFiles = (
+	      "http://stage.mozilla.org/pub/mozilla.org/calendar/sunbird/nightly/latest-trunk/sunbird-0.3.en-US.linux-i686.tar.bz2" =>
+	      "/builds/tinderbox/Sb-Trunk/Linux_2.4.21-32.0.1.EL_Depend/sunbird.tar.bz2"
+	      );
+
+$BuildLocalesArgs = "ZIP_IN=/builds/tinderbox/Sb-Trunk/Linux_2.4.21-32.0.1.EL_Depend/sunbird.tar.bz2";
+
 #-
 #- The rest should not need to be changed
 #-
@@ -165,12 +182,16 @@ $BuildNameExtra = 'Sb-Release';
 #- change to the tree you're actually building
 $BuildTree  = 'Sunbird';
 
+#- If you're building locales and would like locale messages reported to a
+#- tree other than $BuildTree-ab-CD, define the tree here. -ab-CD will be
+#- appended for you.
+$LocaleTree = 'Mozilla-l10n';
+
 #$BuildName = '';
 $BuildTag = 'SUNBIRD_0_3_BRANCH';
 #$BuildConfigDir = 'mozilla/config';
 #$Topsrcdir = 'mozilla';
 
-#$BinaryName = 'mozilla-bin';
 $BinaryName = 'sunbird-bin';
 
 #
@@ -188,12 +209,12 @@ $BinaryName = 'sunbird-bin';
 
 # Release build options
 $ReleaseBuild  = 1;
-#$LocaleProduct = "browser";
+$LocaleProduct = "calendar";
 $shiptalkback  = 1;
 #$ReleaseToLatest = 1; # Push the release to latest-<milestone>?
 #$ReleaseToDated = 1; # Push the release to YYYY-MM-DD-HH-<milestone>?
 $build_hour    = "6";
-#$package_creation_path = "/xpinstall/packager";
+$package_creation_path = "/calendar/installer";
 # needs setting for mac + talkback: $mac_bundle_path = "/browser/app";
 $ssh_version   = "2";
 #$ssh_user      = "cltbld";

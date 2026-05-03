@@ -116,6 +116,7 @@ public:
     static PRBool getAttr(const txXPathNode& aNode, nsIAtom* aLocalName,
                           PRInt32 aNSID, nsAString& aValue);
     static already_AddRefed<nsIAtom> getLocalName(const txXPathNode& aNode);
+    static nsIAtom* getPrefix(const txXPathNode& aNode);
     static void getLocalName(const txXPathNode& aNode, nsAString& aLocalName);
     static void getNodeName(const txXPathNode& aNode,
                             nsAString& aName);
@@ -166,13 +167,11 @@ public:
     static nsIDocument* getDocument(const txXPathNode& aNode);
     static void addRef(const txXPathNode& aNode)
     {
-        // Hopefully it's ok to access mContent through mDocument.
-        NS_ADDREF(aNode.mDocument);
+        NS_ADDREF(aNode.mNode);
     }
     static void release(const txXPathNode& aNode)
     {
-        // Hopefully it's ok to access mContent through mDocument.
-        nsISupports *node = aNode.mDocument;
+        nsINode *node = aNode.mNode;
         NS_RELEASE(node);
     }
 };
@@ -217,8 +216,7 @@ txXPathTreeWalker::moveTo(const txXPathTreeWalker& aWalker)
     mPosition.mInner = aWalker.mPosition.mInner;
 #else
     mPosition.mIndex = aWalker.mPosition.mIndex;
-    // Hopefully it's ok to access mContent through mDocument.
-    mPosition.mDocument = aWalker.mPosition.mDocument;
+    mPosition.mNode = aWalker.mPosition.mNode;
     mCurrentIndex = aWalker.mCurrentIndex;
     mDescendants.Clear();
 #endif
@@ -239,7 +237,7 @@ txXPathNodeUtils::getUniqueIdentifier(const txXPathNode& aNode)
 #else
     NS_PRECONDITION(!aNode.isAttribute(),
                     "Not implemented for attributes.");
-    return NS_PTR_TO_INT32(aNode.mDocument);
+    return NS_PTR_TO_INT32(aNode.mNode);
 #endif
 }
 
@@ -250,7 +248,7 @@ txXPathNodeUtils::release(txXPathNode* aNode)
 #ifdef TX_EXE
     delete aNode->mInner;
 #else
-    NS_RELEASE(aNode->mDocument);
+    NS_RELEASE(aNode->mNode);
 #endif
 }
 
@@ -266,8 +264,8 @@ txXPathNodeUtils::localNameEquals(const txXPathNode& aNode,
     return localName == aLocalName;
 #else
     if (aNode.isContent() &&
-        aNode.mContent->IsNodeOfType(nsINode::eELEMENT)) {
-        return aNode.mContent->NodeInfo()->Equals(aLocalName);
+        aNode.Content()->IsNodeOfType(nsINode::eELEMENT)) {
+        return aNode.Content()->NodeInfo()->Equals(aLocalName);
     }
 
     nsCOMPtr<nsIAtom> localName = txXPathNodeUtils::getLocalName(aNode);
@@ -283,8 +281,7 @@ txXPathNodeUtils::isRoot(const txXPathNode& aNode)
 #ifdef TX_EXE
     return aNode.mInner->getNodeType() == Node::DOCUMENT_NODE;
 #else
-    return aNode.isDocument() ||
-           (aNode.isContent() && !aNode.mContent->GetNodeParent());
+    return !aNode.isAttribute() && !aNode.mNode->GetNodeParent();
 #endif
 }
 
@@ -296,7 +293,7 @@ txXPathNodeUtils::isElement(const txXPathNode& aNode)
     return aNode.mInner->getNodeType() == Node::ELEMENT_NODE;
 #else
     return aNode.isContent() &&
-           aNode.mContent->IsNodeOfType(nsINode::eELEMENT);
+           aNode.Content()->IsNodeOfType(nsINode::eELEMENT);
 #endif
 }
 
@@ -320,7 +317,7 @@ txXPathNodeUtils::isProcessingInstruction(const txXPathNode& aNode)
     return aNode.mInner->getNodeType() == Node::PROCESSING_INSTRUCTION_NODE;
 #else
     return aNode.isContent() &&
-           aNode.mContent->IsNodeOfType(nsINode::ePROCESSING_INSTRUCTION);
+           aNode.Content()->IsNodeOfType(nsINode::ePROCESSING_INSTRUCTION);
 #endif
 }
 
@@ -332,7 +329,7 @@ txXPathNodeUtils::isComment(const txXPathNode& aNode)
     return aNode.mInner->getNodeType() == Node::COMMENT_NODE;
 #else
     return aNode.isContent() &&
-           aNode.mContent->IsNodeOfType(nsINode::eCOMMENT);
+           aNode.Content()->IsNodeOfType(nsINode::eCOMMENT);
 #endif
 }
 
@@ -344,7 +341,7 @@ txXPathNodeUtils::isText(const txXPathNode& aNode)
     return aNode.mInner->getNodeType() == Node::TEXT_NODE;
 #else
     return aNode.isContent() &&
-           aNode.mContent->IsNodeOfType(nsINode::eTEXT);
+           aNode.Content()->IsNodeOfType(nsINode::eTEXT);
 #endif
 }
 

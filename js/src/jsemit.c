@@ -3524,7 +3524,8 @@ MaybeEmitGroupAssignment(JSContext *cx, JSCodeGenerator *cg, JSOp declOp,
     JS_ASSERT(*pop == JSOP_POP || *pop == JSOP_POPV);
     lhs = pn->pn_left;
     rhs = pn->pn_right;
-    if (lhs->pn_type == TOK_RB && rhs->pn_type == TOK_RB) {
+    if (lhs->pn_type == TOK_RB && rhs->pn_type == TOK_RB &&
+        lhs->pn_count <= rhs->pn_count) {
         if (!EmitGroupAssignment(cx, cg, declOp, lhs, rhs))
             return JS_FALSE;
         *pop = JSOP_NOP;
@@ -4228,20 +4229,24 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
             /* Compile the object expression to the right of 'in'. */
             if (!js_EmitTree(cx, cg, pn2->pn_right))
                 return JS_FALSE;
-            if (js_Emit1(cx, cg, JSOP_TOOBJECT) < 0)
+
+            /*
+             * Emit a bytecode to convert top of stack value to the iterator
+             * object depending on the loop variant (for-in, for-each-in, or
+             * destructuring for-in).
+             */
+#if JS_HAS_DESTRUCTURING
+            JS_ASSERT(pn->pn_op == JSOP_FORIN ||
+                      pn->pn_op == JSOP_FOREACHKEYVAL ||
+                      pn->pn_op == JSOP_FOREACH);
+#else
+            JS_ASSERT(pn->pn_op == JSOP_FORIN || pn->pn_op == JSOP_FOREACH);
+#endif
+            if (js_Emit1(cx, cg, pn->pn_op) < 0)
                 return JS_FALSE;
 
             top = CG_OFFSET(cg);
             SET_STATEMENT_TOP(&stmtInfo, top);
-
-            /*
-             * Emit a prefix bytecode to set flags distinguishing kinds of
-             * for-in loops (for-in, for-each-in, destructuring for-in) for
-             * the immediately subsequent JSOP_FOR* bytecode.
-             */
-            JS_ASSERT(pn->pn_op != JSOP_NOP);
-            if (js_Emit1(cx, cg, pn->pn_op) < 0)
-                return JS_FALSE;
 
             /*
              * Compile a JSOP_FOR* bytecode based on the left hand side.
@@ -4734,7 +4739,7 @@ js_EmitTree(JSContext *cx, JSCodeGenerator *cg, JSParseNode *pn)
                      */
                     if (js_NewSrcNote(cx, cg, SRC_HIDDEN) < 0)
                         return JS_FALSE;
-                    JS_ASSERT(count > 0);
+                    JS_ASSERT(count >= 0);
                     EMIT_UINT16_IMM_OP(JSOP_LEAVEBLOCK, count);
                 }
 

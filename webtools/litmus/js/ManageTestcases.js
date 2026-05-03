@@ -183,6 +183,8 @@ function populateTestcase(data) {
   }
   if (testcase.regression_bug_id) {
     document.getElementById('editform_regression_bug_id').value = testcase.regression_bug_id;
+  } else {
+    document.getElementById('editform_regression_bug_id').value = "";
   }
   setAuthor(testcase.author_id.user_id);
   document.getElementById('editform_creation_date').innerHTML = testcase.creation_date;
@@ -194,6 +196,11 @@ function populateTestcase(data) {
   document.getElementById('editform_div').style.display = 'none';
   document.getElementById('testcase_display_div').style.display = 'block';
   enableModeButtons();
+
+  if (firstPassEdit) {
+    firstPassEdit = 0;
+    switchToEdit();
+  }
 }
 
 function blankTestcaseForm(formid) {

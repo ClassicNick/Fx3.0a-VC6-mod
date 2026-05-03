@@ -43,8 +43,7 @@
 #include "nsPoint.h"
 #include "nsRect.h"
 #include "nsEvent.h"
-#include "nsHashtable.h"
-#include "nsString.h"
+#include "nsStringGlue.h"
 
 // nsIDOMEvent contains a long enum which includes a member called ERROR,
 // which conflicts with something that Windows defines somewhere.
@@ -53,6 +52,7 @@
 #undef ERROR
 #endif
 #include "nsCOMPtr.h"
+#include "nsIAtom.h"
 #include "nsIDOMKeyEvent.h"
 
 class nsIRenderingContext;
@@ -63,6 +63,7 @@ class nsIAccessible;
 class nsIContent;
 class nsIURI;
 class nsIDOMEvent;
+class nsHashKey;
 
 /**
  * Event Struct Types
@@ -409,7 +410,7 @@ public:
   // status. This is used also to indicate whether the event is trusted.
   PRUint32    flags;
   // Additional type info for user defined events
-  nsHashKey*  userType;
+  nsCOMPtr<nsIAtom>     userType;
   // Event targets, needed by DOM Events
   // Using nsISupports, not nsIDOMEventTarget because in some cases
   // nsIDOMEventTarget is implemented as a tearoff.

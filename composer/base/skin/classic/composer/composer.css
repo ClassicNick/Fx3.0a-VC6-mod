@@ -11,7 +11,7 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Mozilla Composer.
+ * The Original Code is Composer.
  *
  * The Initial Developer of the Original Code is
  * Disruptive Innovations SARL.
@@ -34,6 +34,8 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+
+@import url("chrome://composer/content/bindings/sidebar.css");
 
 @namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
 
@@ -81,4 +83,8 @@ tabeditor {
 
 #stopButton {
   list-style-image: url("chrome://composer/skin/icons/stop.png");
+}
+
+sidebar {
+  width: 200px;
 }
