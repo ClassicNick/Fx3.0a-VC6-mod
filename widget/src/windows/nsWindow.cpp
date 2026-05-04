@@ -5613,11 +5613,11 @@ LPCWSTR nsWindow::WindowClassW()
     if (!nsToolkit::mRegisterClass(&wc)) {
       nsWindow::sIsRegistered = FALSE;
     }
-  }
 
-  // Call FilterClientWindows method since it enables ActiveIME on CJK Windows
+	// Call FilterClientWindows method since it enables ActiveIME on CJK Windows
     if (nsToolkit::gAIMMApp && generalClassAtom)
       nsToolkit::gAIMMApp->FilterClientWindows(&generalClassAtom, 1);
+  }
 
   if (mWindowType == eWindowType_invisible) {
     return kWClassNameHidden;
