@@ -525,7 +525,7 @@
   
   <statusbar class="chromeclass-status" id="status-bar"
              ondragdrop="nsDragAndDrop.drop(event, contentAreaDNDObserver);">
-    <statusbarpanel id="statusbar-display" flex="1"/>
+    <statusbarpanel id="statusbar-display" label="" flex="1"/>
     <statusbarpanel class="statusbarpanel-progress" collapsed="true" id="statusbar-progresspanel">
       <progressmeter class="progressmeter-statusbar" id="statusbar-icon" mode="normal" value="0"/>
     </statusbarpanel>
@@ -541,19 +541,6 @@
         <menuseparator observes="blockedPopupsSeparator"/>
       </menupopup>
     </statusbarpanel>
-#ifdef ALTSS_ICON
-    <statusbarpanel id="page-theme-button" type="menu"
-                    class="statusbarpanel-menu-iconic" 
-                    tooltiptext="&pageStyleIcon.tooltip;">
-      <menupopup onpopupshowing="stylesheetFillPopup(this);"
-                 oncommand="stylesheetSwitchAll(window.content, event.target.getAttribute('data')); setStyleDisabled(false);">
-        <menuitem label="&pageStyleNoStyle.label;" accesskey="&pageStyleNoStyle.accesskey;"
-                  oncommand="setStyleDisabled(true); event.stopPropagation();" type="radio" hidden="true"/>
-        <menuitem label="&pageStylePersistentOnly.label;" accesskey="&pageStylePersistentOnly.accesskey;" type="radio" checked="true"/>
-        <menuseparator/>
-      </menupopup>
-    </statusbarpanel>
-#endif
   </statusbar>
 </window>
   

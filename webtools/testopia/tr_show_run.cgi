@@ -67,6 +67,7 @@ if ($action eq 'Commit'){
     ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->canedit;
     do_update($run);
     $vars->{'tr_message'} = "Test run updated";
+    $vars->{'backlink'} = $run;
     display($run);    
 }
 
@@ -152,6 +153,8 @@ elsif ($action eq 'do_clone'){
     }
     $cgi->delete_all;
     $cgi->param('run_id', $newrun->id);
+    $vars->{'tr_message'} = "Test run cloned";
+    $vars->{'backlink'} = $run;
     display($newrun);
 }
 ####################
@@ -277,7 +280,7 @@ sub do_update {
     $run->update(\%newvalues);
     
     # Add new tags 
-    foreach my $tag_name (split(/[\s,]+/, $cgi->param('newtag'))){
+    foreach my $tag_name (split(/[,]+/, $cgi->param('newtag'))){
         trick_taint($tag_name);
         my $tag = Bugzilla::Testopia::TestTag->new({tag_name => $tag_name});
         my $tag_id = $tag->store;
@@ -302,6 +305,8 @@ sub display {
         push @case_list, $caserun->case_id;
     }
     my $case = Bugzilla::Testopia::TestCase->new({'case_id' => 0});
+    $vars->{'expand_report'} = $cgi->param('expand_report') || 0;
+    $vars->{'expand_filter'} = $cgi->param('expand_filter') || 0;
     $vars->{'run'} = $run;
     $vars->{'table'} = $table;
     $vars->{'case_list'} = join(",", @case_list);

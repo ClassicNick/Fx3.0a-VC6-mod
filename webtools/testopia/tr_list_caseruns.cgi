@@ -150,6 +150,7 @@ if ($action eq 'Commit'){
         $vars->{'run'} = $run;
         $vars->{'table'} = $table;
         $vars->{'action'} = 'Commit';
+        $vars->{'backlink'} = $run;
         $vars->{'form_action'} = "tr_show_run.cgi";
         $template->process("testopia/run/show.html.tmpl", $vars) ||
             ThrowTemplateError($template->error());
@@ -250,10 +251,11 @@ if ($cgi->param('run_id')){
     $vars->{'run'} = Bugzilla::Testopia::TestRun->new($cgi->param('run_id'));
 }
 my $case = Bugzilla::Testopia::TestCase->new({'case_id' => 0});
+$vars->{'expand_report'} = $cgi->param('expand_report') || 0;
+$vars->{'expand_filter'} = $cgi->param('expand_filter') || 0;
 $vars->{'component_list'} =  $case->get_available_components();
 $vars->{'dotweak'} = UserInGroup('edittestcases');
 $vars->{'table'} = $table;
-$vars->{'hide_filter'} = $cgi->param('hide_filter');
 $vars->{'action'} = 'tr_list_caserun.cgi';
 if ($serverpush && !$cgi->param('debug')) {
     print $cgi->multipart_end;

@@ -117,6 +117,7 @@ elsif ($action eq 'do_clone'){
         }
         $method = "copied";
         $vars->{'copied'} = $case;
+        $vars->{'backlink'} = $case;
         $case = $newcase;
     }
     elsif ($cgi->param('copymethod') eq 'link'){
@@ -133,9 +134,10 @@ elsif ($action eq 'do_clone'){
         }
         delete $case->{'plans'};
         $method = "linked";
+        $vars->{'backlink'} = $case;
     }
             
-    $vars->{'tr_message'} = "Case $method to $count plans";
+    $vars->{'tr_message'} = "Case $method to $count plans.";
     display($case);
 }
 
@@ -170,6 +172,8 @@ elsif ($action eq 'Attach'){
 
     $attachment->store;
     do_update($case);
+    $vars->{'tr_message'} = "File attached.";
+    $vars->{'backlink'} = $case;
     display($case);
 }
 
@@ -179,6 +183,7 @@ elsif ($action eq 'Commit'){
     ThrowUserError("testopia-read-only", {'object' => 'case'}) unless $case->canedit;
     do_update($case);
     $vars->{'tr_message'} = "Test case updated";
+    $vars->{'backlink'} = $case;
     display($case);
 }
 
@@ -205,6 +210,7 @@ elsif ($action eq 'unlink'){
     else {
         $vars->{'tr_error'} = "Test plan could not be unlinked. It is used in test runs.";
     }
+    $vars->{'backlink'} = $case;
     display($case);
 }
 
@@ -374,7 +380,7 @@ sub do_update{
     $case->update(\%newvalues);
     $case->update_deps($cgi->param('tcdependson'), $cgi->param('tcblocks'));
     # Add new tags 
-    foreach my $tag_name (split(/[\s,]+/, $cgi->param('newtag'))){
+    foreach my $tag_name (split(/[,]+/, $cgi->param('newtag'))){
         trick_taint($tag_name);
         my $tag = Bugzilla::Testopia::TestTag->new({tag_name => $tag_name});
         my $tag_id = $tag->store;

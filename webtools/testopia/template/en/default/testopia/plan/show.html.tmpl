@@ -149,7 +149,7 @@
     <tr class="bz_row_data">
       <td><a href="mailto:[% plan.author.email FILTER html %]">[% plan.author.identity FILTER html %]</a></td>
       <td>[% plan.version FILTER html %]</td>
-      <td>[% plan.type FILTER html %]</td>
+      <td>[% plan.plan_type FILTER html %]</td>
     </tr>
     <tr class="bz_row_data">
       <td colspan="3"><div align="right">
@@ -174,9 +174,9 @@
 <div id="plan_categories">
 <table width="100%" border="0">
   <tr class="bz_row_header">
-    <th><a href="tr_categories.cgi?plan_id=[% plan.id FILTER none %]">Categories</a></th>
+    <th><a href="tr_categories.cgi?plan_id=[% plan.id FILTER none %]" target="_blank">Categories</a></th>
     <th><a href="tr_tags.cgi?id=[% plan.id FILTER none %]&type=plan">Tags</a></th>
-    <th><a href="tr_builds.cgi?plan_id=[% plan.id FILTER none %]">Builds</a></th>
+    <th><a href="tr_builds.cgi?plan_id=[% plan.id FILTER none %]" target="_blank">Builds</a></th>
   </tr>
   <tr>
     <td align="left">
@@ -211,8 +211,8 @@
     
   </tr>
   <tr>
-    <td align="left"><a href="tr_categories.cgi?plan_id=[% plan.id FILTER none %]&action=add">Add</a></p></td>
-    <td align="right"><a href="tr_builds.cgi?plan_id=[% plan.id FILTER none %]&action=add">Add</a></p></td>
+    <td align="left"><a href="tr_categories.cgi?plan_id=[% plan.id FILTER none %]&action=add" target="_blank">Add</a></p></td>
+    <td align="right"><a href="tr_builds.cgi?plan_id=[% plan.id FILTER none %]&action=add" target="_blank">Add</a></p></td>
   </tr>
 </table>
 </div>
@@ -254,10 +254,13 @@
 [%### Reports ###%]
 <br><br>
 <h3>Reports</h3>
-<a href="tr_plan_reports.cgi?plan_id=[% plan.id FILTER none %]&type=build_coverage">Build Coverage</a>
-<a href="tr_query.cgi?current_tab=plan&report=1">General Reports</a>
+<a href="tr_plan_reports.cgi?plan_id=[% plan.id FILTER none %]&type=build_coverage">Build Coverage</a><br/>
+<a href="tr_query.cgi?current_tab=plan&report=1">General Reports</a><br/>
+[% IF plan.bugs %]
+<a href="buglist.cgi?bug_id=[% plan.bug_list FILTER none %]">Bugs Found in this Plan</a><br>
+[% END %]
 [%##### Edit Plan #####%]
-<br><br>
+<br>
 [% IF plan.canedit %]
 <h3>Attributes</h3>
 <div id="edit_plan">

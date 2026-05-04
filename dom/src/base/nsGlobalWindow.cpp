@@ -409,7 +409,7 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
 
   if (aOuterWindow) {
     // |this| is an inner window, add this inner window to the outer
-    // |window list of inners.
+    // window list of inners.
     PR_INSERT_AFTER(this, aOuterWindow);
 
     mObserver = new nsGlobalWindowObserver(this);
@@ -429,6 +429,11 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
       }
     }
   } else {
+    // |this| is an outer window. Outer windows start out frozen and
+    // remain frozen until they get an inner window, so freeze this
+    // outer window here.
+    Freeze();
+
     mObserver = nsnull;
   }
 
@@ -1106,6 +1111,13 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
     PR_LogPrint("DOMWINDOW %p SetNewDocument %s", this, spec.get());
   }
 #endif
+
+  if (IsOuterWindow() && IsFrozen()) {
+    // This outer is now getting its first inner, thaw the outer now
+    // that it's ready and is getting an inner window.
+
+    Thaw();
+  }
 
   if (!aIsInternalCall && IsInnerWindow()) {
     if (!mOuterWindow) {
@@ -5908,7 +5920,7 @@ nsGlobalWindow::Observe(nsISupports* aSubject, const char* aTopic,
 
     nsAutoString domain(aData);
 
-    if (mIsFrozen) {
+    if (IsFrozen()) {
       // This window is frozen, rather than firing the events here,
       // store the domain in which the change happened and fire the
       // events if we're ever thawed.

@@ -51,6 +51,7 @@ use Bugzilla::Testopia::TestCase;
 use Bugzilla::Testopia::Category;
 use Bugzilla::Testopia::Build;
 use Bugzilla::Testopia::TestTag;
+use Bugzilla::Bug;
 
 #TODO: Add this to checksetup
 use Text::Diff;
@@ -225,7 +226,7 @@ sub clone {
     my ($timestamp) = Bugzilla::Testopia::Util::get_time_stamp();
     $dbh->do("INSERT INTO test_plans ($columns)
               VALUES (?,?,?,?,?,?,?,?)",
-              undef, (undef, $self->{'product_id'}, $self->{'author_id'}, 
+              undef, (undef, $self->{'product_id'}, Bugzilla->user->id, 
               $self->{'type_id'}, $self->{'default_product_version'}, $name,
               $timestamp, 1));
     my $key = $dbh->bz_last_key( 'test_plans', 'plan_id' );
@@ -1007,6 +1008,33 @@ sub builds {
     
 }
 
+=head2 bugs
+
+Returns a reference to a list of Bugzilla::Bug objects associated
+with this plan
+
+=cut
+
+sub bugs {
+    my $self = shift;
+    my $dbh = Bugzilla->dbh;
+    return $self->{'bugs'} if exists $self->{'bugs'};
+    my $ref = $dbh->selectcol_arrayref(
+          "SELECT DISTINCT bug_id
+             FROM test_case_bugs 
+             JOIN test_cases ON test_case_bugs.case_id = test_cases.case_id
+             JOIN test_case_plans ON test_case_plans.case_id = test_cases.case_id 
+            WHERE test_case_plans.plan_id = ?", 
+           undef, $self->id);
+    my @bugs;
+    foreach my $id (@{$ref}){
+        push @bugs, Bugzilla::Bug->new($id, Bugzilla->user->id);
+    }
+    $self->{'bugs'} = \@bugs if @bugs;
+    $self->{'bug_list'} = join(',', @$ref);
+    return $self->{'bugs'};
+}
+
 =head2 product_name
 
 Returns the name of the product this plan is associated with
@@ -1220,17 +1248,17 @@ Returns the type of this plan
 
 =cut
 
-sub type {
+sub plan_type {
     my ($self) = @_;
     my $dbh = Bugzilla->dbh;
-    return $self->{'type'} if exists $self->{'type'};
+    return $self->{'plan_type'} if exists $self->{'plan_type'};
     my ($type) = $dbh->selectrow_array("SELECT name
                                        FROM test_plan_types
                                        WHERE type_id = ?", 
                                        undef, $self->{'type_id'});
 
-    $self->{'type'} = $type;
-    return $self->{'type'};
+    $self->{'plan_type'} = $type;
+    return $self->{'plan_type'};
 }
 
 =head1 TODO

@@ -3859,9 +3859,6 @@ nsBrowserStatusHandler.prototype =
   asyncUpdateUI : function () {
     FeedHandler.updateFeeds();
     BrowserSearch.updateSearchButton();
-#ifdef ALTSS_ICON
-    updatePageStyles();
-#endif
 #ifdef MOZ_PLACES
     PlacesCommandHook.updateTagButton();
 #endif
@@ -4134,67 +4131,80 @@ function displaySecurityInfo()
   BrowserPageInfo(null, "securityTab");
 }
 
-// |forceOpen| is a bool that indicates that the sidebar should be forced open.  In other words
-// the toggle won't be allowed to close the sidebar.
-function toggleSidebar(aCommandID, forceOpen) {
+/**
+ * Opens or closes the sidebar identified by commandID.
+ *
+ * @param commandID a string identifying the sidebar to toggle; see the
+ *                  note below. (Optional if a sidebar is already open.)
+ * @param forceOpen boolean indicating whether the sidebar should be
+ *                  opened regardless of it's current state (optional).
+ * @note
+ * We expect to find a xul:broadcaster element with the specified ID.
+ * The following attributes on that element may be used and/or modified:
+ *  - id           (required) the string to match commandID. The convention
+ *                 is to use this naming scheme: 'view<sidebar-name>Sidebar'.
+ *  - sidebarurl   (required) specifies the URL to load in this sidebar.
+ *  - sidebartitle or label (in that order) specify the title to 
+ *                 display on the sidebar.
+ *  - checked      indicates whether the sidebar is currently displayed.
+ *                 Note that toggleSidebar updates this attribute when
+ *                 it changes the sidebar's visibility.
+ *  - group        this attribute must be set to "sidebar".
+ */
+function toggleSidebar(commandID, forceOpen) {
 
   var sidebarBox = document.getElementById("sidebar-box");
-  if (!aCommandID)
-    aCommandID = sidebarBox.getAttribute("sidebarcommand");
+  if (!commandID)
+    commandID = sidebarBox.getAttribute("sidebarcommand");
 
-  var elt = document.getElementById(aCommandID);
-  var sidebar = document.getElementById("sidebar");
+  var sidebarBroadcaster = document.getElementById(commandID);
+  var sidebar = document.getElementById("sidebar"); // xul:browser
   var sidebarTitle = document.getElementById("sidebar-title");
   var sidebarSplitter = document.getElementById("sidebar-splitter");
 
-  if (!forceOpen && elt.getAttribute("checked") == "true") {
-    elt.removeAttribute("checked");
-    sidebarBox.setAttribute("sidebarcommand", "");
-    sidebarTitle.setAttribute("value", "");
-    sidebarBox.hidden = true;
-    sidebarSplitter.hidden = true;
-    content.focus();
+  if (sidebarBroadcaster.getAttribute("checked") == "true") {
+    if (!forceOpen) {
+      sidebarBroadcaster.removeAttribute("checked");
+      sidebarBox.setAttribute("sidebarcommand", "");
+      sidebarTitle.value = "";
+      sidebarBox.hidden = true;
+      sidebarSplitter.hidden = true;
+      content.focus();
+    }
     return;
   }
 
-  var elts = document.getElementsByAttribute("group", "sidebar");
-  for (var i = 0; i < elts.length; ++i)
-    elts[i].removeAttribute("checked");
+  // now we need to show the specified sidebar
 
-  elt.setAttribute("checked", "true");;
+  // ..but first update the 'checked' state of all sidebar broadcasters
+  var broadcasters = document.getElementsByAttribute("group", "sidebar");
+  for (var i = 0; i < broadcasters.length; ++i) {
+    // skip elements that observe sidebar broadcasters and random
+    // other elements
+    if (broadcasters[i].localName != "broadcaster")
+      continue;
 
-  if (sidebarBox.hidden) {
-    sidebarBox.hidden = false;
-    sidebarSplitter.hidden = false;
-  }
-
-  var url = elt.getAttribute("sidebarurl");
-  var title = elt.getAttribute("sidebartitle");
-  if (!title)
-    title = elt.getAttribute("label");
-  sidebar.setAttribute("src", url);
-  sidebarBox.setAttribute("src", url);
-  sidebarBox.setAttribute("sidebarcommand", elt.id);
-  sidebarTitle.setAttribute("value", title);
-  if (aCommandID != "viewWebPanelsSidebar") { // no searchbox there
-    // if the sidebar we want is already constructed, focus the searchbox
-    if ((aCommandID == "viewBookmarksSidebar" && sidebar.contentDocument.getElementById("bookmarksPanel"))
-    || (aCommandID == "viewHistorySidebar" && sidebar.contentDocument.getElementById("history-panel")))
-      sidebar.contentDocument.getElementById("search-box").focus();
-    // otherwiese, attach an onload handler
+    if (broadcasters[i] != sidebarBroadcaster)
+      broadcasters[i].removeAttribute("checked");
     else
-      sidebar.addEventListener("load", asyncFocusSearchBox, true);
+      sidebarBroadcaster.setAttribute("checked", "true");
   }
-}
 
-function asyncFocusSearchBox(event)
-{
-  var sidebar = document.getElementById("sidebar");
-  var searchBox = sidebar.contentDocument.getElementById("search-box");
-  if (searchBox)
-    searchBox.focus();
-  sidebar.removeEventListener("load", asyncFocusSearchBox, true);
- }
+  sidebarBox.hidden = false;
+  sidebarSplitter.hidden = false;
+
+  var url = sidebarBroadcaster.getAttribute("sidebarurl");
+  var title = sidebarBroadcaster.getAttribute("sidebartitle");
+  if (!title)
+    title = sidebarBroadcaster.getAttribute("label");
+  sidebar.setAttribute("src", url);
+  sidebarBox.setAttribute("sidebarcommand", sidebarBroadcaster.id);
+  sidebarTitle.value = title;
+
+  // This is used because we want to delay sidebar load a bit
+  // when a browser window opens. See delayedStartup()
+  sidebarBox.setAttribute("src", url);
+}
 
 var gHomeButton = {
   prefDomain: "browser.startup.homepage",
@@ -4694,27 +4704,35 @@ nsContextMenu.prototype = {
         // if the document is editable, show context menu like in text inputs
         var win = this.target.ownerDocument.defaultView;
         if (win) {
-          var editingSession = win.QueryInterface(Components.interfaces.nsIInterfaceRequestor)
-                                  .getInterface(Components.interfaces.nsIWebNavigation)
-                                  .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
-                                  .getInterface(Components.interfaces.nsIEditingSession);
-          if (editingSession.windowIsEditable(win)) {
-            this.onTextInput       = true;
-            this.onKeywordField    = false;
-            this.onImage           = false;
-            this.onLoadedImage     = false;
-            this.onMetaDataItem    = false;
-            this.onMathML          = false;
-            this.inFrame           = false;
-            this.hasBGImage        = false;
-            this.isDesignMode      = true;
-            this.possibleSpellChecking = true;
-            InlineSpellCheckerUI.init(editingSession.getEditorForWindow(win));
-            var canSpell = InlineSpellCheckerUI.canSpellCheck;
-            InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
-            this.showItem("spell-check-enabled", canSpell);
-            this.showItem("spell-separator", canSpell);
-          }
+            var isEditable = false;
+            var editingSession;
+            try {
+                editingSession = win.QueryInterface(Ci.nsIInterfaceRequestor)
+                                    .getInterface(Ci.nsIWebNavigation)
+                                    .QueryInterface(Ci.nsIInterfaceRequestor)
+                                    .getInterface(Ci.nsIEditingSession);
+                isEditable = editingSession.windowIsEditable(win);
+            }
+            catch (ex) {
+                // If someone built with composer disabled, we can't get an editing session.
+            }
+            if (isEditable) {
+                this.onTextInput       = true;
+                this.onKeywordField    = false;
+                this.onImage           = false;
+                this.onLoadedImage     = false;
+                this.onMetaDataItem    = false;
+                this.onMathML          = false;
+                this.inFrame           = false;
+                this.hasBGImage        = false;
+                this.isDesignMode      = true;
+                this.possibleSpellChecking = true;
+                InlineSpellCheckerUI.init(editingSession.getEditorForWindow(win));
+                var canSpell = InlineSpellCheckerUI.canSpellCheck;
+                InlineSpellCheckerUI.initFromEvent(rangeParent, rangeOffset);
+                this.showItem("spell-check-enabled", canSpell);
+                this.showItem("spell-separator", canSpell);
+            }
         }
     },
     // Returns the computed style attribute for the given element.
@@ -5872,36 +5890,6 @@ function setStyleDisabled(disabled) {
   getMarkupDocumentViewer().authorStyleDisabled = disabled;
 }
 
-#ifdef ALTSS_ICON
-function updatePageStyles(evt) {
-  if (!gPageStyleButton)
-    gPageStyleButton = document.getElementById("page-theme-button");
-
-  var hasAltSS = false;
-  var stylesheets = window.content.document.styleSheets;
-  var preferredSheet = window.content.document.preferredStylesheetSet;
-  for (var i = 0; i < stylesheets.length; ++i) {
-    var currentStyleSheet = stylesheets[i];
-
-    if (currentStyleSheet.title && currentStyleSheet.title != preferredSheet) {
-        // Skip any stylesheets that don't match the screen media type.
-        var media = currentStyleSheet.media.mediaText.toLowerCase();
-        if (media && (media.indexOf("screen") == -1) && (media.indexOf("all") == -1))
-            continue;
-        hasAltSS = true;
-        break;
-    }
-  }
-
-  if (hasAltSS) {
-    gPageStyleButton.setAttribute("themes", "true");
-    // FIXME: Do a first-time explanation of page styles here perhaps?
-    // Avoid for now since Firebird's default home page has an alt sheet.
-  }
-  else
-    gPageStyleButton.removeAttribute("themes");
-}
-#endif
 /* End of the Page Style functions */
 
 var BrowserOffline = {

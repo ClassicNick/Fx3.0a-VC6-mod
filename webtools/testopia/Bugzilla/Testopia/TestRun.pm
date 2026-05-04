@@ -48,6 +48,7 @@ use Bugzilla::User;
 use Bugzilla::Constants;
 use Bugzilla::Config;
 use Bugzilla::Testopia::Environment;
+use Bugzilla::Bug;
 
 use base qw(Exporter);
 @Bugzilla::Testopia::TestRun::EXPORT = qw(CalculatePercentCompleted);
@@ -379,7 +380,7 @@ sub clone {
               VALUES (?,?,?,?,?,?,?,?,?,?,?)",
               undef, (undef, $self->{'plan_id'}, $self->{'environment_id'}, 
               $self->{'product_version'}, $build, 
-              $self->{'plan_text_version'}, $self->{'manager_id'}, 
+              $self->{'plan_text_version'}, Bugzilla->user->id, 
               $timestamp, undef, $summary, undef));
     my $key = $dbh->bz_last_key( 'test_runs', 'run_id' );
     return $key;   
@@ -912,7 +913,7 @@ sub bugs {
     my $dbh = Bugzilla->dbh;
     return $self->{'bugs'} if exists $self->{'bugs'};
     my $ref = $dbh->selectcol_arrayref(
-          "SELECT bug_id
+          "SELECT DISTINCT bug_id
              FROM test_case_bugs b
              JOIN test_case_runs r ON r.case_run_id = b.case_run_id
             WHERE r.run_id = ?", 
@@ -921,7 +922,8 @@ sub bugs {
     foreach my $id (@{$ref}){
         push @bugs, Bugzilla::Bug->new($id, Bugzilla->user->id);
     }
-    $self->{'bugs'} = \@bugs;
+    $self->{'bugs'} = \@bugs if @bugs;
+    $self->{'bug_list'} = join(',', @$ref);
     return $self->{'bugs'};
 }
 

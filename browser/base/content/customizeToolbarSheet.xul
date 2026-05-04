@@ -62,8 +62,6 @@
   <script type="application/x-javascript"
           src="chrome://global/content/nsDragAndDrop.js"/>
   <script type="application/x-javascript"
-          src="chrome://global/content/nsTransferable.js"/>
-  <script type="application/x-javascript"
           src="chrome://browser/content/customizeToolbarSheet.js"/>
 
   <stringbundle id="stringBundle"
@@ -83,7 +81,7 @@
     <label id="instructions" value="&instructions.description;"/>
 
     <vbox flex="1" id="palette-box"
-          ondraggesture="gDraggingFromPalette = true; nsDragAndDrop.startDrag(event, dragStartObserver);"
+          ondraggesture="nsDragAndDrop.startDrag(event, dragStartObserver);"
           ondragover="nsDragAndDrop.dragOver(event, paletteDNDObserver);"
           ondragdrop="nsDragAndDrop.drop(event, paletteDNDObserver);"/>
 
