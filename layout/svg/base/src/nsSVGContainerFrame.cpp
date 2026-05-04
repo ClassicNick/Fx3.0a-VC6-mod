@@ -187,7 +187,7 @@ nsSVGDisplayContainerFrame::RemoveFrame(nsIAtom* aListName,
 // nsISVGChildFrame methods
 
 NS_IMETHODIMP
-nsSVGDisplayContainerFrame::PaintSVG(nsSVGRenderState* aContext,
+nsSVGDisplayContainerFrame::PaintSVG(nsISVGRendererCanvas* canvas,
                                      nsRect *aDirtyRect)
 {
   const nsStyleDisplay *display = mStyleContext->GetStyleDisplay();
@@ -196,7 +196,7 @@ nsSVGDisplayContainerFrame::PaintSVG(nsSVGRenderState* aContext,
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsSVGUtils::PaintChildWithEffects(aContext, aDirtyRect, kid);
+    nsSVGUtils::PaintChildWithEffects(canvas, aDirtyRect, kid);
   }
 
   return NS_OK;

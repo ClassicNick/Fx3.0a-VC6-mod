@@ -43,7 +43,7 @@
 #include <cairo.h>
 
 class nsSVGPaintServerFrame;
-class gfxContext;
+class nsISVGRendererCanvas;
 
 typedef nsFrame nsSVGGeometryFrameBase;
 
@@ -91,8 +91,10 @@ public:
   PRBool HasStroke();
 
   // Setup/Cleanup a cairo context for filling a path
-  nsresult SetupCairoFill(gfxContext *aContext, void **aClosure);
-  void CleanupCairoFill(gfxContext *aContext, void *aClosure);
+  nsresult SetupCairoFill(nsISVGRendererCanvas *aCanvas,
+                          cairo_t *aCtx,
+                          void **aClosure);
+  void CleanupCairoFill(cairo_t *aCtx, void *aClosure);
 
   // Set up a cairo context for measuring a stroked path
   void SetupCairoStrokeGeometry(cairo_t *aCtx);
@@ -101,8 +103,10 @@ public:
   void SetupCairoStrokeHitGeometry(cairo_t *aCtx);
 
   // Setup/Cleanup a cairo context for stroking path
-  nsresult SetupCairoStroke(gfxContext *aContext, void **aClosure);
-  void CleanupCairoStroke(gfxContext *aContext, void *aClosure);
+  nsresult SetupCairoStroke(nsISVGRendererCanvas *aCanvas,
+                            cairo_t *aCtx,
+                            void **aClosure);
+  void CleanupCairoStroke(cairo_t *aCtx, void *aClosure);
 
 protected:
   virtual nsresult UpdateGraphic(PRBool suppressInvalidation = PR_FALSE) = 0;

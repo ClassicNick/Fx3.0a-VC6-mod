@@ -38,11 +38,11 @@
 #include "nsIDocument.h"
 #include "nsIDOMSVGClipPathElement.h"
 #include "nsSVGClipPathFrame.h"
+#include "nsISVGRendererCanvas.h"
 #include "nsIDOMSVGAnimatedEnum.h"
 #include "nsSVGAtoms.h"
 #include "nsSVGUtils.h"
 #include "nsSVGGraphicElement.h"
-#include "gfxContext.h"
 
 //----------------------------------------------------------------------
 // Implementation
@@ -105,7 +105,7 @@ nsSVGClipPathFrame::InitSVG()
 }
 
 NS_IMETHODIMP
-nsSVGClipPathFrame::ClipPaint(nsSVGRenderState* aContext,
+nsSVGClipPathFrame::ClipPaint(nsISVGRendererCanvas* canvas,
                               nsISVGChildFrame* aParent,
                               nsCOMPtr<nsIDOMSVGMatrix> aMatrix)
 {
@@ -118,15 +118,22 @@ nsSVGClipPathFrame::ClipPaint(nsSVGRenderState* aContext,
   }
   mInUse = PR_TRUE;
 
+  nsRect dirty;
+  nsresult rv;
+
   mClipParent = aParent,
   mClipParentMatrix = aMatrix;
 
   PRBool isTrivial;
   IsTrivial(&isTrivial);
 
-  nsAutoSVGRenderMode mode(aContext,
-                           isTrivial ? nsSVGRenderState::CLIP
-                                     : nsSVGRenderState::CLIP_MASK);
+  if (isTrivial)
+    rv = canvas->SetRenderMode(nsISVGRendererCanvas::SVG_RENDER_MODE_CLIP);
+  else
+    rv = canvas->SetRenderMode(nsISVGRendererCanvas::SVG_RENDER_MODE_CLIP_MASK);
+
+  if (NS_FAILED(rv))
+    return NS_ERROR_FAILURE;
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
@@ -134,14 +141,11 @@ nsSVGClipPathFrame::ClipPaint(nsSVGRenderState* aContext,
     CallQueryInterface(kid, &SVGFrame);
     if (SVGFrame) {
       SVGFrame->NotifyCanvasTMChanged(PR_TRUE);
-      SVGFrame->PaintSVG(aContext, nsnull);
+      SVGFrame->PaintSVG(canvas, nsnull);
     }
   }
 
-  if (isTrivial) {
-    aContext->GetGfxContext()->Clip();
-    aContext->GetGfxContext()->NewPath();
-  }
+  canvas->SetRenderMode(nsISVGRendererCanvas::SVG_RENDER_MODE_NORMAL);
 
   mInUse = PR_FALSE;
 

@@ -38,6 +38,7 @@
 
 #include "nsSVGOuterSVGFrame.h"
 #include "nsIDOMSVGSVGElement.h"
+#include "nsISVGRenderer.h"
 #include "nsSVGSVGElement.h"
 #include "nsSVGTextFrame.h"
 #include "nsIServiceManager.h"
@@ -45,8 +46,8 @@
 #include "nsReflowPath.h"
 #include "nsSVGRect.h"
 #include "nsDisplayList.h"
+#include "nsISVGRendererCanvas.h"
 #include "nsStubMutationObserver.h"
-#include "gfxContext.h"
 
 #if defined(DEBUG) && defined(SVG_DEBUG_PRINTING)
 #include "nsIDeviceContext.h"
@@ -163,6 +164,11 @@ NS_IMETHODIMP
 nsSVGOuterSVGFrame::InitSVG()
 {
   nsresult rv;
+
+  mRenderer = do_CreateInstance(NS_SVG_RENDERER_CAIRO_CONTRACTID, &rv);
+  NS_ASSERTION(mRenderer, "could not get SVG renderer");
+  if (NS_FAILED(rv))
+    return rv;
 
   // we are an *outer* svg element, so this frame will become the
   // coordinate context for our content element:
@@ -421,7 +427,7 @@ nsSVGOuterSVGFrame::GetFrameForPoint(const nsPoint& aPoint)
   float y = GetPxPerTwips() * aPoint.y;
 
   nsRect thisRect(nsPoint(0,0), GetSize());
-  if (!thisRect.Contains(aPoint)) {
+  if (!thisRect.Contains(aPoint) || !mRenderer) {
     return nsnull;
   }
 
@@ -487,27 +493,32 @@ nsSVGOuterSVGFrame::Paint(nsIRenderingContext& aRenderingContext,
   PRTime start = PR_Now();
 #endif
 
+  // If we don't have a renderer due to the component failing
+  // to load (gdi+ or cairo not available), indicate to the user
+  // what's going on by drawing a red "X" at the appropriate spot.
+  if (!mRenderer) {
+    aRenderingContext.SetColor(NS_RGB(255,0,0));
+    aRenderingContext.DrawLine(0, 0, mRect.width, mRect.height);
+    aRenderingContext.DrawLine(mRect.width, 0, 0, mRect.height);
+    aRenderingContext.PopState();
+    return;
+  }
+
   dirtyRect.ScaleRoundOut(GetPxPerTwips());
 
-  nsSVGRenderState ctx(&aRenderingContext);
-
-  // nquartz fallback paths, which svg tends to trigger, need
-  // a non-window context target
-#ifdef XP_MACOSX
-  ctx.GetGfxContext()->PushGroup(gfxASurface::CONTENT_COLOR_ALPHA);
-#endif
+  nsCOMPtr<nsISVGRendererCanvas> canvas;
+  mRenderer->CreateCanvas(&aRenderingContext, GetPresContext(), dirtyRect,
+                          getter_AddRefs(canvas));
 
   // paint children:
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsSVGUtils::PaintChildWithEffects(&ctx, &dirtyRect, kid);
+    nsSVGUtils::PaintChildWithEffects(canvas, &dirtyRect, kid);
   }
 
-// show the surface we pushed earlier for nquartz fallbacks
-#ifdef XP_MACOSX
-  ctx.GetGfxContext()->PopGroupToSource();
-  ctx.GetGfxContext()->Paint();
-#endif
+  canvas->Flush();
+
+  canvas = nsnull;
 
 #if defined(DEBUG) && defined(SVG_DEBUG_PAINT_TIMING)
   PRTime end = PR_Now();
@@ -553,6 +564,14 @@ nsSVGOuterSVGFrame::IsRedrawSuspended(PRBool* isSuspended)
   return NS_OK;
 }
 
+nsresult
+nsSVGOuterSVGFrame::GetRenderer(nsISVGRenderer**renderer)
+{
+  *renderer = mRenderer;
+  NS_IF_ADDREF(*renderer);
+  return NS_OK;
+}
+
 //----------------------------------------------------------------------
 // nsISVGSVGFrame methods:
 
@@ -560,6 +579,9 @@ nsSVGOuterSVGFrame::IsRedrawSuspended(PRBool* isSuspended)
 NS_IMETHODIMP
 nsSVGOuterSVGFrame::SuspendRedraw()
 {
+  if (!mRenderer)
+    return NS_OK;
+
 #ifdef DEBUG
   //printf("suspend redraw (count=%d)\n", mRedrawSuspendCount);
 #endif
@@ -580,6 +602,9 @@ nsSVGOuterSVGFrame::SuspendRedraw()
 NS_IMETHODIMP
 nsSVGOuterSVGFrame::UnsuspendRedraw()
 {
+  if (!mRenderer)
+    return NS_OK;
+
 #ifdef DEBUG
 //  printf("unsuspend redraw (count=%d)\n", mRedrawSuspendCount);
 #endif
@@ -608,6 +633,9 @@ nsSVGOuterSVGFrame::UnsuspendRedraw()
 NS_IMETHODIMP
 nsSVGOuterSVGFrame::NotifyViewportChange()
 {
+  if (!mRenderer)
+    return NS_OK;
+
   // no point in doing anything when were not init'ed yet:
   if (!mViewportInitialized) return NS_OK;
 

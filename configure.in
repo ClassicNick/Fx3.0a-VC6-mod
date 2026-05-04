@@ -5745,11 +5745,7 @@ MOZ_ARG_DISABLE_BOOL(svg,
     MOZ_SVG=,
     MOZ_SVG=1 )
 if test -n "$MOZ_SVG"; then
-  if test -z "$MOZ_ENABLE_CAIRO_GFX"; then
-    AC_MSG_ERROR([SVG requires cairo gfx])
-  else
-    AC_DEFINE(MOZ_SVG)
-  fi
+  AC_DEFINE(MOZ_SVG)
 fi
 
 MOZ_SVG_FOREIGNOBJECT=$MOZ_ENABLE_CAIRO_GFX

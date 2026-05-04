@@ -36,11 +36,12 @@
 
 #include "nsIDocument.h"
 #include "nsSVGMaskFrame.h"
+#include "nsISVGRendererCanvas.h"
 #include "nsIDOMSVGAnimatedEnum.h"
 #include "nsSVGContainerFrame.h"
 #include "nsSVGMaskElement.h"
 #include "nsIDOMSVGMatrix.h"
-#include "gfxContext.h"
+#include "nsISVGCairoCanvas.h"
 
 //----------------------------------------------------------------------
 // Implementation
@@ -135,13 +136,14 @@ static unsigned char rgb2lin[256] = {
 };
 
 cairo_pattern_t *
-nsSVGMaskFrame::ComputeMaskAlpha(nsSVGRenderState *aContext,
+nsSVGMaskFrame::ComputeMaskAlpha(nsISVGRendererCanvas* aCanvas,
                                  nsISVGChildFrame* aParent,
                                  nsIDOMSVGMatrix* aMatrix,
                                  float aOpacity)
 {
-  gfxContext *gfx = aContext->GetGfxContext();
-  cairo_t *ctx = gfx->GetCairo();
+  nsCOMPtr<nsISVGCairoCanvas> cairoCanvas = do_QueryInterface(aCanvas);
+  cairo_t *ctx = cairoCanvas->GetContext();
+  cairo_pattern_t *pattern = nsnull;
 
   cairo_push_group(ctx);
 
@@ -201,8 +203,12 @@ nsSVGMaskFrame::ComputeMaskAlpha(nsSVGRenderState *aContext,
     fprintf(stderr, "mask clip: %f,%f %fx%f\n", x, y, width, height);
 #endif
 
-    gfx->Save();
-    nsSVGUtils::SetClipRect(gfx, aMatrix, x, y, width, height);
+    if (NS_FAILED(aCanvas->SetClipRect(aMatrix, x, y, width, height))) {
+      pattern = cairo_pop_group(ctx);
+      if (pattern)
+        cairo_pattern_destroy(pattern);
+      return nsnull;
+    }
   }
 
   mMaskParent = aParent,
@@ -210,12 +216,10 @@ nsSVGMaskFrame::ComputeMaskAlpha(nsSVGRenderState *aContext,
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
        kid = kid->GetNextSibling()) {
-    nsSVGUtils::PaintChildWithEffects(aContext, nsnull, kid);
+    nsSVGUtils::PaintChildWithEffects(aCanvas, nsnull, kid);
   }
 
-  gfx->Restore();
-
-  cairo_pattern_t *pattern = cairo_pop_group(ctx);
+  pattern = cairo_pop_group(ctx);
   if (!pattern)
     return nsnull;
 

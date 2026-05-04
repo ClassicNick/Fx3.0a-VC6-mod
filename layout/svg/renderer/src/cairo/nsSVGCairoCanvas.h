@@ -12,17 +12,22 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG project.
+ * The Original Code is the Mozilla SVG Cairo Renderer project.
  *
  * The Initial Developer of the Original Code is IBM Corporation.
- * Portions created by the Initial Developer are Copyright (C) 2006
+ * Portions created by the Initial Developer are Copyright (C) 2004
  * the Initial Developer. All Rights Reserved.
+ *
+ * Parts of this file contain code derived from the following files(s)
+ * of the Mozilla SVG project (these parts are Copyright (C) by their
+ * respective copyright-holders):
+ *    layout/svg/renderer/src/libart/nsSVGLibartCanvas.h
  *
  * Contributor(s):
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either the GNU General Public License Version 2 or later (the "GPL"), or
- * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -34,38 +39,18 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef __NS_SVGPAINTSERVERFRAME_H__
-#define __NS_SVGPAINTSERVERFRAME_H__
+#ifndef __NS_SVGCAIRO_CANVAS_H__
+#define __NS_SVGCAIRO_CANVAS_H__
 
-#include "nsSVGContainerFrame.h"
-#include "nsSVGValue.h"
-#include "cairo.h"
-
+class nsIRenderingContext;
 class nsISVGRendererCanvas;
-class nsSVGGeometryFrame;
+class nsPresContext;
+struct nsRect;
 
-typedef nsSVGContainerFrame nsSVGPaintServerFrameBase;
+nsresult
+NS_NewSVGCairoCanvas(nsISVGRendererCanvas **result,
+                     nsIRenderingContext *ctx,
+                     nsPresContext *presContext,
+                     const nsRect & dirtyRect);
 
-class nsSVGPaintServerFrame : public nsSVGPaintServerFrameBase,
-                              public nsSVGValue
-{
-public:
-  nsSVGPaintServerFrame(nsStyleContext* aContext) :
-      nsSVGPaintServerFrameBase(aContext) {}
-
-  virtual nsresult SetupPaintServer(nsISVGRendererCanvas *aCanvas,
-                                    cairo_t *aCtx,
-                                    nsSVGGeometryFrame *aSource,
-                                    float aOpacity,
-                                    void **aClosure) = 0;
-  virtual void CleanupPaintServer(cairo_t *aCtx, void *aClosure) = 0;
-
-  // nsISupports interface:
-  NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);
-
-  // nsISVGValue interface:
-  NS_IMETHOD SetValueString(const nsAString &aValue) { return NS_OK; }
-  NS_IMETHOD GetValueString(nsAString& aValue) { return NS_ERROR_NOT_IMPLEMENTED; }
-};
-
-#endif // __NS_SVGPAINTSERVERFRAME_H__
+#endif // __NS_SVGCAIRO_CANVAS_H__

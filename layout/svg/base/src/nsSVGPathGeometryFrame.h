@@ -52,6 +52,7 @@ class nsIDOMSVGMatrix;
 class nsSVGMarkerFrame;
 class nsISVGFilterFrame;
 struct nsSVGMarkerProperty;
+class nsISVGCairoCanvas;
 
 typedef nsSVGGeometryFrame nsSVGPathGeometryFrameBase;
 
@@ -103,7 +104,7 @@ protected:
                                      nsISVGValue::modificationType aModType);
 
   // nsISVGChildFrame interface:
-  NS_IMETHOD PaintSVG(nsSVGRenderState *aContext, nsRect *aDirtyRect);
+  NS_IMETHOD PaintSVG(nsISVGRendererCanvas* canvas, nsRect *aDirtyRect);
   NS_IMETHOD GetFrameForPointSVG(float x, float y, nsIFrame** hit);
   NS_IMETHOD_(nsRect) GetCoveredRegion();
   NS_IMETHOD UpdateCoveredRegion();
@@ -124,8 +125,8 @@ protected:
   virtual PRUint16 GetHittestMask();
 
 private:
-  void Render(nsSVGRenderState *aContext);
-  void GeneratePath(gfxContext *aContext);
+  void Render(nsISVGRendererCanvas *aCanvas);
+  void GeneratePath(cairo_t *ctx, nsISVGCairoCanvas* aCanvas);
 
   /*
    * Check for what cairo returns for the fill extents of a degenerate path

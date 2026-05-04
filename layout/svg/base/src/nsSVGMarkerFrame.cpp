@@ -38,10 +38,10 @@
 #include "nsIDocument.h"
 #include "nsSVGMarkerFrame.h"
 #include "nsSVGPathGeometryFrame.h"
+#include "nsISVGRendererCanvas.h"
 #include "nsSVGMatrix.h"
 #include "nsSVGMarkerElement.h"
 #include "nsSVGPathGeometryElement.h"
-#include "gfxContext.h"
 
 NS_INTERFACE_MAP_BEGIN(nsSVGMarkerFrame)
   NS_INTERFACE_MAP_ENTRY(nsISVGValue)
@@ -208,7 +208,7 @@ nsSVGMarkerFrame::GetCanvasTM()
 
 
 nsresult
-nsSVGMarkerFrame::PaintMark(nsSVGRenderState *aContext,
+nsSVGMarkerFrame::PaintMark(nsISVGRendererCanvas *aCanvas,
                             nsSVGPathGeometryFrame *aParent,
                             nsSVGMark *aMark, float aStrokeWidth)
 {
@@ -233,8 +233,6 @@ nsSVGMarkerFrame::PaintMark(nsSVGRenderState *aContext,
                                                        aParent->GetContent()));
   marker->SetParentCoordCtxProvider(ctx);
 
-  gfxContext *gfx = aContext->GetGfxContext();
-
   if (GetStyleDisplay()->IsScrollableOverflow()) {
     nsCOMPtr<nsIDOMSVGAnimatedRect> arect;
     nsresult rv = marker->GetViewBox(getter_AddRefs(arect));
@@ -253,8 +251,8 @@ nsSVGMarkerFrame::PaintMark(nsSVGRenderState *aContext,
     nsCOMPtr<nsIDOMSVGMatrix> matrix = GetCanvasTM();
     NS_ENSURE_TRUE(matrix, NS_ERROR_OUT_OF_MEMORY);
 
-    gfx->Save();
-    nsSVGUtils::SetClipRect(gfx, matrix, x, y, width, height);
+    aCanvas->PushClip();
+    aCanvas->SetClipRect(matrix, x, y, width, height);
   }
 
   for (nsIFrame* kid = mFrames.FirstChild(); kid;
@@ -263,12 +261,12 @@ nsSVGMarkerFrame::PaintMark(nsSVGRenderState *aContext,
     CallQueryInterface(kid, &SVGFrame);
     if (SVGFrame) {
       SVGFrame->NotifyCanvasTMChanged(PR_TRUE);
-      nsSVGUtils::PaintChildWithEffects(aContext, nsnull, kid);
+      nsSVGUtils::PaintChildWithEffects(aCanvas, nsnull, kid);
     }
   }
 
   if (GetStyleDisplay()->IsScrollableOverflow())
-    gfx->Restore();
+    aCanvas->PopClip();
 
   mMarkerParent = nsnull;
   mInUse = PR_FALSE;

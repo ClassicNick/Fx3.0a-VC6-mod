@@ -39,7 +39,6 @@
 #include "nsSVGGeometryFrame.h"
 #include "nsSVGPaintServerFrame.h"
 #include "nsContentUtils.h"
-#include "gfxContext.h"
 
 //----------------------------------------------------------------------
 // nsISupports methods
@@ -334,30 +333,30 @@ SetupCairoColor(cairo_t *aCtx, nscolor aRGB, float aOpacity)
 }
 
 nsresult
-nsSVGGeometryFrame::SetupCairoFill(gfxContext *aContext,
+nsSVGGeometryFrame::SetupCairoFill(nsISVGRendererCanvas *aCanvas,
+                                   cairo_t *aCtx,
                                    void **aClosure)
 {
   static const nscolor sInvalidPaintColour = NS_RGB(0, 0, 0);
-  cairo_t *ctx = aContext->GetCairo();
 
   if (GetStyleSVG()->mFillRule == NS_STYLE_FILL_RULE_EVENODD)
-    cairo_set_fill_rule(ctx, CAIRO_FILL_RULE_EVEN_ODD);
+    cairo_set_fill_rule(aCtx, CAIRO_FILL_RULE_EVEN_ODD);
   else
-    cairo_set_fill_rule(ctx, CAIRO_FILL_RULE_WINDING);
+    cairo_set_fill_rule(aCtx, CAIRO_FILL_RULE_WINDING);
 
   if (GetStateBits() & NS_STATE_SVG_FILL_PSERVER) {
     nsSVGPaintServerFrame *ps = NS_STATIC_CAST(nsSVGPaintServerFrame*,
                                                GetProperty(nsGkAtoms::fill));
-    return ps->SetupPaintServer(ctx, this,
+    return ps->SetupPaintServer(aCanvas, aCtx, this,
                                 GetStyleSVG()->mFillOpacity,
                                 aClosure);
   } else if (GetStyleSVG()->mFill.mType == eStyleSVGPaintType_Server) {
     // should have a paint server but something has gone wrong configuring it.
-    SetupCairoColor(ctx,
+    SetupCairoColor(aCtx,
                     sInvalidPaintColour,
                     GetStyleSVG()->mFillOpacity);
   } else
-    SetupCairoColor(ctx,
+    SetupCairoColor(aCtx,
                     GetStyleSVG()->mFill.mPaint.mColor,
                     GetStyleSVG()->mFillOpacity);
 
@@ -365,12 +364,12 @@ nsSVGGeometryFrame::SetupCairoFill(gfxContext *aContext,
 }
 
 void
-nsSVGGeometryFrame::CleanupCairoFill(gfxContext *aContext, void *aClosure)
+nsSVGGeometryFrame::CleanupCairoFill(cairo_t *aCtx, void *aClosure)
 {
   if (GetStateBits() & NS_STATE_SVG_FILL_PSERVER) {
     nsSVGPaintServerFrame *ps = NS_STATIC_CAST(nsSVGPaintServerFrame*,
                                                GetProperty(nsGkAtoms::fill));
-    ps->CleanupPaintServer(aContext->GetCairo(), aClosure);
+    ps->CleanupPaintServer(aCtx, aClosure);
   }
 }
 
@@ -421,17 +420,16 @@ nsSVGGeometryFrame::SetupCairoStrokeHitGeometry(cairo_t *aCtx)
 }
 
 nsresult
-nsSVGGeometryFrame::SetupCairoStroke(gfxContext *aContext,
+nsSVGGeometryFrame::SetupCairoStroke(nsISVGRendererCanvas *aCanvas,
+                                     cairo_t *aCtx,
                                      void **aClosure)
 {
-  cairo_t *aCtx = aContext->GetCairo();
-
   SetupCairoStrokeHitGeometry(aCtx);
 
   if (GetStateBits() & NS_STATE_SVG_STROKE_PSERVER) {
     nsSVGPaintServerFrame *ps = NS_STATIC_CAST(nsSVGPaintServerFrame*,
                                                GetProperty(nsGkAtoms::stroke));
-    return ps->SetupPaintServer(aCtx, this,
+    return ps->SetupPaintServer(aCanvas, aCtx, this,
                                 GetStyleSVG()->mStrokeOpacity,
                                 aClosure);
   } else
@@ -443,11 +441,11 @@ nsSVGGeometryFrame::SetupCairoStroke(gfxContext *aContext,
 }
 
 void
-nsSVGGeometryFrame::CleanupCairoStroke(gfxContext *aContext, void *aClosure)
+nsSVGGeometryFrame::CleanupCairoStroke(cairo_t *aCtx, void *aClosure)
 {
   if (GetStateBits() & NS_STATE_SVG_STROKE_PSERVER) {
     nsSVGPaintServerFrame *ps = NS_STATIC_CAST(nsSVGPaintServerFrame*,
                                                GetProperty(nsGkAtoms::stroke));
-    ps->CleanupPaintServer(aContext->GetCairo(), aClosure);
+    ps->CleanupPaintServer(aCtx, aClosure);
   }
 }

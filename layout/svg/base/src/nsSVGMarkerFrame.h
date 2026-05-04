@@ -45,7 +45,7 @@
 #include "nsIDOMSVGRect.h"
 #include "nsIDOMSVGAngle.h"
 
-class gfxContext;
+class nsISVGRendererCanvas;
 class nsSVGPathGeometryFrame;
 class nsIURI;
 class nsIContent;
@@ -95,7 +95,7 @@ public:
 #endif
 
   // nsSVGMarkerFrame methods:
-  nsresult PaintMark(nsSVGRenderState *aContext,
+  nsresult PaintMark(nsISVGRendererCanvas *aCanvas,
                      nsSVGPathGeometryFrame *aParent,
                      nsSVGMark *aMark,
                      float aStrokeWidth);
