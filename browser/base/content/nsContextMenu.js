@@ -665,9 +665,9 @@ nsContextMenu.prototype = {
     // are mutually exclusive, with the precedence given to the selection
     // when there is one
     var reference = null;
-    if (context == "selection")
+    if (aContext == "selection")
       reference = focusedWindow.getSelection();
-    else if (context == "mathml")
+    else if (aContext == "mathml")
       reference = this.target;
     else
       throw "not reached";
@@ -868,7 +868,7 @@ nsContextMenu.prototype = {
   addBookmarkForFrame: function() {
     var doc = this.target.ownerDocument;
     var uri = doc.location.href;
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
     var title = doc.title;
     var description = BookmarksUtils.getDescriptionFromDocument(doc);
     if (!title)

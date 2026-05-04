@@ -46,8 +46,10 @@ include $(DEPTH)/config/autoconf.mk
 
 ALL_LOCALES = \
 	en-US \
+	de \
 	fr \
 	pl \
+	sv-SE \
 	$(NULL)
 
 include $(topsrcdir)/config/config.mk

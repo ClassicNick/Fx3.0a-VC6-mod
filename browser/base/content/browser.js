@@ -150,7 +150,7 @@ function pageShowEventHandlers(event)
     targetBrowser = gBrowser.mCurrentBrowser;
   }
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   // update the last visited date
   if (targetBrowser.currentURI.spec)
     BMSVC.updateLastVisitedDate(targetBrowser.currentURI.spec,
@@ -276,7 +276,7 @@ function SetClickAndHoldHandlers()
 }
 #endif
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
 function UpdateBookmarkAllTabsMenuitem()
 {
   var tabbrowser = getBrowser();
@@ -386,8 +386,19 @@ const gPopupBlockerObserver = {
     if (!this._reportButton)
       this._reportButton = document.getElementById("page-report-button");
 
-    if (gBrowser.selectedBrowser.pageReport) {
-      this._reportButton.setAttribute("blocked", "true");
+    if (!gBrowser.pageReport) {
+      // Hide the popup blocker statusbar button
+      this._reportButton.removeAttribute("blocked");
+
+      return;
+    }
+
+    this._reportButton.setAttribute("blocked", true);
+
+    // Only show the notification again if we've not already shown it. Since
+    // notifications are per-browser, we don't need to worry about re-adding
+    // it.
+    if (!gBrowser.pageReport.reported) {
       if (!gPrefService)
         gPrefService = Components.classes["@mozilla.org/preferences-service;1"]
                                  .getService(Components.interfaces.nsIPrefBranch);
@@ -396,7 +407,7 @@ const gPopupBlockerObserver = {
         var brandBundle = document.getElementById("bundle_brand");
         var brandShortName = brandBundle.getString("brandShortName");
         var message;
-        var popupCount = gBrowser.selectedBrowser.pageReport.length;
+        var popupCount = gBrowser.pageReport.length;
 #ifdef XP_WIN
         var popupButtonText = bundle_browser.getString("popupWarningButton");
         var popupButtonAccesskey = bundle_browser.getString("popupWarningButton.accesskey");
@@ -428,9 +439,11 @@ const gPopupBlockerObserver = {
                                              priority, buttons);
         }
       }
+
+      // Record the fact that we've reported this blocked popup, so we don't
+      // show it again.
+      gBrowser.pageReport.reported = true;
     }
-    else
-      this._reportButton.removeAttribute("blocked");
   },
 
   toggleAllowPopupsForSite: function (aEvent)
@@ -490,7 +503,7 @@ const gPopupBlockerObserver = {
     }
 
     var foundUsablePopupURI = false;
-    var pageReport = gBrowser.selectedBrowser.pageReport;
+    var pageReport = gBrowser.pageReport;
     if (pageReport) {
       for (var i = 0; i < pageReport.length; ++i) {
         var popupURIspec = pageReport[i].popupWindowURI.spec;
@@ -976,7 +989,7 @@ function delayedStartup()
 
   gFindBar.initFindBar();
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   // add bookmark options to context menu for tabs
   addBookmarkMenuitems();
   initServices();
@@ -1121,7 +1134,7 @@ function BrowserShutdown()
   } catch (ex) {
   }
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   try {
     document.getElementById("PersonalToolbar")
             .controllers.removeController(BookmarksMenuController);
@@ -1223,7 +1236,7 @@ function nonBrowserWindowStartup()
 function nonBrowserWindowDelayedStartup()
 {
   // loads the services
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   initServices();
   initBMService();
 #else
@@ -1690,7 +1703,9 @@ function updateGoMenu(aEvent, goMenu)
   if (showSep)
     endSep.hidden = false;
 }
+#endif
  
+#ifndef MOZ_PLACES_BOOKMARKS
 function addBookmarkAs(aBrowser, aBookmarkAllTabs, aIsWebPanel)
 {
   const browsers = aBrowser.browsers;
@@ -1852,12 +1867,21 @@ function BrowserCloseTabOrWindow()
   }
 #endif
 
-  if (gBrowser.localName == "tabbrowser" && (gBrowser.tabContainer.childNodes.length > 1 ||
-      !gPrefService.getBoolPref("browser.tabs.autoHide") && window.toolbar.visible)) {
+  if (gBrowser.tabContainer.childNodes.length > 1) {
     // Just close up a tab.
     gBrowser.removeCurrentTab();
     return;
   }
+#ifndef XP_MACOSX
+  if (window.toolbar.visible &&
+      !gPrefService.getBoolPref("browser.tabs.autoHide")) {
+    // Replace the remaining tab with a blank one and focus the address bar
+    gBrowser.removeCurrentTab();
+    if (gURLBar)
+      setTimeout(function() { gURLBar.focus(); }, 0);
+    return;
+  }
+#endif
 
   BrowserCloseWindow();
 }
@@ -1940,7 +1964,7 @@ function getShortcutOrURI(aURL, aPostDataRef)
   // rjc: added support for URL shortcuts (3/30/1999)
   try {
     var shortcutURL = null;
-#ifdef MOZ_PLACES
+#ifdef MOZ_PLACES_BOOKMARKS
     var bookmarkService = Components.classes["@mozilla.org/browser/nav-bookmarks-service;1"]
                              .getService(nsCI.nsINavBookmarksService);
     var shortcutURI = bookmarkService.getURIForKeyword(aURL);
@@ -1956,7 +1980,7 @@ function getShortcutOrURI(aURL, aPostDataRef)
       if (aOffset > 0) {
         var cmd = aURL.substr(0, aOffset);
         var text = aURL.substr(aOffset+1);
-#ifdef MOZ_PLACES
+#ifdef MOZ_PLACES_BOOKMARKS
         shortcutURI = bookmarkService.getURIForKeyword(cmd);
         if (shortcutURI)
           shortcutURL = shortcutURI.spec;
@@ -1972,8 +1996,8 @@ function getShortcutOrURI(aURL, aPostDataRef)
              shortcutURL = matches[1];
              charset = matches[2];
           }
-#ifndef MOZ_PLACES
-          // FIXME: Bug 327328, we don't have last charset in places yet.
+#ifndef MOZ_PLACES_BOOKMARKS
+          // FIXME: Bug #317472, we don't have last charset in places yet.
           else if (/%s/.test(shortcutURL) || 
                    (aPostDataRef && /%s/.test(aPostDataRef.value))) {
             try {
@@ -2708,7 +2732,7 @@ function openHomeDialog(aURL)
   }
 }
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
 var bookmarksButtonObserver = {
   onDrop: function (aEvent, aXferData, aDragSession)
   {
@@ -3373,7 +3397,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged)
     SetClickAndHoldHandlers();
 #endif
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   // fix up the personal toolbar folder
   var bt = document.getElementById("bookmarks-ptf");
   if (bt) {
@@ -3602,7 +3626,7 @@ nsBrowserStatusHandler.prototype =
       PageProxySetIcon(aBrowser.mIconURL);
     }
 
-#ifdef MOZ_PLACES
+#ifdef MOZ_PLACES_BOOKMARKS
     // Save this favicon in the favicon service
     if (aBrowser.mIconURL) {
       var faviconService = Components.classes["@mozilla.org/browser/favicon-service;1"]
@@ -3666,7 +3690,7 @@ nsBrowserStatusHandler.prototype =
           var browser = gBrowser.mCurrentBrowser;
           if (!gBrowser.mTabbedMode && !browser.mIconURL)
             gBrowser.useDefaultIcon(gBrowser.mCurrentTab);
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
           if (browser.mIconURL)
             BookmarksUtils.loadFavIcon(browser.currentURI.spec, browser.mIconURL);
 #endif
@@ -3865,7 +3889,7 @@ nsBrowserStatusHandler.prototype =
   asyncUpdateUI : function () {
     FeedHandler.updateFeeds();
     BrowserSearch.updateSearchButton();
-#ifdef MOZ_PLACES
+#ifdef MOZ_PLACES_BOOKMARKS
     PlacesCommandHook.updateTagButton();
 #endif
   },
@@ -4417,7 +4441,7 @@ function asyncOpenWebPanel(event)
            url: wrapper.href,
            bWebPanel: true
          }
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
          openDialog("chrome://browser/content/bookmarks/addBookmark2.xul", "",
                     BROWSER_ADD_BM_FEATURES, dialogArgs);
          event.preventDefault();
@@ -5127,7 +5151,7 @@ function AddKeywordForSearchField()
   else
     spec += "?" + formData.join("&");
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   var dialogArgs = {
     name: "",
     url: spec,
@@ -5466,7 +5490,7 @@ var FeedHandler = {
     return null;
   },
   
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
   /**
    * Adds a Live Bookmark to a feed
    * @param     url

@@ -68,6 +68,8 @@ $nightlyChannels = array(
 // It determines which patches are associated to which incoming client versions.
 // @todo replace this with a better datasource that can be easily managed via a GUI.
 $branchVersions = array(
+    '0.4a1'      =>  'trunk',
+    '0.5'        =>  'trunk',
     '1.0+'       =>  '1.5',
     '1.4'        =>  '1.5',
     '1.4.1'      =>  '1.5',

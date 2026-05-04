@@ -39,7 +39,7 @@
 #include "nsIGenericFactory.h"
 
 #include "nsBrowserCompsCID.h"
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
 #include "nsBookmarksService.h"
 #include "nsForwardProxyDataSource.h"
 #endif
@@ -76,7 +76,7 @@
 
 /////////////////////////////////////////////////////////////////////////////
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsBookmarksService, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsForwardProxyDataSource, Init)
 #endif
@@ -126,7 +126,7 @@ static const nsModuleComponentInfo components[] =
 
 #endif
 
-#ifndef MOZ_PLACES
+#ifndef MOZ_PLACES_BOOKMARKS
 
   { "Bookmarks",
     NS_BOOKMARKS_SERVICE_CID,

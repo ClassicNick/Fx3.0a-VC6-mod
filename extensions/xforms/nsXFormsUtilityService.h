@@ -62,5 +62,7 @@ public:
   NS_IMETHOD GetRangeStart(nsIDOMNode *aElement, nsAString& aValue);
   NS_IMETHOD GetRangeEnd(nsIDOMNode *aElement, nsAString& aValue);
   NS_IMETHOD GetRangeStep(nsIDOMNode *aElement, nsAString& aValue);
+
+  NS_IMETHOD GetEditor(nsIDOMNode *aElement, nsIEditor **aEditor);
 };
 

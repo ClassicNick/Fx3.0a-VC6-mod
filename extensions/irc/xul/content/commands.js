@@ -2553,6 +2553,9 @@ function cmdWho(e)
 
 function cmdWhoIs(e)
 {
+    if (!isinstance(e.network.whoisList, Object))
+        e.network.whoisList = {};
+
     for (var i = 0; i < e.nicknameList.length; i++)
     {
         if ((i < e.nicknameList.length - 1) &&
@@ -2566,6 +2569,7 @@ function cmdWhoIs(e)
         {
             e.server.whois(e.nicknameList[i]);
         }
+        e.network.whoisList[e.server.toLowerCase(e.nicknameList[i])] = null;
     }
 }
 
@@ -3309,6 +3313,8 @@ function cmdSave(e)
                  */
                 else if (!requestSpec && saveType > 0)
                 {
+                    if (wbp)
+                        wbp.progressListener = null;
                     pm = [e.sourceObject.viewName, e.filename];
                     display(getMsg(MSG_SAVE_SUCCESSFUL, pm), MT_INFO);
                 }

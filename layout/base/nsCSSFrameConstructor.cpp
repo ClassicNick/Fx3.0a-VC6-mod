@@ -4515,6 +4515,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
 
   // --------- IF SCROLLABLE WRAP IN SCROLLFRAME --------
 
+#ifdef DEBUG
   PRBool propagatedScrollToViewport =
     PropagateScrollToViewport() == aDocElement;
 
@@ -4522,6 +4523,7 @@ nsCSSFrameConstructor::ConstructDocElementFrame(nsFrameConstructorState& aState,
                aState.mPresContext->IsPaginated() ||
                propagatedScrollToViewport,
                "Scrollbars should have been propagated to the viewport");
+#endif
 
   nsIFrame* contentFrame = nsnull;
   PRBool isBlockFrame = PR_FALSE;
@@ -8944,8 +8946,8 @@ nsCSSFrameConstructor::NeedSpecialFrameReframe(nsIContent*     aParent1,
                                                nsIFrame*&      aPrevSibling,
                                                nsIFrame*       aNextSibling)
 {
-  NS_ENSURE_TRUE(aPrevSibling || aNextSibling, PR_TRUE);
-
+  // XXXbz aNextSibling is utterly unused.  Why?
+  
   if (!IsInlineFrame2(aParentFrame)) 
     return PR_FALSE;
 
@@ -8974,6 +8976,9 @@ nsCSSFrameConstructor::NeedSpecialFrameReframe(nsIContent*     aParent1,
       aParentFrame = prevParent; // prevParent is a block, put aChild there
     }
     else {
+      // XXXbz see comments in ContentInserted about this being wrong in many
+      // cases!  Why doesn't this just use aNextSibling anyway?  Why are we
+      // looking sometimes in aParent1 and sometimes in aParent2?
       nsIFrame* nextSibling = (aIndexInContainer >= 0)
                               ? FindNextSibling(aParent2, aParentFrame,
                                                 aIndexInContainer)
@@ -9002,6 +9007,9 @@ nsCSSFrameConstructor::NeedSpecialFrameReframe(nsIContent*     aParent1,
         NS_ASSERTION(aParentFrame, "program error - null parent frame");
       }
       else { // prevParent is a block
+        // XXXbz see comments in ContentInserted about this being wrong in many
+        // cases!  Why doesn't this just use aNextSibling anyway?  Why are we
+        // looking sometimes in aParent1 and sometimes in aParent2?
         nsIFrame* nextSibling = (aIndexInContainer >= 0)
                                 ? FindNextSibling(aParent2, aParentFrame,
                                                   aIndexInContainer)
@@ -9341,37 +9349,13 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
       // letter-frame is present, use its parent.
       if (parentFrame->GetType() == nsLayoutAtoms::letterFrame) {
         parentFrame = parentFrame->GetParent();
+        container = parentFrame->GetContent();
       }
 
       // Remove the old letter frames before doing the insertion
       RemoveLetterFrames(state.mPresContext, mPresShell,
                          state.mFrameManager,
                          state.mFloatedItems.containingBlock);
-
-      // Check again to see if the frame we are manipulating is part
-      // of a block-in-inline hierarchy.
-      if (IsFrameSpecial(parentFrame)) {
-        nsCOMPtr<nsIContent> parentContainer = blockContent->GetParent();
-#ifdef DEBUG
-        if (gNoisyContentUpdates) {
-          printf("nsCSSFrameConstructor::ContentInserted: parentFrame=");
-          nsFrame::ListTag(stdout, parentFrame);
-          printf(" is special inline\n");
-          printf("  ==> blockContent=%p, parentContainer=%p\n",
-                 NS_STATIC_CAST(void*, blockContent),
-                 NS_STATIC_CAST(void*, parentContainer));
-        }
-#endif
-        if (parentContainer) {
-          ReinsertContent(parentContainer, blockContent);
-        }
-        else {
-          // XXX uh oh. the block that needs reworking has no parent...
-          NS_NOTREACHED("block that needs recreation has no parent");
-        }
-
-        return NS_OK;
-      }
 
       // Removing the letterframes messes around with the frame tree, removing
       // and creating frames.  We need to reget our prevsibling.
@@ -9381,6 +9365,40 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
                               aChild)
         : FindPreviousAnonymousSibling(mPresShell, mDocument, aContainer,
                                        aChild);
+
+      // If there is no previous sibling, then find the frame that follows
+      if (! prevSibling) {
+        nextSibling = (aIndexInContainer >= 0)
+          ? FindNextSibling(container, parentFrame, aIndexInContainer, aChild)
+          : FindNextAnonymousSibling(mPresShell, mDocument, aContainer, aChild);
+      }
+
+      handleSpecialFrame = IsFrameSpecial(parentFrame) && !aInReinsertContent;
+      if (handleSpecialFrame &&
+          NeedSpecialFrameReframe(aContainer, container, parentFrame,
+                                  aChild, aIndexInContainer, prevSibling,
+                                  nextSibling)) {
+#ifdef DEBUG
+        nsIContent* parentContainer = blockContent->GetParent();
+        if (gNoisyContentUpdates) {
+          printf("nsCSSFrameConstructor::ContentInserted: parentFrame=");
+          nsFrame::ListTag(stdout, parentFrame);
+          printf(" is special inline\n");
+          printf("  ==> blockContent=%p, parentContainer=%p\n",
+                 NS_STATIC_CAST(void*, blockContent),
+                 NS_STATIC_CAST(void*, parentContainer));
+        }
+#endif
+
+        NS_ASSERTION(GetFloatContainingBlock(parentFrame) == containingBlock,
+                     "Unexpected block ancestor for parentFrame");
+
+        // Note that in this case we're guaranteed that the closest block
+        // containing parentFrame is |containingBlock|.  So
+        // ReframeContainingBlock(parentFrame) will make sure to rebuild the
+        // first-letter stuff we just blew away.
+        return ReframeContainingBlock(parentFrame);
+      }
     }
   }
   else if (NS_STYLE_DISPLAY_TABLE_COLUMN_GROUP == parentDisplay->mDisplay) {
@@ -12998,27 +13016,34 @@ nsCSSFrameConstructor::WipeContainingBlock(nsFrameConstructorState& aState,
   tmp.DestroyFrames();
   aState.mFloatedItems.childList = nsnull;
 
-  // If we don't have a containing block, try to find our closest non-inline
-  // ancestor.  We're guaranteed to have one, since
-  // nsStyleContext::ApplyStyleFixups enforces that the root is display:none,
-  // display:table, or display:block.
+  // If we don't have a containing block, start with aFrame and look for one.
   if (!aContainingBlock) {
     aContainingBlock = aFrame;
-    do {
-      aContainingBlock = aContainingBlock->GetParent();
-      NS_ASSERTION(aContainingBlock, "Must have non-inline frame as root!");
-    } while (IsInlineFrame(aContainingBlock));
   }
   
+  // To find the right block to reframe, just walk up the tree until we find a
+  // frame that is:
+  // 1)  Not part of an IB split (not special)
+  // 2)  Not a pseudo-frame
+  // 3)  Not an inline frame
+  // We're guaranteed to find one, since nsStyleContext::ApplyStyleFixups
+  // enforces that the root is display:none, display:table, or display:block.
+  // Note that walking up "too far" is OK in terms of correctness, even if it
+  // might be a little inefficient.  This is why we walk out of all
+  // pseudo-frames -- telling which ones are or are not OK to walk out of is
+  // too hard (and I suspect that we do in fact need to walk out of all of
+  // them).
+  while (IsFrameSpecial(aContainingBlock) || IsInlineFrame(aContainingBlock) ||
+         aContainingBlock->GetStyleContext()->GetPseudoType()) {
+    aContainingBlock = aContainingBlock->GetParent();
+    NS_ASSERTION(aContainingBlock,
+                 "Must have non-inline, non-special, non-pseudo frame as root "
+                 "(or child of root, for a table root)!");
+  }
+
   // Tell parent of the containing block to reformulate the
   // entire block. This is painful and definitely not optimal
   // but it will *always* get the right answer.
-
-  // First, if the containing block is really a block wrapper for something
-  // that's really an inline, walk up the parent chain until we hit something
-  // that's not.
-  while (IsFrameSpecial(aContainingBlock))
-    aContainingBlock = aContainingBlock->GetParent();
 
   nsIContent *blockContent = aContainingBlock->GetContent();
   nsCOMPtr<nsIContent> parentContainer = blockContent->GetParent();

@@ -32,6 +32,7 @@ messenger.jar:
 *   content/messenger/msgPrintEngine.xul            (content/msgPrintEngine.xul)
 *   content/messenger/searchBar.js                  (content/searchBar.js)
 *   content/messenger/phishingDetector.js           (content/phishingDetector.js)
+*   content/messenger/mail-offline.js               (content/mail-offline.js)
     content/messenger/about-footer.png              (content/about-footer.png)
     content/messenger/aboutDialog.css               (content/aboutDialog.css)
 *   content/messenger/credits.xhtml                 (content/credits.xhtml)
@@ -121,6 +122,7 @@ messenger.jar:
 comm.jar:
 *+  content/communicator/contentAreaClick.js        (content/contentAreaClick.js)
 *+  content/communicator/utilityOverlay.xul         (content/utilityOverlay.xul)
+*+  content/communicator/utilityOverlay.js          (content/utilityOverlay.js)
 *+  content/communicator/nsContextMenu.js           (content/nsContextMenu.js)
 +   content/help/contextHelp.js                     (content/contextHelp.js)
 % content help %content/help/ xpcnativewrappers=yes

@@ -4430,7 +4430,6 @@ nsNavHistoryResultTreeViewer::ItemChanged(nsINavHistoryResultNode *item)
   item->GetViewIndex(&viewIndex);
   if (mTree && viewIndex >= 0)
     return mTree->InvalidateRow(viewIndex);
-  printf("Invalidated row %d\n", viewIndex);
   return NS_OK; // nothing to refresh
 }
 
