@@ -236,7 +236,7 @@ pref("mailnews.offline_sync_mail",         false);
 pref("mailnews.offline_sync_news",         false);
 pref("mailnews.offline_sync_send_unsent",  true);
 pref("mailnews.offline_sync_work_offline", false);   
-pref("mailnews.force_ascii_search",         false);
+pref("mailnews.force_ascii_search",        false);
 
 pref("mailnews.send_default_charset",       "chrome://messenger/locale/messenger.properties");
 pref("mailnews.view_default_charset",       "chrome://messenger/locale/messenger.properties");
@@ -253,6 +253,7 @@ pref("mailnews.quotingPrefs.version",       0);  // used to decide whether to mi
 // the first time, we'll warn the user about the blind send, and they can disable the warning if they want.
 pref("mapi.blind-send.enabled",             true);  
 
+pref("offline.autoDetect",                  false); // automatically move the user offline or online based on the network connection
 pref("offline.news.download.unread_only",   true);
 pref("offline.news.download.by_date",       true);
 pref("offline.news.download.days",          30);    // days
@@ -560,6 +561,10 @@ pref("mailnews.plaintext_domains","");
 pref("mailnews.global_html_domains.version",1);
 
 pref("mail.imap.use_status_for_biff", true);
+
+pref("mail.quota.mainwindow_threshold.show", 75); // in percent. when the quota meter starts showing up at all. decrease this for it to be more than a warning.
+pref("mail.quota.mainwindow_threshold.warning", 80); // when it gets yellow
+pref("mail.quota.mainwindow_threshold.critical", 95); // when it gets red
 
 // Pref controlling confirmation of folder deletion on empty trash
 pref("mail.imap.confirm_emptyTrashFolderDeletion", false);

@@ -1046,7 +1046,6 @@ mail/components/shell/Makefile
 mail/components/shell/public/Makefile
 mail/extensions/Makefile
 mail/extensions/smime/Makefile
-mail/extensions/offline/Makefile
 mail/config/Makefile
 mail/installer/Makefile
 mail/installer/windows/Makefile
@@ -1339,10 +1338,6 @@ if [ "$MOZ_XTF" ]; then
 	content/xtf/Makefile
 	content/xtf/public/Makefile
 	content/xtf/src/Makefile
-"
-    MAKEFILES_layout="$MAKEFILES_layout
-	layout/xtf/Makefile
-	layout/xtf/src/Makefile
 "
 fi
 

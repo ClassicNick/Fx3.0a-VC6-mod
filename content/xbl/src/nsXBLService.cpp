@@ -23,6 +23,7 @@
  *   Original Author: David W. Hyatt (hyatt@netscape.com)
  *   - Brendan Eich (brendan@mozilla.org)
  *   - Mike Pinkerton (pinkerton@netscape.com)
+ *   Mats Palmgren <mats.palmgren@bredband.net>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -42,7 +43,6 @@
 #include "nsNetUtil.h"
 #include "nsXBLService.h"
 #include "nsXBLWindowKeyHandler.h"
-#include "nsXBLWindowDragHandler.h"
 #include "nsIInputStream.h"
 #include "nsINameSpaceManager.h"
 #include "nsHashtable.h"
@@ -122,7 +122,8 @@ IsAncestorBinding(nsIDocument* aDocument,
     nsresult rv =
       binding->PrototypeBinding()->BindingURI()->Equals(aChildBindingURI,
                                                         &equal);
-    if (NS_FAILED(rv) || equal) {
+    NS_ENSURE_SUCCESS(rv, PR_TRUE); // assume the worst
+    if (equal) {
       nsCAutoString spec;
       aChildBindingURI->GetSpec(spec);
       NS_ConvertUTF8toUTF16 bindingURI(spec);
@@ -803,46 +804,6 @@ nsXBLService::AttachGlobalKeyHandler(nsIDOMEventReceiver* aReceiver)
   return NS_OK;
 }
 
-
-//
-// AttachGlobalDragDropHandler
-//
-// Creates a new drag handler and prepares to listen to dragNdrop events on the given
-// event receiver.
-//
-NS_IMETHODIMP
-nsXBLService::AttachGlobalDragHandler(nsIDOMEventReceiver* aReceiver)
-{
-  // Create the DnD handler
-  nsXBLWindowDragHandler* handler;
-  NS_NewXBLWindowDragHandler(aReceiver, &handler);
-  if (!handler)
-    return NS_ERROR_FAILURE;
-
-  nsCOMPtr<nsIDOMEventGroup> systemGroup;
-  aReceiver->GetSystemEventGroup(getter_AddRefs(systemGroup));
-  nsCOMPtr<nsIDOM3EventTarget> target = do_QueryInterface(aReceiver);
-
-  // listen to these events
-  target->AddGroupedEventListener(NS_LITERAL_STRING("draggesture"), handler,
-                                  PR_FALSE, systemGroup);
-  target->AddGroupedEventListener(NS_LITERAL_STRING("dragenter"), handler,
-                                  PR_FALSE, systemGroup);
-  target->AddGroupedEventListener(NS_LITERAL_STRING("dragexit"), handler,
-                                  PR_FALSE, systemGroup);
-  target->AddGroupedEventListener(NS_LITERAL_STRING("dragover"), handler,
-                                  PR_FALSE, systemGroup);
-  target->AddGroupedEventListener(NS_LITERAL_STRING("dragdrop"), handler,
-                                  PR_FALSE, systemGroup);
-
-  // Release.  Do this so that only the event receiver holds onto the handler.
-  NS_RELEASE(handler);
-
-  return NS_OK;
-
-} // AttachGlobalDragDropHandler
-
-
 NS_IMETHODIMP
 nsXBLService::Observe(nsISupports* aSubject, const char* aTopic, const PRUnichar* aSomeData)
 {
@@ -880,6 +841,17 @@ nsXBLService::GetBinding(nsIContent* aBoundElement, nsIURI* aURI,
                          PRBool aPeekOnly, PRBool* aIsReady, 
                          nsXBLBinding** aResult)
 {
+  // More than 6 binding URIs are rare, see bug 55070 comment 18.
+  nsTArray<nsIURI*> uris(6);
+  return GetBinding(aBoundElement, aURI, aPeekOnly, aIsReady, aResult, uris);
+}
+
+nsresult
+nsXBLService::GetBinding(nsIContent* aBoundElement, nsIURI* aURI, 
+                         PRBool aPeekOnly, PRBool* aIsReady,
+                         nsXBLBinding** aResult,
+                         nsTArray<nsIURI*>& aDontExtendURIs)
+{
   NS_ASSERTION(aPeekOnly || aResult,
                "Must have non-null out param if not just peeking to see "
                "whether the binding is ready");
@@ -889,6 +861,8 @@ nsXBLService::GetBinding(nsIContent* aBoundElement, nsIURI* aURI,
 
   if (!aURI)
     return NS_ERROR_FAILURE;
+
+  NS_ENSURE_TRUE(aDontExtendURIs.AppendElement(aURI), NS_ERROR_OUT_OF_MEMORY);
 
   nsCOMPtr<nsIURL> url(do_QueryInterface(aURI));
   if (!url) {
@@ -944,9 +918,11 @@ nsXBLService::GetBinding(nsIContent* aBoundElement, nsIURI* aURI,
   PRBool hasBase = protoBinding->HasBasePrototype();
   nsXBLPrototypeBinding* baseProto = protoBinding->GetBasePrototype();
   if (baseProto) {
-    if (NS_FAILED(GetBinding(aBoundElement, baseProto->BindingURI(),
-                             aPeekOnly, aIsReady, getter_AddRefs(baseBinding))))
-      return NS_ERROR_FAILURE; // We aren't ready yet.
+    nsresult rv = GetBinding(aBoundElement, baseProto->BindingURI(), aPeekOnly,
+                             aIsReady, getter_AddRefs(baseBinding),
+                             aDontExtendURIs);
+    if (NS_FAILED(rv))
+      return rv; // We aren't ready yet.
   }
   else if (hasBase) {
     // Check for the presence of 'extends' and 'display' attributes
@@ -1017,9 +993,31 @@ nsXBLService::GetBinding(nsIContent* aBoundElement, nsIURI* aURI,
                     doc->GetBaseURI());
         NS_ENSURE_SUCCESS(rv, rv);
         
-        if (NS_FAILED(GetBinding(aBoundElement, bindingURI, aPeekOnly,
-                                 aIsReady, getter_AddRefs(baseBinding))))
-          return NS_ERROR_FAILURE; // Binding not yet ready or an error occurred.
+        PRUint32 count = aDontExtendURIs.Length();
+        for (PRUint32 index = 0; index < count; ++index) {
+          PRBool equal;
+          rv = aDontExtendURIs[index]->Equals(bindingURI, &equal);
+          NS_ENSURE_SUCCESS(rv, rv);
+          if (equal) {
+            nsCAutoString spec;
+            protoBinding->BindingURI()->GetSpec(spec);
+            NS_ConvertUTF8toUTF16 protoSpec(spec);
+            const PRUnichar* params[] = { protoSpec.get(), value.get() };
+            nsContentUtils::ReportToConsole(nsContentUtils::eXBL_PROPERTIES,
+                                            "CircularExtendsBinding",
+                                            params, NS_ARRAY_LENGTH(params),
+                                            boundDocument->GetDocumentURI(),
+                                            EmptyString(), 0, 0,
+                                            nsIScriptError::warningFlag,
+                                            "XBL");
+            return NS_ERROR_ILLEGAL_VALUE;
+          }
+        }
+
+        rv = GetBinding(aBoundElement, bindingURI, aPeekOnly, aIsReady,
+                        getter_AddRefs(baseBinding), aDontExtendURIs);
+        if (NS_FAILED(rv))
+          return rv; // Binding not yet ready or an error occurred.
         if (!aPeekOnly) {
           // Make sure to set the base prototype.
           baseProto = baseBinding->PrototypeBinding();

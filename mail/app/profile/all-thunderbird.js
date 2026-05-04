@@ -140,6 +140,10 @@ pref("mail.phishing.detection.enabled", true); // enable / disable phishing dete
 pref("mail.spellcheck.inline", true);
 pref("mail.showPreviewText", true); // enables preview text in mail alerts and folder tooltips
 
+pref("mail.biff.alert.show_preview", true);
+pref("mail.biff.alert.show_subject", true);
+pref("mail.biff.alert.show_sender",  true);
+
 // Folder Pane View
 // 0 == All Folders
 // 1 == Unread Folders
@@ -262,6 +266,7 @@ pref("offline.send.unsent_messages",            0);
 // 2 Never synchronize the offline store when going offline
 pref("offline.download.download_messages",  0);
 pref("offline.prompt_synch_on_exit",            true);
+pref("offline.autoDetect",                      true); // automatically move the user offline or online based on the network connection
 
 // Expose only select protocol handlers. All others should go
 // through the external protocol handler route.

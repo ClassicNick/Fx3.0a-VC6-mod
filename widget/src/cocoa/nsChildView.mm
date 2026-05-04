@@ -23,6 +23,7 @@
  *   Josh Aas <josh@mozilla.com>
  *   Mark Mentovai <mark@moxienet.com>
  *   Håkan Waara <hwaara@gmail.com>
+ *   Stuart Morgan <stuart.morgan@alumni.case.edu>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or 
@@ -57,9 +58,15 @@
 #include "nsIScrollableView.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIServiceManager.h"
+#include "nsGfxCIID.h"
+
+#include "nsMacResources.h"
+
 #include "nsDragService.h"
 #import "nsCursorManager.h"
 #import "nsWindowMap.h"
+
+static NS_DEFINE_CID(kRegionCID, NS_REGION_CID);
 
 #ifdef MOZ_CAIRO_GFX
 #include "gfxContext.h"
@@ -133,6 +140,8 @@ static NSView* sLastViewEntered = nil;
 - (BOOL)childViewHasPlugin;
 
 - (BOOL)isRectObscuredBySubview:(NSRect)inRect;
+
+- (void)processPendingRedraws;
 
 #if USE_CLICK_HOLD_CONTEXTMENU
  // called on a timer two seconds after a mouse down to see if we should display
@@ -1196,7 +1205,7 @@ NS_IMETHODIMP nsChildView::Invalidate(PRBool aIsSynchronous)
   else if ([NSView focusView]) {
     // if a view is focussed (i.e. being drawn), then postpone the invalidate so that we
     // don't lose it.
-    [mView performSelector:@selector(setNeedsDisplayWithValue:) withObject:nil afterDelay:0];
+    [mView setNeedsPendingDisplay];
   }
   else {
     [mView setNeedsDisplay:YES];
@@ -1224,7 +1233,7 @@ NS_IMETHODIMP nsChildView::Invalidate(const nsRect &aRect, PRBool aIsSynchronous
   else if ([NSView focusView]) {
     // if a view is focussed (i.e. being drawn), then postpone the invalidate so that we
     // don't lose it.
-    [mView performSelector:@selector(setNeedsDisplayWithValue:) withObject:[NSValue valueWithRect:r] afterDelay:0];
+    [mView setNeedsPendingDisplayInRect:r];
   }
   else {
     [mView setNeedsDisplayInRect:r];
@@ -1407,7 +1416,7 @@ NS_IMETHODIMP nsChildView::Update()
 // because the display system will take care of that for us.
 //
 void 
-nsChildView::UpdateWidget(nsRect& aRect, nsIRenderingContext* aContext)
+nsChildView::UpdateWidget(nsRect& aRect, nsIRenderingContext* aContext, nsIRegion *aRegion)
 {
   if (! mVisible)
     return;
@@ -1424,6 +1433,7 @@ nsChildView::UpdateWidget(nsRect& aRect, nsIRenderingContext* aContext)
   nsPaintEvent paintEvent(PR_TRUE, NS_PAINT, this);
   paintEvent.renderingContext = aContext;       // nsPaintEvent
   paintEvent.rect             = &aRect;
+  paintEvent.region = aRegion;
 
   // offscreen drawing is pointless.
   if (paintEvent.rect->x < 0)
@@ -2198,21 +2208,40 @@ NSEvent* globalDragEvent = nil;
   mWindow = aWindow;
 }
 
-//
-// -setNeedsDisplayWithValue:
-//
-//
-- (void)setNeedsDisplayWithValue:(NSValue*)inRectValue
+- (void)setNeedsPendingDisplay
 {
-  if (inRectValue) {
-    NSRect theRect = [inRectValue rectValue];
-    [self setNeedsDisplayInRect:theRect];
-  }
-  else {
-    [self setNeedsDisplay:YES];
-  }
+  mPendingFullDisplay = YES;
+  [self performSelector:@selector(processPendingRedraws) withObject:nil afterDelay:0];
 }
 
+- (void)setNeedsPendingDisplayInRect:(NSRect)invalidRect
+{
+  if (!mPendingDirtyRects)
+    mPendingDirtyRects = [[NSMutableArray alloc] initWithCapacity:1];
+  [mPendingDirtyRects addObject:[NSValue valueWithRect:invalidRect]];
+  [self performSelector:@selector(processPendingRedraws) withObject:nil afterDelay:0];
+}
+
+//
+// -processPendingRedraws
+//
+// Clears the queue of any pending invalides
+//
+- (void)processPendingRedraws
+{
+  if (mPendingFullDisplay) {
+    [self setNeedsDisplay:YES];
+  }
+  else {
+    unsigned int count = [mPendingDirtyRects count];
+    for (unsigned int i = 0; i < count; ++i) {
+      [self setNeedsDisplayInRect:[[mPendingDirtyRects objectAtIndex:i] rectValue]];
+    }
+  }
+  mPendingFullDisplay = NO;
+  [mPendingDirtyRects release];
+  mPendingDirtyRects = nil;
+}
 
 - (NSString*)description
 {
@@ -2428,6 +2457,21 @@ NSEvent* globalDragEvent = nil;
   [super viewDidEndLiveResize];
 }
 
+- (void)scrollRect:(NSRect)aRect by:(NSSize)offset
+{
+  // Update any pending dirty rects to reflect the new scroll position
+  if (mPendingDirtyRects) {
+    unsigned int count = [mPendingDirtyRects count];
+    for (unsigned int i = 0; i < count; ++i) {
+      NSRect oldRect = [[mPendingDirtyRects objectAtIndex:i] rectValue];
+      NSRect newRect = NSOffsetRect(oldRect, offset.width, offset.height);
+      [mPendingDirtyRects replaceObjectAtIndex:i
+                                    withObject:[NSValue valueWithRect:newRect]];
+    }
+  }
+  [super scrollRect:aRect by:offset];
+}
+
 - (BOOL)mouseDownCanMoveWindow
 {
   return NO;
@@ -2480,11 +2524,6 @@ NSEvent* globalDragEvent = nil;
 
   nsRefPtr<gfxContext> targetContext = new gfxContext(targetSurface);
 
-#if 0
-  targetContext->Rectangle(gfxRect(aRect.origin.x, aRect.origin.y,
-                                   aRect.size.width, aRect.size.height));
-  targetContext->Clip();
-#else
   const NSRect *rects;
   int count, i;
   [self getRectsBeingDrawn:&rects count:&count];
@@ -2493,7 +2532,6 @@ NSEvent* globalDragEvent = nil;
                                      rects[i].size.width, rects[i].size.height));
   }
   targetContext->Clip();
-#endif
 
   nsCOMPtr<nsIRenderingContext> rc;
   mGeckoChild->GetDeviceContext()->CreateRenderingContextInstance(*getter_AddRefs(rc));
@@ -2536,16 +2574,25 @@ NSEvent* globalDragEvent = nil;
 #endif
 
 #else
-  // tell gecko to paint.
-  const NSRect *rects;
-  int count, i;
-  [self getRectsBeingDrawn:&rects count:&count];
-  for (i = 0; i < count; ++i) {
+
+  nsCOMPtr<nsIRegion> rgn(do_CreateInstance(kRegionCID));
+  if (rgn) {
+    rgn->Init();
+
     nsRect r;
-    NSRectToGeckoRect(rects[i], r);
-    nsCOMPtr<nsIRenderingContext> rendContext = getter_AddRefs(mGeckoChild->GetRenderingContext());
-    mGeckoChild->UpdateWidget(r, rendContext);
+    const NSRect *rects;
+    int count, i;
+    [self getRectsBeingDrawn:&rects count:&count];
+    for (i = 0; i < count; ++i) {
+      NSRectToGeckoRect(rects[i], r);
+      rgn->Union(r.x, r.y, r.width, r.height);
+    }
   }
+
+  nsRect fullRect;
+  NSRectToGeckoRect(aRect, fullRect);
+  nsCOMPtr<nsIRenderingContext> rendContext = getter_AddRefs(mGeckoChild->GetRenderingContext());
+  mGeckoChild->UpdateWidget(fullRect, rendContext, rgn);
 #endif
 }
 
