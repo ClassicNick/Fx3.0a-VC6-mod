@@ -890,6 +890,9 @@ SECKEY_SignatureLen;
 ;+NSS_3.12 { 	# NSS 3.12 release
 ;+    global:
 PK11_GetAllSlotsForCert;
+SECKEY_ECParamsToKeySize;
+SECKEY_ECParamsToBasePointOrderLen;
+SECMOD_DeleteModuleEx;
 VFY_CreateContextDirect;
 VFY_CreateContextWithAlgorithmID;
 VFY_VerifyDataDirect;

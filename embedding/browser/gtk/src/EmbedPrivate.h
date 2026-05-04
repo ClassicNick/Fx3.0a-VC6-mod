@@ -55,7 +55,7 @@
 #include <nsIDOMEventReceiver.h>
 #include <nsVoidArray.h>
 
-#ifdef MOZILLA_1_8_BRANCH
+#ifndef MOZ_ENABLE_LIBXUL
 // for profiles
 #include <nsIPref.h>
 #endif
@@ -82,7 +82,7 @@ class EmbedEventListener;
 
 class nsPIDOMWindow;
 class nsIDirectoryServiceProvider;
-#ifdef MOZILLA_1_8_BRANCH
+#ifndef MOZ_ENABLE_LIBXUL
 class nsProfileDirServiceProvider;
 #endif
 
@@ -94,8 +94,7 @@ class EmbedCommon {
   static EmbedCommon* GetInstance();
   static void DeleteInstance();
   nsresult    Init (void);
-  bool mFormAttachCount;
-  GtkMozEmbedCommon* mCommon;
+  GtkObject   *mCommon;
   static GtkMozEmbed* GetAnyLiveWidget();
 };
 class EmbedPrivate {
@@ -124,7 +123,7 @@ class EmbedPrivate {
   static void SetPath         (const char *aPath);
   static void SetCompPath     (const char *aPath);
 
-#ifdef MOZILLA_1_8_BRANCH
+#ifndef MOZ_ENABLE_LIBXUL
   static nsresult StartupProfile (void);
   static void     ShutdownProfile(void);
 #endif
@@ -217,11 +216,11 @@ class EmbedPrivate {
   static nsIAppShell            *sAppShell;
   // the list of all open windows
   static nsVoidArray            *sWindowList;
+#ifdef MOZ_ENABLE_LIBXUL
   // what is our profile path?
   static nsILocalFile           *sProfileDir;
   static nsISupports            *sProfileLock;
-
-#ifdef MOZILLA_1_8_BRANCH
+#else
   // what is our profile path?
   static char                   *sProfileDirS;
   static char                   *sProfileName;

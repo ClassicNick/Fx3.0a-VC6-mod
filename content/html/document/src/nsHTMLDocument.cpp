@@ -324,7 +324,6 @@ IdAndNameHashInitEntry(PLDHashTable *table, PLDHashEntryHdr *entry,
 
 nsHTMLDocument::nsHTMLDocument()
   : nsDocument("text/html"),
-    mCompatMode(eCompatibility_NavQuirks),
     mDefaultNamespaceID(kNameSpaceID_None)
 {
 
@@ -332,6 +331,7 @@ nsHTMLDocument::nsHTMLDocument()
   // bother initializing members to 0.
 
   mDefaultElementType = kNameSpaceID_XHTML;
+  mCompatMode = eCompatibility_NavQuirks;
 }
 
 nsHTMLDocument::~nsHTMLDocument()
@@ -1164,12 +1164,6 @@ nsHTMLDocument::GetImageMap(const nsAString& aMapName)
   return firstMatch;
 }
 
-nsCompatibility
-nsHTMLDocument::GetCompatibilityMode()
-{
-  return mCompatMode;
-}
-
 void
 nsHTMLDocument::SetCompatibilityMode(nsCompatibility aMode)
 {
@@ -1182,7 +1176,7 @@ nsHTMLDocument::SetCompatibilityMode(nsCompatibility aMode)
   if (shell) {
     nsPresContext *pc = shell->GetPresContext();
     if (pc) {
-      pc->SetCompatibilityMode(mCompatMode);
+      pc->CompatibilityModeChanged();
     }
   }
 }
@@ -1902,14 +1896,16 @@ nsHTMLDocument::OpenCommon(const nsACString& aContentType, PRBool aReplace)
 
   nsresult rv = NS_OK;
 
-  nsPIDOMWindow *win = GetWindow();
-  if (win) {
-    nsCOMPtr<nsIDOMElement> frameElement;
-    rv = win->GetFrameElement(getter_AddRefs(frameElement));
-    NS_ENSURE_SUCCESS(rv, rv);
+  if (!nsContentUtils::CanCallerAccess(NS_STATIC_CAST(nsIDOMHTMLDocument*, this))) {
+    nsPIDOMWindow *win = GetWindow();
+    if (win) {
+      nsCOMPtr<nsIDOMElement> frameElement;
+      rv = win->GetFrameElement(getter_AddRefs(frameElement));
+      NS_ENSURE_SUCCESS(rv, rv);
 
-    if (frameElement && !nsContentUtils::CanCallerAccess(frameElement)) {
-      return NS_ERROR_DOM_SECURITY_ERR;
+      if (frameElement && !nsContentUtils::CanCallerAccess(frameElement)) {
+        return NS_ERROR_DOM_SECURITY_ERR;
+      }
     }
   }
 

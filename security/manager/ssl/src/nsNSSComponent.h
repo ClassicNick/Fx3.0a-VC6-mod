@@ -244,6 +244,7 @@ private:
   
   void ShowAlert(AlertIdentifier ai);
   void InstallLoadableRoots();
+  void UnloadLoadableRoots();
   void LaunchSmartCardThreads();
   void ShutdownSmartCardThreads();
   nsresult InitializePIPNSSBundle();

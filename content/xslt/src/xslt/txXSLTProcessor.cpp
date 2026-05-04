@@ -41,6 +41,7 @@
 #include "txAtoms.h"
 #include "txLog.h"
 #include "txStylesheetCompileHandlers.h"
+#include "txStylesheetCompiler.h"
 #include "txExecutionState.h"
 #include "txExprResult.h"
 #ifdef TX_EXE
@@ -84,6 +85,7 @@ txXSLTProcessor::shutdown()
     txHTMLOutput::shutdown();
 #endif
 
+    txStylesheetCompilerState::shutdown();
     txHandlerTable::shutdown();
 }
 

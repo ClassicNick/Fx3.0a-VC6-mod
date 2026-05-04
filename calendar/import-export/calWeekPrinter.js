@@ -122,8 +122,26 @@ function weekPrint_format(aStream, aStart, aEnd, aCount, aItems, aTitle) {
     // Start at the beginning of the week that aStart is in, and loop until
     // we're at aEnd. In the loop we build the HTML table for each day, and
     // get the day's items using getDayTd().
-    var date = aStart.startOfWeek;
-    while(date.compare(aEnd) == -1) {
+    var date = aStart || sortedList[0].startDate || sortedList[0].entryDate ||
+               sortList[0].dueDate;
+    ASSERT(date, "can't find a good starting date to print");
+
+    var lastItem = sortedList[sortedList.length-1];
+    var end = aEnd || lastItem.startDate || lastItem.entryDate ||
+               lastItem.dueDate;
+    ASSERT(end, "can't find a good ending date to print");
+
+    date = date.startOfWeek;
+    var startOfWeek = getPrefSafe("calendar.week.start", 0);
+    date.day += startOfWeek;
+    date.normalize();
+    // Make sure we didn't go too far ahead
+    if (date.compare(aStart) == 1) {
+        date.day -= 7;
+        date.normalize();
+    }
+
+    while(date.compare(end) == -1) {
         var weekno = weekFormatter.getWeekTitle(date);
         var weekTitle = props.formatStringFromName('WeekTitle', [weekno], 1);
         body.appendChild(
@@ -141,7 +159,7 @@ function weekPrint_format(aStream, aStart, aEnd, aCount, aItems, aTitle) {
         for (var i = 0; i < 7 ; i++) {
             date.day += 1;
             date.normalize();
-            dayTds[i] = this.getDayTd(date, sortedList);
+            dayTds[date.weekday] = this.getDayTd(date, sortedList);
         }
 
         var monRow = <tr height="33%"/>;

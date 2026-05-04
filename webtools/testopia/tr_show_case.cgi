@@ -97,14 +97,15 @@ elsif ($action eq 'do_clone'){
         }
         if ($cgi->param('existing')){
             foreach my $p (@{$case->plans}){
-		$planseen{$p->id} = 1;
+		        $planseen{$p->id} = 1;
             }
         }
+        my $author = $cgi->param('keepauthor') ? $case->author->id : Bugzilla->user->id;
         push @planids, keys %planseen;
         my $newcase;
         foreach my $pid (@planids){
             $count++;
-            my $newcaseid = $case->copy($pid, $cgi->param('copy_doc'));
+            my $newcaseid = $case->copy($pid, $author, $cgi->param('copy_doc'));
             $case->link_plan($pid, $newcaseid);
             $newcase = Bugzilla::Testopia::TestCase->new($newcaseid);
             if ($cgi->param('copy_tags')){

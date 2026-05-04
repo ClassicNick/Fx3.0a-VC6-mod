@@ -131,9 +131,12 @@ sub Authenticate {
         if ($F::loginname && $F::loginname !~ /@/) {
             print p("Note! You must type in your full e-mail address, including the '\@'.");
         }
+        warn "DESPOT: Authentication failure for " . $F::loginname . "\n";
         PrintLoginForm();
         exit;
     }
+
+    warn "DESPOT: Successfully authenticated " . $F::loginname . "\n";
 
     my $passwd;
     my $disabled;
@@ -393,6 +396,9 @@ sub EditUser() {
     print table(@list);
     print submit("Save changes");
     print end_form();
+    print MyForm("UserHistory") . hidden(-name=>"email");
+    print submit("View the changes history for this user");
+    print end_form();
     print MyForm("GeneratePassword") . hidden(-name=>"email");
     print submit("Generate a new random password for this user");
     print end_form();
@@ -402,6 +408,7 @@ sub EditUser() {
 }
 
 sub DeleteUser() {
+    EnsureDespot();
     my $id = EmailToId($F::email, 1);
     $::db->do("DELETE FROM members WHERE userid = ?", undef, $id);
     $::db->do("DELETE FROM users WHERE id = ?", undef, $id);
@@ -415,6 +422,7 @@ sub DeleteUser() {
 }
 
 sub ChangeUser() {
+    EnsureDespot();
     foreach my $field ("email") {
         my $value = param($field);
         if ($value ne param("orig_$field")) {
@@ -461,6 +469,7 @@ sub ChangeUser() {
 }
 
 sub GeneratePassword {
+    EnsureDespot();
     my $email = $F::email;
     Punt("Email address is too scary for this web application") unless $email =~ /$emailregexp/;
     my $query = $::db->prepare("SELECT id FROM users WHERE email = ?");
@@ -485,7 +494,12 @@ sub GeneratePassword {
     $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
 }
     
-
+sub UserHistory {
+    EnsureDespot();
+    PrintHeader();
+    my $wherepart = "email = " . $::db->quote($F::email);
+    ListSomething("changes", "changed_when", "UserHistory", "", "changed_when", "changed_when,field,oldvalue,newvalue,who", "", {}, $wherepart);
+}
 
 
 sub ListPartitions () {
@@ -659,9 +673,13 @@ sub ListSomething {
         }
         my $thisid = shift(@row);
         push(@emaillist, $thisid);
-        push(@list, td(MyForm($editprocname) . hidden($idcolumn, $thisid) .
-                       submit("Edit") . end_form()) .
-             td(\@row));
+        if ($editprocname) {
+            push(@list, td(MyForm($editprocname) . hidden($idcolumn, $thisid) .
+                           submit("Edit") . end_form()) .
+                 td(\@row));
+        } else {
+           push(@list, td() . td(\@row));
+        }
     }
     print table(Tr(\@list));
     if ($idcolumn eq "email") {
@@ -770,7 +788,7 @@ sub FindPartition {
             exit;
         }
         PrintHeader();
-        print h1("Searching for partitions matching $file ...");
+        print h1("Searching for partitions matching " . html_quote($file) . " ...");
         foreach my $match (@matches) {
             if (param("view")) {
                 # This should display modules just as they are displayed
@@ -790,7 +808,7 @@ sub FindPartition {
     }
     else {
         PrintHeader();
-        print h1("Searching for partitions matching $file ...");
+        print h1("Searching for partitions matching " . html_quote($file) . " ...");
         print "No partitions found.";
     }
 
@@ -1257,7 +1275,9 @@ sub EmailToId {
     my $EnableDeleteUser = 1;
     for ( defined $F::command ? $F::command : 'MainMenu')
     {
-        /^FindPartition$/ || do { Authenticate(); };
+        # Only allow anonymous users access to the view parameter
+        # of FindPartition() (bug 346660)
+        (/^FindPartition$/ && param("view")) || do { Authenticate(); };
         param("command", "");
         /^AddPartition$/ && do { AddPartition(); last; };
         /^AddUser$/ && do { AddUser(); last; };
@@ -1273,6 +1293,7 @@ sub EmailToId {
         /^ListPartitions$/ && do { ListPartitions(); last; };
         /^ListUsers$/ && do { ListUsers(); last; };
         /^SetNewPassword$/ && do { SetNewPassword(); last; };
+        /^UserHistory$/ && do { UserHistory(); last; };
         /^ViewAccount$/ && do { ViewAccount(); last; };
         /^MainMenu$|/ && do { PrintHeader(), MainMenu(); last; };
     }
