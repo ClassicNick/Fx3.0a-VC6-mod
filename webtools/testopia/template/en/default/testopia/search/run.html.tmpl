@@ -9,16 +9,24 @@
   # implied. See the License for the specific language governing
   # rights and limitations under the License.
   #
-  # The Original Code is the Bugzilla Test Runner System.
+  # The Original Code is the Bugzilla Testopia System.
   #
-  # The Initial Developer of the Original Code is Maciej Maczynski.
-  # Portions created by Maciej Maczynski are Copyright (C) 2001
-  # Maciej Maczynski. All Rights Reserved.
+  # The Initial Developer of the Original Code is Greg Hendricks.
+  # Portions created by Greg Hendricks are Copyright (C) 2001
+  # Greg Hendricks. All Rights Reserved.
   #
   # Contributor(s): Greg Hendricks <ghendricks@novell.com>
   #%]
 
-<form action="tr_list_runs.cgi" method="GET">  
+[% IF report %]
+<form action="tr_run_reports.cgi" method="GET">    
+[% PROCESS "testopia/search/report-matrix.html.tmpl" 
+   obj = run 
+%]   
+[% ELSE %]
+<form action="tr_list_runs.cgi" method="GET">
+[% END %]
+
   <input type="hidden" name="current_tab" value="[% current_tab FILTER none %]" />
 <fieldset>
     <legend><strong>Product</strong></legend>

@@ -17,8 +17,16 @@
   #
   # Contributor(s): Greg Hendricks <ghendricks@novell.com>
   #%]
-  
-<form action="tr_list_cases.cgi" method="GET">  
+
+
+[% IF report %]
+<form action="tr_case_reports.cgi" method="GET"> 
+[% PROCESS "testopia/search/report-matrix.html.tmpl" 
+   obj = case 
+%]   
+[% ELSE %]
+<form action="tr_list_cases.cgi" method="GET">
+[% END %]
   <input type="hidden" name="current_tab" value="[% current_tab FILTER none %]" />
 <fieldset>
     <legend><strong>Product</strong></legend>

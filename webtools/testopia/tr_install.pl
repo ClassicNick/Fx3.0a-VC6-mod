@@ -71,19 +71,21 @@ print "Checking Testopia groups ...\n";
 # Create groups if needed and grant permissions to the admin group over them
 my $adminid = GetAdminGroup($dbh);
 my $groupid;
-
-$groupid = tr_AddGroup($dbh, 'managetestplans',
-    'Can create, destroy, run and edit test plans.', $adminid);
-tr_AssignAdminGrants($dbh, $groupid, $adminid);
-
-$groupid = tr_AddGroup($dbh, 'edittestcases',
-    'Can add, delete and edit test cases.', $adminid);
-tr_AssignAdminGrants($dbh, $groupid, $adminid);
-
-$groupid = tr_AddGroup($dbh, 'runtests',
-    'Can add, delete and edit test runs.', $adminid);
-tr_AssignAdminGrants($dbh, $groupid, $adminid);
-
+if (!GroupDoesExist($dbh, "managetestplans")) {
+    $groupid = tr_AddGroup($dbh, 'managetestplans',
+        'Can create, destroy, run and edit test plans.', $adminid);
+    tr_AssignAdminGrants($dbh, $groupid, $adminid);
+}
+if (!GroupDoesExist($dbh, "edittestcases")) {
+    $groupid = tr_AddGroup($dbh, 'edittestcases',
+        'Can add, delete and edit test cases.', $adminid);
+    tr_AssignAdminGrants($dbh, $groupid, $adminid);
+}
+if (!GroupDoesExist($dbh, "runtests")) {
+    $groupid = tr_AddGroup($dbh, 'runtests',
+        'Can add, delete and edit test runs.', $adminid);
+    tr_AssignAdminGrants($dbh, $groupid, $adminid);
+}
 print "Done.\n\n";
 ##############################################################################
 print "Cleaning up Testopia cache ...\n";
@@ -432,7 +434,10 @@ sub populateEnvTables {
     print "Populating test_environment_category table ...\n";
     $dbh->do("INSERT INTO test_environment_category " .
         "(env_category_id, product_id, name) " .
-        "VALUES (1, 0, 'Operating System'), (2, 0, 'Hardware')");
+        "VALUES (1, 0, 'Operating System')");
+    $dbh->do("INSERT INTO test_environment_category " .
+        "(env_category_id, product_id, name) " .
+        "VALUES (2, 0, 'Hardware')");
 
     print "Populating test_environment_element table ...\n";
     $sth = $dbh->prepare("INSERT INTO test_environment_element " .
@@ -522,22 +527,16 @@ sub migrateEnvData {
 #
 
 sub tr_AddGroup {
-  my ($dbh, $name, $desc) = @_;
+    my ($dbh, $name, $desc) = @_;
 
-  my ($id) = GroupDoesExist($dbh, $name);
-
-  return $id if $id;
-
-  print "Adding group $name ...\n";
-  my $sth = $dbh->prepare('INSERT INTO groups
-                          (name, description, userregexp, isbuggroup)
-                          VALUES (?, ?, ?, ?)');
-  $sth->execute($name, $desc, '', 0);
-  $sth = $dbh->prepare("SELECT last_insert_id()");
-  $sth->execute();
-  ($id) = $sth->fetchrow_array();
-
-  return $id;
+    return 0 if GroupDoesExist($dbh, $name);
+    
+    print "Adding group $name ...\n";
+    my $sth = $dbh->prepare("INSERT INTO groups " .
+        "(name, description, userregexp, isbuggroup, last_changed) " .
+        "VALUES (?, ?, ?, ?, NOW())");
+    $sth->execute($name, $desc, "", 0);
+    return $dbh->bz_last_key("groups", "id");
 }
 
 sub GetAdminGroup {
@@ -585,13 +584,8 @@ sub tr_AssignAdminGrants {
 
 sub GroupDoesExist {
   my ($dbh, $name) = @_;
-  my $sth = $dbh->prepare("SELECT id FROM groups WHERE name='$name'");
-  $sth->execute;
-  my $id = 0;
-  if ($sth->rows) {
-    ($id) = $sth->fetchrow_array();
-  }
-  return $id;
+  return $dbh->selectrow_array("SELECT COUNT(*) FROM groups WHERE name = ?",
+      undef, $name);
 }
 
 sub DieWithStyle {

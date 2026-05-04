@@ -13,19 +13,25 @@
 
 <head>
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
-	<title>{$app|capitalize} Add-ons | Mozilla Corporation</title>
+	<title>{if $title}{$title} | {/if}{$app|capitalize} Add-ons | Mozilla Corporation</title>
+    <meta name="keywords" content="Mozilla add-ons, Mozilla, Extensions, Themes, Plugins, Dictionaries, Search plugins, Firefox"/>
 	<link rel="stylesheet" type="text/css" href="{$config.webpath}/css/rustico/addons-rustico.css" media="screen"/>
 	<link rel="stylesheet" type="text/css" href="{$config.webpath}/css/forms.css" media="screen"/>
+    <link rel="alternate" type="application/rss+xml" title="New Firefox Extensions" href="{$config.webpath}/firefox/extensions/newest/"/>
+    <link rel="home" title="Home" href="https://addons.mozilla.org/"/>
+    <link rel="icon" href="{$config.webpath}/images/favicon.ico" type="image/png"/>
     <script src="{$config.webpath}/js/install.js" type="text/javascript"></script>
-    <script src="{$config.webpath}/js/search.js" type="text/javascript"></script>
-    <script src="{$config.webpath}/js/search-plugin.js" type="text/javascript"></script>  
+    <script src="{$config.webpath}/js/search-plugin.js" type="text/javascript"></script>
+    {if $extraHeaders}
+    {$extraHeaders}
+    {/if}
 </head>
 
 <body id="mozilla-com">
 
 	<div id="header">
 		<div>
-			<h1><img src="{$config.webpath}/images/rustico/header/moz-com-logo.png" height="38" width="89" alt="Mozilla Corporation" /></h1>
+			<h1><a href="http://www.mozilla.com"><img src="{$config.webpath}/images/rustico/header/moz-com-logo.png" height="38" width="89" border="0" alt="Mozilla Corporation" /></a></h1>
 			<ul>
 				<li id="menu-products"><a href="http://www.mozilla.com/products/">Products</a></li>
 {if $currentTab eq "home"}

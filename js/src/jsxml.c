@@ -3101,7 +3101,7 @@ ToAttributeName(JSContext *cx, jsval v)
     if (!qn)
         return NULL;
 
-    JS_PUSH_SINGLE_TEMP_ROOT(cx, qn, &tvr);
+    JS_PUSH_TEMP_ROOT_GCTHING(cx, qn, &tvr);
     obj = js_GetAttributeNameObject(cx, qn);
     JS_POP_TEMP_ROOT(cx, &tvr);
     if (!obj)
@@ -3591,13 +3591,18 @@ Descendants(JSContext *cx, JSXML *xml, jsval id)
     return list;
 }
 
+static JSBool
+xml_equality(JSContext *cx, JSObject *obj, jsval v, JSBool *bp);
+
 /* Recursive (JSXML *) parameterized version of Equals. */
 static JSBool
 XMLEquals(JSContext *cx, JSXML *xml, JSXML *vxml, JSBool *bp)
 {
     JSXMLQName *qn, *vqn;
     uint32 i, j, n;
-    JSXML **xvec, **vvec, *attr, *vattr;
+    JSXMLArrayCursor cursor, vcursor;
+    JSXML *kid, *vkid, *attr, *vattr;
+    JSBool ok;
     JSObject *xobj, *vobj;
 
 retry:
@@ -3630,27 +3635,36 @@ retry:
 
     if (JSXML_HAS_VALUE(xml)) {
         *bp = js_EqualStrings(xml->xml_value, vxml->xml_value);
-    } else if ((n = xml->xml_kids.length) != vxml->xml_kids.length) {
+    } else if (xml->xml_kids.length != vxml->xml_kids.length) {
         *bp = JS_FALSE;
     } else {
-        xvec = (JSXML **) xml->xml_kids.vector;
-        vvec = (JSXML **) vxml->xml_kids.vector;
-        for (i = 0; i < n; i++) {
-            xobj = js_GetXMLObject(cx, xvec[i]);
-            vobj = js_GetXMLObject(cx, vvec[i]);
-            if (!xobj || !vobj)
-                return JS_FALSE;
-            if (!js_XMLObjectOps.equality(cx, xobj, OBJECT_TO_JSVAL(vobj), bp))
-                return JS_FALSE;
-            if (!*bp)
+        XMLArrayCursorInit(&cursor, &xml->xml_kids);
+        XMLArrayCursorInit(&vcursor, &vxml->xml_kids);
+        for (;;) {
+            kid = (JSXML *) XMLArrayCursorNext(&cursor);
+            vkid = (JSXML *) XMLArrayCursorNext(&vcursor);
+            if (!kid || !vkid) {
+                *bp = !kid && !vkid;
+                ok = JS_TRUE;
+                break;
+            }
+            xobj = js_GetXMLObject(cx, kid);
+            vobj = js_GetXMLObject(cx, vkid);
+            ok = xobj && vobj &&
+                 xml_equality(cx, xobj, OBJECT_TO_JSVAL(vobj), bp);
+            if (!ok || !*bp)
                 break;
         }
+        XMLArrayCursorFinish(&vcursor);
+        XMLArrayCursorFinish(&cursor);
+        if (!ok)
+            return JS_FALSE;
 
         if (*bp && xml->xml_class == JSXML_CLASS_ELEMENT) {
             n = xml->xml_attrs.length;
             if (n != vxml->xml_attrs.length)
                 *bp = JS_FALSE;
-            for (i = 0; i < n; i++) {
+            for (i = 0; *bp && i < n; i++) {
                 attr = XMLARRAY_MEMBER(&xml->xml_attrs, i, JSXML);
                 if (!attr)
                     continue;
@@ -3663,8 +3677,6 @@ retry:
                 if (!vattr)
                     continue;
                 *bp = js_EqualStrings(attr->xml_value, vattr->xml_value);
-                if (!*bp)
-                    break;
             }
         }
     }
@@ -7618,7 +7630,7 @@ js_NewXMLObject(JSContext *cx, JSXMLClass xml_class)
     xml = js_NewXML(cx, xml_class);
     if (!xml)
         return NULL;
-    JS_PUSH_SINGLE_TEMP_ROOT(cx, xml, &tvr);
+    JS_PUSH_TEMP_ROOT_GCTHING(cx, xml, &tvr);
     obj = js_GetXMLObject(cx, xml);
     JS_POP_TEMP_ROOT(cx, &tvr);
     return obj;

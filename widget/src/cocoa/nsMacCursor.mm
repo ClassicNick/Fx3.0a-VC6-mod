@@ -19,6 +19,7 @@
  * Andrew Thompson. All Rights Reserved.
  * 
  * Contributor(s):
+ *    Josh Aas <josh@mozilla.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,7 +36,6 @@
  * ***** END LICENSE BLOCK ***** */
 
 #import "nsMacCursor.h"
-#import "nsMacResources.h"
 #import "nsDebug.h"
 
 /*! @category   nsMacCursor (PrivateMethods)
@@ -380,26 +380,71 @@
 @end
 
 @implementation nsResourceCursor
+
+static short sRefNum = kResFileNotOpened;
+static short sSaveResFile = 0;
+
+// this could be simplified if it was rewritten using Cocoa
++(void)openLocalResourceFile
+{
+  if (sRefNum == kResFileNotOpened) {
+    CFBundleRef appBundle = ::CFBundleGetMainBundle();
+    if (appBundle) {
+      CFURLRef executable = ::CFBundleCopyExecutableURL(appBundle);
+      if (executable) {
+        CFURLRef binDir = ::CFURLCreateCopyDeletingLastPathComponent(kCFAllocatorDefault, executable);
+        if (binDir) {
+          CFURLRef resourceFile = ::CFURLCreateCopyAppendingPathComponent(kCFAllocatorDefault, binDir,
+                                                                          CFSTR("libwidget.rsrc"), PR_FALSE);
+          if (resourceFile) {
+            FSRef resourceRef;
+            if (::CFURLGetFSRef(resourceFile, &resourceRef))
+              ::FSOpenResourceFile(&resourceRef, 0, NULL, fsRdPerm, &sRefNum);
+            ::CFRelease(resourceFile);
+          }
+          ::CFRelease(binDir);
+        }
+        ::CFRelease(executable);
+      }
+    }
+  }
+
+  if (sRefNum == kResFileNotOpened)
+    return;
+  
+  sSaveResFile = ::CurResFile();
+  ::UseResFile(sRefNum);
+}
+
++(void)closeLocalResourceFile
+{
+  if (sRefNum == kResFileNotOpened)
+    return;
+
+  ::UseResFile(sSaveResFile);
+}
+
 -(id) initWithFirstFrame: (int) aFirstFrame lastFrame: (int) aLastFrame
 {
-  self= [super init];
-  //Appearance Manager cursors all fall into the range 0..127. Custom application CURS resources begin at id 128.
-  NS_ASSERTION(aFirstFrame >= 128 && aLastFrame >= 128 && aLastFrame >= aFirstFrame, "Nonsensical frame indicies");
-  mFirstFrame = aFirstFrame;
-  mLastFrame = aLastFrame;
+  if ((self = [super init])) {
+    //Appearance Manager cursors all fall into the range 0..127. Custom application CURS resources begin at id 128.
+    NS_ASSERTION(aFirstFrame >= 128 && aLastFrame >= 128 && aLastFrame >= aFirstFrame, "Nonsensical frame indicies");
+    mFirstFrame = aFirstFrame;
+    mLastFrame = aLastFrame;
+  }
   return self;
 }
 
 - (void) setFrame: (int) aFrameIndex
 {
-  nsMacResources::OpenLocalResourceFile();
+  [nsResourceCursor openLocalResourceFile];
   CursHandle cursHandle = ::GetCursor(mFirstFrame + aFrameIndex);
   NS_ASSERTION(cursHandle, "Can't load cursor, is the resource file installed correctly?");
   if (cursHandle)
   {
     ::SetCursor(*cursHandle);
   }
-  nsMacResources::CloseLocalResourceFile();
+  [nsResourceCursor closeLocalResourceFile];
 }
 
 - (int) numFrames

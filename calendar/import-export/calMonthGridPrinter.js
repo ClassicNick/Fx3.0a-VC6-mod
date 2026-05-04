@@ -148,7 +148,7 @@ function monthPrint_format(aStream, aStart, aEnd, aCount, aItems, aTitle) {
 
     while (date.compare(end) <= 0) {
         var monthName = calGetString("dateFormat", "month." + (date.month +1)+ ".name");
-        monthName += " " + start.year;
+        monthName += " " + date.year;
         body.appendChild(
                      <table border='0' width='100%' class='main-table'>
                          <tr> 
@@ -212,14 +212,14 @@ function monthPrint_getHTML(aStart, aItems) {
     var firstDate = aStart.startOfMonth.startOfWeek.clone();
     firstDate.day += weekStart;
     firstDate.normalize();
-    if (firstDate.weekday < weekStart) {
+    if (aStart.startOfMonth.weekday < weekStart) {
         // Go back one week to make sure we display this day
         firstDate.day -= 7;
         firstDate.normalize();
     }
 
     var lastDate = aStart.endOfMonth.endOfWeek.clone();
-    if (lastDate.weekday < weekStart) {
+    if (aStart.endOfMonth.weekday < weekStart) {
         // Go back one week so we don't display any extra days
         lastDate.day -= 7;
         lastDate.normalize();

@@ -426,8 +426,6 @@ MAKE_CTOR(CreateRange,                    nsIDOMRange,                 NS_NewRan
 MAKE_CTOR(CreateRangeUtils,               nsIRangeUtils,               NS_NewRangeUtils)
 MAKE_CTOR(CreateContentIterator,          nsIContentIterator,          NS_NewContentIterator)
 MAKE_CTOR(CreatePreContentIterator,       nsIContentIterator,          NS_NewPreContentIterator)
-MAKE_CTOR(CreateGeneratedContentIterator, nsIContentIterator,          NS_NewGenRegularIterator)
-MAKE_CTOR(CreateGeneratedSubtreeIterator, nsIContentIterator,          NS_NewGenSubtreeIterator)
 MAKE_CTOR(CreateSubtreeIterator,          nsIContentIterator,          NS_NewContentSubtreeIterator)
 // CreateHTMLImgElement, see below
 // CreateHTMLOptionElement, see below
@@ -941,16 +939,6 @@ static const nsModuleComponentInfo gComponents[] = {
     NS_PRECONTENTITERATOR_CID,
     "@mozilla.org/content/pre-content-iterator;1",
     CreatePreContentIterator },
-
-  { "Generated Content iterator",
-    NS_GENERATEDCONTENTITERATOR_CID,
-    "@mozilla.org/content/generated-content-iterator;1",
-    CreateGeneratedContentIterator },
-
-  { "Generated Subtree iterator",
-    NS_GENERATEDSUBTREEITERATOR_CID,
-    "@mozilla.org/content/generated-subtree-content-iterator;1",
-    CreateGeneratedSubtreeIterator },
 
   { "Subtree iterator",
     NS_SUBTREEITERATOR_CID,

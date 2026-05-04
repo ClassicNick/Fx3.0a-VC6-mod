@@ -167,6 +167,14 @@ const unsigned long kNoToolbarsChromeMask = (nsIWebBrowserChrome::CHROME_ALL & ~
                                                                                  nsIWebBrowserChrome::CHROME_PERSONAL_TOOLBAR |
                                                                                  nsIWebBrowserChrome::CHROME_LOCATIONBAR)); 
 
+// context menu items tags
+const int kFrameRelatedItemsTag = 100;
+const int kFrameInapplicableItemsTag = 101;
+const int kSelectionRelatedItemsTag = 102;
+const int kSpellingRelatedItemsTag = 103;
+const int kItemsNeedingOpenBehaviorAlternatesTag = 104;
+const int kItemsNeedingForceAlternateTag = 105;
+
 // Cached toolbar defaults read in from a plist. If null, we'll use
 // hardcoded defaults.
 static NSArray* sToolbarDefaults = nil;
@@ -416,6 +424,18 @@ public:
     [target validateToolbarItem:self];
 }
 
+//
+// -setEnabled:
+//
+// Make sure that the menu form, which is used for the text-only view,
+// is enabled and disabled with the rest of the toolbar item.
+//
+- (void)setEnabled:(BOOL)enabled
+{
+  [super setEnabled:enabled];
+  [[self menuFormRepresentation] setEnabled:enabled];
+}
+
 @end
 
 #pragma mark -
@@ -530,6 +550,7 @@ enum BWCOpenDest {
 - (void)buildFeedsDetectedListMenu:(NSNotification*)notifer; 
 - (IBAction)openFeedInExternalApp:(id)sender;
 
+- (void)insertForceAlternatesIntoMenu:(NSMenu *)inMenu;
 - (BOOL)prepareSpellingSuggestionMenu:(NSMenu*)inMenu tag:(int)inTag;
 
 @end
@@ -882,7 +903,13 @@ enum BWCOpenDest {
     [[self window] setAcceptsMouseMovedEvents:YES];
 
     [self setupToolbar];
-    
+
+    // Insert alternate menu items for force reload into the context menus that have reload items
+    // This is necessary because IB won't accept shift modifiers on menu items that don't have keyEquivalents
+    [self insertForceAlternatesIntoMenu:mPageMenu];
+    [self insertForceAlternatesIntoMenu:mTabMenu];
+    [self insertForceAlternatesIntoMenu:mTabBarMenu];
+
     // Listen to the context menu events from the URL bar for the feed icon
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(buildFeedsDetectedListMenu:)
@@ -1103,6 +1130,20 @@ enum BWCOpenDest {
   return sToolbarDefaults;
 }
 
+// +shouldLoadInBackground
+//
+// gets the foreground/background tab loading pref
+//
+
++ (BOOL)shouldLoadInBackground
+{
+  BOOL loadInBackground = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
+
+  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
+    loadInBackground = !loadInBackground;
+
+  return loadInBackground;
+}
 
 - (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
 {
@@ -1423,28 +1464,8 @@ enum BWCOpenDest {
 
     return ![self bookmarkManagerIsVisible] || [self canHideBookmarks];
   }
-  else if (action == @selector(reload:))
-    return [[self getBrowserWrapper] canReload];
-  else if (action == @selector(stop:))
-    return [mBrowserView isBusy];
-  else if (action == @selector(addBookmark:))
-    return ![mBrowserView isEmpty];
-  else if (action == @selector(biggerTextSize:))
-    return [self canMakeTextBigger];
-  else if ( action == @selector(smallerTextSize:))
-    return [self canMakeTextSmaller];
-  else if (action == @selector(newTab:))
-    return YES;
-  else if (action == @selector(closeCurrentTab:))
-    return ([mTabBrowser numberOfTabViewItems] > 1 && [[self window] isKeyWindow]);
-  else if (action == @selector(sendURL:) || action == @selector(fillForm:))
-    return ![[[self getBrowserWrapper] getCurrentURI] hasPrefix:@"about:"];
-  else if (action == @selector(viewSource:)) {
-    return (![self bookmarkManagerIsVisible] &&
-            [[[self getBrowserWrapper] getBrowserView] isTextBasedContent]);
-  }
-  else
-    return YES;
+
+  return [self validateActionBySelector:action];
 }
 
 //
@@ -1547,22 +1568,10 @@ enum BWCOpenDest {
 {
   SEL action = [aMenuItem action];
 
-  if (action == @selector(moveTabToNewWindow:) ||
-      action == @selector(closeCurrentTab:)    ||
-      action == @selector(closeSendersTab:)    ||
-      action == @selector(closeOtherTabs:))
-    return ([mTabBrowser numberOfTabViewItems] > 1);
-
   if (action == @selector(reloadSendersTab:)) {
     BrowserTabViewItem* sendersTab = [[self getTabBrowser] itemWithTag:[aMenuItem tag]];
     return [[sendersTab view] canReload];
   }
-
-  if (action == @selector(reload:))
-    return [[self getBrowserWrapper] canReload];
-
-  if (action == @selector(fillForm:))
-    return ![[[self getBrowserWrapper] getCurrentURI] hasPrefix:@"about:"];
 
   if(action == @selector(getInfo:)) {
     if([self bookmarkManagerIsVisible])
@@ -1571,6 +1580,51 @@ enum BWCOpenDest {
       [aMenuItem setTitle:NSLocalizedString(@"Page Info", nil)];
   }
 
+  return [self validateActionBySelector:action];
+}
+
+- (BOOL)validateActionBySelector:(SEL)action
+{
+  if (action == @selector(back:))
+    return [[mBrowserView getBrowserView] canGoBack];
+  if (action == @selector(forward:))
+    return [[mBrowserView getBrowserView] canGoForward];
+  if (action == @selector(stop:))
+    return [mBrowserView isBusy];
+  if (action == @selector(reload:))
+    return [[self getBrowserWrapper] canReload];
+  if (action == @selector(moveTabToNewWindow:) ||
+      action == @selector(closeSendersTab:) ||
+      action == @selector(closeOtherTabs:) ||
+      action == @selector(nextTab:) ||
+      action == @selector(previousTab:))
+  {
+    return ([mTabBrowser numberOfTabViewItems] > 1);
+  }
+  if (action == @selector(closeCurrentTab:))
+    return ([mTabBrowser numberOfTabViewItems] > 1 && [[self window] isKeyWindow]);
+  if (action == @selector(addBookmark:))
+    return ![mBrowserView isEmpty];
+  if (action == @selector(makeTextBigger:))
+    return [self canMakeTextBigger];
+  if (action == @selector(makeTextSmaller:))
+    return [self canMakeTextSmaller];
+  if (action == @selector(makeTextDefaultSize:))
+    return [self canMakeTextDefaultSize];
+  if (action == @selector(sendURL:))
+    return ![[self getBrowserWrapper] isInternalURI];
+  if (action == @selector(viewSource:) ||
+      action == @selector(viewPageSource:) ||
+      action == @selector(fillForm:))
+  {
+    BrowserWrapper* browser = [self getBrowserWrapper];
+    return (![browser isInternalURI] && [[browser getBrowserView] isTextBasedContent]);
+  }
+  if (action == @selector(printDocument:) ||
+      action == @selector(pageSetup:))
+  {
+    return ![self bookmarkManagerIsVisible];
+  }
 
   return YES;
 }
@@ -2827,11 +2881,17 @@ enum BWCOpenDest {
 - (IBAction)reload:(id)aSender
 {
   unsigned int reloadFlags = NSLoadFlagsNone;
-  
-  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
+
+  if ([aSender respondsToSelector:@selector(keyEquivalent)]) {
+    // Capital R tests for shift when there's a keyEquivalent, keyEquivalentModifierMask tests when there isn't
+    if ([[aSender keyEquivalent] isEqualToString:@"R"] || ([aSender keyEquivalentModifierMask] & NSShiftKeyMask))
+      reloadFlags = NSLoadFlagsBypassCacheAndProxy;
+  }
+  // It's a toolbar button, so we test for shift using modifierFlags
+  else if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
     reloadFlags = NSLoadFlagsBypassCacheAndProxy;
-  
-  [[mBrowserView getBrowserView] reload: reloadFlags];
+
+  [[mBrowserView getBrowserView] reload:reloadFlags];
 }
 
 - (IBAction)stop:(id)aSender
@@ -3195,12 +3255,15 @@ enum BWCOpenDest {
 
 - (IBAction)reloadSendersTab:(id)sender
 {
-  if ([sender isMemberOfClass:[NSMenuItem class]])
-  {
+  if ([sender isMemberOfClass:[NSMenuItem class]]) {
     BrowserTabViewItem* tabViewItem = [mTabBrowser itemWithTag:[sender tag]];
-    if (tabViewItem)
-    {
-      [[[tabViewItem view] getBrowserView] reload: NSLoadFlagsNone];
+    if (tabViewItem) {
+      unsigned int reloadFlags = NSLoadFlagsNone;
+      // Capital R tests for shift when there's a keyEquivalent, keyEquivalentModifierMask tests when there isn't
+      if ([[sender keyEquivalent] isEqualToString:@"R"] || ([sender keyEquivalentModifierMask] & NSShiftKeyMask))
+        reloadFlags = NSLoadFlagsBypassCacheAndProxy;
+
+      [[[tabViewItem view] getBrowserView] reload:reloadFlags];
     }
   }
 }
@@ -3208,13 +3271,19 @@ enum BWCOpenDest {
 - (IBAction)reloadAllTabs:(id)sender
 {
   unsigned int reloadFlags = NSLoadFlagsNone;
-  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
+
+  if ([sender respondsToSelector:@selector(keyEquivalent)]) {
+    // Capital R tests for shift when there's a keyEquivalent, keyEquivalentModifierMask tests when there isn't
+    if ([[sender keyEquivalent] isEqualToString:@"R"] || ([sender keyEquivalentModifierMask] & NSShiftKeyMask))
+      reloadFlags = NSLoadFlagsBypassCacheAndProxy;
+  }
+  // It's a toolbar button, so we test for shift using modifierFlags
+  else if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
     reloadFlags = NSLoadFlagsBypassCacheAndProxy;
 
   NSEnumerator* tabsEnum = [[mTabBrowser tabViewItems] objectEnumerator];
   BrowserTabViewItem* curTabItem;
-  while ((curTabItem = [tabsEnum nextObject]))
-  {
+  while ((curTabItem = [tabsEnum nextObject])) {
     if ([curTabItem isKindOfClass:[BrowserTabViewItem class]])
       [[[curTabItem view] getBrowserView] reload:reloadFlags];
   }
@@ -3228,7 +3297,7 @@ enum BWCOpenDest {
     if (tabViewItem)
     {
       NSString* url = [[tabViewItem view] getCurrentURI];
-      BOOL backgroundLoad = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
+      BOOL backgroundLoad = [BrowserWindowController shouldLoadInBackground];
 
       [self openNewWindowWithURL:url referrer:nil loadInBackground:backgroundLoad allowPopups:NO];
 
@@ -3452,9 +3521,7 @@ enum BWCOpenDest {
   
   // if we replace all tabs (because we opened a tab group), or we open additional tabs
   // with the "focus new tab"-pref on, focus the first new tab.
-  BOOL loadInBackground = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
-  
-  if (!((tabPolicy == eAppendTabs) && loadInBackground))
+  if (!((tabPolicy == eAppendTabs) && [BrowserWindowController shouldLoadInBackground]))
     [mTabBrowser selectTabViewItem:tabViewToSelect];
     
 }
@@ -3722,15 +3789,15 @@ enum BWCOpenDest {
   BOOL showFrameItems = NO;
   BOOL showSpellingItems = NO;
   BOOL needsAlternates = NO;
-  
+
   NSMenu* menuPrototype = nil;
   int contextMenuFlags = mDataOwner->mContextMenuFlags;
-  
+
   NSArray* emailAddresses = nil;
   unsigned numEmailAddresses = 0;
 
   BOOL hasSelection = [[mBrowserView getBrowserView] canCopy];
-  
+
   if ((contextMenuFlags & nsIContextMenuListener::CONTEXT_LINK) != 0)
   {
     emailAddresses = [self mailAddressesInContextMenuLinkNode];
@@ -3770,17 +3837,17 @@ enum BWCOpenDest {
     [mForwardItem setEnabled: [[mBrowserView getBrowserView] canGoForward]];
     [mCopyItem    setEnabled:hasSelection];
   }
-    
+
   if (mDataOwner->mContextMenuNode) {
     nsCOMPtr<nsIDOMDocument> ownerDoc;
     mDataOwner->mContextMenuNode->GetOwnerDocument(getter_AddRefs(ownerDoc));
-  
+
     nsCOMPtr<nsIDOMWindow> contentWindow = [[mBrowserView getBrowserView] getContentWindow];
 
     nsCOMPtr<nsIDOMDocument> contentDoc;
     if (contentWindow)
       contentWindow->GetDocument(getter_AddRefs(contentDoc));
-    
+
     showFrameItems = (contentDoc != ownerDoc);
   }
 
@@ -3788,11 +3855,12 @@ enum BWCOpenDest {
   // our only copy of the menu
   NSMenu* result = [[menuPrototype copy] autorelease];
 
-  const int kFrameRelatedItemsTag = 100;
-  const int kFrameInapplicableItemsTag = 101;
-  const int kSelectionRelatedItemsTag = 102;
-  const int kSpellingRelatedItemsTag = 103;
-  const int kItemsNeedingAlternatesTag = 104;
+  // validate View Page/Frame Source
+  BrowserWrapper* browser = [self getBrowserWrapper];
+  if ([browser isInternalURI] || ![[browser getBrowserView] isTextBasedContent]) {
+    [[result itemWithTarget:self andAction:@selector(viewPageSource:)] setEnabled:NO];
+    [[result itemWithTarget:self andAction:@selector(viewSource:)] setEnabled:NO];
+  }
 
   if (showSpellingItems)
     showSpellingItems = [self prepareSpellingSuggestionMenu:result tag:kSpellingRelatedItemsTag];
@@ -3845,7 +3913,7 @@ enum BWCOpenDest {
       NSMenuItem* menuItem = [menuArray objectAtIndex:i];
 
       // Only create alternates for the items that need them
-      if ([menuItem tag] == kItemsNeedingAlternatesTag) {
+      if ([menuItem tag] == kItemsNeedingOpenBehaviorAlternatesTag) {
         NSString* altMenuItemTitle;
         if (inNewTab)
           altMenuItemTitle = [NSString stringWithFormat:NSLocalizedString(@"Action in New Tab", nil), [menuItem title]];
@@ -3860,17 +3928,38 @@ enum BWCOpenDest {
                                                               action:action
                                                               target:target
                                                            modifiers:NSCommandKeyMask];
-        [result insertItem:cmdMenuItem atIndex:i + 1];
+        [result insertItem:cmdMenuItem atIndex:(i + 1)];
         NSMenuItem* cmdShiftMenuItem = [NSMenu alternateMenuItemWithTitle:altMenuItemTitle
                                                                    action:action
                                                                    target:target
                                                                 modifiers:(NSCommandKeyMask | NSShiftKeyMask)];
-        [result insertItem:cmdShiftMenuItem atIndex:i + 2];
+        [result insertItem:cmdShiftMenuItem atIndex:(i + 2)];
       }
     }
   }
 
   return result;
+}
+
+- (void)insertForceAlternatesIntoMenu:(NSMenu *)inMenu
+{
+  NSArray* menuArray = [inMenu itemArray];
+
+  for (unsigned int i = 0; i < [menuArray count]; i++) {
+    NSMenuItem* menuItem = [menuArray objectAtIndex:i];
+
+    if ([menuItem tag] == kItemsNeedingForceAlternateTag) {
+      // @"Force Format" = @"Force %@", so this gives the menu's title prepended with "Force"
+      NSString* title = [NSString stringWithFormat:NSLocalizedString(@"Force Format", nil), [menuItem title]];
+
+      NSMenuItem* forceReloadItem = [NSMenu alternateMenuItemWithTitle:title
+                                                                action:[menuItem action]
+                                                                target:[menuItem target]
+                                                             modifiers:([menuItem keyEquivalentModifierMask] | NSShiftKeyMask)];
+
+      [inMenu insertItem:forceReloadItem atIndex:(i + 1)];
+    }
+  }
 }
 
 //
@@ -4002,7 +4091,7 @@ enum BWCOpenDest {
   if ([hrefStr length] == 0)
     return;
 
-  BOOL loadInBackground = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
+  BOOL loadInBackground = [BrowserWindowController shouldLoadInBackground];
 
   NSString* referrer = [[mBrowserView getBrowserView] getFocusedURLString];
 
@@ -4092,9 +4181,7 @@ enum BWCOpenDest {
 
     if (modifiers & NSCommandKeyMask) {
       BOOL loadInTab = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.opentabfor.middleclick" withSuccess:NULL];
-      BOOL loadInBG  = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
-      if (modifiers & NSShiftKeyMask)
-        loadInBG = !loadInBG; // shift key should toggle the foreground/background pref as it does elsewhere
+      BOOL loadInBG = [BrowserWindowController shouldLoadInBackground];
       if (loadInTab)
         [self openNewTabWithURL:urlStr referrer:referrer loadInBackground:loadInBG allowPopups:NO setJumpback:NO];
       else

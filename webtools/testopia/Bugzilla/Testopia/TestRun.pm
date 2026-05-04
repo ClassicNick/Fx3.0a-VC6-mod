@@ -88,6 +88,24 @@ use constant DB_COLUMNS => qw(
 
 our $columns = join(", ", DB_COLUMNS);
 
+sub report_columns {
+    my $self = shift;
+    my %columns;
+    # Changes here need to match Report.pm
+    $columns{'Status'}        = "run_status";        
+    $columns{'Version'}       = "default_product_version";
+    $columns{'Product'}       = "product";
+    $columns{'Build'}         = "build";
+    $columns{'Milestone'}     = "milestone";
+    $columns{'Environment'}   = "environment";
+    $columns{'Tags'}          = "tags";
+    $columns{'Manager'}       = "manager";
+    my @result;
+    push @result, {'name' => $_, 'id' => $columns{$_}} foreach (sort(keys %columns));
+    unshift @result, {'name' => '<none>', 'id'=> ''};
+    return \@result;     
+        
+}
 
 ###############################
 ####       Methods         ####
@@ -792,6 +810,18 @@ sub stop_date         { return $_[0]->{'stop_date'}; }
 sub summary           { return $_[0]->{'summary'};  }
 sub notes             { return $_[0]->{'notes'};  }
 sub product_version   { return $_[0]->{'product_version'};  }
+
+=head2 type
+
+Returns 'case'
+
+=cut
+
+sub type {
+    my $self = shift;
+    $self->{'type'} = 'run';
+    return $self->{'type'};
+}
 
 =head2 plan
 

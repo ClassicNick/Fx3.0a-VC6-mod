@@ -136,6 +136,7 @@ typedef enum
   IBOutlet NSMenu*              mImageLinkMenu;
   IBOutlet NSMenu*              mImageMailToLinkMenu;
   IBOutlet NSMenu*              mTabMenu;
+  IBOutlet NSMenu*              mTabBarMenu;
 
   // Context menu item outlets
   IBOutlet NSMenuItem*          mBackItem;
@@ -222,6 +223,7 @@ typedef enum
 - (void)stopThrobber;
 - (void)clickThrobber:(id)aSender;
 
+- (BOOL)validateActionBySelector:(SEL)action;
 - (BOOL)canMakeTextBigger;
 - (BOOL)canMakeTextSmaller;
 - (BOOL)canMakeTextDefaultSize;
@@ -350,6 +352,9 @@ typedef enum
 
 // cache the toolbar defaults we parse from a plist
 + (NSArray*) toolbarDefaults;
+
+// Get the load-in-background pref
++ (BOOL)shouldLoadInBackground;
 
 // Accessor to get the proxy icon view
 - (PageProxyIcon *)proxyIconView;

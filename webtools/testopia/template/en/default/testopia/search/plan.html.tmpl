@@ -18,7 +18,14 @@
   # Contributor(s): Greg Hendricks <ghendricks@novell.com>
   #%]
 
-<form action="tr_list_plans.cgi" method="GET">  
+[% IF report %]
+<form action="tr_plan_reports.cgi" method="GET">    
+[% PROCESS "testopia/search/report-matrix.html.tmpl" 
+   obj = plan
+%]   
+[% ELSE %]
+<form action="tr_list_plans.cgi" method="GET">
+[% END %]
   <input type="hidden" name="current_tab" value="[% current_tab FILTER none %]" />
 <fieldset>
     <legend><strong>Product</strong></legend>

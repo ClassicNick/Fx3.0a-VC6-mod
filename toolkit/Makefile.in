@@ -51,6 +51,10 @@ DIRS	= \
 		themes \
 		$(NULL)
 
+ifdef MOZ_AIRBAG
+DIRS += airbag
+endif
+
 ifndef MINIMO
 DIRS += \
 	xre \

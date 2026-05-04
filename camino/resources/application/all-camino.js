@@ -78,8 +78,6 @@ pref("browser.download.progressDnldDialog.keepAlive", true);
 // Download removing policy
 pref("browser.download.downloadRemoveAction", 0);
 
-pref("chimera.enable_rendezvous", true);
-
 // set typeahead find to search all text by default, but not invoke
 // unless you type '/'
 pref("accessibility.typeaheadfind.linksonly", false);
@@ -137,3 +135,6 @@ pref("browser.link.open_newwindow.restriction", 2);
 
 // enable popup blocking
 pref("dom.disable_open_during_load", true);
+
+// don't hide user:pass when fixing up URIs
+pref("browser.fixup.hide_user_pass", false);

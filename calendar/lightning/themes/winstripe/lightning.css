@@ -66,6 +66,10 @@ treechildren::-moz-tree-image(col-calendar-Checkbox, unchecked) {
    list-style-image: url("chrome://calendar/skin/checkbox_unchecked.png");
 }
 
+treechildren::-moz-tree-cell-text(agenda-header) {
+   font-weight: bold;
+}
+
 /*--------------------------------------------------------------------
  * Navigation controls for the views
  *-------------------------------------------------------------------*/
@@ -136,7 +140,7 @@ treechildren::-moz-tree-image(col-calendar-Checkbox, unchecked) {
 }
 
 radio[pane=paneLightning] {
-  list-style-image: url("chrome://calendar/skin/calendartoolbar.png")
+    list-style-image: url("chrome://calendar/skin/cal-icon32.png");
 }
 
 /**
