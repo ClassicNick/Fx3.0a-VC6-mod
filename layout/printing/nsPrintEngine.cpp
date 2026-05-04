@@ -36,6 +36,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsCOMPtr.h"
 #include "nsPrintEngine.h"
 
 #include "nsIStringBundle.h"

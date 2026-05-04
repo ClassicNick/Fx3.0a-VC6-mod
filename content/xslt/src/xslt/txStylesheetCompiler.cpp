@@ -1024,7 +1024,7 @@ typedef nsresult (*txFunctionFactory)(nsIAtom* aName,
                                       FunctionCall** aResult);
 struct txFunctionFactoryMapping
 {
-    const char* const mNamespaceURI;
+    const char* mNamespaceURI;
     PRInt32 mNamespaceID;
     txFunctionFactory mFactory;
 };
