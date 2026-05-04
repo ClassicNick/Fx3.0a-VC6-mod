@@ -347,6 +347,8 @@ const int kReuseWindowOnAE = 2;
 #endif
   if ([[PreferenceManager sharedInstanceDontCreate] getBooleanPref:"camino.remember_window_state" withSuccess:NULL])
     [[SessionManager sharedInstance] saveWindowState];
+  else
+    [[SessionManager sharedInstance] clearSavedState];
 
   [NetworkServices shutdownNetworkServices];
 
@@ -1507,8 +1509,8 @@ const int kReuseWindowOnAE = 2;
 
   if (action == @selector(manageBookmarks:)) {
     BOOL showingBookmarks = (browserController && [browserController bookmarkManagerIsVisible]);
-    NSString* showBMLabel = showingBookmarks ? NSLocalizedString(@"Hide All Bookmarks", @"")
-                                             : NSLocalizedString(@"Show All Bookmarks", @"");
+    NSString* showBMLabel = showingBookmarks ? NSLocalizedString(@"HideBookmarkManager", nil)
+                                             : NSLocalizedString(@"ShowBookmarkManager", nil);
     [aMenuItem setTitle:showBMLabel];
     return showingBookmarks ? [browserController canHideBookmarks] : YES;
   }

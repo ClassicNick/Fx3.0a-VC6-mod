@@ -4809,7 +4809,7 @@ nsDocShell::EnsureContentViewer()
         principal = GetInheritedPrincipal(PR_FALSE);
     }
 
-    nsresult rv = CreateAboutBlankContentViewer();
+    nsresult rv = CreateAboutBlankContentViewer(principal);
 
     if (NS_SUCCEEDED(rv)) {
         nsCOMPtr<nsIDOMDocument> domDoc;
@@ -4820,10 +4820,6 @@ nsDocShell::EnsureContentViewer()
                      "succeeded!");
 
         doc->SetIsInitialDocument(PR_TRUE);
-
-        if (principal) {
-            doc->SetPrincipal(principal);
-        }
     }
 
     return rv;
@@ -4854,7 +4850,7 @@ nsDocShell::EnsureDeviceContext()
 }
 
 nsresult
-nsDocShell::CreateAboutBlankContentViewer()
+nsDocShell::CreateAboutBlankContentViewer(nsIPrincipal* aPrincipal)
 {
   nsCOMPtr<nsIDocument> blankDoc;
   nsCOMPtr<nsIContentViewer> viewer;
@@ -4910,7 +4906,8 @@ nsDocShell::CreateAboutBlankContentViewer()
   nsCOMPtr<nsIDocumentLoaderFactory> docFactory(do_GetService(contractId));
   if (docFactory) {
     // generate (about:blank) document to load
-    docFactory->CreateBlankDocument(mLoadGroup, getter_AddRefs(blankDoc));
+    docFactory->CreateBlankDocument(mLoadGroup, aPrincipal,
+                                    getter_AddRefs(blankDoc));
     if (blankDoc) {
       blankDoc->SetContainer(NS_STATIC_CAST(nsIDocShell *, this));
 
@@ -6410,7 +6407,7 @@ nsDocShell::InternalLoad(nsIURI * aURI,
         }
 
         // clear the decks to prevent context bleed-through (bug 298255)
-        rv = CreateAboutBlankContentViewer();
+        rv = CreateAboutBlankContentViewer(nsnull);
         if (NS_FAILED(rv))
             return NS_ERROR_FAILURE;
 
@@ -7692,7 +7689,7 @@ nsDocShell::LoadHistoryEntry(nsISHEntry * aEntry, PRUint32 aLoadType)
         // Replace the current document with about:blank now to prevent
         // anything from the current document from leaking into any JavaScript
         // code in the URL.
-        rv = CreateAboutBlankContentViewer();
+        rv = CreateAboutBlankContentViewer(nsnull);
 
         if (NS_FAILED(rv)) {
             // The creation of the intermittent about:blank content

@@ -35,7 +35,6 @@ use Bugzilla::Testopia::TestTag;
 use Bugzilla::Testopia::Attachment;
 use Bugzilla::Testopia::Search;
 use Bugzilla::Testopia::Table;
-use Bugzilla::Testopia::Product;
 use JSON;
 
 use vars qw($template $vars);
@@ -279,19 +278,6 @@ elsif ($action eq 'addcomponent' || $action eq 'removecomponent'){
     my $json = new JSON;
     print $json->objToJson(\@comps);   
 }
-elsif ($action eq 'getcomps'){
-    Bugzilla->login;
-    my $product_id = $cgi->param('product_id');
-    detaint_natural($product_id);
-    my $product = Bugzilla::Testopia::Product->new($product_id);
-    my @comps;
-    foreach my $c (@{$product->components}){
-        push @comps, {'id' => $c->id, 'name' => $c->name};
-    }
-    my $json = new JSON;
-    print $json->objToJson(\@comps);
-    exit;
-}
 
 #TODO: Clean up styles and put them in skins
 else{
@@ -402,7 +388,7 @@ sub display {
     $cgi->param('current_tab', 'case_run');
     my $search = Bugzilla::Testopia::Search->new($cgi);
     my $table = Bugzilla::Testopia::Table->new('case_run', 'tr_show_case.cgi', $cgi, undef, $search->query);
-    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->list_count > $query_limit;
+    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->view_count > $query_limit;
     $vars->{'case'} = $case;
     $vars->{'table'} = $table;
     $vars->{'user'} = Bugzilla->user;

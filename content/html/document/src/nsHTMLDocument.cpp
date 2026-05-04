@@ -404,11 +404,12 @@ nsHTMLDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
 }
 
 void
-nsHTMLDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup)
+nsHTMLDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
+                           nsIPrincipal* aPrincipal)
 {
   mLoadFlags = nsIRequest::LOAD_NORMAL;
 
-  nsDocument::ResetToURI(aURI, aLoadGroup);
+  nsDocument::ResetToURI(aURI, aLoadGroup, aPrincipal);
 
   InvalidateHashTables();
   PrePopulateHashTables();
@@ -992,9 +993,7 @@ nsHTMLDocument::DocumentWriteTerminationFunc(nsISupports *aRef)
   nsCOMPtr<nsIParser> parser = do_QueryElementAt(arr, 1);
   NS_ASSERTION(parser, "Must have parser!");
 
-  nsHTMLDocument *htmldoc = NS_STATIC_CAST(nsHTMLDocument *,
-                                           NS_STATIC_CAST(nsIDocument*,
-                                                          doc.get()));
+  nsHTMLDocument *htmldoc = NS_STATIC_CAST(nsHTMLDocument*, doc.get());
 
   // Check whether htmldoc still has the same parser.  If not, it's
   // not for us to mess with it.

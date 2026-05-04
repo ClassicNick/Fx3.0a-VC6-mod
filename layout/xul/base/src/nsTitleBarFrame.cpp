@@ -51,6 +51,7 @@
 #include "nsGUIEvent.h"
 #include "nsEventDispatcher.h"
 #include "nsDisplayList.h"
+#include "nsXULAtoms.h"
 
 //
 // NS_NewTitleBarFrame
@@ -99,8 +100,11 @@ nsTitleBarFrame::BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
                                              const nsDisplayListSet& aLists)
 {
   // override, since we don't want children to get events
-  if (aBuilder->IsForEventDelivery())
-    return NS_OK;
+  if (aBuilder->IsForEventDelivery()) {
+    if (!mContent->AttrValueIs(kNameSpaceID_None, nsXULAtoms::allowevents,
+                               nsXULAtoms::_true, eCaseMatters))
+      return NS_OK;
+  }
   return nsBoxFrame::BuildDisplayListForChildren(aBuilder, aDirtyRect, aLists);
 }
 
@@ -115,28 +119,34 @@ nsTitleBarFrame::HandleEvent(nsPresContext* aPresContext,
 
   switch (aEvent->message) {
 
-   case NS_MOUSE_LEFT_BUTTON_DOWN:  {
+   case NS_MOUSE_BUTTON_DOWN:  {
+       if (aEvent->eventStructType == NS_MOUSE_EVENT &&
+           NS_STATIC_CAST(nsMouseEvent*, aEvent)->button ==
+             nsMouseEvent::eLeftButton)
+       {
 
-       // we're tracking.
-       mTrackingMouseMove = PR_TRUE;
+         // we're tracking.
+         mTrackingMouseMove = PR_TRUE;
 
-       // start capture.
-       CaptureMouseEvents(aPresContext,PR_TRUE);
+         // start capture.
+         CaptureMouseEvents(aPresContext,PR_TRUE);
 
 
 
-       // remember current mouse coordinates.
-       mLastPoint = aEvent->refPoint;
+         // remember current mouse coordinates.
+         mLastPoint = aEvent->refPoint;
 
-       *aEventStatus = nsEventStatus_eConsumeNoDefault;
-       doDefault = PR_FALSE;
+         *aEventStatus = nsEventStatus_eConsumeNoDefault;
+         doDefault = PR_FALSE;
+       }
      }
      break;
 
 
-   case NS_MOUSE_LEFT_BUTTON_UP: {
-
-       if(mTrackingMouseMove)
+   case NS_MOUSE_BUTTON_UP: {
+       if(mTrackingMouseMove && aEvent->eventStructType == NS_MOUSE_EVENT &&
+          NS_STATIC_CAST(nsMouseEvent*, aEvent)->button ==
+            nsMouseEvent::eLeftButton)
        {
          // we're done tracking.
          mTrackingMouseMove = PR_FALSE;
@@ -171,8 +181,11 @@ nsTitleBarFrame::HandleEvent(nsPresContext* aPresContext,
 
 
 
-    case NS_MOUSE_LEFT_CLICK:
-      MouseClicked(aPresContext, aEvent);
+    case NS_MOUSE_CLICK:
+      if (NS_IS_MOUSE_LEFT_CLICK(aEvent))
+      {
+        MouseClicked(aPresContext, aEvent);
+      }
       break;
   }
 

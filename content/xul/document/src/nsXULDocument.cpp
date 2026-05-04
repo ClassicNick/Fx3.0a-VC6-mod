@@ -322,7 +322,8 @@ nsXULDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
 }
 
 void
-nsXULDocument::ResetToURI(nsIURI* aURI, nsILoadGroup* aLoadGroup)
+nsXULDocument::ResetToURI(nsIURI* aURI, nsILoadGroup* aLoadGroup,
+                          nsIPrincipal* aPrincipal)
 {
     NS_NOTREACHED("ResetToURI");
 }
@@ -365,8 +366,9 @@ nsXULDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
     mChannel = aChannel;
 
     // Get the URI.  Note that this should match nsDocShell::OnLoadingSite
-    // XXXbz this code is repeated from nsDocument::Reset; we
-    // really need to refactor this part better.
+    // XXXbz this code is repeated from nsDocument::Reset and
+    // nsScriptSecurityManager::GetChannelPrincipal; we really need to refactor
+    // this part better.
     nsLoadFlags loadFlags = 0;
     nsresult rv = aChannel->GetLoadFlags(&loadFlags);
     if (NS_SUCCEEDED(rv)) {
@@ -418,7 +420,7 @@ nsXULDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
         mMasterPrototype = mCurrentPrototype = proto;
 
         // Set up the right principal on ourselves.
-        SetPrincipal(proto->GetDocumentPrincipal());
+        SetPrincipal(proto->DocumentPrincipal());
 
         // We need a listener, even if proto is not yet loaded, in which
         // event the listener's OnStopRequest method does nothing, and all
@@ -2052,12 +2054,9 @@ nsXULDocument::PrepareToLoad(nsISupports* aContainer,
     nsresult rv;
 
     // Get the document's principal
-    nsCOMPtr<nsISupports> owner;
-    rv = aChannel->GetOwner(getter_AddRefs(owner));
-    if (NS_FAILED(rv)) return rv;
-
-    nsCOMPtr<nsIPrincipal> principal = do_QueryInterface(owner);
-
+    nsCOMPtr<nsIPrincipal> principal;
+    nsContentUtils::GetSecurityManager()->
+        GetChannelPrincipal(aChannel, getter_AddRefs(principal));
     return PrepareToLoadPrototype(mDocumentURI, aCommand, principal, aResult);
 }
 
@@ -2075,21 +2074,17 @@ nsXULDocument::PrepareToLoadPrototype(nsIURI* aURI, const char* aCommand,
                                     getter_AddRefs(mCurrentPrototype));
     if (NS_FAILED(rv)) return rv;
 
+    rv = mCurrentPrototype->InitPrincipal(aURI, aDocumentPrincipal);
+    if (NS_FAILED(rv)) {
+        mCurrentPrototype = nsnull;
+        return rv;
+    }    
+
     // Bootstrap the master document prototype.
-    PRBool isMasterProto = PR_FALSE;
     if (! mMasterPrototype) {
         mMasterPrototype = mCurrentPrototype;
-        mMasterPrototype->SetDocumentPrincipal(aDocumentPrincipal);
-        isMasterProto = PR_TRUE;
-    }
-
-    rv = mCurrentPrototype->SetURI(aURI);
-    if (NS_FAILED(rv)) return rv;
-
-    if (isMasterProto) {
-        // Set our principal based on the master proto.  Note that this MUST
-        // come after the SetURI and SetDocumentPrincipal calls above.
-        SetPrincipal(mMasterPrototype->GetDocumentPrincipal());
+        // Set our principal based on the master proto.
+        SetPrincipal(aDocumentPrincipal);
     }
 
     // Create a XUL content sink, a parser, and kick off a load for
@@ -2743,6 +2738,10 @@ nsXULDocument::LoadOverlayInternal(nsIURI* aURI, PRBool aIsDynamic,
         // Not there. Initiate a load.
         PR_LOG(gXULLog, PR_LOG_DEBUG, ("xul: overlay was not cached"));
 
+        // No one ever uses overlay principals for anything, so it's OK to give
+        // them the null principal.  Too bad this code insists on the sort of
+        // syncloading that can't provide us the right principal from the
+        // channel...
         nsCOMPtr<nsIParser> parser;
         rv = PrepareToLoadPrototype(aURI, "view", nsnull, getter_AddRefs(parser));
         if (NS_FAILED(rv)) return rv;
@@ -3004,11 +3003,14 @@ nsXULDocument::ResumeWalk()
 
                     const PRUnichar* params[] = { piProto->mTarget.get() };
 
+                    nsCOMPtr<nsIURI> overlayURI;
+                    mCurrentPrototype->GetURI(getter_AddRefs(overlayURI));
+
                     nsContentUtils::ReportToConsole(
                                         nsContentUtils::eXUL_PROPERTIES,
                                         "PINotInProlog",
                                         params, NS_ARRAY_LENGTH(params),
-                                        mDocumentURI,
+                                        overlayURI,
                                         EmptyString(), /* source line */
                                         0, /* line number */
                                         0, /* column number */

@@ -81,10 +81,7 @@
 // of the non-guard logic and we'll see the end of the days of estimatation!
 // [rickr-Jun16,05]
 
-// TODO_LINUX: no buffer guard for linux yet
-#ifndef AVMPLUS_LINUX
-  #define FEATURE_BUFFER_GUARD
-#endif
+#define FEATURE_BUFFER_GUARD
 
 // FEATURE_BUFFER_GUARD not yet supported on ARM
 #ifdef AVMPLUS_ARM
@@ -100,6 +97,15 @@
   #ifdef AVMPLUS_AMD64
     #undef FEATURE_BUFFER_GUARD
   #endif
+#endif
+
+// Some platforms need special treatment of virtual funcs
+#ifdef AVMPLUS_MAC
+  #define AVMPLUS_NOVIRTUAL
+#endif
+
+#ifdef AVMPLUS_ARM
+  #define AVMPLUS_NOVIRTUAL
 #endif
 
 #define AVMPLUS_MIR
@@ -156,13 +162,13 @@
 	#pragma warning(error:4265)	// 'class' : class has virtual functions, but destructor is not virtual
 	#pragma warning(error:4905)	// wide string literal cast to 'LPSTR'
 	#pragma warning(error:4906)	// string literal cast to 'LPWSTR'
+	#pragma warning(error:4263)	// 'function' : member function does not override any base class virtual member function
+	#pragma warning(error:4264)	// 'virtual_function' : no override available for virtual member function from base 'class'; function is hidden
+	#pragma warning(error:4266)	// 'function' : no override available for virtual member function from base 'type'; function is hidden
+	#pragma warning(error:4242) // 'identifier' : conversion from 'type1' to 'type2', possible loss of data
+	#pragma warning(error:4263) // member function does not override any base class virtual member function
 
 	// some that might be useful to turn on someday, but would require too much twiddly code tweaking right now
-//	#pragma warning(error:4263)	// 'function' : member function does not override any base class virtual member function
-//	#pragma warning(error:4264)	// 'virtual_function' : no override available for virtual member function from base 'class'; function is hidden
-//	#pragma warning(error:4266)	// 'function' : no override available for virtual member function from base 'type'; function is hidden
-//	#pragma warning(error:4242) // 'identifier' : conversion from 'type1' to 'type2', possible loss of data
-//	#pragma warning(error:4263) // member function does not override any base class virtual member function
 //	#pragma warning(error:4296)	// expression is always true (false) (Generally, an unsigned variable was used in a comparison operation with zero.)
 
 #endif

@@ -443,6 +443,22 @@ void SetFontFromStyle(nsIRenderingContext* aRC, nsStyleContext* aSC)
   aRC->SetFont(font->mFont, visibility->mLangGroup);
 }
 
+void
+nsWeakFrame::Init(nsIFrame* aFrame)
+{
+  Clear(mFrame ? mFrame->GetPresContext()->GetPresShell() : nsnull);
+  mFrame = aFrame;
+  if (mFrame) {
+    nsIPresShell* shell = mFrame->GetPresContext()->GetPresShell();
+    NS_WARN_IF_FALSE(shell, "Null PresShell in nsWeakFrame!");
+    if (shell) {
+      shell->AddWeakFrame(this);
+    } else {
+      mFrame = nsnull;
+    }
+  }
+}
+
 nsIFrame*
 NS_NewEmptyFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
@@ -1527,23 +1543,19 @@ nsFrame::HandleEvent(nsPresContext* aPresContext,
                      nsGUIEvent*     aEvent,
                      nsEventStatus*  aEventStatus)
 {
-  switch (aEvent->message)
-  {
-  case NS_MOUSE_MOVE:
-    {
-      HandleDrag(aPresContext, aEvent, aEventStatus);
-    }break;
-  case NS_MOUSE_LEFT_BUTTON_DOWN:
-    {
+
+  if (aEvent->message == NS_MOUSE_MOVE) {
+    return HandleDrag(aPresContext, aEvent, aEventStatus);
+  }
+
+  if (aEvent->eventStructType == NS_MOUSE_EVENT &&
+      NS_STATIC_CAST(nsMouseEvent*, aEvent)->button == nsMouseEvent::eLeftButton) {
+    if (aEvent->message == NS_MOUSE_BUTTON_DOWN) {
       HandlePress(aPresContext, aEvent, aEventStatus);
-    }break;
-  case NS_MOUSE_LEFT_BUTTON_UP:
-    {
+    } else if (aEvent->message == NS_MOUSE_BUTTON_UP) {
       HandleRelease(aPresContext, aEvent, aEventStatus);
-    } break;
-  default:
-    break;
-  }//end switch
+    }
+  }
   return NS_OK;
 }
 
@@ -1574,7 +1586,8 @@ nsFrame::GetDataForTableSelection(nsFrameSelection *aFrameSelection,
   PRBool doTableSelection =
      displaySelection == nsISelectionDisplay::DISPLAY_ALL && selectingTableCells &&
      (aMouseEvent->message == NS_MOUSE_MOVE ||
-      aMouseEvent->message == NS_MOUSE_LEFT_BUTTON_UP || 
+      (aMouseEvent->message == NS_MOUSE_BUTTON_UP &&
+       aMouseEvent->button == nsMouseEvent::eLeftButton) ||
       aMouseEvent->isShift);
 
   if (!doTableSelection)

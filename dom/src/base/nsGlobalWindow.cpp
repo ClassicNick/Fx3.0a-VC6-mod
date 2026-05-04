@@ -388,6 +388,7 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mIsPopupSpam(PR_FALSE),
     mBlockScriptedClosingFlag(PR_FALSE),
     mFireOfflineStatusChangeEventOnThaw(PR_FALSE),
+    mCreatingInnerWindow(PR_FALSE),
     mGlobalObjectOwner(nsnull),
     mTimeoutInsertionPoint(nsnull),
     mTimeoutPublicIdCounter(1),
@@ -1327,6 +1328,7 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
         mInnerWindow = nsnull;
 
         Freeze();
+        mCreatingInnerWindow = PR_TRUE;
         // Every script context we are initialized with must create a
         // new global.
         rv = NS_OK;
@@ -1346,6 +1348,7 @@ nsGlobalWindow::SetNewDocument(nsIDocument* aDocument,
             }
           }
         }
+        mCreatingInnerWindow = PR_FALSE;
         Thaw();
 
         NS_ENSURE_SUCCESS(rv, rv);
@@ -3559,7 +3562,9 @@ nsGlobalWindow::Focus()
    * place when the window is activated again.
    */
 
-  PRBool canFocus = CanSetProperty("dom.disable_window_flip");
+  PRBool canFocus =
+    CanSetProperty("dom.disable_window_flip") ||
+    CheckOpenAllow(CheckForAbusePoint()) == allowNoAbuse;
 
   PRBool isActive = PR_FALSE;
   nsIFocusController *focusController =
@@ -3574,7 +3579,7 @@ nsGlobalWindow::Focus()
     PRBool isEnabled = PR_TRUE;
     if (NS_SUCCEEDED(treeOwnerAsWin->GetEnabled(&isEnabled)) && !isEnabled) {
       NS_WARNING( "Should not try to set the focus on a disabled window" );
-      return NS_ERROR_FAILURE;
+      return NS_OK;
     }
 
     treeOwnerAsWin->SetVisibility(PR_TRUE);

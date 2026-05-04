@@ -41,7 +41,6 @@ my $query_limit = 15000;
 require "globals.pl";
 
 Bugzilla->login();
-print Bugzilla->cgi->header();
    
 my $dbh = Bugzilla->dbh;
 my $cgi = Bugzilla->cgi;
@@ -49,12 +48,15 @@ my $cgi = Bugzilla->cgi;
 my $run_id = trim($cgi->param('run_id') || '');
 
 unless ($run_id){
+  print $cgi->header;
   $template->process("testopia/run/choose.html.tmpl", $vars) 
       || ThrowTemplateError($template->error());
   exit;
 }
 validate_test_id($run_id, 'run');
 push @{$::vars->{'style_urls'}}, 'testopia/css/default.css';
+
+my $serverpush = support_server_push($cgi);
 
 my $action = $cgi->param('action') || '';
 
@@ -68,12 +70,14 @@ if ($action eq 'Commit'){
     do_update($run);
     $vars->{'tr_message'} = "Test run updated";
     $vars->{'backlink'} = $run;
+    print $cgi->header;
     display($run);    
 }
 
 elsif ($action eq 'History'){
     my $run = Bugzilla::Testopia::TestRun->new($run_id);
     $vars->{'run'} = $run; 
+    print $cgi->header;
     $template->process("testopia/run/history.html.tmpl", $vars)
       || ThrowTemplateError($template->error());
        
@@ -88,9 +92,25 @@ elsif ($action =~ /^Clone/){
     ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->canedit;
     my $case_list = $cgi->param('case_list');
     do_update($run);
+    my @ids;
+    foreach my $id (split(",", $case_list)){
+        detaint_natural($id);
+        push @ids, $id;
+    }
+    
+    my $dbh = Bugzilla->dbh;
+    my $ref;
+    if ($case_list){ 
+        $ref = $dbh->selectcol_arrayref(
+            "SELECT DISTINCT case_id 
+               FROM test_case_runs
+              WHERE case_run_id IN (" . join(",",@ids) . ")");
+    }
+    
     $vars->{'run'} = $run;
-    $vars->{'case_list'} = $case_list if ($action =~/These Cases/);
+    $vars->{'case_list'} = join(",", @$ref) if ($action =~/These Cases/ && $ref);
     $vars->{'caserun'} = Bugzilla::Testopia::TestCaseRun->new({'case_run_id' => 0});
+    print $cgi->header;
     $template->process("testopia/run/clone.html.tmpl", $vars) 
       || ThrowTemplateError($template->error());
     
@@ -98,33 +118,60 @@ elsif ($action =~ /^Clone/){
 elsif ($action eq 'do_clone'){
     Bugzilla->login(LOGIN_REQUIRED);
     my $run = Bugzilla::Testopia::TestRun->new($run_id);
+    if ($serverpush) {
+        print $cgi->multipart_init();
+        print $cgi->multipart_start();
+    
+        $template->process("list/server-push.html.tmpl", $vars)
+          || ThrowTemplateError($template->error());
+
+    }
+    
     ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->canedit;
     my $summary = $cgi->param('summary');
     my $build = $cgi->param('build');
     trick_taint($summary);
     detaint_natural($build);
-    my $newrun= Bugzilla::Testopia::TestRun->new($run->clone($summary, $build));
+    my $newrun = Bugzilla::Testopia::TestRun->new($run->clone($summary, $build));
 
-# XXX Why does this use a store if the tag already exists? 
     if($cgi->param('copy_tags')){
         foreach my $tag (@{$run->tags}){
             my $newtag = Bugzilla::Testopia::TestTag->new({
                            tag_name  => $tag->name
                          });
+# Store will return the id of the existing tag if it exists 
+# or create it if it does not
             my $newtagid = $newtag->store;
             $newrun->add_tag($newtagid);
         }
     }
+    my $progress_interval = 250;
+        
     if ($cgi->param('case_list')){
         my @case_ids;
         foreach my $id (split(",", $cgi->param('case_list'))){
+            
             detaint_natural($id);
             my $case = Bugzilla::Testopia::TestCase->new($id);
             ThrowUserError('testopia-permission-denied', {'object' => 'Test Case'})
                 unless $case->canview;
             push @case_ids, $id
         }
+
+        my $i = 0;
+        my $total = scalar @case_ids;
+
         foreach my $id (@case_ids){
+            $i++;
+            if ($i % $progress_interval == 0 && $serverpush){
+                print $cgi->multipart_end;
+                print $cgi->multipart_start;
+                $vars->{'complete'} = $i;
+                $vars->{'total'} = $total;
+                $template->process("testopia/progress.html.tmpl", $vars)
+                  || ThrowTemplateError($template->error());
+            } 
+            
             $newrun->add_case_run($id);
         }
     }
@@ -140,22 +187,56 @@ elsif ($action eq 'do_clone'){
                   WHERE run_id = ?
                     AND case_run_status_id IN (". join(",", @status) .")
                     AND iscurrent = 1", undef, $run->id);
-                  
+
+            my $i = 0;
+            my $total = scalar @$ref;
+
             foreach my $case_id (@{$ref}){
+                $i++;
+                if ($i % $progress_interval == 0 && $serverpush){
+                    print $cgi->multipart_end;
+                    print $cgi->multipart_start;
+                    $vars->{'complete'} = $i;
+                    $vars->{'total'} = $total;
+                    $template->process("testopia/progress.html.tmpl", $vars)
+                      || ThrowTemplateError($template->error());
+                } 
+
                 $newrun->add_case_run($case_id);
             }
         }
         else {
+            my $i = 0;
+            my $total = scalar @{$run->cases};
+            
             foreach my $case (@{$run->cases}){
+                $i++;
+                if ($i % $progress_interval == 0 && $serverpush){
+                    print $cgi->multipart_end;
+                    print $cgi->multipart_start;
+                    $vars->{'complete'} = $i;
+                    $vars->{'total'} = $total;
+                    $template->process("testopia/progress.html.tmpl", $vars)
+                      || ThrowTemplateError($template->error());
+                }
+                 
                 $newrun->add_case_run($case->id);
             }
         }
     }
+    if ($serverpush) {
+        print $cgi->multipart_end;
+        print $cgi->multipart_start;
+    } else {
+        print $cgi->header;
+    }
+    
     $cgi->delete_all;
     $cgi->param('run_id', $newrun->id);
     $vars->{'tr_message'} = "Test run cloned";
     $vars->{'backlink'} = $run;
     display($newrun);
+    print $cgi->multipart_final if $serverpush; 
 }
 ####################
 ### Ajax Actions ###
@@ -194,6 +275,7 @@ elsif ($action eq 'Delete'){
     my $run = Bugzilla::Testopia::TestRun->new($run_id);
     ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->candelete;
     $vars->{'run'} = $run;
+    print $cgi->header;
     
     $template->process("testopia/run/delete.html.tmpl", $vars) ||
         ThrowTemplateError($template->error());
@@ -203,16 +285,37 @@ elsif ($action eq 'do_delete'){
     Bugzilla->login(LOGIN_REQUIRED);
     my $run = Bugzilla::Testopia::TestRun->new($run_id);
     ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->candelete;
-    $run->obliterate;
+    if ($serverpush) {
+        print $cgi->multipart_init();
+        print $cgi->multipart_start();
+        $vars->{'complete'} = 1;
+        $vars->{'total'} = 250;
+        $template->process("testopia/progress.html.tmpl", $vars)
+          || ThrowTemplateError($template->error());
+
+        $run->obliterate($cgi,$template);
+    }
+    else{
+        $run->obliterate;
+    }
+    if ($serverpush) {
+        print $cgi->multipart_end;
+        print $cgi->multipart_start;
+    } else {
+        print $cgi->header;
+    }
+    
     $vars->{'deleted'} = 1;
     $template->process("testopia/run/delete.html.tmpl", $vars) ||
         ThrowTemplateError($template->error());
+    print $cgi->multipart_final if $serverpush;
 }
 
 ####################
 ### Just show it ###
 ####################
 else {
+    print $cgi->header;
     display(Bugzilla::Testopia::TestRun->new($run_id));
 }
 ###################
@@ -234,8 +337,6 @@ sub get_cc_xml {
 sub do_update {
     my ($run) = @_;
     
-    ThrowUserError('testopia-missing-required-field', {'field' => 'summary'}) if ($cgi->param('summary') eq '');
-    ThrowUserError('testopia-missing-required-field', {'field' => 'environment'}) if ($cgi->param('environment') eq '');
     my $timestamp;
     $timestamp = $run->stop_date;
     $timestamp = undef if $cgi->param('status') && $run->stop_date;
@@ -244,9 +345,12 @@ sub do_update {
     my $prodver = $cgi->param('product_version');
     my $planver = $cgi->param('plan_version');
     my $build = $cgi->param('build');
-    my $env = $cgi->param('environment');
+    my $env      = $cgi->param('environment') ? $cgi->param('environment') : $cgi->param('env_pick');
     my $manager = DBNameToIdAndCheck(trim($cgi->param('manager')));
     my $notes = trim($cgi->param('notes'));
+
+    ThrowUserError('testopia-missing-required-field', {'field' => 'summary'}) if ($cgi->param('summary') eq '');
+    ThrowUserError('testopia-missing-required-field', {'field' => 'environment'}) if ($env eq '');
     
     trick_taint($summary);
     trick_taint($prodver);
@@ -298,18 +402,13 @@ sub display {
     $cgi->param('current_tab', 'case_run');
     my $search = Bugzilla::Testopia::Search->new($cgi);
     my $table = Bugzilla::Testopia::Table->new('case_run', 'tr_show_run.cgi', $cgi, undef, $search->query);
-    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->list_count > $query_limit;
+    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->view_count > $query_limit;
     
-    my @case_list;
-    foreach my $caserun (@{$table->list}){
-        push @case_list, $caserun->case_id;
-    }
     my $case = Bugzilla::Testopia::TestCase->new({'case_id' => 0});
     $vars->{'expand_report'} = $cgi->param('expand_report') || 0;
     $vars->{'expand_filter'} = $cgi->param('expand_filter') || 0;
     $vars->{'run'} = $run;
     $vars->{'table'} = $table;
-    $vars->{'case_list'} = join(",", @case_list);
     $vars->{'action'} = 'Commit';
     $template->process("testopia/run/show.html.tmpl", $vars) ||
         ThrowTemplateError($template->error());

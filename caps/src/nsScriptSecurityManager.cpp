@@ -52,6 +52,7 @@
 #include "nsNullPrincipal.h"
 #include "nsXPIDLString.h"
 #include "nsCRT.h"
+#include "nsCRTGlue.h"
 #include "nsIJSContextStack.h"
 #include "nsDOMError.h"
 #include "nsDOMCID.h"
@@ -356,6 +357,34 @@ nsScriptSecurityManager::SecurityCompareURIs(nsIURI* aSourceURI,
     return result;
 }
 
+NS_IMETHODIMP
+nsScriptSecurityManager::GetChannelPrincipal(nsIChannel* aChannel,
+                                             nsIPrincipal** aPrincipal)
+{
+    NS_PRECONDITION(aChannel, "Must have channel!");
+    nsCOMPtr<nsISupports> owner;
+    aChannel->GetOwner(getter_AddRefs(owner));
+    if (owner) {
+        CallQueryInterface(owner, aPrincipal);
+        if (*aPrincipal) {
+            return NS_OK;
+        }
+    }
+
+    // OK, get the principal from the URI.  Make sure this does the same thing
+    // as nsDocument::Reset and nsXULDocument::StartDocumentLoad.
+    nsCOMPtr<nsIURI> uri;
+    nsLoadFlags loadFlags = 0;
+    nsresult rv = aChannel->GetLoadFlags(&loadFlags);
+    if (NS_SUCCEEDED(rv) && (loadFlags & nsIChannel::LOAD_REPLACE)) {
+      aChannel->GetURI(getter_AddRefs(uri));
+    } else {
+      aChannel->GetOriginalURI(getter_AddRefs(uri));
+    }
+
+    return GetCodebasePrincipal(uri, aPrincipal);
+}
+
 ////////////////////
 // Policy Storage //
 ////////////////////
@@ -364,7 +393,7 @@ nsScriptSecurityManager::SecurityCompareURIs(nsIURI* aSourceURI,
 PR_STATIC_CALLBACK(PRBool)
 DeleteCapability(nsHashKey *aKey, void *aData, void* closure)
 {
-    nsMemory::Free(aData);
+    NS_Free(aData);
     return PR_TRUE;
 }
 
@@ -2947,16 +2976,18 @@ nsScriptSecurityManager::OnChannelRedirect(nsIChannel* oldChannel,
                                            nsIChannel* newChannel,
                                            PRUint32 redirFlags)
 {
-    nsCOMPtr<nsIURI> oldURI, newURI;
-    oldChannel->GetURI(getter_AddRefs(oldURI));
+    nsCOMPtr<nsIPrincipal> oldPrincipal;
+    GetChannelPrincipal(oldChannel, getter_AddRefs(oldPrincipal));
+
+    nsCOMPtr<nsIURI> newURI;
     newChannel->GetURI(getter_AddRefs(newURI));
 
-    NS_ENSURE_STATE(oldURI && newURI);
+    NS_ENSURE_STATE(oldPrincipal && newURI);
 
     const PRUint32 flags =
         nsIScriptSecurityManager::LOAD_IS_AUTOMATIC_DOCUMENT_REPLACEMENT |
         nsIScriptSecurityManager::DISALLOW_SCRIPT;
-    return CheckLoadURI(oldURI, newURI, flags);
+    return CheckLoadURIWithPrincipal(oldPrincipal, newURI, flags);
 }
 
 
@@ -3383,7 +3414,7 @@ nsScriptSecurityManager::InitDomainPolicy(JSContext* cx,
                 NS_REINTERPRET_CAST(char*, mCapabilities->Get(&secLevelKey));
             if (!secLevel.capability)
             {
-                secLevel.capability = nsCRT::strdup(prefValue);
+                secLevel.capability = NS_strdup(prefValue);
                 if (!secLevel.capability)
                     break;
                 mCapabilities->Put(&secLevelKey, 
@@ -3657,8 +3688,8 @@ nsScriptSecurityManager::InitPrefs()
     if (NS_SUCCEEDED(rv) && prefCount > 0)
     {
         rv = InitPrincipals(prefCount, (const char**)prefNames, mSecurityPref);
-        NS_ENSURE_SUCCESS(rv, rv);
         NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(prefCount, prefNames);
+        NS_ENSURE_SUCCESS(rv, rv);
     }
     //-- Set a callback for principal changes
     prefBranchInternal->AddObserver(sPrincipalPrefix, this, PR_FALSE);

@@ -1070,7 +1070,6 @@ NS_IMETHODIMP nsAccessibilityService::GetAccessible(nsIDOMNode *aNode,
   NS_ENSURE_ARG_POINTER(aAccessible);
   NS_ENSURE_ARG_POINTER(aFrameHint);
   *aAccessible = nsnull;
-  *aFrameHint = nsnull;
   if (!aPresShell || !aWeakShell) {
     return NS_ERROR_FAILURE;
   }
@@ -1361,7 +1360,8 @@ nsAccessibilityService::GetRelevantContentNodeFor(nsIDOMNode *aNode,
     nsIContent *bindingParent;
     nsCOMArray<nsIContent> bindingsStack;
 
-    for (bindingParent = content->GetBindingParent(); bindingParent != nsnull;
+    for (bindingParent = content->GetBindingParent(); bindingParent != nsnull &&
+         bindingParent != bindingParent->GetBindingParent();
          bindingParent = bindingParent->GetBindingParent()) {
       bindingsStack.AppendObject(bindingParent);
     }

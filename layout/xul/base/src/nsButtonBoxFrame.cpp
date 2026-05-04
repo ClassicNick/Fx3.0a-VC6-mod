@@ -134,8 +134,10 @@ nsButtonBoxFrame::HandleEvent(nsPresContext* aPresContext,
       }
       break;
 
-    case NS_MOUSE_LEFT_CLICK:
-      MouseClicked(aPresContext, aEvent);
+    case NS_MOUSE_CLICK:
+      if (NS_IS_MOUSE_LEFT_CLICK(aEvent)) {
+        MouseClicked(aPresContext, aEvent);
+      }
       break;
   }
 

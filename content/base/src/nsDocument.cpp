@@ -882,8 +882,10 @@ void
 nsDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
 {
   nsCOMPtr<nsIURI> uri;
+  nsCOMPtr<nsIPrincipal> principal;
   if (aChannel) {
-    // Note: this code is duplicated in nsXULDocument::StartDocumentLoad.
+    // Note: this code is duplicated in nsXULDocument::StartDocumentLoad and
+    // nsScriptSecurityManager::GetChannelPrincipal.    
     // Note: this should match nsDocShell::OnLoadingSite
     nsLoadFlags loadFlags = 0;
     nsresult rv = aChannel->GetLoadFlags(&loadFlags);
@@ -892,25 +894,23 @@ nsDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
     } else {
       aChannel->GetOriginalURI(getter_AddRefs(uri));
     }
-  }
 
-  ResetToURI(uri, aLoadGroup);
-
-  if (aChannel) {
-    nsCOMPtr<nsISupports> owner;
-    if (NS_SUCCEEDED(aChannel->GetOwner(getter_AddRefs(owner)))) {
-      nsCOMPtr<nsIPrincipal> principal = do_QueryInterface(owner);
-      if (principal) {
-        SetPrincipal(principal);
-      }
+    nsIScriptSecurityManager *securityManager =
+      nsContentUtils::GetSecurityManager();
+    if (securityManager) {
+      securityManager->GetChannelPrincipal(aChannel,
+                                           getter_AddRefs(principal));
     }
   }
+
+  ResetToURI(uri, aLoadGroup, principal);
 
   mChannel = aChannel;
 }
 
 void
-nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup)
+nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
+                       nsIPrincipal* aPrincipal)
 {
   NS_PRECONDITION(aURI, "Null URI passed to ResetToURI");
 
@@ -984,15 +984,19 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup)
   mXMLDeclarationBits = 0;
 
   // Now get our new principal
-  nsIScriptSecurityManager *securityManager =
-    nsContentUtils::GetSecurityManager();
-  if (securityManager) {
-    nsCOMPtr<nsIPrincipal> principal;
-    nsresult rv =
-      securityManager->GetCodebasePrincipal(mDocumentURI,
-                                            getter_AddRefs(principal));
-    if (NS_SUCCEEDED(rv)) {
-      SetPrincipal(principal);
+  if (aPrincipal) {
+    SetPrincipal(aPrincipal);
+  } else {
+    nsIScriptSecurityManager *securityManager =
+      nsContentUtils::GetSecurityManager();
+    if (securityManager) {
+      nsCOMPtr<nsIPrincipal> principal;
+      nsresult rv =
+        securityManager->GetCodebasePrincipal(mDocumentURI,
+                                              getter_AddRefs(principal));
+      if (NS_SUCCEEDED(rv)) {
+        SetPrincipal(principal);
+      }
     }
   }
 }
@@ -2643,6 +2647,12 @@ nsDocument::CreateComment(const nsAString& aData, nsIDOMComment** aReturn)
 {
   *aReturn = nsnull;
 
+  // Make sure the substring "--" is not present in aData.  Otherwise
+  // we'll create a document that can't be serialized.
+  if (FindInReadable(NS_LITERAL_STRING("--"), aData)) {
+    return NS_ERROR_DOM_INVALID_CHARACTER_ERR;
+  }
+
   nsCOMPtr<nsIContent> comment;
   nsresult rv = NS_NewCommentNode(getter_AddRefs(comment), mNodeInfoManager);
 
@@ -2663,11 +2673,7 @@ nsDocument::CreateCDATASection(const nsAString& aData,
   NS_ENSURE_ARG_POINTER(aReturn);
   *aReturn = nsnull;
 
-  nsReadingIterator<PRUnichar> begin;
-  nsReadingIterator<PRUnichar> end;
-  aData.BeginReading(begin);
-  aData.EndReading(end);
-  if (FindInReadable(NS_LITERAL_STRING("]]>"),begin,end))
+  if (FindInReadable(NS_LITERAL_STRING("]]>"), aData))
     return NS_ERROR_DOM_INVALID_CHARACTER_ERR;
 
   nsCOMPtr<nsIContent> content;
@@ -2693,6 +2699,10 @@ nsDocument::CreateProcessingInstruction(const nsAString& aTarget,
 
   nsresult rv = nsContentUtils::CheckQName(aTarget, PR_FALSE);
   NS_ENSURE_SUCCESS(rv, rv);
+
+  if (FindInReadable(NS_LITERAL_STRING("?>"), aData)) {
+    return NS_ERROR_DOM_INVALID_CHARACTER_ERR;
+  }
 
   nsCOMPtr<nsIContent> content;
   rv = NS_NewXMLProcessingInstruction(getter_AddRefs(content),
@@ -4059,29 +4069,7 @@ nsDocument::RenameNode(nsIDOMNode *aNode,
                        const nsAString& qualifiedName,
                        nsIDOMNode **aReturn)
 {
-  if (!aNode) {
-    // not an element or attribute
-    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
-  }
-  
-  PRUint16 nodeType;
-  aNode->GetNodeType(&nodeType);
-  if (nodeType == nsIDOMNode::ELEMENT_NODE ||
-      nodeType == nsIDOMNode::ATTRIBUTE_NODE) {
-    // XXXcaa Write me - Coming soon to a document near you!
-    return NS_ERROR_NOT_IMPLEMENTED;
-  }
-
-//  if (NS_SUCCEEDED(rv)) {
-//    nsCOMPtr<nsINode> node = do_QueryInterface(aNode);
-//    if (node->HasProperties()) {
-//      nsContentUtils::CallUserDataHandler(this,
-//                                          nsIDOMUserDataHandler::NODE_RENAMED,
-//                                          node, aNode, *aReturn);
-//    }
-//  }
-
-  return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 

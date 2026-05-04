@@ -64,7 +64,6 @@ push @{$::vars->{'style_urls'}}, 'testopia/css/default.css';
 
 my $serverpush = support_server_push($cgi);
 
-my $action = $cgi->param('action') || '';
 $vars->{'action'} = "Commit";
 $vars->{'form_action'} = "tr_show_plan.cgi";
 
@@ -265,11 +264,31 @@ elsif ($action eq 'do_delete'){
     Bugzilla->login(LOGIN_REQUIRED);
     my $plan = Bugzilla::Testopia::TestPlan->new($plan_id);
     ThrowUserError("testopia-read-only", {'object' => 'plan'}) unless $plan->candelete;
-    $plan->obliterate;
+    if ($serverpush) {
+        print $cgi->multipart_init();
+        print $cgi->multipart_start();
+        $vars->{'complete'} = 1;
+        $vars->{'total'} = 250;
+        $template->process("testopia/progress.html.tmpl", $vars)
+          || ThrowTemplateError($template->error());
+
+        $plan->obliterate($cgi,$template);
+    }
+    else {
+        $plan->obliterate;
+    }
+
+    if ($serverpush) {
+        print $cgi->multipart_end;
+        print $cgi->multipart_start;
+    } else {
+        print $cgi->header;
+    }
+    
     $vars->{'deleted'} = 1;
-    print $cgi->header;
     $template->process("testopia/plan/delete.html.tmpl", $vars) ||
         ThrowTemplateError($template->error());
+    print $cgi->multipart_final if $serverpush;
 }
 ####################
 ### Ajax Actions ###
@@ -362,7 +381,7 @@ sub display {
     if (($cgi->param('order') || $cgi->param('page') || $cgi->param('viewall')) && $cgi->param('current_tab') eq 'case'){
         my $search = Bugzilla::Testopia::Search->new($cgi);
         my $table = Bugzilla::Testopia::Table->new('case', 'tr_show_plan.cgi', $cgi, undef, $search->query);
-        ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->list_count > $case_query_limit;
+        ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->view_count > $case_query_limit;
         
         $vars->{'case_table'} = $table;
         $runquery->delete('order');
@@ -371,14 +390,14 @@ sub display {
         $runquery->param('current_tab', 'run');
         $search = Bugzilla::Testopia::Search->new($runquery);
         $table = Bugzilla::Testopia::Table->new('run', 'tr_show_plan.cgi', $runquery, undef, $search->query);
-        ThrowUserError('testopia-query-too-large', {'limit' => $run_query_limit}) if $table->list_count > $run_query_limit;
+        ThrowUserError('testopia-query-too-large', {'limit' => $run_query_limit}) if $table->view_count > $run_query_limit;
         $vars->{'run_table'} = $table;    
 
     }
     elsif (($cgi->param('order') || $cgi->param('page') || $cgi->param('viewall')) && $cgi->param('current_tab') eq 'run'){
         my $search = Bugzilla::Testopia::Search->new($cgi);
         my $table = Bugzilla::Testopia::Table->new('run', 'tr_show_plan.cgi', $cgi, undef, $search->query);
-        ThrowUserError('testopia-query-too-large', {'limit' => $run_query_limit}) if $table->list_count > $run_query_limit;
+        ThrowUserError('testopia-query-too-large', {'limit' => $run_query_limit}) if $table->view_count > $run_query_limit;
         
         $vars->{'run_table'} = $table;
         $casequery->delete('order');
@@ -387,7 +406,7 @@ sub display {
         $casequery->param('current_tab', 'case');
         $search = Bugzilla::Testopia::Search->new($casequery);
         $table = Bugzilla::Testopia::Table->new('case', 'tr_show_plan.cgi', $casequery, undef, $search->query);
-        ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->list_count > $case_query_limit;
+        ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->view_count > $case_query_limit;
         $vars->{'case_table'} = $table;    
     }
     else {
@@ -395,13 +414,13 @@ sub display {
         $casequery->param('current_tab', 'case');
         my $search = Bugzilla::Testopia::Search->new($casequery);
         my $table = Bugzilla::Testopia::Table->new('case', 'tr_show_plan.cgi', $casequery, undef, $search->query);
-        ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->list_count > $case_query_limit;
+        ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->view_count > $case_query_limit;
         $vars->{'case_table'} = $table;    
       
         $runquery->param('current_tab', 'run');
         $search = Bugzilla::Testopia::Search->new($runquery);
         $table = Bugzilla::Testopia::Table->new('run', 'tr_show_plan.cgi', $runquery, undef, $search->query);
-        ThrowUserError('testopia-query-too-large', {'limit' => $run_query_limit}) if $table->list_count > $run_query_limit;
+        ThrowUserError('testopia-query-too-large', {'limit' => $run_query_limit}) if $table->view_count > $run_query_limit;
         $vars->{'run_table'} = $table;    
       
     }

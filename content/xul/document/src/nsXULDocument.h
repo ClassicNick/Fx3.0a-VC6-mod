@@ -98,7 +98,8 @@ public:
 
     // nsIDocument interface
     virtual void Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup);
-    virtual void ResetToURI(nsIURI *aURI, nsILoadGroup* aLoadGroup);
+    virtual void ResetToURI(nsIURI *aURI, nsILoadGroup* aLoadGroup,
+                            nsIPrincipal* aPrincipal);
 
     virtual nsresult StartDocumentLoad(const char* aCommand,
                                        nsIChannel *channel,

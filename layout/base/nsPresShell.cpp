@@ -72,6 +72,7 @@
 #include "nsHTMLReflowCommand.h"
 #include "nsIViewManager.h"
 #include "nsCRT.h"
+#include "nsCRTGlue.h"
 #include "prlog.h"
 #include "prmem.h"
 #include "prprf.h"
@@ -5841,7 +5842,7 @@ PresShell::HandleEvent(nsIView         *aView,
 
   PRBool dispatchUsingCoordinates =
       !NS_IS_KEY_EVENT(aEvent) && !NS_IS_IME_EVENT(aEvent) &&
-         aEvent->message != NS_CONTEXTMENU_KEY && !NS_IS_FOCUS_EVENT(aEvent);
+      !NS_IS_CONTEXT_MENU_KEY(aEvent) && !NS_IS_FOCUS_EVENT(aEvent);
 
   // if this event has no frame, we need to retarget it at a parent
   // view that has a frame.
@@ -5900,7 +5901,7 @@ PresShell::HandleEvent(nsIView         *aView,
     nsIEventStateManager *esm = mPresContext->EventStateManager();
 
     if (NS_IS_KEY_EVENT(aEvent) || NS_IS_IME_EVENT(aEvent) ||
-        aEvent->message == NS_CONTEXTMENU_KEY) {
+        NS_IS_CONTEXT_MENU_KEY(aEvent)) {
       esm->GetFocusedFrame(&mCurrentEventFrame);
       if (mCurrentEventFrame) {
         esm->GetFocusedContent(getter_AddRefs(mCurrentEventContent));
@@ -6139,12 +6140,8 @@ PresShell::HandleEventInternal(nsEvent* aEvent, nsIView *aView,
         if (!nsContentUtils::IsCallerChrome()) {
           break;
         }
-      case NS_MOUSE_LEFT_BUTTON_DOWN:
-      case NS_MOUSE_MIDDLE_BUTTON_DOWN:
-      case NS_MOUSE_RIGHT_BUTTON_DOWN:
-      case NS_MOUSE_LEFT_BUTTON_UP:
-      case NS_MOUSE_RIGHT_BUTTON_UP:
-      case NS_MOUSE_MIDDLE_BUTTON_UP:
+      case NS_MOUSE_BUTTON_DOWN:
+      case NS_MOUSE_BUTTON_UP:
       case NS_KEY_PRESS:
       case NS_KEY_DOWN:
       case NS_KEY_UP:
@@ -7720,7 +7717,7 @@ void ReflowCountMgr::Add(const char * aName, nsReflowReason aType, nsIFrame * aF
     if (counter == nsnull) {
       counter = new ReflowCounter(this);
       NS_ASSERTION(counter != nsnull, "null ptr");
-      char * name = nsCRT::strdup(aName);
+      char * name = NS_strdup(aName);
       NS_ASSERTION(name != nsnull, "null ptr");
       PL_HashTableAdd(mCounts, name, counter);
     }
@@ -7814,7 +7811,7 @@ PRIntn ReflowCountMgr::RemoveItems(PLHashEntry *he, PRIntn i, void *arg)
   char *str = (char *)he->key;
   ReflowCounter * counter = (ReflowCounter *)he->value;
   delete counter;
-  delete [] str;
+  NS_Free(str);
 
   return HT_ENUMERATE_REMOVE;
 }
@@ -7825,7 +7822,7 @@ PRIntn ReflowCountMgr::RemoveIndiItems(PLHashEntry *he, PRIntn i, void *arg)
   char *str = (char *)he->key;
   IndiReflowCounter * counter = (IndiReflowCounter *)he->value;
   delete counter;
-  delete [] str;
+  NS_Free(str);
 
   return HT_ENUMERATE_REMOVE;
 }
@@ -7864,7 +7861,7 @@ void ReflowCountMgr::DoGrandTotals()
     ReflowCounter * gTots = (ReflowCounter *)PL_HashTableLookup(mCounts, kGrandTotalsStr);
     if (gTots == nsnull) {
       gTots = new ReflowCounter(this);
-      PL_HashTableAdd(mCounts, nsCRT::strdup(kGrandTotalsStr), gTots);
+      PL_HashTableAdd(mCounts, NS_strdup(kGrandTotalsStr), gTots);
     } else {
       gTots->ClearTotals();
     }
@@ -7971,7 +7968,7 @@ void ReflowCountMgr::DoGrandHTMLTotals()
     ReflowCounter * gTots = (ReflowCounter *)PL_HashTableLookup(mCounts, kGrandTotalsStr);
     if (gTots == nsnull) {
       gTots = new ReflowCounter(this);
-      PL_HashTableAdd(mCounts, nsCRT::strdup(kGrandTotalsStr), gTots);
+      PL_HashTableAdd(mCounts, NS_strdup(kGrandTotalsStr), gTots);
     } else {
       gTots->ClearTotals();
     }
@@ -8053,7 +8050,7 @@ void ReflowCountMgr::ClearGrandTotals()
     ReflowCounter * gTots = (ReflowCounter *)PL_HashTableLookup(mCounts, kGrandTotalsStr);
     if (gTots == nsnull) {
       gTots = new ReflowCounter(this);
-      PL_HashTableAdd(mCounts, nsCRT::strdup(kGrandTotalsStr), gTots);
+      PL_HashTableAdd(mCounts, NS_strdup(kGrandTotalsStr), gTots);
     } else {
       gTots->ClearTotals();
       gTots->SetTotalsCache();

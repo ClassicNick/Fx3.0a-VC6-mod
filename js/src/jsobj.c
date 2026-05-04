@@ -1381,7 +1381,7 @@ static JSBool
 obj_watch_handler(JSContext *cx, JSObject *obj, jsval id, jsval old, jsval *nvp,
                   void *closure)
 {
-    JSObject *funobj;
+    JSObject *callable;
     JSRuntime *rt;
     JSStackFrame *caller;
     JSPrincipals *subject, *watcher;
@@ -1391,7 +1391,7 @@ obj_watch_handler(JSContext *cx, JSObject *obj, jsval id, jsval old, jsval *nvp,
     jsval argv[3];
     JSBool ok;
 
-    funobj = (JSObject *) closure;
+    callable = (JSObject *) closure;
 
     rt = cx->runtime;
     if (rt->findObjectPrincipals) {
@@ -1402,7 +1402,7 @@ obj_watch_handler(JSContext *cx, JSObject *obj, jsval id, jsval old, jsval *nvp,
              * Only call the watch handler if the watcher is allowed to watch
              * the currently executing script.
              */
-            watcher = rt->findObjectPrincipals(cx, funobj);
+            watcher = rt->findObjectPrincipals(cx, callable);
             subject = JS_StackFramePrincipals(cx, caller);
 
             if (watcher && subject && !watcher->subsume(watcher, subject)) {
@@ -1424,7 +1424,7 @@ obj_watch_handler(JSContext *cx, JSObject *obj, jsval id, jsval old, jsval *nvp,
     argv[0] = id;
     argv[1] = old;
     argv[2] = *nvp;
-    ok = js_InternalCall(cx, obj, OBJECT_TO_JSVAL(funobj), 3, argv, nvp);
+    ok = js_InternalCall(cx, obj, OBJECT_TO_JSVAL(callable), 3, argv, nvp);
     js_StopResolving(cx, &key, JSRESFLAG_WATCH, entry, generation);
     return ok;
 }
@@ -2783,15 +2783,17 @@ js_FreeSlot(JSContext *cx, JSObject *obj, uint32 slot)
             const jschar *cp_ = str_->chars;                                  \
             JSBool negative_ = (*cp_ == '-');                                 \
             if (negative_) cp_++;                                             \
-            if (JS7_ISDEC(*cp_) &&                                            \
-                str_->length - negative_ <= sizeof(JSVAL_INT_MAX_STRING)-1) { \
-                id = CheckForStringIndex(id, cp_, negative_);                 \
+            if (JS7_ISDEC(*cp_)) {                                            \
+                size_t n_ = str_->length - negative_;                         \
+                if (n_ <= sizeof(JSVAL_INT_MAX_STRING) - 1)                   \
+                    id = CheckForStringIndex(id, cp_, cp_ + n_, negative_);   \
             }                                                                 \
         }                                                                     \
     JS_END_MACRO
 
 static jsid
-CheckForStringIndex(jsid id, const jschar *cp, JSBool negative)
+CheckForStringIndex(jsid id, const jschar *cp, const jschar *end,
+                    JSBool negative)
 {
     jsuint index = JS7_UNDEC(*cp++);
     jsuint oldIndex = 0;
@@ -2805,7 +2807,7 @@ CheckForStringIndex(jsid id, const jschar *cp, JSBool negative)
             cp++;
         }
     }
-    if (*cp == 0 &&
+    if (cp == end &&
         (oldIndex < (JSVAL_INT_MAX / 10) ||
          (oldIndex == (JSVAL_INT_MAX / 10) &&
           c <= (JSVAL_INT_MAX % 10)))) {

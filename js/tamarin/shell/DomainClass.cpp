@@ -35,7 +35,7 @@
 namespace avmshell
 {
 	BEGIN_NATIVE_MAP(DomainClass)
-		NATIVE_METHOD(avmplus_Domain_Domain, DomainObject::construct)
+		NATIVE_METHOD(avmplus_Domain_Domain, DomainObject::constructFromDomain)
 		NATIVE_METHOD(avmplus_Domain_loadBytes, DomainObject::loadBytes)
 		NATIVE_METHOD(avmplus_Domain_currentDomain_get, DomainClass::get_currentDomain)
 		NATIVE_METHOD(avmplus_Domain_getClass, DomainObject::getClass)
@@ -50,7 +50,7 @@ namespace avmshell
 	{
 	}
 
-	void DomainObject::construct(DomainObject *parentDomain)
+	void DomainObject::constructFromDomain(DomainObject *parentDomain)
 	{
 		Shell *core = (Shell*) this->core();
 

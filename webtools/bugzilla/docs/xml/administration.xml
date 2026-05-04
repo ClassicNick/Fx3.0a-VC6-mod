@@ -82,7 +82,7 @@
 
       <varlistentry>
         <term>
-          maildeliverymethod
+          mail_delivery_method
         </term>
         <listitem>
           <para>
@@ -339,9 +339,9 @@
 
       <tip>
         <para>If you wish to add more administrative users, add them to 
-        the "admin" group and, optionally, add edit the tweakparams, editusers,
+        the "admin" group and, optionally, edit the tweakparams, editusers,
         creategroups, editcomponents, and editkeywords groups to add the
-        entire admin group to those groups.
+        entire admin group to those groups (which is the case by default).
         </para>
       </tip>
     </section>
@@ -349,61 +349,87 @@
     <section id="manageusers">
       <title>Managing Other Users</title>
 
+      <section id="user-account-search">
+        <title>Searching for existing users</title>
+
+        <para>
+          If you have <quote>editusers</quote> privileges or if you are allowed
+          to grant privileges for some groups, the <quote>Users</quote> link
+          appears in the footer.
+        </para>
+
+        <para>
+          The first screen you get is a search form to search for existing user
+          accounts. You can run searches based either on the ID, real name or
+          login name (i.e. the email address in most cases) of users. You can
+          search in different ways the listbox to the right of the text entry
+          box. You can match by case-insensitive substring (the default),
+          regular expression, a <emphasis>reverse</emphasis> regular expression
+          match, which finds every user name which does NOT match the regular
+          expression, or the exact string if you know exactly who you are looking for.
+        </para>
+
+        <para>
+          You can also restrict your search to users being in some specific group.
+          By default, the restriction is turned off. Then you get a list of
+          users matching your critera, and clicking their login name lets you
+          edit their properties.
+        </para>
+      </section>
+
       <section id="createnewusers">
         <title>Creating new users</title>
 
-        <para>Your users can create their own user accounts by clicking the
-        "New Account" link at the bottom of each page (assuming they
-        aren't logged in as someone else already.) However, should you
-        desire to create user accounts ahead of time, here is how you do
-        it.</para>
+        <section id="self-registration">
+          <title>Self-registration</title>
 
-        <orderedlist>
-          <listitem>
-            <para>After logging in, click the "Users" link at the footer of
-            the query page, and then click "Add a new user".</para>
-          </listitem>
+          <para>
+            By default, users can create their own user accounts by clicking the
+            <quote>New Account</quote> link at the bottom of each page (assuming
+            they aren't logged in as someone else already). If you want to disable
+            this self-registration, or if you want to restrict who can create his
+            own user account, you have to edit the <quote>createemailregexp</quote>
+            parameter in the <quote>Configuration</quote> page, see
+            <xref linkend="parameters" />.
+          </para>
+        </section>
 
-          <listitem>
-            <para>Fill out the form presented. This page is self-explanatory.
-            When done, click "Submit".</para>
+        <section id="user-account-creation">
+          <title>Accounts created by an administrator</title>
 
-            <note>
-              <para>Adding a user this way will 
-              <emphasis>not</emphasis>
+          <para>
+            Users with <quote>editusers</quote> privileges, such as administrators,
+            can create user accounts for other users:
+          </para>
 
-              send an email informing them of their username and password.
-              While useful for creating dummy accounts (watchers which
-              shuttle mail to another system, for instance, or email
-              addresses which are a mailing list), in general it is
-              preferable to log out and use the 
-              <quote>New Account</quote>
+          <orderedlist>
+            <listitem>
+              <para>After logging in, click the "Users" link at the footer of
+              the query page, and then click "Add a new user".</para>
+            </listitem>
 
-              button to create users, as it will pre-populate all the
-              required fields and also notify the user of her account name
-              and password.</para>
-            </note>
-          </listitem>
-        </orderedlist>
+            <listitem>
+              <para>Fill out the form presented. This page is self-explanatory.
+              When done, click "Submit".</para>
+
+              <note>
+                <para>Adding a user this way will <emphasis>not</emphasis>
+                send an email informing them of their username and password.
+                While useful for creating dummy accounts (watchers which
+                shuttle mail to another system, for instance, or email
+                addresses which are a mailing list), in general it is
+                preferable to log out and use the <quote>New Account</quote>
+                button to create users, as it will pre-populate all the
+                required fields and also notify the user of her account name
+                and password.</para>
+              </note>
+            </listitem>
+          </orderedlist>
+        </section>
       </section>
 
       <section id="modifyusers">
         <title>Modifying Users</title>
-
-        <para>To see a specific user, search for their login name
-        in the box provided on the "Edit Users" page. To see all users, 
-        leave the box blank.</para>
-
-        <para>You can search in different ways the listbox to the right
-        of the text entry box. You can match by 
-        case-insensitive substring (the default),
-        regular expression, or a 
-        <emphasis>reverse</emphasis>
-        regular expression match, which finds every user name which does NOT
-        match the regular expression. (Please see
-        the <command>man regexp</command>
-        manual page for details on regular expression syntax.)
-        </para>
 
         <para>Once you have found your user, you can change the following
         fields:</para>
@@ -413,9 +439,9 @@
             <para>
             <emphasis>Login Name</emphasis>: 
             This is generally the user's full email address. However, if you
-            have are using the emailsuffix Param, this may just be the user's
-            login name. Note that users can now change their login names
-            themselves (to any valid email address.)
+            have are using the <quote>emailsuffix</quote> parameter, this may
+            just be the user's login name. Note that users can now change their
+            login names themselves (to any valid email address).
             </para>
           </listitem>
 
@@ -436,6 +462,15 @@
 
           <listitem>
             <para>
+              <emphasis>Bugmail Disabled</emphasis>:
+              Mark this checkbox to disable bugmail and whinemail completely
+              for this account. This checkbox replaces the data/nomail file
+              which existed in older versions of Bugzilla.
+            </para>
+          </listitem>
+
+          <listitem>
+            <para>
               <emphasis>Disable Text</emphasis>: 
               If you type anything in this box, including just a space, the
               user is prevented from logging in, or making any changes to 
@@ -449,8 +484,8 @@
               mail from Bugzilla; furthermore, they will not be able
               to log in themselves to change their own preferences and
               stop it. If you want an account (disabled or active) to
-              stop receiving mail, add the account name (one account
-              per line) to the file <filename>data/nomail</filename>.
+              stop receiving mail, simply check the
+              <quote>Bugmail Disabled</quote> checkbox above.
             </para>
             <note>
               <para>
@@ -548,7 +583,22 @@
           </listitem>
         </itemizedlist>
       </section>
-      
+
+      <section id="user-account-deletion">
+        <title>Deleting Users</title>
+        <para>
+          If the <quote>allowuserdeletion</quote> parameter is turned on, see
+          <xref linkend="parameters" />, then you can also delete user accounts.
+          Note that this is most of the time not the best thing to do. If only
+          a warning in a yellow box is displayed, then the deletion is safe.
+          If a warning is also displayed in a red box, then you should NOT try
+          to delete the user account, else you will get referential integrity
+          problems in your database, which can lead to unexpected behavior,
+          such as bugs not appearing in bug lists anymore, or data displaying
+          incorrectly. You have been warned!
+        </para>
+      </section>
+
       <section id="impersonatingusers">
         <title>Impersonating Users</title>
         
@@ -880,15 +930,15 @@
    <section id="flag-askto">
      <title>Using flag requests</title>
      <para>
-       If a flag has been defined as 'requestable', 
-       users are allowed to set the flag's status to <quote>?</quote>.
-       This status indicates that someone (aka <quote>the requester</quote> is asking
-       for someone else to set the flag to either <quote>+</quote> or <quote>-</quote>.
+       If a flag has been defined as 'requestable', and a user has enough privileges
+       to request it (see below), the user can set the flag's status to <quote>?</quote>.
+       This status indicates that someone (a.k.a. <quote>the requester</quote>) is asking
+       someone else to set the flag to either <quote>+</quote> or <quote>-</quote>.
      </para>
      <para>
        If a flag has been defined as 'specifically requestable', 
        a text box will appear next to the flag into which the requester may
-       enter a Bugzilla username. That named person (aka <quote>the requestee</quote>)
+       enter a Bugzilla username. That named person (a.k.a. <quote>the requestee</quote>)
        will receive an email notifying them of the request, and pointing them
        to the bug/attachment in question.
      </para>
@@ -926,8 +976,7 @@
        </para>
 
        <para>
-         For a Bugzilla user, attachment flags show up in two 
-         places:
+         For a Bugzilla user, attachment flags show up in three places:
          <orderedlist>
            <listitem>
              <para>
@@ -946,6 +995,14 @@
               screen is where you set flags to ?, -, +, or unset them.
              </para>
            </listitem>
+           <listitem>
+             <para>
+               Requests are listed in the <quote>Request Queue</quote>, which
+               is accessible from the <quote>My Requests</quote> link (if you are
+               logged in) or <quote>Requests</quote> link (if you are logged out)
+               visible in the footer of all pages.
+             </para>
+           </listitem>
          </orderedlist>
        </para>
 
@@ -956,14 +1013,13 @@
 
        <para>
          Bug flags are used to set a status on the bug itself. You can 
-         see Bug Flags in the <quote>Show Bug</quote> screen 
-         (<filename>editbug.cgi</filename>).
+         see Bug Flags in the <quote>Show Bug</quote> and <quote>Requests</quote>
+         screens, as described above.
        </para>
        <para>
-         Only users with the ability to edit the bug may 
-         set flags on bugs. This includes the assignee, reporter, and 
-         any user with the <computeroutput>editbugs</computeroutput> 
-         permission.
+         Only users with enough privileges (see below) may set flags on bugs.
+         This doesn't necessarily include the assignee, reporter, or users with the
+         <computeroutput>editbugs</computeroutput> permission.
        </para>
      </section>
 
@@ -998,17 +1054,18 @@
           <para>
             This is the name of the flag. This will be displayed 
             to Bugzilla users who are looking at or setting the flag. 
-            The name may consist of any valid Unicode character. 
+            The name may contain any valid Unicode characters except commas
+            and spaces.
           </para>
         </section>
 
         <section id="flags-create-field-description">
           <title>Description</title>
           <para>
-            This describes the flag in more detail. At present, this doesn't
-            show up anywhere helpful; ideally, it would be nice to have
-            it show up as a tooltip. This field 
-            can be as long as you like, and can contain any character you want.
+            The description describes the flag in more detail. It is visible
+            in a tooltip when hovering over a flag either in the <quote>Show Bug</quote>
+            or <quote>Edit Attachment</quote> pages. This field can be as
+            long as you like, and can contain any character you want.
           </para>
         </section>
 
@@ -1054,9 +1111,9 @@
 
           <para>
             You may select a Product without selecting a specific Component,
-            but it is illegal to select a Component without a Product, or to select a
-            Component that does not belong to the named Product. Doing so as of
-            this writing (2.18rc3) will raise an error... even if all your products
+            but you can't select a Component without a Product, or to select a
+            Component that does not belong to the named Product. If you do so,
+            Bugzilla will display an error message, even if all your products
             have a component by that name.
           </para>
 
@@ -1112,16 +1169,6 @@
           </para>
         </section>
 
-        <section id="flags-create-field-cclist">
-          <title>CC List</title>
-
-          <para>
-            If you want certain users to be notified every time this flag is 
-            set to ?, -, +, or unset, add them here. This is a comma-separated 
-            list of email addresses that need not be restricted to Bugzilla usernames..
-          </para>
-        </section>
-
         <section id="flags-create-field-specific">
           <title>Specifically Requestable</title>
           <para>
@@ -1145,6 +1192,38 @@
           </para>
         </section>
 
+	<section id="flags-create-field-cclist">
+          <title>CC List</title>
+
+          <para>
+            If you want certain users to be notified every time this flag is 
+            set to ?, -, +, or unset, add them here. This is a comma-separated 
+            list of email addresses that need not be restricted to Bugzilla usernames.
+          </para>
+        </section>
+
+        <section id="flags-create-grant-group">
+          <title>Grant Group</title>
+          <para>
+            When this field is set to some given group, only users in the group
+            can set the flag to <quote>+</quote> and <quote>-</quote>. This
+            field does not affect who can request or cancel the flag. For that,
+            see the <quote>Request Group</quote> field below. If this field
+            is left blank, all users can set or delete this flag. This field is
+            useful for restricting which users can approve or reject requests.
+          </para>
+        </section>
+
+        <section id="flags-create-request-group">
+          <title>Request Group</title>
+          <para>
+            When this field is set to some given group, only users in the group
+            can request or cancel this flag. Note that this field has no effect
+            if the <quote>grant group</quote> field is empty. You can set the
+            value of this field to a different group, but both fields have to be
+            set to a group for this field to have an effect.
+          </para>
+        </section>
       </section> <!-- flags-create -->
 
       <section id="flags-delete">
@@ -1185,7 +1264,57 @@
     <!-- XXX We should add a "Uses of Flags" section, here, with examples. -->
 
   </section> <!-- flags -->
-   
+
+  <section id="edit-values">
+    <title>Legal Values</title>
+
+    <para>
+      Since Bugzilla 2.20 RC1, legal values for Operating Systems, platforms,
+      bug priorities and severities can be edited from the User Interface
+      directly. This means that it is no longer required to manually edit
+      <filename>localconfig</filename>. Starting with Bugzilla 2.23.3, you
+      can also customize the list of valid resolutions from the same interface.
+    </para>
+
+    <section id="edit-values-list">
+      <title>Viewing/Editing legal values</title>
+      <para>
+        Editing legal values requires <quote>admin</quote> privileges.
+        A link named <quote>Field Values</quote> is visible in your footer and
+        clicking on it displays the list of fields whose values can be edited.
+      </para>
+      <para>
+	You can add as many legal values as you want, and each value must be
+	unique (on a per field basis). The sortkey is important to display these
+	values in the desired order.
+      </para>
+    </section>
+
+    <section id="edit-values-delete">
+      <title>Deleting legal values</title>
+      <para>
+        You can also delete legal values, but only if the two following conditions
+	are respected:
+      </para>
+
+      <orderedlist>
+        <listitem>
+	  <para>The value is not used by default for the field.</para>
+	</listitem>
+
+	<listitem>
+	  <para>No bug is currently using this value.</para>
+        </listitem>
+      </orderedlist>
+
+      <para>
+        If any of these conditions is not respected, the value cannot be deleted.
+	The only way to delete these values is to reassign bugs to another value
+	and to set another value as default for the field.
+      </para>
+    </section>
+  </section>
+
   <section id="voting">
     <title>Voting</title>
 

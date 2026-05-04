@@ -1,4 +1,3 @@
-
 #
 ## hostname: sb-win32-tbox
 ## uname: CYGWIN_NT-5.2 sb-win32-tbox 1.5.19(0.150/4/2) 2006-01-20 13:28 i686 Cygwin
@@ -190,7 +189,7 @@ $ReleaseBuild  = 1;
 $shiptalkback  = 0;
 #$ReleaseToLatest = 1; # Push the release to latest-<milestone>?
 #$ReleaseToDated = 1; # Push the release to YYYY-MM-DD-HH-<milestone>?
-$build_hour    = "6";
+$build_hour    = "3";
 #$package_creation_path = "/xpinstall/packager";
 # needs setting for mac + talkback: $mac_bundle_path = "/browser/app";
 $ssh_version   = "2";

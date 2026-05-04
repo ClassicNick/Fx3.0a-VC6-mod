@@ -1,4 +1,4 @@
-/* -*- Mode: Objective-C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: objc; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -382,8 +382,7 @@ nsChildView::~nsChildView()
   
   delete mPluginPort;
 
-  if (mVisRgn)
-  {
+  if (mVisRgn) {
     ::DisposeRgn(mVisRgn);
     mVisRgn = nsnull;
   }
@@ -416,7 +415,7 @@ nsresult nsChildView::StandardCreate(nsIWidget *aParent,
   // inherit things from the parent view and create our parallel 
   // NSView in the Cocoa display system
   mParentView = nil;
-  if ( aParent ) {
+  if (aParent) {
     SetBackgroundColor(aParent->GetBackgroundColor());
     SetForegroundColor(aParent->GetForegroundColor());
 
@@ -442,14 +441,15 @@ nsresult nsChildView::StandardCreate(nsIWidget *aParent,
   // view because we bailed before even creating the cocoa widgetry and as a result, we
   // don't need to assert. However, if that's not the case, we definitely want to assert
   // to show views aren't getting correctly parented.
-  if ( aParent ) {
+  if (aParent) {
     nsWindowType windowType;
     aParent->GetWindowType(windowType);
-    if ( windowType != eWindowType_popup )
+    if (windowType != eWindowType_popup)
       NS_ASSERTION(mParentView && mView, "couldn't hook up new NSView in hierarchy");
   }
-  else
+  else {
     NS_ASSERTION(mParentView && mView, "couldn't hook up new NSView in hierarchy");
+  }
 #endif
 
   // If this view was created in a Gecko view hierarchy, the initial state
@@ -530,9 +530,8 @@ NS_IMETHODIMP nsChildView::Create(nsIWidget *aParent,
                       nsIToolkit *aToolkit,
                       nsWidgetInitData *aInitData)
 {  
-  return(StandardCreate(aParent, aRect, aHandleEventFunction,
-                          aContext, aAppShell, aToolkit, aInitData,
-                            nsnull));
+  return(StandardCreate(aParent, aRect, aHandleEventFunction, aContext,
+                        aAppShell, aToolkit, aInitData, nsnull));
 }
 
 //-------------------------------------------------------------------------
@@ -549,8 +548,8 @@ NS_IMETHODIMP nsChildView::Create(nsNativeWidget aNativeParent,
                       nsWidgetInitData *aInitData)
 {
   // what we're passed in |aNativeParent| is an NSView. 
-  return(StandardCreate(nsnull, aRect, aHandleEventFunction,
-                  aContext, aAppShell, aToolkit, aInitData, aNativeParent));
+  return(StandardCreate(nsnull, aRect, aHandleEventFunction, aContext,
+                        aAppShell, aToolkit, aInitData, aNativeParent));
 }
 
 //-------------------------------------------------------------------------
@@ -642,8 +641,9 @@ void* nsChildView::GetNativeData(PRUint32 aDataType)
 #endif
 
     case NS_NATIVE_PLUGIN_PORT:
+    {
       // this needs to be a combination of the port and the offsets.
-      if (mPluginPort == nsnull) {
+      if (!mPluginPort) {
         mPluginPort = new nsPluginPort;
         if ([mView isKindOfClass:[ChildView class]])
           [(ChildView*)mView setIsPluginView: YES];
@@ -663,18 +663,12 @@ void* nsChildView::GetNativeData(PRUint32 aDataType)
           // then, encode as "SetOrigin" ready values.
           mPluginPort->portx = (PRInt32)-viewOrigin.x;
           mPluginPort->porty = (PRInt32)-viewOrigin.y;
-
         }
-      }
-      else
-      {
-#ifdef DEBUG
-        printf("@@@@ Couldn't get NSWindow for plugin port. @@@@\n");
-#endif
       }
 
       retVal = (void*)mPluginPort;
       break;
+    }
   }
 
   return retVal;
@@ -742,7 +736,6 @@ NS_IMETHODIMP nsChildView::ModalEventFilter(PRBool aRealEvent, void *aEvent,
 //
 NS_IMETHODIMP nsChildView::Enable(PRBool aState)
 {
-  // unimplemented;
   return NS_OK;
 }
 
@@ -1022,8 +1015,8 @@ NS_IMETHODIMP nsChildView::GetPluginClipRect(nsRect& outClipRect, nsPoint& outOr
   // Convert from cocoa to QuickDraw coordinates
   clipOrigin.y = frame.size.height - clipOrigin.y;
   
-  outClipRect.x      = (nscoord)clipOrigin.x;
-  outClipRect.y      = (nscoord)clipOrigin.y;
+  outClipRect.x = (nscoord)clipOrigin.x;
+  outClipRect.y = (nscoord)clipOrigin.y;
   
   
   PRBool isVisible;
@@ -1054,7 +1047,6 @@ NS_IMETHODIMP nsChildView::GetPluginClipRect(nsRect& outClipRect, nsPoint& outOr
 //-------------------------------------------------------------------------
 NS_IMETHODIMP nsChildView::StartDrawPlugin()
 {
-#ifndef MOZ_CAIRO_GFX
   NS_ASSERTION(mPluginPort, "StartDrawPlugin must only be called on a plugin widget");
   if (!mPluginPort)
     return NS_ERROR_FAILURE;
@@ -1062,49 +1054,55 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
   // prevent reentrant drawing
   if (mPluginDrawing)
     return NS_ERROR_FAILURE;
-
+  
   NSWindow* window = [mView nativeWindow];
-  if (!window) return NS_ERROR_FAILURE;
+  if (!window)
+    return NS_ERROR_FAILURE;
+  
+  // It appears that the WindowRef from which we get the plugin port undergoes the
+  // traditional BeginUpdate/EndUpdate cycle, which, if you recall, sets the visible
+  // region to the intersection of the visible region and the update region. Since
+  // we don't know here if we're being drawn inside a BeginUpdate/EndUpdate pair
+  // (which seem to occur in [NSWindow display]), and we don't want to have the burden
+  // of correctly doing Carbon invalidates of the plugin rect, we manually set the
+  // visible region to be the entire port every time.
+  RgnHandle pluginRegion = ::NewRgn();
+  if (pluginRegion) {
+    PRBool portChanged = (mPluginPort->port != CGrafPtr(GetQDGlobalsThePort()));
+    CGrafPtr oldPort;
+    GDHandle oldDevice;
 
-  if (window /* [mView lockFocusIfCanDraw] */) {
-    // It appears that the WindowRef from which we get the plugin port undergoes the
-    // traditional BeginUpdate/EndUpdate cycle, which, if you recall, sets the visible
-    // region to the intersection of the visible region and the update region. Since
-    // we don't know here if we're being drawn inside a BeginUpdate/EndUpdate pair
-    // (which seem to occur in [NSWindow display]), and we don't want to have the burden
-    // of correctly doing Carbon invalidates of the plugin rect, we manually set the
-    // visible region to be the entire port every time.
-    RgnHandle pluginRegion = ::NewRgn();
-    if (pluginRegion) {
-      StPortSetter setter(mPluginPort->port);
-      ::SetOrigin(0, 0);
-
-      nsRect  clipRect;   // this is in native window coordinates
-      nsPoint origin;
-      PRBool visible;
-      GetPluginClipRect(clipRect, origin, visible);
-      
-      // XXX if we're not visible, set an empty clip region?
-      Rect pluginRect;
-      ConvertGeckoRectToMacRect(clipRect, pluginRect);
-      
-      ::RectRgn(pluginRegion, &pluginRect);
-      ::SetPortVisibleRegion(mPluginPort->port, pluginRegion);
-      ::SetPortClipRegion(mPluginPort->port, pluginRegion);
-      
-      // now set up the origin for the plugin
-      ::SetOrigin(origin.x, origin.y);
-
-      ::DisposeRgn(pluginRegion);
+    if (portChanged) {
+      ::GetGWorld(&oldPort, &oldDevice);
+      ::SetGWorld(mPluginPort->port, ::IsPortOffscreen(mPluginPort->port) ? nsnull : ::GetMainDevice());
     }
 
-    mPluginDrawing = PR_TRUE;
-    return NS_OK;
+    ::SetOrigin(0, 0);
+    
+    nsRect clipRect; // this is in native window coordinates
+    nsPoint origin;
+    PRBool visible;
+    GetPluginClipRect(clipRect, origin, visible);
+    
+    // XXX if we're not visible, set an empty clip region?
+    Rect pluginRect;
+    ConvertGeckoRectToMacRect(clipRect, pluginRect);
+    
+    ::RectRgn(pluginRegion, &pluginRect);
+    ::SetPortVisibleRegion(mPluginPort->port, pluginRegion);
+    ::SetPortClipRegion(mPluginPort->port, pluginRegion);
+    
+    // now set up the origin for the plugin
+    ::SetOrigin(origin.x, origin.y);
+    
+    ::DisposeRgn(pluginRegion);
+
+    if (portChanged)
+      ::SetGWorld(oldPort, oldDevice);
   }
-  
-  NS_ASSERTION(0, "lockFocusIfCanDraw returned false\n");
-#endif
-  return NS_ERROR_FAILURE;
+
+  mPluginDrawing = PR_TRUE;
+  return NS_OK;
 }
 
 //-------------------------------------------------------------------------
@@ -1114,7 +1112,6 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
 NS_IMETHODIMP nsChildView::EndDrawPlugin()
 {
   NS_ASSERTION(mPluginPort, "EndDrawPlugin must only be called on a plugin widget");
-  //[mView unlockFocus];
   mPluginDrawing = PR_FALSE;
   return NS_OK;
 }
@@ -1659,15 +1656,11 @@ PRBool nsChildView::DispatchMouseEvent(nsMouseEvent &aEvent)
         result = ConvertStatus(mMouseListener->MouseMoved(aEvent));
         break;
 
-      case NS_MOUSE_LEFT_BUTTON_DOWN:
-      case NS_MOUSE_MIDDLE_BUTTON_DOWN:
-      case NS_MOUSE_RIGHT_BUTTON_DOWN:
+      case NS_MOUSE_BUTTON_DOWN:
         result = ConvertStatus(mMouseListener->MousePressed(aEvent));
         break;
 
-      case NS_MOUSE_LEFT_BUTTON_UP:
-      case NS_MOUSE_MIDDLE_BUTTON_UP:
-      case NS_MOUSE_RIGHT_BUTTON_UP:
+      case NS_MOUSE_BUTTON_UP:
         result = ConvertStatus(mMouseListener->MouseReleased(aEvent));
         result = ConvertStatus(mMouseListener->MouseClicked(aEvent));
         break;
@@ -1979,12 +1972,8 @@ nsChildView::GetQuickDrawPort()
 GrafPtr
 nsChildView::GetChildViewQuickDrawPort()
 {
-#ifndef MOZ_CAIRO_GFX
   if ([mView isKindOfClass:[ChildView class]])
     return (GrafPtr)[(ChildView*)mView qdPort];
-#endif
-
-  return nsnull;
 }
 
 #pragma mark -
@@ -2157,6 +2146,7 @@ NSEvent* globalDragEvent = nil;
 
 - (void)dealloc
 {
+  [mPendingDirtyRects release];
   [mLastMenuForEventEvent release];
   
   if (sLastViewEntered == self)
@@ -2260,7 +2250,6 @@ NSEvent* globalDragEvent = nil;
   // we have to loop up through superviews in case the view that received the
   // mouseDown is in fact a plugin view with no scrollbars
   while (currView) {
-
     // This is a hack I learned in nsView::GetViewFor(nsIWidget* aWidget)
     // that I'm not sure is kosher. If anyone knows a better way to get
     // the view for a widget, I'd love to hear it. --Nathan
@@ -2512,7 +2501,7 @@ NSEvent* globalDragEvent = nil;
 
   NSRect bounds = [self bounds];
   nsRefPtr<gfxQuartzSurface> targetSurface =
-    new gfxQuartzSurface(cgContext, bounds.size.width, bounds.size.height, PR_TRUE);
+    new gfxQuartzSurface(cgContext, (int)bounds.size.width, (int)bounds.size.height, PR_TRUE);
 
 #ifdef DEBUG_UPDATE
   fprintf (stderr, "---- Update[%p][%p] [%f %f %f %f] cgc: %p\n  gecko bounds: [%d %d %d %d]\n",
@@ -2688,8 +2677,9 @@ NSEvent* globalDragEvent = nil;
 #endif
 
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
-  [self convertEvent:theEvent message:NS_MOUSE_LEFT_BUTTON_DOWN toGeckoEvent:&geckoEvent];
+  [self convertEvent:theEvent message:NS_MOUSE_BUTTON_DOWN toGeckoEvent:&geckoEvent];
   geckoEvent.clickCount = [theEvent clickCount];
+  geckoEvent.button = nsMouseEvent::eLeftButton;
 
   EventRecord macEvent;
   macEvent.what = mouseDown;
@@ -2715,7 +2705,7 @@ NSEvent* globalDragEvent = nil;
     return;
   }
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
-  [self convertEvent:theEvent message:NS_MOUSE_LEFT_BUTTON_UP toGeckoEvent:&geckoEvent];
+  [self convertEvent:theEvent message:NS_MOUSE_BUTTON_UP toGeckoEvent:&geckoEvent];
 
   EventRecord macEvent;
   macEvent.what = mouseUp;
@@ -2733,7 +2723,7 @@ NSEvent* globalDragEvent = nil;
 
 - (void)mouseMoved:(NSEvent*)theEvent
 {
-  NSView* view = [[[self window] contentView] hitTest: [theEvent locationInWindow]];
+  NSView* view = [[[self window] contentView] hitTest:[theEvent locationInWindow]];
   if (view != (NSView*)self) {
     // We shouldn't handle this.  Send it to the right view.
     [view mouseMoved: theEvent];
@@ -2749,9 +2739,9 @@ NSEvent* globalDragEvent = nil;
   // check if we are in a hand scroll or if the user
   // has command and alt held down; if so,  we do not want
   // gecko messing with the cursor.
-  if ([ChildView  areHandScrollModifiers:[theEvent modifierFlags]]) {
+  if ([ChildView areHandScrollModifiers:[theEvent modifierFlags]])
     return;
-  }
+
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
   [self convertEvent:theEvent message:NS_MOUSE_MOVE toGeckoEvent:&geckoEvent];
 
@@ -2905,7 +2895,8 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
   
   // The right mouse went down, fire off a right mouse down event to gecko
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
-  [self convertEvent:theEvent message:NS_MOUSE_RIGHT_BUTTON_DOWN toGeckoEvent:&geckoEvent];
+  [self convertEvent:theEvent message:NS_MOUSE_BUTTON_DOWN toGeckoEvent:&geckoEvent];
+  geckoEvent.button = nsMouseEvent::eRightButton;
 
   // plugins need a native event here
   EventRecord macEvent;
@@ -2925,7 +2916,8 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
 - (void)rightMouseUp:(NSEvent *)theEvent
 {
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
-  [self convertEvent:theEvent message:NS_MOUSE_RIGHT_BUTTON_UP toGeckoEvent:&geckoEvent];
+  [self convertEvent:theEvent message:NS_MOUSE_BUTTON_UP toGeckoEvent:&geckoEvent];
+  geckoEvent.button = nsMouseEvent::eRightButton;
 
   // plugins need a native event here
   EventRecord macEvent;
@@ -2945,8 +2937,9 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
 - (void)otherMouseDown:(NSEvent *)theEvent
 {
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
-  [self convertEvent:theEvent message:NS_MOUSE_MIDDLE_BUTTON_DOWN toGeckoEvent:&geckoEvent];
+  [self convertEvent:theEvent message:NS_MOUSE_BUTTON_DOWN toGeckoEvent:&geckoEvent];
   geckoEvent.clickCount = [theEvent clickCount];
+  geckoEvent.button = nsMouseEvent::eMiddleButton;
   
   // send event into Gecko by going directly to the
   // the widget.
@@ -2958,8 +2951,9 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
 - (void)otherMouseUp:(NSEvent *)theEvent
 {
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
-  [self convertEvent:theEvent message:NS_MOUSE_MIDDLE_BUTTON_UP toGeckoEvent:&geckoEvent];
-  
+  [self convertEvent:theEvent message:NS_MOUSE_BUTTON_UP toGeckoEvent:&geckoEvent];
+  geckoEvent.button = nsMouseEvent::eMiddleButton;
+
   // send event into Gecko by going directly to the
   // the widget.
   mGeckoChild->DispatchMouseEvent(geckoEvent);
@@ -3076,6 +3070,7 @@ static nsEventStatus SendMouseEvent(PRBool isTrusted, PRUint32 msg, nsIWidget *w
   // Fire the context menu event into Gecko.
   nsMouseEvent geckoEvent(PR_TRUE, 0, nsnull, nsMouseEvent::eReal);
   [self convertEvent:theEvent message:NS_CONTEXTMENU toGeckoEvent:&geckoEvent];
+  geckoEvent.button = nsMouseEvent::eRightButton;
   mGeckoChild->DispatchMouseEvent(geckoEvent);
   
   // Go up our view chain to fetch the correct menu to return.

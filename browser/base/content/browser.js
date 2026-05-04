@@ -712,7 +712,7 @@ const gXPInstallObserver = {
             label: browserBundle.getString("xpinstallPromptWarningButton"),
             accessKey: browserBundle.getString("xpinstallPromptWarningButton.accesskey"),
             popup: null,
-            callback: function() { return xpinstallEditPermissions(browser.docShell); }
+            callback: function() { return xpinstallEditPermissions(shell); }
           }];
         }
 
@@ -3757,27 +3757,27 @@ nsBrowserStatusHandler.prototype =
 
   onLocationChange : function(aWebProgress, aRequest, aLocationURI)
   {
-   var location = aLocationURI ? aLocationURI.spec : "";
-
-   if (document.tooltipNode) {
-     // Optimise for the common case
-     if (aWebProgress.DOMWindow == content) {
-       document.getElementById("aHTMLTooltip").hidePopup();
-       document.tooltipNode = null;
-     }
-     else {
-       for (var tooltipWindow =
-              document.tooltipNode.target.ownerDocument.defaultView;
-            tooltipWindow != tooltipWindow.parent;
-            tooltipWindow = tooltipWindow.parent) {
-         if (tooltipWindow == aWebProgress.DOMWindow) {
-           document.getElementById("aHTMLTooltip").hidePopup();
-           document.tooltipNode = null;
-           break;
-         }
-       }
-     }
-   }
+    var location = aLocationURI ? aLocationURI.spec : "";
+ 
+    if (document.tooltipNode) {
+      // Optimise for the common case
+      if (aWebProgress.DOMWindow == content) {
+        document.getElementById("aHTMLTooltip").hidePopup();
+        document.tooltipNode = null;
+      }
+      else {
+        for (var tooltipWindow =
+               document.tooltipNode.target.ownerDocument.defaultView;
+             tooltipWindow != tooltipWindow.parent;
+             tooltipWindow = tooltipWindow.parent) {
+          if (tooltipWindow == aWebProgress.DOMWindow) {
+            document.getElementById("aHTMLTooltip").hidePopup();
+            document.tooltipNode = null;
+            break;
+          }
+        }
+      }
+    }
 
     // This code here does not compare uris exactly when determining
     // whether or not the message should be hidden since the message
@@ -3850,7 +3850,7 @@ nsBrowserStatusHandler.prototype =
           if (!gURIFixup)
             gURIFixup = Components.classes["@mozilla.org/docshell/urifixup;1"]
                                   .getService(Components.interfaces.nsIURIFixup);
-          if (aLocationURI && gURIFixup) {
+          if (location && gURIFixup) {
             try {
               location = gURIFixup.createExposableURI(aLocationURI).spec;
             } catch (ex) {}
@@ -5426,6 +5426,11 @@ var FeedHandler = {
       href = event.target.getAttribute("feed");
     urlSecurityCheck(href, gBrowser.currentURI.spec,
                      Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT_OR_DATA);
+    var feedURI = makeURI(href, document.characterSet);
+    // Use the feed scheme so X-Moz-Is-Feed will be set
+    // The value doesn't matter
+    if (/^https?/.test(feedURI.scheme))
+      href = "feed:" + href;
     this.loadFeed(href, event);
   },
 

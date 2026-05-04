@@ -1525,7 +1525,7 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
         PRBool capturedEvent = PR_FALSE;
         
         if (!NS_IS_KEY_EVENT(aEvent) && !NS_IS_IME_EVENT(aEvent) &&
-            aEvent->message != NS_CONTEXTMENU_KEY && !NS_IS_FOCUS_EVENT(aEvent)) {
+            !NS_IS_CONTEXT_MENU_KEY(aEvent) && !NS_IS_FOCUS_EVENT(aEvent)) {
           // will dispatch using coordinates. Pretty bogus but it's consistent
           // with what presshell does.
           view = GetDisplayRootFor(baseView);
@@ -1555,16 +1555,13 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
                NS_STATIC_CAST(nsMouseEvent*,aEvent)->reason ==
                  nsMouseEvent::eReal) ||
               aEvent->message == NS_MOUSE_ENTER) {
-            nsPoint rootOffset(0, 0);
-            for (nsView *v = baseView; v != mRootView; v = v->GetParent())
-              v->ConvertToParentCoords(&rootOffset.x, &rootOffset.y);
             // aEvent->point is relative to the widget, i.e. the view top-left,
             // so we need to add the offset to the view origin
-            rootOffset += baseView->GetDimensions().TopLeft();
-            mMouseLocation.MoveTo(NSTwipsToIntPixels(rootOffset.x, t2p) +
-                                    aEvent->refPoint.x,
-                                  NSTwipsToIntPixels(rootOffset.y, t2p) +
-                                    aEvent->refPoint.y);
+            nsPoint rootOffset = baseView->GetDimensions().TopLeft();
+            rootOffset += baseView->GetOffsetTo(RootViewManager()->mRootView);
+            RootViewManager()->mMouseLocation = aEvent->refPoint +
+                nsPoint(NSTwipsToIntPixels(rootOffset.x, t2p),
+                        NSTwipsToIntPixels(rootOffset.y, t2p));
 #ifdef DEBUG_MOUSE_LOCATION
             if (aEvent->message == NS_MOUSE_ENTER)
               printf("[vm=%p]got mouse enter for %p\n",
@@ -1582,7 +1579,7 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
             // won't matter at all since we'll get the mouse move or
             // enter after the mouse exit when the mouse moves from one
             // of our widgets into another.
-            mMouseLocation.MoveTo(NSCOORD_NONE, NSCOORD_NONE);
+            RootViewManager()->mMouseLocation = nsPoint(NSCOORD_NONE, NSCOORD_NONE);
 #ifdef DEBUG_MOUSE_LOCATION
             printf("[vm=%p]got mouse exit for %p\n",
                    this, aEvent->widget);
@@ -2862,6 +2859,9 @@ private:
 NS_IMETHODIMP
 nsViewManager::SynthesizeMouseMove(PRBool aFromScroll)
 {
+  if (!IsRootVM())
+    return RootViewManager()->SynthesizeMouseMove(aFromScroll);
+
   if (mMouseLocation == nsPoint(NSCOORD_NONE, NSCOORD_NONE))
     return NS_OK;
 
@@ -2914,6 +2914,8 @@ nsViewManager::ProcessSynthMouseMoveEvent(PRBool aFromScroll)
   // source of the event is a scroll (to prevent infinite reflow loops)
   if (aFromScroll)
     mSynthMouseMoveEvent.Forget();
+
+  NS_ASSERTION(IsRootVM(), "Only the root view manager should be here");
 
   if (mMouseLocation == nsPoint(NSCOORD_NONE, NSCOORD_NONE) || !mRootView) {
     mSynthMouseMoveEvent.Forget();

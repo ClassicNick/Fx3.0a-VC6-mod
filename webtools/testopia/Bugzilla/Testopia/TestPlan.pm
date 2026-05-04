@@ -392,11 +392,12 @@ is not specified, use the plan product.
 sub get_product_builds {
 #TODO: 2.22 use product.pm
     my $self = shift;
-    my ($product_id) = @_;
+    my ($product_id, $byid) = @_;
     $product_id ||= $self->{'product_id'};
+    my $idfield = $byid ? 'id' : 'name';
     my $dbh = Bugzilla->dbh;
     my $ref = $dbh->selectall_arrayref(
-            "SELECT DISTINCT name AS id, name 
+            "SELECT DISTINCT $idfield AS id, name 
                FROM test_builds
               WHERE product_id IN($product_id)
            ORDER BY name",
@@ -415,11 +416,12 @@ is not specified, use the plan product.
 sub get_product_categories {
 #TODO: 2.22 use product.pm
     my $self = shift;
-    my ($product_id) = @_;
+    my ($product_id, $byid) = @_;
     $product_id ||= $self->{'product_id'};
+    my $idfield = $byid ? 'id' : 'name';
     my $dbh = Bugzilla->dbh;
     my $ref = $dbh->selectall_arrayref(
-            "SELECT DISTINCT name AS id, name 
+            "SELECT DISTINCT $idfield AS id, name 
                FROM test_case_categories
               WHERE product_id IN($product_id)
            ORDER BY name",
@@ -438,11 +440,12 @@ is not specified, use the plan product.
 sub get_product_components {
 #TODO: 2.22 use product.pm
     my $self = shift;
-    my ($product_id) = @_;
+    my ($product_id, $byid) = @_;
     $product_id ||= $self->{'product_id'};
+    my $idfield = $byid ? 'id' : 'name'; 
     my $dbh = Bugzilla->dbh;
     my $ref = $dbh->selectall_arrayref(
-            "SELECT DISTINCT name AS id, name 
+            "SELECT DISTINCT $idfield AS id, name 
                FROM components
               WHERE product_id IN($product_id)
            ORDER BY name",
@@ -461,11 +464,12 @@ is not specified, use the plan product.
 sub get_product_environments {
 #TODO: 2.22 use product.pm
     my $self = shift;
-    my ($product_id) = @_;
+    my ($product_id, $byid) = @_;
     $product_id ||= $self->{'product_id'};
+    my $idfield = $byid ? 'id' : 'name';
     my $dbh = Bugzilla->dbh;
     my $ref = $dbh->selectall_arrayref(
-            "SELECT DISTINCT name AS id, name 
+            "SELECT DISTINCT $idfield AS id, name 
                FROM test_environments
               WHERE product_id IN($product_id)
            ORDER BY name",
@@ -835,16 +839,33 @@ Removes this plan and all things that reference it.
 
 sub obliterate {
     my $self = shift;
-    return 0 unless $self->candelete;
+    my ($cgi, $template) = @_;
+    my $vars;
     my $dbh = Bugzilla->dbh;
+
+    my $progress_interval = 250;
+    my $i = 0;
+    my $total = scalar @{$self->test_cases} + scalar @{$self->test_runs};
 
     foreach my $obj (@{$self->attachments}){
         $obj->obliterate;
     }
     foreach my $obj (@{$self->test_runs}){
-        $obj->obliterate;
+        $obj->obliterate($cgi, $template);
     }
     foreach my $obj (@{$self->test_cases}){
+        $i++;
+        if ($cgi && $i % $progress_interval == 0){
+            print $cgi->multipart_end;
+            print $cgi->multipart_start;
+            $vars->{'complete'} = $i;
+            $vars->{'total'} = $total;
+            $vars->{'process'} = "Deleting test cases";
+            
+            $template->process("testopia/progress.html.tmpl", $vars)
+              || ThrowTemplateError($template->error());
+        }
+        
         $obj->obliterate if (scalar @{$obj->plans} == 1);
     }
 
