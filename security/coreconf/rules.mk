@@ -413,18 +413,18 @@ endif
 endif
 
 ifdef NEED_ABSOLUTE_PATH
-abspath = $(if $(findstring :,$(1)),$(1),$(if $(filter /%,$(1)),$(1),$(PWD)/$(1)))
+core_abspath = $(if $(findstring :,$(1)),$(1),$(if $(filter /%,$(1)),$(1),$(PWD)/$(1)))
 else
-abspath = $(1)
+core_abspath = $(1)
 endif
 
 $(OBJDIR)/$(PROG_PREFIX)%$(OBJ_SUFFIX): %.c
 	@$(MAKE_OBJDIR)
 ifdef USE_NT_C_SYNTAX
-	$(CC) -Fo$@ -c $(CFLAGS) $(call abspath,$<)
+	$(CC) -Fo$@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 ifdef NEED_ABSOLUTE_PATH
-	$(CC) -o $@ -c $(CFLAGS) $(call abspath,$<)
+	$(CC) -o $@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 	$(CC) -o $@ -c $(CFLAGS) $<
 endif
@@ -432,10 +432,10 @@ endif
 
 $(PROG_PREFIX)%$(OBJ_SUFFIX): %.c
 ifdef USE_NT_C_SYNTAX
-	$(CC) -Fo$@ -c $(CFLAGS) $(call abspath,$<)
+	$(CC) -Fo$@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 ifdef NEED_ABSOLUTE_PATH
-	$(CC) -o $@ -c $(CFLAGS) $(call abspath,$<)
+	$(CC) -o $@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 	$(CC) -o $@ -c $(CFLAGS) $<
 endif
@@ -464,10 +464,10 @@ $(OBJDIR)/$(PROG_PREFIX)%$(OBJ_SUFFIX): %.S
 $(OBJDIR)/$(PROG_PREFIX)%: %.cpp
 	@$(MAKE_OBJDIR)
 ifdef USE_NT_C_SYNTAX
-	$(CCC) -Fo$@ -c $(CFLAGS) $(call abspath,$<)
+	$(CCC) -Fo$@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 ifdef NEED_ABSOLUTE_PATH
-	$(CCC) -o $@ -c $(CFLAGS) $(call abspath,$<)
+	$(CCC) -o $@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 	$(CCC) -o $@ -c $(CFLAGS) $<
 endif
@@ -488,10 +488,10 @@ ifdef STRICT_CPLUSPLUS_SUFFIX
 	rm -f $(OBJDIR)/t_$*.cc
 else
 ifdef USE_NT_C_SYNTAX
-	$(CCC) -Fo$@ -c $(CFLAGS) $(call abspath,$<)
+	$(CCC) -Fo$@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 ifdef NEED_ABSOLUTE_PATH
-	$(CCC) -o $@ -c $(CFLAGS) $(call abspath,$<)
+	$(CCC) -o $@ -c $(CFLAGS) $(call core_abspath,$<)
 else
 	$(CCC) -o $@ -c $(CFLAGS) $<
 endif
