@@ -1385,6 +1385,7 @@ nsXULElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName, PRBool aNotify)
 
     nsCOMPtr<nsIDOMAttr> attrNode;
     if (hasMutationListeners) {
+        // XXXbz namespaces, dude!
         nsAutoString attrName;
         aName->ToString(attrName);
         GetAttributeNode(attrName, getter_AddRefs(attrNode));
@@ -1395,7 +1396,8 @@ nsXULElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName, PRBool aNotify)
       slots->mAttributeMap->DropAttribute(aNameSpaceID, aName);
     }
 
-    rv = mAttrsAndChildren.RemoveAttrAt(index);
+    nsAttrValue ignored;
+    rv = mAttrsAndChildren.RemoveAttrAt(index, ignored);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // XXX if the RemoveAttrAt() call fails, we might end up having removed
@@ -2593,6 +2595,7 @@ nsXULPrototypeElement::Serialize(nsIObjectOutputStream* aStream,
         switch (child->mType) {
         case eType_Element:
         case eType_Text:
+        case eType_PI:
             rv |= child->Serialize(aStream, aGlobal, aNodeInfos);
             break;
         case eType_Script:
@@ -2695,6 +2698,15 @@ nsXULPrototypeElement::Deserialize(nsIObjectInputStream* aStream,
                 break;
             case eType_Text:
                 child = new nsXULPrototypeText();
+                if (! child)
+                    return NS_ERROR_OUT_OF_MEMORY;
+                child->mType = childType;
+
+                rv |= child->Deserialize(aStream, aGlobal, aDocumentURI,
+                                         aNodeInfos);
+                break;
+            case eType_PI:
+                child = new nsXULPrototypePI();
                 if (! child)
                     return NS_ERROR_OUT_OF_MEMORY;
                 child->mType = childType;
@@ -3154,8 +3166,42 @@ nsXULPrototypeText::Deserialize(nsIObjectInputStream* aStream,
 {
     nsresult rv;
 
-    // Write basic prototype data
     rv = aStream->ReadString(mValue);
+
+    return rv;
+}
+
+//----------------------------------------------------------------------
+//
+// nsXULPrototypePI
+//
+
+nsresult
+nsXULPrototypePI::Serialize(nsIObjectOutputStream* aStream,
+                            nsIScriptGlobalObject* aGlobal,
+                            const nsCOMArray<nsINodeInfo> *aNodeInfos)
+{
+    nsresult rv;
+
+    // Write basic prototype data
+    rv = aStream->Write32(mType);
+
+    rv |= aStream->WriteWStringZ(mTarget.get());
+    rv |= aStream->WriteWStringZ(mData.get());
+
+    return rv;
+}
+
+nsresult
+nsXULPrototypePI::Deserialize(nsIObjectInputStream* aStream,
+                              nsIScriptGlobalObject* aGlobal,
+                              nsIURI* aDocumentURI,
+                              const nsCOMArray<nsINodeInfo> *aNodeInfos)
+{
+    nsresult rv;
+
+    rv = aStream->ReadString(mTarget);
+    rv |= aStream->ReadString(mData);
 
     return rv;
 }

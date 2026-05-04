@@ -65,19 +65,6 @@
 #include "pldhash.h"
 #include "prprf.h"
 
-nsGenericDOMDataNode::nsDataSlots::nsDataSlots(PtrBits aFlags)
-  : nsINode::nsSlots(aFlags),
-    mBindingParent(nsnull)
-{
-}
-
-nsGenericDOMDataNode::nsDataSlots::~nsDataSlots()
-{
-  if (mChildNodes) {
-    mChildNodes->DropReference();
-  }
-}
-
 nsGenericDOMDataNode::nsGenericDOMDataNode(nsINodeInfo *aNodeInfo)
   : nsIContent(aNodeInfo)
 {
@@ -95,8 +82,9 @@ NS_IMPL_RELEASE_WITH_DESTROY(nsGenericDOMDataNode,
                              nsNodeUtils::LastRelease(this, PR_TRUE))
 
 NS_INTERFACE_MAP_BEGIN(nsGenericDOMDataNode)
-  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
+  NS_INTERFACE_MAP_ENTRY(nsIContent)
   NS_INTERFACE_MAP_ENTRY(nsIDOMGCParticipant)
+  NS_INTERFACE_MAP_ENTRY(nsINode)
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMEventReceiver,
                                  nsDOMEventRTTearoff::Create(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMEventTarget,
@@ -105,9 +93,10 @@ NS_INTERFACE_MAP_BEGIN(nsGenericDOMDataNode)
                                  nsDOMEventRTTearoff::Create(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMNSEventTarget,
                                  nsDOMEventRTTearoff::Create(this))
-  NS_INTERFACE_MAP_ENTRY(nsIContent)
+  NS_INTERFACE_MAP_ENTRY_TEAROFF(nsISupportsWeakReference,
+                                 new nsNodeSupportsWeakRefTearoff(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOM3Node, new nsNode3Tearoff(this))
-  NS_INTERFACE_MAP_ENTRY(nsINode)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
 NS_INTERFACE_MAP_END
 
 
@@ -175,6 +164,7 @@ nsGenericDOMDataNode::GetChildNodes(nsIDOMNodeList** aChildNodes)
   if (!slots->mChildNodes) {
     slots->mChildNodes = new nsChildContentList(this);
     NS_ENSURE_TRUE(slots->mChildNodes, NS_ERROR_OUT_OF_MEMORY);
+    NS_ADDREF(slots->mChildNodes);
   }
 
   NS_ADDREF(*aChildNodes = slots->mChildNodes);

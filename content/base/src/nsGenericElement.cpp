@@ -135,7 +135,20 @@ DebugListContentTree(nsIContent* aElement)
 PRInt32 nsIContent::sTabFocusModel = eTabFocus_any;
 PRBool nsIContent::sTabFocusModelAppliesToXUL = PR_FALSE;
 nsresult NS_NewContentIterator(nsIContentIterator** aInstancePtrResult);
+
 //----------------------------------------------------------------------
+
+nsINode::nsSlots::~nsSlots()
+{
+  if (mChildNodes) {
+    mChildNodes->DropReference();
+    NS_RELEASE(mChildNodes);
+  }
+
+  if (mWeakReference) {
+    mWeakReference->NoticeNodeDestruction();
+  }
+}
 
 //----------------------------------------------------------------------
 
@@ -600,6 +613,54 @@ nsNode3Tearoff::IsDefaultNamespace(const nsAString& aNamespaceURI,
   return NS_OK;
 }
 
+//----------------------------------------------------------------------
+
+NS_IMPL_ISUPPORTS1(nsNodeWeakReference,
+                   nsIWeakReference)
+
+nsNodeWeakReference::~nsNodeWeakReference()
+{
+  if (mNode) {
+    NS_ASSERTION(mNode->GetSlots() &&
+                 mNode->GetSlots()->mWeakReference == this,
+                 "Weak reference has wrong value");
+    mNode->GetSlots()->mWeakReference = nsnull;
+  }
+}
+
+NS_IMETHODIMP
+nsNodeWeakReference::QueryReferent(const nsIID& aIID, void** aInstancePtr)
+{
+  return mNode ? mNode->QueryInterface(aIID, aInstancePtr) :
+                 NS_ERROR_NULL_POINTER;
+}
+
+
+NS_INTERFACE_MAP_BEGIN(nsNodeSupportsWeakRefTearoff)
+  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
+NS_INTERFACE_MAP_END_AGGREGATED(mNode)
+
+NS_IMPL_ADDREF(nsNodeSupportsWeakRefTearoff)
+NS_IMPL_RELEASE(nsNodeSupportsWeakRefTearoff)
+
+NS_IMETHODIMP
+nsNodeSupportsWeakRefTearoff::GetWeakReference(nsIWeakReference** aInstancePtr)
+{
+  nsINode::nsSlots* slots = mNode->GetSlots();
+  NS_ENSURE_TRUE(slots, NS_ERROR_OUT_OF_MEMORY);
+
+  if (!slots->mWeakReference) {
+    slots->mWeakReference = new nsNodeWeakReference(mNode);
+    NS_ENSURE_TRUE(slots->mWeakReference, NS_ERROR_OUT_OF_MEMORY);
+  }
+
+  NS_ADDREF(*aInstancePtr = slots->mWeakReference);
+
+  return NS_OK;
+}
+
+//----------------------------------------------------------------------
+
 nsDOMEventRTTearoff *
 nsDOMEventRTTearoff::mCachedEventTearoff[NS_EVENT_TEAROFF_CACHE_SIZE];
 
@@ -876,10 +937,6 @@ nsGenericElement::nsDOMSlots::nsDOMSlots(PtrBits aFlags)
 
 nsGenericElement::nsDOMSlots::~nsDOMSlots()
 {
-  if (mChildNodes) {
-    mChildNodes->DropReference();
-  }
-
   if (mStyle) {
     mStyle->DropReference();
   }
@@ -1228,7 +1285,7 @@ nsGenericElement::GetAttributes(nsIDOMNamedNodeMap** aAttributes)
 nsresult
 nsGenericElement::GetChildNodes(nsIDOMNodeList** aChildNodes)
 {
-  nsDOMSlots *slots = GetDOMSlots();
+  nsSlots *slots = GetSlots();
 
   if (!slots) {
     return NS_ERROR_OUT_OF_MEMORY;
@@ -1239,6 +1296,7 @@ nsGenericElement::GetChildNodes(nsIDOMNodeList** aChildNodes)
     if (!slots->mChildNodes) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
+    NS_ADDREF(slots->mChildNodes);
   }
 
   NS_ADDREF(*aChildNodes = slots->mChildNodes);
@@ -2958,6 +3016,8 @@ NS_INTERFACE_MAP_BEGIN(nsGenericElement)
                                  nsDOMEventRTTearoff::Create(this))
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsIDOMNSEventTarget,
                                  nsDOMEventRTTearoff::Create(this))
+  NS_INTERFACE_MAP_ENTRY_TEAROFF(nsISupportsWeakReference,
+                                 new nsNodeSupportsWeakRefTearoff(this))
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
 NS_INTERFACE_MAP_END
 
@@ -3009,9 +3069,10 @@ nsGenericElement::TriggerLink(nsPresContext* aPresContext,
     nsCOMPtr<nsIScriptSecurityManager> securityManager = 
              do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID, &rv);
     if (NS_SUCCEEDED(rv)) {
-      PRUint32 flag = aIsUserTriggered ?
-                      (PRUint32) nsIScriptSecurityManager::STANDARD :
-                      (PRUint32) nsIScriptSecurityManager::DISALLOW_FROM_MAIL;
+      PRUint32 flag =
+        aIsUserTriggered ?
+        (PRUint32) nsIScriptSecurityManager::STANDARD :
+        (PRUint32) nsIScriptSecurityManager::LOAD_IS_AUTOMATIC_DOCUMENT_REPLACEMENT;
       proceed =
         securityManager->CheckLoadURIWithPrincipal(NodePrincipal(), aLinkURI,
                                                    flag);
@@ -3396,29 +3457,17 @@ nsGenericElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
     }
   }
 
-  if (aNotify && nsContentUtils::HasMutationListeners(this,
-                   NS_EVENT_BITS_MUTATION_ATTRMODIFIED)) {
-    nsCOMPtr<nsIDOMEventTarget> node =
-      do_QueryInterface(NS_STATIC_CAST(nsIContent *, this));
-    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_ATTRMODIFIED);
+  PRBool hasMutationListeners = aNotify &&
+    nsContentUtils::HasMutationListeners(this,
+                                         NS_EVENT_BITS_MUTATION_ATTRMODIFIED);
 
+  // Grab the attr node if needed before we remove it from the attr map
+  nsCOMPtr<nsIDOMAttr> attrNode;
+  if (hasMutationListeners) {
+    // XXXbz namespaces, dude!
     nsAutoString attrName;
     aName->ToString(attrName);
-    nsCOMPtr<nsIDOMAttr> attrNode;
     GetAttributeNode(attrName, getter_AddRefs(attrNode));
-    mutation.mRelatedNode = attrNode;
-    mutation.mAttrName = aName;
-
-    nsAutoString value;
-    // It sucks that we have to call GetAttr here, but HTML can't always
-    // get the value from the nsAttrAndChildArray. Specifically enums and
-    // nsISupports can't be converted to strings.
-    GetAttr(aNameSpaceID, aName, value);
-    if (!value.IsEmpty())
-      mutation.mPrevAttrValue = do_GetAtom(value);
-    mutation.mAttrChange = nsIDOMMutationEvent::REMOVAL;
-
-    nsEventDispatcher::Dispatch(this, nsnull, &mutation);
   }
 
   // Clear binding to nsIDOMNamedNodeMap
@@ -3427,7 +3476,8 @@ nsGenericElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
     slots->mAttributeMap->DropAttribute(aNameSpaceID, aName);
   }
 
-  nsresult rv = mAttrsAndChildren.RemoveAttrAt(index);
+  nsAttrValue oldValue;
+  nsresult rv = mAttrsAndChildren.RemoveAttrAt(index, oldValue);
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (document) {
@@ -3439,6 +3489,23 @@ nsGenericElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
   if (aNotify) {
     nsNodeUtils::AttributeChanged(this, aNameSpaceID, aName,
                                   nsIDOMMutationEvent::REMOVAL);
+  }
+
+  if (hasMutationListeners) {
+    nsCOMPtr<nsIDOMEventTarget> node =
+      do_QueryInterface(NS_STATIC_CAST(nsIContent *, this));
+    nsMutationEvent mutation(PR_TRUE, NS_MUTATION_ATTRMODIFIED);
+
+    mutation.mRelatedNode = attrNode;
+    mutation.mAttrName = aName;
+
+    nsAutoString value;
+    oldValue.ToString(value);
+    if (!value.IsEmpty())
+      mutation.mPrevAttrValue = do_GetAtom(value);
+    mutation.mAttrChange = nsIDOMMutationEvent::REMOVAL;
+
+    nsEventDispatcher::Dispatch(this, nsnull, &mutation);
   }
 
   return NS_OK;

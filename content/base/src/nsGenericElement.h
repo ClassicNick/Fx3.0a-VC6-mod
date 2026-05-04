@@ -60,6 +60,7 @@
 #include "nsAttrAndChildArray.h"
 #include "mozFlushType.h"
 #include "nsDOMAttributeMap.h"
+#include "nsIWeakReference.h"
 
 class nsIDOMAttr;
 class nsIDOMEventListener;
@@ -107,7 +108,7 @@ private:
 };
 
 /**
- * A tearoff class for nsGenericElement to implement the nsIDOM3Node functions
+ * A tearoff class for nsGenericElement to implement additional interfaces
  */
 class nsNode3Tearoff : public nsIDOM3Node
 {
@@ -138,6 +139,55 @@ private:
   nsCOMPtr<nsIContent> mContent;
 };
 
+/**
+ * A class that implements nsIWeakReference
+ */
+
+class nsNodeWeakReference : public nsIWeakReference
+{
+public:
+  nsNodeWeakReference(nsINode* aNode)
+    : mNode(aNode)
+  {
+  }
+
+  ~nsNodeWeakReference();
+
+  // nsISupports
+  NS_DECL_ISUPPORTS
+
+  // nsIWeakReference
+  NS_DECL_NSIWEAKREFERENCE
+
+  void NoticeNodeDestruction()
+  {
+    mNode = nsnull;
+  }
+
+private:
+  nsINode* mNode;
+};
+
+/**
+ * Tearoff to use for nodes to implement nsISupportsWeakReference
+ */
+class nsNodeSupportsWeakRefTearoff : public nsISupportsWeakReference
+{
+public:
+  nsNodeSupportsWeakRefTearoff(nsINode* aNode)
+    : mNode(aNode)
+  {
+  }
+
+  // nsISupports
+  NS_DECL_ISUPPORTS
+
+  // nsISupportsWeakReference
+  NS_DECL_NSISUPPORTSWEAKREFERENCE
+
+private:
+  nsCOMPtr<nsINode> mNode;
+};
 
 #define NS_EVENT_TEAROFF_CACHE_SIZE 4
 
@@ -882,13 +932,6 @@ public:
     virtual ~nsDOMSlots();
 
     /**
-     * An object implementing nsIDOMNodeList for this content (childNodes)
-     * @see nsIDOMNodeList
-     * @see nsGenericHTMLElement::GetChildNodes
-     */
-    nsRefPtr<nsChildContentList> mChildNodes;
-
-    /**
      * The .style attribute (an interface that forwards to the actual
      * style rules)
      * @see nsGenericHTMLElement::GetStyle */
@@ -912,6 +955,11 @@ public:
       */
       nsIControllers* mControllers; // [OWNER]
     };
+    
+    /**
+     * Weak reference to this node
+     */
+    nsNodeWeakReference* mWeakReference;
   };
 
 protected:

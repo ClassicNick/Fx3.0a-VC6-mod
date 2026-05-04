@@ -718,10 +718,6 @@ nsDocument::~nsDocument()
   if (mStyleAttrStyleSheet)
     mStyleAttrStyleSheet->SetOwningDocument(nsnull);
 
-  if (mChildNodes) {
-    mChildNodes->DropReference();
-  }
-
   if (mListenerManager) {
     mListenerManager->Disconnect();
   }
@@ -735,6 +731,11 @@ nsDocument::~nsDocument()
     mCSSLoader->DropDocumentReference();
     NS_RELEASE(mCSSLoader);
   }
+
+  // We must delete properties before dropping document reference from
+  // NodeInfoManager, because nsNodeUtils::LastRelease can't remove properties
+  // when owner document is null.
+  mPropertyTable.DeleteAllProperties();
 
   // XXX Ideally we'd do this cleanup in the nsIDocument destructor.
   if (mNodeInfoManager) {
@@ -3401,14 +3402,18 @@ nsDocument::GetParentNode(nsIDOMNode** aParentNode)
 NS_IMETHODIMP
 nsDocument::GetChildNodes(nsIDOMNodeList** aChildNodes)
 {
-  if (!mChildNodes) {
-    mChildNodes = new nsChildContentList(this);
-    if (!mChildNodes) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
+  nsSlots *slots = GetSlots();
+  NS_ENSURE_TRUE(slots, NS_ERROR_OUT_OF_MEMORY);
+
+  if (!slots->mChildNodes) {
+    slots->mChildNodes = new nsChildContentList(this);
+    NS_ENSURE_TRUE(slots->mChildNodes, NS_ERROR_OUT_OF_MEMORY);
+    NS_ADDREF(slots->mChildNodes);
   }
 
-  return CallQueryInterface(mChildNodes.get(), aChildNodes);
+  NS_ADDREF(*aChildNodes = slots->mChildNodes);
+
+  return NS_OK;
 }
 
 NS_IMETHODIMP

@@ -8004,7 +8004,7 @@ nsCSSFrameConstructor::ReconstructDocElementHierarchyInternal()
 
       // Get the frame that corresponds to the document element
       nsIFrame* docElementFrame =
-        state.mFrameManager->GetPrimaryFrameFor(rootContent);
+        state.mFrameManager->GetPrimaryFrameFor(rootContent, -1);
         
       // Remove any existing fixed items: they are always on the
       // FixedContainingBlock.  Note that this has to be done before we call
@@ -9746,7 +9746,8 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*     aContainer,
   nsresult                  rv = NS_OK;
 
   // Find the child frame that maps the content
-  nsIFrame* childFrame = mPresShell->GetPrimaryFrameFor(aChild);
+  nsIFrame* childFrame =
+    mPresShell->FrameManager()->GetPrimaryFrameFor(aChild, aIndexInContainer);
 
   if (! childFrame) {
     frameManager->ClearUndisplayedContentIn(aChild, aContainer);
@@ -11212,7 +11213,7 @@ nsCSSFrameConstructor::FindPrimaryFrameFor(nsFrameManager*  aFrameManager,
   // call us back if there is no mapping in the hash table
   nsCOMPtr<nsIContent> parentContent = aContent->GetParent(); // Get this once
   if (parentContent) {
-    parentFrame = aFrameManager->GetPrimaryFrameFor(parentContent);
+    parentFrame = aFrameManager->GetPrimaryFrameFor(parentContent, -1);
     while (parentFrame) {
       // Search the child frames for a match
       *aFrame = FindFrameWithContent(aFrameManager, parentFrame,
@@ -11655,6 +11656,15 @@ ReparentFrame(nsFrameManager* aFrameManager,
 {
   aFrame->SetParent(aNewParentFrame);
   aFrameManager->ReParentStyleContext(aFrame);
+  if (aFrame->GetStateBits() &
+      (NS_FRAME_HAS_VIEW | NS_FRAME_HAS_CHILD_WITH_VIEW)) {
+    // No need to walk up the tree, since the bits are already set
+    // right on the parent of aNewParentFrame.
+    NS_ASSERTION(aNewParentFrame->GetParent()->GetStateBits() &
+                   NS_FRAME_HAS_CHILD_WITH_VIEW,
+                 "aNewParentFrame's parent should have this bit set!");
+    aNewParentFrame->AddStateBits(NS_FRAME_HAS_CHILD_WITH_VIEW);
+  }
 }
 
 // Special routine to handle placing a list of frames into a block

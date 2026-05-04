@@ -392,8 +392,12 @@ nsFeedLoadListener::TryParseAsRDF ()
     if (NS_FAILED(rv)) return rv;
     if (!listener) return NS_ERROR_FAILURE;
 
-    nsCOMPtr<nsIInputStream> stream;
-    rv = NS_NewCStringInputStream(getter_AddRefs(stream), mBody);
+    nsCOMPtr<nsIStringInputStream> stream =
+        do_CreateInstance("@mozilla.org/io/string-input-stream;1");
+    if (!stream)
+        return NS_ERROR_FAILURE;
+
+    rv = stream->SetData(mBody.get(), mBody.Length());
     if (NS_FAILED(rv)) return rv;
 
     nsCOMPtr<nsIChannel> channel;
@@ -857,9 +861,9 @@ nsFeedLoadListener::TryParseAsSimpleRSS ()
                 }
                 
                 // Clean up whitespace
-                titleStr.CompressWhitespace();
+                CompressWhitespace(titleStr);
                 linkStr.Trim("\b\t\r\n ");
-                dateStr.CompressWhitespace();
+                CompressWhitespace(dateStr);
                 
                 if (titleStr.IsEmpty() && !dateStr.IsEmpty())
                     titleStr.Assign(dateStr);
@@ -915,8 +919,7 @@ nsFeedLoadListener::IsLinkValid(const PRUnichar *aURI)
         return PR_FALSE;
 
     rv = mSecMan->CheckLoadURI(mURI, linkuri,
-                               nsIScriptSecurityManager::DISALLOW_FROM_MAIL |
-                               nsIScriptSecurityManager::DISALLOW_SCRIPT_OR_DATA);
+                               nsIScriptSecurityManager::DISALLOW_INHERIT_PRINCIPAL);
     if (NS_FAILED(rv))
         return PR_FALSE;
 

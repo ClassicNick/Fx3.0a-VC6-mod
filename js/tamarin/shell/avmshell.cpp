@@ -50,11 +50,29 @@ static MMgc::FixedMalloc* fm;
 
 void *operator new(size_t size)
 {
+	// 10.5 calls new before main
+	if (!fm)
+	{
+		MMgc::GCHeap::Init();
+		MMgc::FixedMalloc::Init();
+
+		fm = MMgc::FixedMalloc::GetInstance();
+	}
+
     return fm->Alloc(size);
 }
 
 void *operator new[](size_t size)
 {
+	// 10.5 calls new before main
+	if (!fm)
+	{
+		MMgc::GCHeap::Init();
+		MMgc::FixedMalloc::Init();
+
+		fm = MMgc::FixedMalloc::GetInstance();
+	}
+
     return fm->Alloc(size);
 }
 
@@ -67,7 +85,8 @@ void *operator new[](size_t size)
 	void operator delete( void *p)
 #endif
 	{
-		fm->Free(p);
+		if (fm)
+			fm->Free(p);
 	}
 
 #ifdef _MAC
@@ -78,7 +97,8 @@ void *operator new[](size_t size)
     void operator delete[]( void *p )
 #endif
     {
-        fm->Free(p);
+		if (fm)
+			fm->Free(p);
     }
 
 
@@ -133,11 +153,11 @@ namespace avmshell
 		}
 	}
 	
-	void CALLBACK TimeoutProc(UINT uTimerID,
-							  UINT uMsg,
+	void CALLBACK TimeoutProc(UINT /*uTimerID*/,
+							  UINT /*uMsg*/,
 							  DWORD_PTR dwUser,
-							  DWORD_PTR dw1,
-							  DWORD_PTR dw2)
+							  DWORD_PTR /*dw1*/,
+							  DWORD_PTR /*dw2*/)
 	{
 		AvmCore *core = (AvmCore*)dwUser;
 		core->interrupted = true;
@@ -478,7 +498,9 @@ namespace avmshell
 			int endFilenamePos = -1;
 			char *filename = NULL;
 			bool do_log = false;
+#ifdef DEBUGGER
 			bool do_debugger = false;
+#endif
 			bool do_interactive = false;
 #ifdef AVMPLUS_VERBOSE
 			bool do_verbose = false;
@@ -1006,10 +1028,14 @@ namespace avmshell
 
 int _main(int argc, char *argv[])
 {
-	MMgc::GCHeap::Init();
-	MMgc::FixedMalloc::Init();
+	if (!fm)
+	{
+		MMgc::GCHeap::Init();
+		MMgc::FixedMalloc::Init();
 
-	fm = MMgc::FixedMalloc::GetInstance();
+		fm = MMgc::FixedMalloc::GetInstance();
+	}
+	
 	MMgc::GCHeap* heap = MMgc::GCHeap::GetGCHeap();
 
 	// memory zero'ing check
@@ -1027,6 +1053,7 @@ int _main(int argc, char *argv[])
 
 	MMgc::FixedMalloc::Destroy();
 	MMgc::GCHeap::Destroy();
+	fm = 0;
  	return exitCode;
 }
 

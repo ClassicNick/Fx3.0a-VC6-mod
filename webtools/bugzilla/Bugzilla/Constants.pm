@@ -85,7 +85,7 @@ use File::Basename;
     THROW_ERROR
     
     RELATIONSHIPS
-    REL_ASSIGNEE REL_QA REL_REPORTER REL_CC REL_VOTER 
+    REL_ASSIGNEE REL_QA REL_REPORTER REL_CC REL_VOTER REL_GLOBAL_WATCHER
     REL_ANY
     
     POS_EVENTS
@@ -101,6 +101,7 @@ use File::Basename;
     FULLTEXT_BUGLIST_LIMIT
 
     ADMIN_GROUP_NAME
+    PER_PRODUCT_PRIVILEGES
 
     SENDMAIL_EXE
     SENDMAIL_PATH
@@ -127,6 +128,8 @@ use File::Basename;
     MAX_TOKEN_AGE
 
     SAFE_PROTOCOLS
+
+    MAX_LEN_QUERY_NAME
 );
 
 @Bugzilla::Constants::EXPORT_OK = qw(contenttypes);
@@ -241,9 +244,10 @@ use constant REL_QA                 => 1;
 use constant REL_REPORTER           => 2;
 use constant REL_CC                 => 3;
 use constant REL_VOTER              => 4;
+use constant REL_GLOBAL_WATCHER     => 5;
 
 use constant RELATIONSHIPS => REL_ASSIGNEE, REL_QA, REL_REPORTER, REL_CC, 
-                              REL_VOTER;
+                              REL_VOTER, REL_GLOBAL_WATCHER;
                               
 # Used for global events like EVT_FLAG_REQUESTED
 use constant REL_ANY                => 100;
@@ -288,6 +292,9 @@ use constant FULLTEXT_BUGLIST_LIMIT => 200;
 
 # Default administration group name.
 use constant ADMIN_GROUP_NAME => 'admin';
+
+# Privileges which can be per-product.
+use constant PER_PRODUCT_PRIVILEGES => ('editcomponents', 'editbugs', 'canconfirm');
 
 # Path to sendmail.exe (Windows only)
 use constant SENDMAIL_EXE => '/usr/lib/sendmail.exe';
@@ -345,6 +352,9 @@ use constant ROOT_USER => $^O =~ /MSWin32/i ? 'Administrator' : 'root';
 
 # True if we're on Win32.
 use constant ON_WINDOWS => ($^O =~ /MSWin32/i);
+
+# The longest that a saved search name can be.
+use constant MAX_LEN_QUERY_NAME => 64;
 
 sub bz_locations {
     # We know that Bugzilla/Constants.pm must be in %INC at this point.

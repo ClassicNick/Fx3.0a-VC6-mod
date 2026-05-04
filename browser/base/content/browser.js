@@ -2271,6 +2271,9 @@ function handleURLBarRevert()
 }
 
 function handleURLBarCommand(aTriggeringEvent) {
+  if (!gURLBar.value)
+    return;
+
   var postData = { };
   canonizeUrl(aTriggeringEvent, postData);
 
@@ -2451,7 +2454,7 @@ var urlbarObserver = {
           gURLBar.value = url;
           const nsIScriptSecMan = Components.interfaces.nsIScriptSecurityManager;
           urlSecurityCheck(gURLBar.value, gBrowser.currentURI.spec,
-                           nsIScriptSecMan.DISALLOW_SCRIPT_OR_DATA);
+                           nsIScriptSecMan.DISALLOW_INHERIT_PRINCIPAL);
           handleURLBarCommand();
         } catch (ex) {}
       }
@@ -2869,7 +2872,7 @@ var goButtonObserver = {
 
         const nsIScriptSecMan = Components.interfaces.nsIScriptSecurityManager;
         urlSecurityCheck(url, gBrowser.currentURI.spec,
-                         nsIScriptSecMan.DISALLOW_SCRIPT_OR_DATA);
+                         nsIScriptSecMan.DISALLOW_INHERIT_PRINCIPAL);
         loadURI(url, null, postData.value, true);
       } catch (ex) {}
     },
