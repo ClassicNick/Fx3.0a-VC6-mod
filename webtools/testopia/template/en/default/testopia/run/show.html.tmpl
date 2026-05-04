@@ -171,6 +171,7 @@
   <input type="hidden" name="current_tab" value="case" />
   <input type="hidden" name="addrun" value="[% run.id FILTER none %]" />
   <input type="hidden" name="plan_id" value="[% run.plan.id FILTER none %]" />
+  <input type="hidden" name="case_status_id" value="2" />
   <input type="hidden" name="viewall" value="1" />
   <input type="submit" value="Add Cases" />
 </form>
@@ -183,7 +184,7 @@
   <input type="hidden" name="run_id" value="[% run.id FILTER none %]" />
   <input type="submit" name="action" value="Clone Run With These Cases" />
 <a href="tr_list_caseruns.cgi?[% table.get_query_part FILTER none %]">Update Multiple</a>
-
+<a href="tr_list_cases.cgi?run_id=[% run.id FILTER none %]">List Cases</a>
 <br><br>
 [%##### Categories and Tags #####%]
 <h3>CC, Coverage, Tags</h3>

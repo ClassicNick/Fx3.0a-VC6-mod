@@ -88,7 +88,9 @@ sub init {
     my $page = $cgi->param('page') || 0;
     detaint_natural($page) if $page;
     $page = undef if ($cgi->param('viewall'));
-    my $pagesize = 25;
+    my $pagesize = $cgi->param('pagesize') if $cgi->param('pagesize');
+    detaint_natural($pagesize);
+    $pagesize ||= 25;
     
     my @specialchart;
     my @supptables;
@@ -415,6 +417,15 @@ sub init {
                       "ON case_plans.case_id = test_cases.case_id");
                $f = "test_cases.case_id";
          },
+         "^cases_in_runs," => sub {
+               push(@supptables,
+                      "INNER JOIN test_case_runs AS case_runs " .
+                      "ON test_cases.case_id = case_runs.case_id");
+               push(@supptables,
+                      "INNER JOIN test_runs " .
+                      "ON case_runs.run_id = test_runs.run_id");
+               $f = "test_runs.run_id";
+         },
          "^run_plan_id," => sub {
                $f = "test_runs.plan_id";
          },
@@ -578,7 +589,12 @@ sub init {
             	$type = $cgi->param('runidtype')
             } 
         }
-        push(@specialchart, ["run_id", $type, join(',', $cgi->param('run_id'))]);
+        if ($obj eq 'case'){
+            push(@specialchart, ["cases_in_runs", $type, join(',', $cgi->param('run_id'))]);
+        }
+        else {
+            push(@specialchart, ["run_id", $type, join(',', $cgi->param('run_id'))]);
+        }
     }
     if ($cgi->param('plan_id')) {
         my $type = "anyexact";

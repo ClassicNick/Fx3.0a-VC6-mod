@@ -36,15 +36,20 @@
 
 package org.mozilla.xpcom.internal;
 
-import java.io.*;
-import org.mozilla.xpcom.*;
+import java.io.File;
+
+import org.mozilla.xpcom.IAppFileLocProvider;
+import org.mozilla.xpcom.IXPCOM;
+import org.mozilla.xpcom.nsIComponentManager;
+import org.mozilla.xpcom.nsIComponentRegistrar;
+import org.mozilla.xpcom.nsILocalFile;
+import org.mozilla.xpcom.nsIServiceManager;
 
 
-public class XPCOMImpl extends JavaXPCOMMethods implements IXPCOM {
+public class XPCOMImpl implements IXPCOM {
 
   public nsIServiceManager initXPCOM(File aMozBinDirectory,
           IAppFileLocProvider aAppFileLocProvider) {
-    registerJavaXPCOMMethods(aMozBinDirectory);
     return initXPCOMNative(aMozBinDirectory, aAppFileLocProvider);
   }
 

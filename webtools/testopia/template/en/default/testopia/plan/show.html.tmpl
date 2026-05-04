@@ -43,7 +43,7 @@
 [% PROCESS testopia/style.none.tmpl %]
 
 [% PROCESS testopia/messages.html.tmpl %]
-[% IF plan.canedit %]
+
 <script type="text/javascript">
   djConfig = {
     parseWidgets: false,
@@ -55,7 +55,7 @@
 <script src="testopia/dojo/dojo.js" type="text/javascript"></script>
 <script type="text/javascript">
     dojo.require("dojo.widget.Tooltip");
-[% IF plan.candelete %]
+
     
     function fillSelects (data, item){
          var xmldocroot = data.documentElement;
@@ -98,7 +98,7 @@
             mimetype: "text/xml"
             });
     }
-[% END %]
+
     function updateCaseList(order, direction){
         dojo.io.bind({
             url:     'tr_show_plan.cgi',
@@ -120,7 +120,7 @@
 </script>
 
 
-[% END %]
+
 
 [% PROCESS testopia/plan/navigate.html.tmpl %]
 
@@ -227,6 +227,7 @@
 [% PROCESS testopia/case/table.html.tmpl
    table = case_table %]
   <a href="tr_new_case.cgi?plan_id=[% plan.id FILTER none %]">Create a New Test Case</a>
+  <a href="tr_list_cases.cgi?plan_id=[% plan.id FILTER none %]">List Cases</a>
 </div>
 
 [%##### Test Runs #####%]
@@ -234,11 +235,12 @@
 <h3>Test Runs</h3>
 <div id="plan_runs">
 [% IF run_table.list_count >0 %]
-<a href="tr_new_run.cgi?plan_id=[% plan.id FILTER none %]">Create a New Test Run</a><br />
+<a href="tr_new_run.cgi?plan_id=[% plan.id FILTER none %]&case_status_id=2">Create a New Test Run</a><br />
 [% END %]
 [% PROCESS testopia/run/table.html.tmpl
    table = run_table %]
-  <a href="tr_new_run.cgi?plan_id=[% plan.id FILTER none %]">Create a New Test Run</a>
+  <a href="tr_new_run.cgi?plan_id=[% plan.id FILTER none %]&case_status_id=2">Create a New Test Run</a>
+  <a href="tr_list_runs.cgi?plan_id=[% plan.id FILTER none %]&case_status_id=2">List Runs</a>
 </div>
 [%##### Attachments #####%]
 <br><br>

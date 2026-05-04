@@ -289,9 +289,13 @@ NS_IMETHODIMP_(PRBool)
 nsSVGMarkerElement::IsAttributeMapped(const nsIAtom* name) const
 {
   static const MappedAttributeEntry* const map[] = {
-    sViewportsMap,
+    sFontSpecificationMap,
+    sGradientStopMap,
+    sMarkersMap,
+    sTextContentElementsMap,
+    sViewportsMap
   };
-  
+
   return FindAttributeDependence(name, map, NS_ARRAY_LENGTH(map)) ||
     nsSVGMarkerElementBase::IsAttributeMapped(name);
 }
@@ -420,12 +424,20 @@ nsSVGMarkerElement::GetViewboxToViewportTransform(nsIDOMSVGMatrix **_retval)
     float refY = 
       mLengthAttributes[REFY].GetAnimValue(mCoordCtx);
 
-    mViewBoxToViewportTransform =
+    nsCOMPtr<nsIDOMSVGMatrix> vb2vp =
       nsSVGUtils::GetViewBoxTransform(viewportWidth, viewportHeight,
-                                      viewboxX + refX, viewboxY + refY,
+                                      viewboxX, viewboxY,
                                       viewboxWidth, viewboxHeight,
                                       mPreserveAspectRatio,
                                       PR_TRUE);
+    NS_ENSURE_TRUE(vb2vp, NS_ERROR_OUT_OF_MEMORY);
+    nsSVGUtils::TransformPoint(vb2vp, &refX, &refY);
+
+    nsCOMPtr<nsIDOMSVGMatrix> translate;
+    NS_NewSVGMatrix(getter_AddRefs(translate),
+                    1.0f, 0.0f, 0.0f, 1.0f, -refX, -refY);
+    NS_ENSURE_TRUE(translate, NS_ERROR_OUT_OF_MEMORY);
+    translate->Multiply(vb2vp, getter_AddRefs(mViewBoxToViewportTransform));
   }
 
   *_retval = mViewBoxToViewportTransform;

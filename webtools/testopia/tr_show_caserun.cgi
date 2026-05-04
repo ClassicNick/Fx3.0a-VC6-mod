@@ -36,7 +36,7 @@ use Bugzilla::Testopia::TestCaseRun;
 
 use vars qw($template $vars);
 my $template = Bugzilla->template;
-
+my $query_limit = 15000;
 # These are going away after 2.22
 require "globals.pl";
 
@@ -142,12 +142,24 @@ elsif ($action eq 'delete'){
     Bugzilla->login(LOGIN_REQUIRED);
     my $caserun = Bugzilla::Testopia::TestCaseRun->new($caserun_id);
     ThrowUserError("testopia-read-only", {'object' => 'case run'}) if !$caserun->candelete;
+    $vars->{'title'} = 'Remove Test Case '. $caserun->case->id .' from Run: ' . $caserun->run->summary;
+    $vars->{'bugcount'} = scalar @{$caserun->bugs};
+    $vars->{'form_action'} = 'tr_show_caserun.cgi';
+    $vars->{'caserun'} = $caserun;
+    $template->process("testopia/caserun/delete.html.tmpl", $vars) ||
+        ThrowTemplateError($template->error());
+}
+elsif ($action eq 'do_delete'){
+    Bugzilla->login(LOGIN_REQUIRED);
+    my $caserun = Bugzilla::Testopia::TestCaseRun->new($caserun_id);
+    ThrowUserError("testopia-read-only", {'object' => 'case run'}) if !$caserun->candelete;
     $caserun->obliterate;
     $cgi->delete_all;
     $cgi->param('current_tab', 'case_run');
     $cgi->param('run_id', $caserun->run->id);
     my $search = Bugzilla::Testopia::Search->new($cgi);
     my $table = Bugzilla::Testopia::Table->new('case_run', 'tr_show_run.cgi', $cgi, undef, $search->query);
+    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->list_count > $query_limit;
     
     my @case_list;
     foreach my $cr (@{$table->list}){
@@ -318,6 +330,7 @@ sub display {
     my $caserun = shift;
     ThrowUserError('insufficient-view-perms') if !$caserun->canview;
     my $table = Bugzilla::Testopia::Table->new('case_run');
+    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->list_count > $query_limit;
     $vars->{'table'} = $table;
     $vars->{'caserun'} = $caserun;
     $vars->{'action'} = 'tr_show_caserun.cgi';

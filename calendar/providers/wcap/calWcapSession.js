@@ -258,9 +258,11 @@ calWcapSession.prototype = {
                        "gettime.wcap?appid=mozilla-calendar" +
                        "&fmt-out=text%2Fcalendar&id=" +
                        encodeURIComponent(this.m_sessionId));
-            // xxx todo: this is no solution!
-            var localTime = getTime();
             var str = issueSyncRequest( url );
+            // xxx todo: think about
+            // assure that locally calculated server time is smaller than the
+            // current (real) server time:
+            var localTime = getTime();
             var icalRootComp = getIcsService().parseICS( str );
             if (icalRootComp == null)
                 throw new Components.Exception("invalid data, expected ical!");
@@ -336,13 +338,7 @@ calWcapSession.prototype = {
                                 }
                             }
                             
-                            // xxx todo: realm names must not have a
-                            //           trailing slash
                             var sessionUri = this_.uri.clone();
-                            var spec = sessionUri.spec;
-                            if (spec[spec.length - 1] == '/')
-                                spec = spec.substr(0, spec.length - 1);
-                            sessionUri.spec = spec;
                             sessionUri.userPass = "";
                             if (sessionUri.scheme.toLowerCase() != "https" &&
                                 sessionUri.port == -1 /* no port specified */)
@@ -415,8 +411,12 @@ calWcapSession.prototype = {
             Components.classes["@mozilla.org/passwordmanager;1"]
             .getService(Components.interfaces.nsIPasswordManager);
         
+        // xxx todo: pw host names must not have a trailing slash
+        var pwHost = sessionUri.spec;
+        if (pwHost[pwHost.length - 1] == '/')
+            pwHost = pwHost.substr(0, pwHost.length - 1);
+        this.log( "looking in pw db for: " + pwHost );
         var enumerator = passwordManager.enumerator;
-        this.log( "looking in pw db for: " + sessionUri.spec );
         while (enumerator.hasMoreElements()) {
             var pwEntry = enumerator.getNext().QueryInterface(
                 Components.interfaces.nsIPassword );
@@ -424,7 +424,7 @@ calWcapSession.prototype = {
                 this.log( "pw entry:\n\thost=" + pwEntry.host +
                           "\n\tuser=" + pwEntry.user );
             }
-            if (pwEntry.host == sessionUri.spec) {
+            if (pwEntry.host == pwHost) {
                 // found an entry matching URI:
                 outUser.value = pwEntry.user;
                 outPW.value = pwEntry.password;
@@ -433,22 +433,21 @@ calWcapSession.prototype = {
         }
         
         if (outPW.value) {
-            this.log( "password entry found for host " + sessionUri.spec +
+            this.log( "password entry found for host " + pwHost +
                       "\nuser is " + outUser.value );
             this.assureSecureLogin(sessionUri);
             this.login_( sessionUri, outUser.value, outPW.value );
         }
         else
-            this.log( "no password entry found for " + sessionUri.spec );
+            this.log( "no password entry found for " + pwHost );
         
         if (!this.m_sessionId) {
             var loginText = this.getServerInfo(sessionUri);
             if (outPW.value) {
                 // login failed before, so try to remove from pw db:
                 try {
-                    passwordManager.removeUser( sessionUri.spec,
-                                                outUser.value );
-                    this.log( "removed from pw db: " + sessionUri.spec );
+                    passwordManager.removeUser( pwHost, outUser.value );
+                    this.log( "removed from pw db: " + pwHost );
                 }
                 catch (exc) {
                     this.logError( "error removing from pw db: " + exc );
@@ -481,9 +480,9 @@ calWcapSession.prototype = {
             }
             if (savePW.value) {
                 try { // save pw under session uri:
-                    passwordManager.addUser( sessionUri.spec,
+                    passwordManager.addUser( pwHost,
                                              outUser.value, outPW.value );
-                    this.log( "added to pw db: " + sessionUri.spec );
+                    this.log( "added to pw db: " + pwHost );
                 }
                 catch (exc) {
                     this.logError( "error adding pw to db: " + exc );
@@ -618,8 +617,7 @@ calWcapSession.prototype = {
                 var wcapResponse = new WcapResponse();
                 try {
                     try {
-                        wcapResponse.data = dataConvFunc(
-                            data, wcapResponse );
+                        wcapResponse.data = dataConvFunc( data );
                     }
                     catch (exc) {
                         if (testResultCode(
