@@ -37,43 +37,32 @@
    - ***** END LICENSE BLOCK *****
 -->
 
+<?xml-stylesheet href="chrome://global/skin/global.css" type="text/css"?>
+<?xml-stylesheet href="chrome://calendar/skin/sun-calendar-event-dialog.css" ?>
+<?xml-stylesheet href="chrome://calendar/content/sun-calendar-event-dialog.css" type="text/css"?>
+<?xml-stylesheet href="chrome://calendar/content/datetimepickers/datetimepickers.css" ?>
+
 <!DOCTYPE dialog
 [
-  <!ENTITY % dtd1 SYSTEM "chrome://calendar/locale/global.dtd" >  %dtd1;
-  <!ENTITY % dtd2 SYSTEM "chrome://calendar/locale/calendar.dtd" >  %dtd2;
-]>
+  <!ENTITY % dtd1 SYSTEM "chrome://calendar/locale/calendar.dtd" >  %dtd1;
+  <!ENTITY % dtd2 SYSTEM "chrome://calendar/locale/sun-calendar-event-dialog.dtd" >  %dtd2;
+]>     
 
-<bindings xmlns="http://www.mozilla.org/xbl"
-          xmlns:xbl="http://www.mozilla.org/xbl"
-          xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+<dialog
+  id="sun-calendar-event-dialog-recurrence"
+  title="&event.title.label;"
+  onload="onLoad()"
+  ondialogaccept="return onAccept();"
+  ondialogcancel="return onCancel();"
+  persist="screenX screenY"
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
 
-  <!-- id's are evil, use anonid -->
-  <binding id="timezone-page" extends="xul:box">
-    <content>
+  <!-- Javascript includes -->
+  <script type="application/x-javascript" src="chrome://calendar/content/sun-calendar-event-dialog-recurrence.js"/>
+  <script type="application/x-javascript" src="chrome://calendar/content/calendar-dialog-utils.js"/>
+  <script type="application/x-javascript" src="chrome://calendar/content/calendarUtils.js"/>
+  <script type="application/x-javascript" src="chrome://calendar/content/applicationUtil.js"/>
 
-
-    </content>
-    <implementation>
-
-      <constructor>
-        <![CDATA[
-        ]]>
-      </constructor>
-
-      <method name="onLoad">
-        <body>
-          <![CDATA[
-        ]]>
-        </body>
-      </method>
-
-    </implementation>
-
-    <handlers>
-    </handlers>
-
-  </binding>
-
-</bindings>
-
-
+  <recurrence-page id="recurrence-page" flex="1" orient="vertical"/>
+  
+</dialog>

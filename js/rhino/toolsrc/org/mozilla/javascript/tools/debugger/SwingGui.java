@@ -52,6 +52,7 @@ import javax.swing.tree.TreePath;
 import java.lang.reflect.Method;
 
 import org.mozilla.javascript.Kit;
+import org.mozilla.javascript.SecurityUtilities;
 
 import org.mozilla.javascript.tools.shell.ConsoleTextArea;
 
@@ -583,7 +584,7 @@ public class SwingGui extends JFrame implements GuiCallback {
     private String chooseFile(String title) {
         dlg.setDialogTitle(title);
         File CWD = null;
-        String dir = System.getProperty("user.dir");
+        String dir = SecurityUtilities.getSystemProperty("user.dir");
         if (dir != null) {
             CWD = new File(dir);
         }
@@ -1506,6 +1507,7 @@ class FileTextArea
         case KeyEvent.VK_BACK_SPACE:
         case KeyEvent.VK_ENTER:
         case KeyEvent.VK_DELETE:
+        case KeyEvent.VK_TAB:
             e.consume();
             break;
         }

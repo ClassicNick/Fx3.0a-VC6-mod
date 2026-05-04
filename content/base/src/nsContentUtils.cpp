@@ -138,6 +138,7 @@ static NS_DEFINE_CID(kXTFServiceCID, NS_XTFSERVICE_CID);
 #include "nsIDOMUserDataHandler.h"
 #include "nsIFragmentContentSink.h"
 #include "nsContentCreatorFunctions.h"
+#include "nsTPtrArray.h"
 
 #ifdef IBMBIDI
 #include "nsIBidiKeyboard.h"
@@ -185,32 +186,7 @@ nsIBidiKeyboard *nsContentUtils::sBidiKeyboard = nsnull;
 
 PRBool nsContentUtils::sInitialized = PR_FALSE;
 
-static PLDHashTable sRangeListsHash;
 static PLDHashTable sEventListenerManagersHash;
-
-class RangeListMapEntry : public PLDHashEntryHdr
-{
-public:
-  RangeListMapEntry(const void *aKey)
-    : mKey(aKey), mRangeList(nsnull)
-  {
-  }
-
-  ~RangeListMapEntry()
-  {
-    delete mRangeList;
-  }
-
-private:
-  const void *mKey; // must be first to look like PLDHashEntryStub
-
-public:
-  // We want mRangeList to be an nsAutoVoidArray but we can't make an
-  // nsAutoVoidArray a direct member of RangeListMapEntry since it
-  // will be moved around in memory, and nsAutoVoidArray can't deal
-  // with that.
-  nsVoidArray *mRangeList;
-};
 
 class EventListenerManagerMapEntry : public PLDHashEntryHdr
 {
@@ -231,24 +207,6 @@ private:
 public:
   nsCOMPtr<nsIEventListenerManager> mListenerManager;
 };
-
-PR_STATIC_CALLBACK(PRBool)
-RangeListHashInitEntry(PLDHashTable *table, PLDHashEntryHdr *entry,
-                       const void *key)
-{
-  // Initialize the entry with placement new
-  new (entry) RangeListMapEntry(key);
-  return PR_TRUE;
-}
-
-PR_STATIC_CALLBACK(void)
-RangeListHashClearEntry(PLDHashTable *table, PLDHashEntryHdr *entry)
-{
-  RangeListMapEntry *r = NS_STATIC_CAST(RangeListMapEntry *, entry);
-
-  // Let the RangeListMapEntry clean itself up...
-  r->~RangeListMapEntry();
-}
 
 PR_STATIC_CALLBACK(PRBool)
 EventListenerManagerHashInitEntry(PLDHashTable *table, PLDHashEntryHdr *entry,
@@ -329,28 +287,6 @@ nsContentUtils::Init()
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
-  if (!sRangeListsHash.ops) {
-    static PLDHashTableOps hash_table_ops =
-    {
-      PL_DHashAllocTable,
-      PL_DHashFreeTable,
-      PL_DHashGetKeyStub,
-      PL_DHashVoidPtrKeyStub,
-      PL_DHashMatchEntryStub,
-      PL_DHashMoveEntryStub,
-      RangeListHashClearEntry,
-      PL_DHashFinalizeStub,
-      RangeListHashInitEntry
-    };
-
-    if (!PL_DHashTableInit(&sRangeListsHash, &hash_table_ops, nsnull,
-                           sizeof(RangeListMapEntry), 16)) {
-      sRangeListsHash.ops = nsnull;
-
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
-  }
-
   if (!sEventListenerManagersHash.ops) {
     static PLDHashTableOps hash_table_ops =
     {
@@ -368,9 +304,6 @@ nsContentUtils::Init()
     if (!PL_DHashTableInit(&sEventListenerManagersHash, &hash_table_ops,
                            nsnull, sizeof(EventListenerManagerMapEntry), 16)) {
       sEventListenerManagersHash.ops = nsnull;
-
-      PL_DHashTableFinish(&sRangeListsHash);
-      sRangeListsHash.ops = nsnull;
 
       return NS_ERROR_OUT_OF_MEMORY;
     }
@@ -641,33 +574,6 @@ nsContentUtils::Shutdown()
     }
     delete sPtrsToPtrsToRelease;
     sPtrsToPtrsToRelease = nsnull;
-  }
-
-  if (sRangeListsHash.ops) {
-    NS_ASSERTION(sRangeListsHash.entryCount == 0,
-                 "Range list hash not empty at shutdown!");
-
-    // We're already being shut down and if there are entries left in
-    // this hash at this point it means we leaked nsGenericElements or
-    // nsGenericDOMDataNodes. Since we're already partly through the
-    // shutdown process it's too late to release what's held on to by
-    // this hash (since the teardown code relies on some things being
-    // around that aren't around any more) so we rather leak what's
-    // already leaked in stead of crashing trying to release what
-    // should've been released much earlier on.
-
-    // Copy the ops out of the hash table
-    PLDHashTableOps hash_table_ops = *sRangeListsHash.ops;
-
-    // Set the clearEntry hook to be a nop
-    hash_table_ops.clearEntry = NopClearEntry;
-
-    // Set the ops in the hash table to be the new ops
-    sRangeListsHash.ops = &hash_table_ops;
-
-    PL_DHashTableFinish(&sRangeListsHash);
-
-    sRangeListsHash.ops = nsnull;
   }
 
   if (sEventListenerManagersHash.ops) {
@@ -1228,7 +1134,7 @@ nsContentUtils::GetCommonAncestor(nsINode* aNode1,
   }
 
   // Build the chain of parents
-  nsAutoVoidArray parents1, parents2;
+  nsAutoTPtrArray<nsINode, 30> parents1, parents2;
   do {
     parents1.AppendElement(aNode1);
     aNode1 = aNode1->GetNodeParent();
@@ -1239,13 +1145,13 @@ nsContentUtils::GetCommonAncestor(nsINode* aNode1,
   } while (aNode2);
 
   // Find where the parent chain differs
-  PRUint32 pos1 = parents1.Count();
-  PRUint32 pos2 = parents2.Count();
+  PRUint32 pos1 = parents1.Length();
+  PRUint32 pos2 = parents2.Length();
   nsINode* parent = nsnull;
   PRUint32 len;
   for (len = PR_MIN(pos1, pos2); len > 0; --len) {
-    nsINode* child1 = NS_STATIC_CAST(nsINode*, parents1.FastElementAt(--pos1));
-    nsINode* child2 = NS_STATIC_CAST(nsINode*, parents2.FastElementAt(--pos2));
+    nsINode* child1 = parents1.ElementAt(--pos1);
+    nsINode* child2 = parents2.ElementAt(--pos2);
     if (child1 != child2) {
       break;
     }
@@ -1265,7 +1171,7 @@ nsContentUtils::ComparePosition(nsINode* aNode1,
     return 0;
   }
 
-  nsAutoVoidArray parents1, parents2;
+  nsAutoTPtrArray<nsINode, 30> parents1, parents2;
 
   // Check if either node is an attribute
   nsIAttribute* attr1 = nsnull;
@@ -1276,7 +1182,7 @@ nsContentUtils::ComparePosition(nsINode* aNode1,
     // to the chain and walk up to the element
     if (elem) {
       aNode1 = elem;
-      parents1.AppendElement(attr1);
+      parents1.AppendElement(NS_STATIC_CAST(nsINode*, attr1));
     }
   }
   if (aNode2->IsNodeOfType(nsINode::eATTRIBUTE)) {
@@ -1306,7 +1212,7 @@ nsContentUtils::ComparePosition(nsINode* aNode1,
 
     if (elem) {
       aNode2 = elem;
-      parents2.AppendElement(attr2);
+      parents2.AppendElement(NS_STATIC_CAST(nsINode*, attr2));
     }
   }
 
@@ -1326,10 +1232,10 @@ nsContentUtils::ComparePosition(nsINode* aNode1,
   } while (aNode2);
 
   // Check if the nodes are disconnected.
-  PRUint32 pos1 = parents1.Count();
-  PRUint32 pos2 = parents2.Count();
-  nsINode* top1 = NS_STATIC_CAST(nsINode*, parents1.FastElementAt(--pos1));
-  nsINode* top2 = NS_STATIC_CAST(nsINode*, parents2.FastElementAt(--pos2));
+  PRUint32 pos1 = parents1.Length();
+  PRUint32 pos2 = parents2.Length();
+  nsINode* top1 = parents1.ElementAt(--pos1);
+  nsINode* top2 = parents2.ElementAt(--pos2);
   if (top1 != top2) {
     return top1 < top2 ?
       (nsIDOM3Node::DOCUMENT_POSITION_PRECEDING |
@@ -1344,8 +1250,8 @@ nsContentUtils::ComparePosition(nsINode* aNode1,
   nsINode* parent = top1;
   PRUint32 len;
   for (len = PR_MIN(pos1, pos2); len > 0; --len) {
-    nsINode* child1 = NS_STATIC_CAST(nsINode*, parents1.FastElementAt(--pos1));
-    nsINode* child2 = NS_STATIC_CAST(nsINode*, parents2.FastElementAt(--pos2));
+    nsINode* child1 = parents1.ElementAt(--pos1);
+    nsINode* child2 = parents2.ElementAt(--pos2);
     if (child1 != child2) {
       // child1 or child2 can be an attribute here. This will work fine since
       // IndexOf will return -1 for the attribute making the attribute be
@@ -3095,127 +3001,6 @@ nsContentUtils::RemoveListenerManager(nsINode *aNode)
         listenerManager->Disconnect();
       }
     }
-  }
-}
-
-/* static */
-nsresult
-nsContentUtils::AddToRangeList(nsINode *aNode, nsIRange *aRange,
-                               PRBool *aCreated)
-{
-  *aCreated = PR_FALSE;
-
-  if (!sRangeListsHash.ops) {
-    // We've already been shut down, don't bother adding a range...
-
-    return NS_OK;
-  }
-
-  RangeListMapEntry *entry =
-    NS_STATIC_CAST(RangeListMapEntry *,
-                   PL_DHashTableOperate(&sRangeListsHash, aNode,
-                                        PL_DHASH_ADD));
-
-  if (!entry) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  // lazy allocation of range list
-  if (!entry->mRangeList) {
-    entry->mRangeList = new nsAutoVoidArray();
-
-    if (!entry->mRangeList) {
-      PL_DHashTableRawRemove(&sRangeListsHash, entry);
-
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
-
-    *aCreated = PR_TRUE;
-  }
-  else {
-    // Make sure we don't add a range that is already in the list!
-    PRInt32 i = entry->mRangeList->IndexOf(aRange);
-
-    if (i >= 0) {
-      // Range is already in the list, so there is nothing to do!
-
-      return NS_OK;
-    }
-  }
-
-  // dont need to addref - this call is made by the range object
-  // itself
-  PRBool rv = entry->mRangeList->AppendElement(aRange);
-  if (!rv) {
-    if (entry->mRangeList->Count() == 0) {
-      // Fresh entry, remove it from the hash...
-
-      PL_DHashTableRawRemove(&sRangeListsHash, entry);
-    }
-
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  return NS_OK;
-}
-
-/* static */
-PRBool
-nsContentUtils::RemoveFromRangeList(nsINode *aNode, nsIRange *aRange)
-{
-  if (!sRangeListsHash.ops) {
-    // We've already been shut down, don't bother removing a range...
-
-    return PR_FALSE;
-  }
-
-  RangeListMapEntry *entry =
-    NS_STATIC_CAST(RangeListMapEntry *,
-                   PL_DHashTableOperate(&sRangeListsHash, aNode,
-                                        PL_DHASH_LOOKUP));
-
-  if (PL_DHASH_ENTRY_IS_FREE(entry)) {
-    return PR_FALSE;
-  }
-
-  NS_ASSERTION(entry->mRangeList, "In the hash but without an object?");
-
-  // dont need to release - this call is made by the range object itself
-  entry->mRangeList->RemoveElement(aRange);
-
-  if (entry->mRangeList->Count() != 0) {
-    return PR_FALSE;
-  }
-
-  PL_DHashTableRawRemove(&sRangeListsHash, entry);
-
-  return PR_TRUE;
-}
-
-/* static */
-const nsVoidArray*
-nsContentUtils::LookupRangeList(const nsINode *aNode)
-{
-  if (!sRangeListsHash.ops) {
-    // We've already been shut down, don't bother getting a range list...
-
-    return nsnull;
-  }
-
-  RangeListMapEntry *entry =
-    NS_STATIC_CAST(RangeListMapEntry *,
-                   PL_DHashTableOperate(&sRangeListsHash, aNode,
-                                        PL_DHASH_LOOKUP));
-
-  return PL_DHASH_ENTRY_IS_BUSY(entry) ? entry->mRangeList : nsnull;
-}
-
-/* static */
-void
-nsContentUtils::RemoveRangeList(nsINode *aNode)
-{
-  if (sRangeListsHash.ops) {
-    PL_DHashTableOperate(&sRangeListsHash, aNode, PL_DHASH_REMOVE);
   }
 }
 

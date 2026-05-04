@@ -24,6 +24,8 @@ use Compress::Zlib;
 use Compress::Bzip2;
 use Getopt::Long;
 use Time::Local;
+use File::Copy;
+use File::Basename;
 use lib "@TINDERBOX_DIR@";
 require 'tbglobals.pl'; # for $gzip
 #use strict;
@@ -39,6 +41,7 @@ my ($only_check_mail);
 my @changed_trees=();
 my %scraped_trees;
 my $debug = 0;
+my $rejected_mail_dir = "$data_dir/bad";
 
 chdir $tinderboxdir or die "Couldn't chdir to $tinderboxdir"; 
 
@@ -60,7 +63,13 @@ for my $file (@datafiles) {
 unlink($lockfile);
 
 require 'showbuilds.pl';
+# Hardcode static pages to only showing 12 hrs of data
+$nowdate = $maxdate = time;
+$mindate = $maxdate - (12*60*60);
+print "Changed trees:\n\t@changed_trees\n" if ($debug && $#changed_trees > 0);
 for my $t (@changed_trees) {
+    # Override globals used in static page creation
+    %form = ();
     $tree = $t;
     print "Tree: $t\n" if ($debug);
     # Static pages - For Sidebar flash and tinderbox panels.
@@ -109,7 +118,12 @@ sub process_mailfile($) {
 
     # Make sure variables are defined correctly
     #
-    return if (&check_required_variables(\%tinderbox, \%MAIL_HEADER));
+    if (&check_required_variables(\%tinderbox, \%MAIL_HEADER)) {
+        my $rejected_mail = $rejected_mail_dir . "/" . basename($mail_file);
+        print "Moving corrupt logfile, $mail_file , to $rejected_mail .\n";
+        move($mail_file, $rejected_mail_dir);
+        return;
+    }
 
     if ($only_check_mail) {
         warn "Mail variables passed the test\n";

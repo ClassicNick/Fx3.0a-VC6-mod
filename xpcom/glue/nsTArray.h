@@ -42,6 +42,7 @@
 #include "prtypes.h"
 #include "nsQuickSort.h"
 #include "nsDebug.h"
+#include "nsTraceRefcnt.h"
 #include NEW_H
 
 //
@@ -77,10 +78,21 @@ class NS_COM_GLUE nsTArray_base {
       return mHdr->mCapacity;
     }
 
-  protected:
-    nsTArray_base()
-      : mHdr(NS_CONST_CAST(Header *, &sEmptyHdr)) {
+#ifdef DEBUG
+    void* DebugGetHeader() {
+      return mHdr;
     }
+#endif
+
+  protected:
+#ifndef NS_BUILD_REFCNT_LOGGING
+    nsTArray_base()
+      : mHdr(&sEmptyHdr) {
+    }
+#else
+    nsTArray_base();
+    ~nsTArray_base();  
+#endif // NS_BUILD_REFCNT_LOGGING
 
     // Resize the storage if necessary to achieve the requested capacity.
     // @param capacity     The requested number of array elements.
@@ -103,21 +115,62 @@ class NS_COM_GLUE nsTArray_base {
                    size_type elementSize);
 
     // This method increments the length member of the array's header.
+    // Note that mHdr may actually be sEmptyHdr in the case where a
+    // zero-length array is inserted into our array. But then n should
+    // always be 0.
     void IncrementLength(PRUint32 n) {
-      NS_ASSERTION(mHdr != &sEmptyHdr, "bad data pointer");
+      NS_ASSERTION(mHdr != &sEmptyHdr || n == 0, "bad data pointer");
       mHdr->mLength += n;
     }
 
+    // This method inserts blank slots into the array.
+    // @param index the place to insert the new elements. This must be no
+    //              greater than the current length of the array.
+    // @param count the number of slots to insert
+    // @param elementSize the size of an array element.
+    PRBool InsertSlotsAt(index_type index, size_type count,
+                         size_type elementSize);
+
   protected:
+
+    // NOTE: This method isn't heavily optimized if either array is an
+    // nsAutoTArray.
+    PRBool SwapArrayElements(nsTArray_base& other, size_type elementSize);
+
+    // Helper function for SwapArrayElements. Ensures that if the array
+    // is an nsAutoTArray that it doesn't use the built-in buffer.
+    PRBool EnsureNotUsingAutoArrayBuffer(size_type elemSize);
 
     // We prefix mData with a structure of this type.  This is done to minimize
     // the size of the nsTArray object when it is empty.
     struct Header {
       PRUint32 mLength;
-      PRUint32 mCapacity;
+      PRUint32 mCapacity : 31;
+      PRUint32 mIsAutoArray : 1;
     };
 
-    static const Header sEmptyHdr;
+    // Returns true if this nsTArray is an nsAutoTArray with a built-in buffer.
+    PRBool IsAutoArray() {
+      return mHdr->mIsAutoArray;
+    }
+
+    // Returns a Header for the built-in buffer of this nsAutoTArray.
+    Header* GetAutoArrayBuffer() {
+      NS_ASSERTION(IsAutoArray(), "Should be an auto array to call this");
+
+      return NS_REINTERPRET_CAST(Header*, &mHdr + 1);
+    }
+
+    // Returns true if this is an nsAutoTArray and it currently uses the
+    // built-in buffer to store its elements.
+    PRBool UsesAutoArrayBuffer() {
+      return mHdr->mIsAutoArray && mHdr == GetAutoArrayBuffer();
+    }
+
+    // This is not const since we may actually write to it. However we will
+    // always write to it the same data that it already contains. See
+    // IncrementLength
+    static Header sEmptyHdr;
 
     // The array's elements (prefixed with a Header).  This pointer is never
     // null.  If the array is empty, then this will point to sEmptyHdr.
@@ -520,10 +573,10 @@ class nsTArray : public nsTArray_base {
 
     // This method causes the elements contained in this array and the given
     // array to be swapped.
-    void SwapElements(self_type& other) {
-      Header *h = other.mHdr;
-      other.mHdr = mHdr;
-      mHdr = h;
+    // NOTE: This method isn't heavily optimized if either array is an
+    // nsAutoTArray.
+    PRBool SwapElements(self_type& other) {
+      return SwapArrayElements(other, sizeof(elem_type));
     }
 
     //
@@ -548,20 +601,53 @@ class nsTArray : public nsTArray_base {
     PRBool SetLength(size_type newLen) {
       size_type oldLen = Length();
       if (newLen > oldLen) {
-        SetCapacity(newLen);
-        // Check for out of memory conditions
-        if (Capacity() < newLen)
-          return PR_FALSE;
-        // Initialize the extra array elements
-        elem_type *iter = Elements() + oldLen, *end = Elements() + newLen;
-        for (; iter != end; ++iter) {
-          elem_traits::Construct(iter);
-        }
-        IncrementLength(newLen - oldLen);
-      } else {
-        RemoveElementsAt(newLen, oldLen - newLen);
+        return InsertElementsAt(oldLen, newLen - oldLen) != nsnull;
       }
+      
+      RemoveElementsAt(newLen, oldLen - newLen);
       return PR_TRUE;
+    }
+
+    // This method inserts elements into the array, constructing
+    // them using elem_type's default constructor.
+    // @param index the place to insert the new elements. This must be no
+    //              greater than the current length of the array.
+    // @param count the number of elements to insert
+    elem_type *InsertElementsAt(index_type index, size_type count) {
+      if (!nsTArray_base::InsertSlotsAt(index, count, sizeof(elem_type))) {
+        return nsnull;
+      }
+
+      // Initialize the extra array elements
+      elem_type *iter = Elements() + index, *end = iter + count;
+      for (; iter != end; ++iter) {
+        elem_traits::Construct(iter);
+      }
+
+      return Elements() + index;
+    }
+
+    // This method inserts elements into the array, constructing them
+    // elem_type's copy constructor (or whatever one-arg constructor
+    // happens to match the Item type).
+    // @param index the place to insert the new elements. This must be no
+    //              greater than the current length of the array.
+    // @param count the number of elements to insert.
+    // @param item the value to use when constructing the new elements.
+    template<class Item>
+    elem_type *InsertElementsAt(index_type index, size_type count,
+                                const Item& item) {
+      if (!nsTArray_base::InsertSlotsAt(index, count, sizeof(elem_type))) {
+        return nsnull;
+      }
+
+      // Initialize the extra array elements
+      elem_type *iter = Elements() + index, *end = iter + count;
+      for (; iter != end; ++iter) {
+        elem_traits::Construct(iter, item);
+      }
+
+      return Elements() + index;
     }
 
     // This method may be called to minimize the memory used by this array.
@@ -613,6 +699,28 @@ class nsTArray : public nsTArray_base {
         elem_traits::Construct(iter, *values);
       }
     }
+};
+
+template<class E, PRUint32 N>
+class nsAutoTArray : public nsTArray<E> {
+  public:
+    typedef nsTArray<E> base_type;
+    typedef typename base_type::Header Header;
+    typedef typename base_type::elem_type elem_type;
+
+    nsAutoTArray() {
+      base_type::mHdr = NS_REINTERPRET_CAST(Header*, &mAutoBuf);
+      base_type::mHdr->mLength = 0;
+      base_type::mHdr->mCapacity = N;
+      base_type::mHdr->mIsAutoArray = 1;
+
+      NS_ASSERTION(base_type::GetAutoArrayBuffer() ==
+                   NS_REINTERPRET_CAST(Header*, &mAutoBuf),
+                   "GetAutoArrayBuffer needs to be fixed");
+    }
+
+  protected:
+    char mAutoBuf[sizeof(Header) + N * sizeof(elem_type)];
 };
 
 #endif  // nsTArray_h__

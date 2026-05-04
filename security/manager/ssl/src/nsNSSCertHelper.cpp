@@ -1230,6 +1230,8 @@ const SEC_ASN1Template DisplayTextTemplate[] = {
     { SEC_ASN1_CHOICE,
       offsetof(DisplayText, variant), NULL,
       sizeof(DisplayText) },
+    { SEC_ASN1_IA5_STRING, 
+      offsetof(DisplayText, value), NULL, VisibleForm },
     { SEC_ASN1_VISIBLE_STRING, 
       offsetof(DisplayText, value), NULL, VisibleForm },
     { SEC_ASN1_BMP_STRING, 
@@ -1633,7 +1635,7 @@ ProcessSingleExtension(CERTCertExtension *extension,
                        nsINSSComponent *nssComponent,
                        nsIASN1PrintableItem **retExtension)
 {
-  nsAutoString text;
+  nsAutoString text, extvalue;
   GetOIDText(&extension->id, nssComponent, text);
   nsCOMPtr<nsIASN1PrintableItem>extensionItem = new nsNSSASN1PrintableItem();
   if (extensionItem == nsnull)
@@ -1652,10 +1654,13 @@ ProcessSingleExtension(CERTCertExtension *extension,
     nssComponent->GetPIPNSSBundleString("CertDumpNonCritical", text);
   }
   text.Append(NS_LITERAL_STRING(SEPARATOR).get());
-  nsresult rv = ProcessExtensionData(oidTag, &extension->value, text, 
+  nsresult rv = ProcessExtensionData(oidTag, &extension->value, extvalue, 
                                      nssComponent);
-  if (NS_FAILED(rv))
-    return rv;
+  if (NS_FAILED(rv)) {
+    extvalue.Truncate();
+    rv = ProcessRawBytes(nssComponent, &extension->value, extvalue, PR_FALSE);
+  }
+  text.Append(extvalue);
 
   extensionItem->SetDisplayValue(text);
   *retExtension = extensionItem;

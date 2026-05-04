@@ -20,7 +20,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Josh Aas - josha@mac.com
+ *   Josh Aas - josh@mozilla.com
  *   Nate Weaver (Wevah) - wevah@derailer.org
  *
  * Alternatively, the contents of this file may be used under the terms of
@@ -316,7 +316,7 @@ const int kReuseWindowOnAE = 2;
                                       button1:NSLocalizedString(@"QuitButtonText", @"")
                                       button2:NSLocalizedString(@"CancelButtonText", @"")
                                       button3:nil
-                                     checkMsg:NSLocalizedString(@"QuitWithMultipleTabsCheckboxLabel", @"")
+                                     checkMsg:NSLocalizedString(@"DontShowWarningAgainCheckboxLabel", @"")
                                    checkValue:&dontShowAgain];
     NS_HANDLER
     NS_ENDHANDLER
@@ -1071,7 +1071,7 @@ const int kReuseWindowOnAE = 2;
                                             button1:NSLocalizedString(@"OKButtonText", @"")
                                             button2:NSLocalizedString(@"CancelButtonText", @"")
                                             button3:nil
-                                           checkMsg:NSLocalizedString(@"CloseMultipleWindowsCheckboxLabel", @"")
+                                           checkMsg:NSLocalizedString(@"DontShowWarningAgainCheckboxLabel", @"")
                                          checkValue:&dontShowAgain];
       NS_HANDLER
       NS_ENDHANDLER

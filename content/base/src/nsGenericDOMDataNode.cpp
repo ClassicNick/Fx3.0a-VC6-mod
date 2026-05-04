@@ -44,11 +44,7 @@
 #include "nsGenericElement.h"
 #include "nsIDocument.h"
 #include "nsIEventListenerManager.h"
-#include "nsIDOMRange.h"
 #include "nsIDOMDocument.h"
-#include "nsRange.h"
-#include "nsISelection.h"
-#include "nsISelectionPrivate.h"
 #include "nsReadableUtils.h"
 #include "nsMutationEvent.h"
 #include "nsINameSpaceManager.h"
@@ -460,12 +456,6 @@ nsGenericDOMDataNode::SetTextInternal(PRUint32 aOffset, PRUint32 aCount,
 
   SetBidiStatus();
 
-  // inform any enclosed ranges of change
-  const nsVoidArray *rangeList = GetRangeList();
-  if (rangeList) {
-    nsRange::TextOwnerChanged(this, rangeList, aOffset, endOffset, aLength);
-  }
-
   // Notify observers
   if (aNotify) {
     if (haveMutationListeners) {
@@ -481,7 +471,13 @@ nsGenericDOMDataNode::SetTextInternal(PRUint32 aOffset, PRUint32 aCount,
       nsEventDispatcher::Dispatch(this, nsnull, &mutation);
     }
 
-    nsNodeUtils::CharacterDataChanged(this, aOffset == textLength);
+    CharacterDataChangeInfo info = {
+      aOffset == textLength,
+      aOffset,
+      endOffset,
+      aLength
+    };
+    nsNodeUtils::CharacterDataChanged(this, &info);
   }
 
   return NS_OK;

@@ -65,6 +65,9 @@ class Patch extends AUS_Object {
     // Array the defines which channels are flagged as 'nightly' channels.
     var $nightlyChannels;
 
+    // Valid patch flag.
+    var $isPatch;
+
     // Is this patch a complete or partial patch?
     var $patchType;
 
@@ -261,13 +264,15 @@ class Patch extends AUS_Object {
 
             // If we have the latest complete build, the path is valid, the file exists, and the filesize is greater than zero, we have a valid complete patch.
             if ($latestCompleteBuild && $this->setPath($product,$platform,$locale,$branchVersion,$latestCompleteBuild,2,$channel) && file_exists($this->path) && filesize($this->path) > 0) {
-                return $this->setSnippet($this->path); 
+                $this->setSnippet($this->path); 
+                return $this->isNewerBuild($build);
             }
         } 
 
         // Otherwise, check for the partial snippet info.  If an update exists, pass it along.
         if ($this->isPartial() && $this->isNightlyChannel($channel) && $this->setPath($product,$platform,$locale,$branchVersion,$build,2,$channel) && file_exists($this->path) && filesize($this->path) > 0) {
-                return $this->setSnippet($this->path); 
+                $this->setSnippet($this->path); 
+                return $this->isNewerBuild($build);
         } 
 
         // Note: Other data sets were made obsolete in 0.6.  May incoming/0,1 rest in peace.
@@ -284,8 +289,8 @@ class Patch extends AUS_Object {
      * @param string $build
      * @return boolean
      */
-    function isNewBuild($build) {
-        return ($this->build>$build) ? true : false;
+    function isNewerBuild($build) {
+        return ($this->build>$build);
     }
 
     /**
@@ -342,28 +347,10 @@ class Patch extends AUS_Object {
 
     /**
      * Does this object contain a valid patch file?
-     * The build id check only happens for nightly channels.
-     *
-     * For business logic that doesn't exist yet, this is also a good place to extend overriding reasons why
-     * a patch should be invalid even if the data exists.
-     * 
-     * @TODO migrate the os compatibility stuff here
-     * @param string $build
-     * @param string $channel
+     * @return boolean
      */
-    function isPatch($build, $channel=null) {
-
-            // For nightlies, we only want to deliver the complete patch if the destination build is newer than the client build.
-            if ($this->isNightlyChannel($channel) && $this->isComplete()) {
-                return $this->isNewBuild($build);
-            }
-
-            // For nightlies, we only want to deliver the partial patch if the destination build for the partial patch is equal to the build in the complete patch (which will always point to the latest).
-            elseif ($this->isNightlyChannel($channel) && $this->isPartial()) {
-                return $this->isNewBuild($build);
-            } else {
-                return $this->isPatch;
-            }
+    function isPatch() {
+        return $this->isPatch;
     }
 
     /**
