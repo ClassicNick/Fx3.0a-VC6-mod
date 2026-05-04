@@ -990,3 +990,4 @@ nsSVGUtils::UserToDeviceBBox(cairo_t *ctx,
     *ymax = PR_MAX(*ymax, y[i]);
   }
 }
+
