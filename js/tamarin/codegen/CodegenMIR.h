@@ -47,7 +47,7 @@ namespace avmplus
 	#define BIT_VALUE_FITS(v,n)    ( BIT_EXTRACT(v,n-1,0) == (v) )
 
 	// rounding v up to the given 2^ quantity
-	#define BIT_ROUND_UP(v,q)      ( (((intptr)v)+(q)-1) & ~((q)-1) )
+	#define BIT_ROUND_UP(v,q)      ( (((uintptr)v)+(q)-1) & ~((q)-1) )
 
 	/**
 	 * The CodegenMIR class is a dynamic code generator which translates
@@ -150,13 +150,13 @@ namespace avmplus
 			
 			MIR_fldop   = 22 | MIR_float | MIR_oper,	// ptr, disp (optimizable load)
 
-			MIR_last	= 23 | MIR_float | MIR_oper, // highest ordinal value possible
+			MIR_last	= 23 | MIR_float | MIR_oper // highest ordinal value possible
 		};
 
 		enum ArgNumber {
 			_env = 0,
 			_argc = 1, 
-			_ap = 2,
+			_ap = 2
 		};
 		// ia32 offset = 4*ArgNumber+4
 
@@ -186,7 +186,7 @@ namespace avmplus
 		void epilogue(FrameState* state);
 		bool prologue(FrameState* state);
 		void emitCall(FrameState* state, AbcOpcode opcode, int method_id, int argc, Traits* result);
-		void emit(FrameState* state, AbcOpcode opcode, intptr op1=0, intptr op2=0, Traits* result=NULL);
+		void emit(FrameState* state, AbcOpcode opcode, uintptr op1=0, uintptr op2=0, Traits* result=NULL);
 		void emitIf(FrameState* state, AbcOpcode opcode, int target, int lhs, int rhs);
 		void emitSwap(FrameState* state, int i, int j);
 		void emitCopy(FrameState* state, int src, int dest);
@@ -194,7 +194,7 @@ namespace avmplus
 		void emitKill(FrameState* state, int i);
 		void emitBlockStart(FrameState* state);
 		void emitBlockEnd(FrameState* state);
-		void emitIntConst(FrameState* state, int index, intptr c);
+		void emitIntConst(FrameState* state, int index, uintptr c);
 		void emitDoubleConst(FrameState* state, int index, double* pd);
 		void emitCoerce(FrameState* state, int index, Traits* type);
 		void emitCheckNull(FrameState* state, int index);
@@ -262,7 +262,7 @@ namespace avmplus
 			CR4 = 4,
 			CR5 = 5,
 			CR6 = 6,
-			CR7 = 7,
+			CR7 = 7
 		} ConditionRegister;
 
 		// These are used as register numbers in various parts of the code
@@ -824,22 +824,22 @@ namespace avmplus
 
 		OP*	  InsAt(int nbr)  { return ipStart+nbr; }
 		int	  InsNbr(OP* ins)	 { AvmAssert(ins >= ipStart); return (ins-ipStart); }
-		OP*   InsConst(intptr value) { return Ins(MIR_imm, value); }
+		OP*   InsConst(uintptr value) { return Ins(MIR_imm, value); }
 		OP*   InsAlloc(size_t s) { return Ins(MIR_alloc, (int32)s); }
 		void  InsDealloc(OP* alloc);
 		OP*   ldargIns(ArgNumber arg) { return &methodArgs[arg]; }
 
-		OP*   Ins(MirOpcode code, intptr v=0);
-		OP*   Ins(MirOpcode code, OP* a1, intptr a2);
+		OP*   Ins(MirOpcode code, uintptr v=0);
+		OP*   Ins(MirOpcode code, OP* a1, uintptr a2);
 		OP*   Ins(MirOpcode code, OP* a1, OP* a2=0);
 		OP*	  defineArgInsPos(int spOffset);
 		OP*	  defineArgInsReg(Register r);
 		OP*   binaryIns(MirOpcode code, OP* a1, OP* a2);
 		
-		OP*   loadIns(MirOpcode code, int disp, OP* base)
+		OP*   loadIns(MirOpcode _code, int _disp, OP* _base)
 		{
-			AvmAssert((code & ~MIR_float & ~MIR_oper) == MIR_ld);
-			return Ins(code, base, (int32)disp);
+			AvmAssert((_code & ~MIR_float & ~MIR_oper) == MIR_ld);
+			return Ins(_code, _base, (int32)_disp);
 		}
 
 		OP*   cmpOptimization (int lhs, int rhs);
@@ -853,7 +853,7 @@ namespace avmplus
 		OP*   cmpLe(int lhs, int rhs);
 		OP*	  cmpEq(int funcaddr, int lhs, int rhs);
 
-		void  storeIns(OP* v, intptr disp, OP* base);
+		void  storeIns(OP* v, uintptr disp, OP* base);
 
 		OP*   leaIns(int disp, OP* base);
 		OP*   callIns(int32 addr, uint32 argCount, MirOpcode code);
@@ -1069,17 +1069,17 @@ namespace avmplus
 			int count;
 			int countFree()
 			{
-				int count = 0;
+				int _count = 0;
 				for(int i=0;i<MAX_REGISTERS; i++)
-					count += ( (free & rmask(i)) == 0) ? 0 : 1;
-				return count;
+					_count += ( (free & rmask(i)) == 0) ? 0 : 1;
+				return _count;
 			}
 			int countActive()
 			{
-				int count = 0;
+				int _count = 0;
 				for(int i=0;i<MAX_REGISTERS; i++)
-					count += (active[i] == 0) ? 0 : 1;
-				return count;
+					_count += (active[i] == 0) ? 0 : 1;
+				return _count;
 			}
 
 			void checkCount()
@@ -1418,7 +1418,7 @@ namespace avmplus
 		void UCOMISD(Register xmm1, Register xmm2)	{ SSE(0x660f2e, xmm1, xmm2); }
 		void MOVAPD(Register dest, Register src)	{ SSE(0x660f28, dest, src); }
 
-		void XORPD(Register dest, intptr src);
+		void XORPD(Register dest, uintptr src);
 
 		void SSE(int op, Register r, int disp, Register base);
 		void ADDSD(Register r, int disp, Register base)		{ SSE(0xf20f58, r, disp, base); }
@@ -1590,7 +1590,7 @@ namespace avmplus
 			// 64bit - not sure about this
 			#ifdef AVMPLUS_AMD64
 			AvmAssert(0);
-			CALL (addr - (5+(intptr)mip));
+			CALL (addr - (5+(uintptr)mip));
 			#endif
 		}
 

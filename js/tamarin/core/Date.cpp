@@ -345,8 +345,8 @@ namespace avmplus
 				case '2':
 					{
 						int value = va_arg(ap, int);
-						*buffer++ = (value/10) + '0';
-						*buffer++ = (value%10) + '0';
+						*buffer++ = (wchar)((value/10) + '0');
+						*buffer++ = (wchar)((value%10) + '0');
 					}
 					break;
 				case '3':
@@ -360,7 +360,7 @@ namespace avmplus
 				case 'c':
 					{
 						// gcc complains if you put va_arg(ap, char)
-						char value = va_arg(ap, int);
+						char value = (char)(va_arg(ap, int));
 						*buffer++ = value;
 					}
 					break;
@@ -370,9 +370,9 @@ namespace avmplus
 						wchar intbuf[256];
 						int len;
 						MathUtils::convertIntegerToString(value, intbuf, len);
-						wchar *intptr = intbuf;
-						while (*intptr) {
-							*buffer++ = *intptr++;
+						wchar *uintptr = intbuf;
+						while (*uintptr) {
+							*buffer++ = *uintptr++;
 						}
 					}
 					break;

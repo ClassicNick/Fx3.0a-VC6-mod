@@ -257,7 +257,7 @@ namespace avmplus
 			VTable* const activation;
 			WeakKeyHashtable* const methodTable;
 		};
-		intptr activationOrMCTable;
+		uintptr activationOrMCTable;
 
 		// low 2 bits of activationOrMCTable
 		enum { kActivation=0, kMethodTable, kActivationMethodTablePair };
@@ -266,7 +266,7 @@ namespace avmplus
 		int getType() const { return activationOrMCTable&3; }
 		void setActivationOrMCTable(void *ptr, int type) 
 		{
-			WB(core()->GetGC(), this, &activationOrMCTable, (intptr)ptr|type);
+			WB(core()->GetGC(), this, &activationOrMCTable, (uintptr)ptr|type);
 		}
 	};
 
@@ -274,8 +274,8 @@ namespace avmplus
 	{
 	public:
 		DRCWB(ScriptObject*) global; // initially null, set after initialization
-		ScriptEnv(AbstractFunction* method, VTable *vtable)
-			: MethodEnv(method, vtable)
+		ScriptEnv(AbstractFunction* _method, VTable * _vtable)
+			: MethodEnv(_method, _vtable)
 		{
 		}
 
@@ -286,8 +286,8 @@ namespace avmplus
 	class FunctionEnv : public MethodEnv
 	{
 	  public:
-		FunctionEnv(AbstractFunction* method, VTable *vtable)
-			: MethodEnv(method, vtable) {}
+		FunctionEnv(AbstractFunction* _method, VTable * _vtable)
+			: MethodEnv(_method, _vtable) {}
 		DRCWB(ClassClosure*) closure;
 	};
 }

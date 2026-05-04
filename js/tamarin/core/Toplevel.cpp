@@ -979,7 +979,7 @@ namespace avmplus
 		// always can get to the current value.
 		AvmCore* core = this->core();
 #ifdef _DEBUG
-		AvmAssert(!core->dxnsAddr || (intptr)(*core->dxnsAddr) != 0xcccccccc);
+		AvmAssert(!core->dxnsAddr || (uintptr)(*core->dxnsAddr) != 0xcccccccc);
 #endif
 		if (!core->dxnsAddr || !(*core->dxnsAddr))
 			throwTypeError(kNoDefaultNamespaceError);
@@ -1182,7 +1182,7 @@ namespace avmplus
 				if (v < 0) {
 					return *src++;
 				}
-				value = (value<<4) | v;
+				value = (wchar)((value<<4) | v);
 			}
 			src = ptr;
 			return value;
@@ -1280,7 +1280,7 @@ namespace avmplus
 					return NULL;
 				}
 				k += 2;
-				uint8 B = (v1<<4) | v2;
+				uint8 B = (uint8)((v1<<4) | v2);
 				uint32 V;
 				if (!(B & 0x80)) {
 					V = (wchar)B;
@@ -1315,7 +1315,7 @@ namespace avmplus
 						if (v2 == -1) {
 							return NULL;
 						}
-						B = (v1<<4) | v2;
+						B = (uint8)((v1<<4) | v2);
 						
 						// 23. If the two most significant bits
 						//     in B are not 10, throw a URIError exception.

@@ -87,6 +87,25 @@ namespace avmplus
 
 	AvmCore::AvmCore(GC *g) : GCRoot(g), console(NULL), mirBuffers(g, 4), gcInterface(g)
     {
+		// sanity check for all our types
+		AvmAssert (sizeof(int8) == 1);
+		AvmAssert (sizeof(uint8) == 1);		
+		AvmAssert (sizeof(int16) == 2);
+		AvmAssert (sizeof(uint16) == 2);
+		AvmAssert (sizeof(int32) == 4);
+		AvmAssert (sizeof(uint32) == 4);
+		AvmAssert (sizeof(int64) == 8);
+		AvmAssert (sizeof(uint64) == 8);
+		AvmAssert (sizeof(sintptr) == sizeof(void *));
+		AvmAssert (sizeof(uintptr) == sizeof(void *));
+		#ifdef AVMPLUS_64BIT
+		AvmAssert (sizeof(sintptr) == 8);
+		AvmAssert (sizeof(uintptr) == 8);		
+		#else
+		AvmAssert (sizeof(sintptr) == 4);
+		AvmAssert (sizeof(uintptr) == 4);		
+		#endif	
+			
 		// set default mode flags
 		#ifdef AVMPLUS_VERBOSE
 		verbose = false;
@@ -203,7 +222,7 @@ namespace avmplus
 
 		for (int i = 0; i < 128; i++)
 		{
-			char singleChar = i;
+			char singleChar = (char)i;
 			// call newString() with an explicit length of 1; required
 			// when singleChar==0, because in that case we need a string
 			// which is a single character with value 0
@@ -1374,8 +1393,9 @@ return the result of the comparison ToPrimitive(x) == y.
 			{
 				buffer << opNames[opcode];
 				uint32 index = readU30(pc);
+				String *s = format(pool->cpool_string[index]->atom());
 				if (index < pool->cpool_string.size())
-					buffer << " " << pool->cpool_string[index]->atom();
+					buffer << " " << s;
 				break;
 			}
 		case OP_pushint:
@@ -2628,7 +2648,7 @@ return the result of the comparison ToPrimitive(x) == y.
 		}
 
         // compute the hash function
-		int hashCode = ((intptr)ns->getURI())>>3;
+		int hashCode = ((uintptr)ns->getURI())>>3;
 
 		int bitMask = m - 1;
 
@@ -3065,7 +3085,9 @@ return the result of the comparison ToPrimitive(x) == y.
 
 #if defined(AVMPLUS_IA32) || defined(AVMPLUS_AMD64)
 	// ignore warning that inline asm disables global optimization in this function
+	#ifdef _MSC_VER
 	#pragma warning(disable: 4740) 
+	#endif
 	Atom AvmCore::doubleToAtom_sse2(double n)
 	{
 		#ifdef AVMPLUS_PROFILE
@@ -3479,7 +3501,7 @@ return the result of the comparison ToPrimitive(x) == y.
 			bitMask = (1<<shift)-1;
 		}
 
-		intptr hashCode = StackTrace::hashCode(e, depth);
+		uintptr hashCode = StackTrace::hashCode(e, depth);
 		uint32 j = (hashCode&0x7FFFFFFF) & bitMask;
 		uint32 n = 7;
 		while (stackTraces[j] != NULL && !stackTraces[j]->equals(e,depth)) {
@@ -3608,7 +3630,7 @@ return the result of the comparison ToPrimitive(x) == y.
 			return id;
 		#elif defined(_MAC) && (defined(AVMPLUS_IA32) || defined(AVMPLUS_AMD64))		
 		id = _mm_cvttsd_si32(_mm_set_sd(d));
-		if (id != 0x80000000)
+		if (id != (int)0x80000000)
 			return id;
 		#endif
 

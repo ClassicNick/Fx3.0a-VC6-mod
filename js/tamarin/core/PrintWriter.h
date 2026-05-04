@@ -42,7 +42,7 @@ namespace avmplus
 	class hexDWord
 	{
 	public:
-		hexDWord(uint32 value) { this->value = value; }
+		hexDWord(uint32 _value) { this->value = _value; }
 		hexDWord(const hexDWord& toCopy) { value = toCopy.value; }
 		hexDWord& operator= (const hexDWord& toCopy) {
 			value = toCopy.value;
@@ -61,7 +61,7 @@ namespace avmplus
 	class tabstop
 	{
 	public:
-		tabstop(int spaces) { this->spaces = spaces; }
+		tabstop(int _spaces) { this->spaces = _spaces; }
 		tabstop(const tabstop& toCopy) { spaces = toCopy.spaces; }
 		tabstop& operator= (const tabstop& toCopy) {
 			spaces = toCopy.spaces;
@@ -80,7 +80,7 @@ namespace avmplus
 	class percent
 	{
 	public:
-		percent(double value) { this->value = value; }
+		percent(double _value) { this->value = _value; }
 		percent(const percent& toCopy) { value = toCopy.value; }
 		percent& operator= (const percent& toCopy) {
 			value = toCopy.value;
@@ -115,7 +115,7 @@ namespace avmplus
 		PrintWriter& operator<< (char value);
 		PrintWriter& operator<< (wchar value);		
 		PrintWriter& operator<< (int value);
-		PrintWriter& operator<< (intptr value);
+		PrintWriter& operator<< (uint64 value);
 		PrintWriter& operator<< (uint32 value);
 		PrintWriter& operator<< (double value);
 		PrintWriter& operator<< (Stringp str);
@@ -149,7 +149,6 @@ namespace avmplus
 		PrintWriter& operator<< (const Traits* obj);
 		PrintWriter& operator<< (AbstractFunction* obj);
 		PrintWriter& operator<< (Multiname* obj);
-		PrintWriter& operator<< (Atom atom);
 		PrintWriter& operator<< (Namespace* str);
 	};
 }

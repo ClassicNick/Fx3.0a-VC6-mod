@@ -109,7 +109,7 @@ const int kBufferPadding = 16;
 		void stopSampling();
 		void clearSamples();
 
-		intptr timerHandle;
+		uintptr timerHandle;
 		Hashtable *fakeMethodInfos;
 		void initSampling();
 		#endif
@@ -509,12 +509,12 @@ const int kBufferPadding = 16;
 
 		static bool isNullOrUndefined(Atom atom)
 		{
-			return ((unsigned)atom) <= kSpecialType;
+			return ((uintptr)atom) <= (uintptr)kSpecialType;
 		}
 
 #ifdef AVMPLUS_VERBOSE
 		/** Disassembles an opcode and places the text in str. */
-		static void formatOpcode(PrintWriter& out, const byte *pc, AbcOpcode opcode, int off, PoolObject* pool);
+		void formatOpcode(PrintWriter& out, const byte *pc, AbcOpcode opcode, int off, PoolObject* pool);
 		static void formatMultiname(PrintWriter& out, uint32 index, PoolObject* pool);
 #endif
 
@@ -1339,7 +1339,7 @@ const int kBufferPadding = 16;
 		{
 			double *ptr = (double*)GetGC()->Alloc(sizeof(double), 0);
 			*ptr = n;
-			return kDoubleType | (intptr)ptr;
+			return kDoubleType | (uintptr)ptr;
 		}
 		
 		void rehashStrings(int newlen);
@@ -1374,8 +1374,8 @@ const int kBufferPadding = 16;
 		class GCInterface : MMgc::GCCallback
 		{
 		public:
-			GCInterface(MMgc::GC *gc) : MMgc::GCCallback(gc) {}
-			void SetCore(AvmCore*core) { this->core = core; }
+			GCInterface(MMgc::GC * _gc) : MMgc::GCCallback(_gc) {}
+			void SetCore(AvmCore* _core) { this->core = _core; }
 			void presweep() { core->presweep(); }
 			void postsweep() { core->postsweep(); }
 			void log(const char *str) { core->console << str; }

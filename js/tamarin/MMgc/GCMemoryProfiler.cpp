@@ -307,7 +307,7 @@ namespace MMgc
  
 	size_t DebugSize()
 	{ 
-	#ifdef MMGC_AMD64
+	#ifdef MMGC_64BIT
 		// Our writeback pointer is 8 bytes so we need to round up to the next 8 byte
 		// size.  (only 5 DWORDS are used)
 		return 6 * sizeof(int); 
@@ -381,7 +381,7 @@ namespace MMgc
 		mem += (size>>2);
 		*mem++ = 0xdeadbeef;
 		*mem = 0;
-	#ifdef MMGC_AMD64
+	#ifdef MMGC_64BIT
 		*(mem+1) = 0;
 		*(mem+2) = 0;
 	#endif	
@@ -421,7 +421,7 @@ namespace MMgc
 		if(size == 0)
 			return;
 
-		if (*endMarker != 0xdeadbeef)
+		if (*endMarker != (int32)0xdeadbeef)
 		{
 			// if you get here, you have a buffer overrun.  The stack trace about to
 			// be printed tells you where the block was allocated from.  To find the
@@ -533,7 +533,7 @@ namespace MMgc
 			PrintStackTraceByIndex(*((int*)item - 1)); 
 	}
 
-	void PrintStackTraceByIndex(unsigned int i)
+	void PrintStackTraceByIndex(int i)
 	{
 #ifdef GCHEAP_LOCK
 		GCEnterCriticalSection lock(m_traceTableLock);

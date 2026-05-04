@@ -44,7 +44,7 @@ namespace avmplus
 		friend class AvmCore;
 		// Should these be Stringp's?
 		Atom m_prefix;
-		intptr m_uri;  // Uses 3 bits for flags, but otherwise is really a Stringp
+		uintptr m_uri;  // Uses 3 bits for flags, but otherwise is really a Stringp
 	public:
         enum NamespaceType
         {
@@ -53,13 +53,13 @@ namespace avmplus
             NS_PackageInternal = 2,
             NS_Private = 3,
             NS_Explicit = 4,
-			NS_StaticProtected = 5,
+			NS_StaticProtected = 5
         };
 		Namespace(Atom prefix, Stringp uri, NamespaceType type);
 		~Namespace();
 
 		Atom getPrefix() const { return m_prefix; };
-		Stringp getURI() const { return (Stringp)(((intptr)m_uri)&~7); };
+		Stringp getURI() const { return (Stringp)(((uintptr)m_uri)&~7); };
 
 		Atom  atom() const { return AtomConstants::kNamespaceType | (Atom)this; }
 

@@ -85,10 +85,10 @@ namespace MMgc
 	const int ZCT::ZCT_START_SIZE = 1;
 #endif
 
-#ifdef MMGC_AMD64
-	const intptr MAX_INTPTR = 0xFFFFFFFFFFFFFFFF;
+#ifdef MMGC_64BIT
+	const uintptr MAX_UINTPTR = 0xFFFFFFFFFFFFFFFF;
 #else
-	const intptr MAX_INTPTR = 0xFFFFFFFF;
+	const uintptr MAX_UINTPTR = 0xFFFFFFFF;
 #endif	
 
 	// get detailed info on each size class allocators
@@ -108,9 +108,9 @@ namespace MMgc
 	/**
 	 * delay between GC incremental marks
 	 */
-	const static int kIncrementalMarkDelayTicks = int(10 * GC::GetPerformanceFrequency() / 1000);
+	const static uint64 kIncrementalMarkDelayTicks = int(10 * GC::GetPerformanceFrequency() / 1000);
 
-	const static int kMarkSweepBurstTicks = 1515909; // 200 ms on a 2ghz machine
+	const static uint64 kMarkSweepBurstTicks = 1515909; // 200 ms on a 2ghz machine
 
 	// Size classes for our GC.  From 8 to 128, size classes are spaced
 	// evenly 8 bytes apart.  The finest granularity we can achieve is
@@ -161,7 +161,7 @@ namespace MMgc
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
 		39, 39, 39, 39, 39, 39	
 	};
-	const int kLargestAlloc = 1968;
+	const size_t kLargestAlloc = 1968;
 
 
 #ifdef _DEBUG
@@ -196,7 +196,7 @@ namespace MMgc
 #endif
 
 		  marking(false),
-		  memStart(MAX_INTPTR),
+		  memStart(MAX_UINTPTR),
 		  memEnd(0),
 		  heap(gcheap),
 		  allocsSinceCollect(0),
@@ -225,6 +225,25 @@ namespace MMgc
 		  heapSizeAtLastAlloc(gcheap->GetTotalHeapSize()),
 		  finalizedValue(true)
 	{		
+		// sanity check for all our types
+		GCAssert (sizeof(int8) == 1);
+		GCAssert (sizeof(uint8) == 1);		
+		GCAssert (sizeof(int16) == 2);
+		GCAssert (sizeof(uint16) == 2);
+		GCAssert (sizeof(int32) == 4);
+		GCAssert (sizeof(uint32) == 4);
+		GCAssert (sizeof(int64) == 8);
+		GCAssert (sizeof(uint64) == 8);
+		GCAssert (sizeof(sintptr) == sizeof(void *));
+		GCAssert (sizeof(uintptr) == sizeof(void *));
+		#ifdef MMGC_64BIT
+		GCAssert (sizeof(sintptr) == 8);
+		GCAssert (sizeof(uintptr) == 8);	
+		#else	
+		GCAssert (sizeof(sintptr) == 4);
+		GCAssert (sizeof(uintptr) == 4);	
+		#endif		
+	
 #ifdef MMGC_DRC
 		zct.gc = this;
 #endif
@@ -279,7 +298,7 @@ namespace MMgc
 #ifdef _DEBUG
 	const char *GC::msg()
 	{
-		sprintf(msgBuf, "[MEM %8dms]", ticksToMillis(GetPerformanceCounter() - t0));
+		sprintf(msgBuf, "[MEM %8dms]", (int)ticksToMillis(GetPerformanceCounter() - t0));
 		return msgBuf;
 	}
 #endif
@@ -298,7 +317,7 @@ namespace MMgc
 			uint32* bitsFreelist = m_bitsFreelists[i];
 			while(bitsFreelist) {
 				uint32 *next = *(uint32**)bitsFreelist;
-				if(((intptr)bitsFreelist & 0xfff) == 0) {
+				if(((uintptr)bitsFreelist & 0xfff) == 0) {
 					*((void**)bitsFreelist) = pageList;
 					pageList = (void**)bitsFreelist;
 				}
@@ -697,16 +716,16 @@ bail:
 
 		if(GC::gcstats) {
 			int sweepResults = 0;
-			GCAlloc::GCBlock *b = smallEmptyPageList;
-			while(b) {
+			GCAlloc::GCBlock *bb = smallEmptyPageList;
+			while(bb) {
 				sweepResults++;
-				b = b->next;
+				bb = bb->next;
 			}
 			
-			GCLargeAlloc::LargeBlock *lb = largeEmptyPageList;
-			while(lb) {
-				sweepResults += lb->GetNumBlocks();
-				lb = lb->next;
+			GCLargeAlloc::LargeBlock *lbb = largeEmptyPageList;
+			while(lbb) {
+				sweepResults += lbb->GetNumBlocks();
+				lbb = lbb->next;
 			}
 			// include large pages given back
 			sweepResults += (heapSize - heap->GetUsedHeapSize());
@@ -836,16 +855,16 @@ bail:
 		UnmarkGCPages(ptr, size);
 	}
 
-	void GC::SetPageMapValue(intptr addr, int val)
+	void GC::SetPageMapValue(uintptr addr, int val)
 	{
-		intptr index = (addr-memStart) >> 12;
+		uintptr index = (addr-memStart) >> 12;
 		GCAssert(index >> 2 < 64 * GCHeap::kBlockSize);
 		pageMap[index >> 2] |= (val<<((index&0x3)*2));
 	}	
 
-	void GC::ClearPageMapValue(intptr addr)
+	void GC::ClearPageMapValue(uintptr addr)
 	{
-		intptr index = (addr-memStart) >> 12;
+		uintptr index = (addr-memStart) >> 12;
 		GCAssert(index >> 2 < 64 * GCHeap::kBlockSize);
 		pageMap[index >> 2] &= ~(3<<((index&0x3)*2));
 	}	
@@ -859,7 +878,7 @@ bail:
 
 	void GC::MarkGCPages(void *item, uint32 numPages, int to)
 	{
-		intptr addr = (intptr)item;
+		uintptr addr = (uintptr)item;
 		int shiftAmount=0;
 		unsigned char *dst = pageMap;
 
@@ -871,7 +890,7 @@ bail:
 			// in bytes, ie 16k chunks
 			addr &= ~0x3fff;
 			// marking earlier pages
-			if(memStart != MAX_INTPTR) {
+			if(memStart != MAX_UINTPTR) {
 				shiftAmount = (memStart - addr) >> 14;
 			}
 			memStart = addr;
@@ -898,7 +917,7 @@ bail:
 			}
 		}
 
-		addr = (intptr)item;
+		addr = (uintptr)item;
 		while(numPages--)
 		{
 			SetPageMapValue(addr, to);
@@ -908,7 +927,7 @@ bail:
 
 	void GC::UnmarkGCPages(void *item, uint32 numpages)
 	{
-		intptr addr = (intptr) item;
+		uintptr addr = (uintptr) item;
 		while(numpages--)
 		{
 			ClearPageMapValue(addr);
@@ -975,7 +994,7 @@ bail:
 		Mark(work);
 	}
 
-	GCRoot::GCRoot(GC *gc) : gc(gc)
+	GCRoot::GCRoot(GC * _gc) : gc(_gc)
 	{
 		// I think this makes some non-guaranteed assumptions about object layout,
 		// like with multiple inheritance this might not be the beginning
@@ -984,8 +1003,8 @@ bail:
 		gc->AddRoot(this);
 	}
 
-	GCRoot::GCRoot(GC *gc, const void *object, size_t size)
-		: gc(gc), object(object), size(size)
+	GCRoot::GCRoot(GC * _gc, const void * _object, size_t _size)
+		: gc(_gc), object(_object), size(_size)
 	{
 		gc->AddRoot(this);
 	}
@@ -997,10 +1016,10 @@ bail:
 		}
 	}
 
-	void GCRoot::Set(const void *object, size_t size)
+	void GCRoot::Set(const void * _object, size_t _size)
 	{
-		this->object = object;
-		this->size = size;
+		this->object = _object;
+		this->size = _size;
 	}
 
 	void GCRoot::Destroy()
@@ -1012,7 +1031,7 @@ bail:
 		gc = NULL;
 	}
 
-	GCCallback::GCCallback(GC *gc) : gc(gc)
+	GCCallback::GCCallback(GC * _gc) : gc(_gc)
 	{
 		gc->AddCallback(this);
 	}
@@ -1044,8 +1063,8 @@ bail:
 
 	bool GC::IsPointerToGCPage(const void *item)
 	{
-		if((intptr)item >= memStart && (intptr)item < memEnd)
-			return GetPageMapValue((intptr) item) != 0;
+		if((uintptr)item >= memStart && (uintptr)item < memEnd)
+			return GetPageMapValue((uintptr) item) != 0;
 		return false;
 	}
 
@@ -1173,7 +1192,7 @@ bail:
 			if(val < _memStart || val >= _memEnd)
 				continue;
 
-			int bits = gc->GetPageMapValue((intptr)val); 
+			int bits = gc->GetPageMapValue((uintptr)val); 
 			bool doit = false;
 			if (bits == GC::kGCAllocPage) {
 				doit = GCAlloc::IsRCObject(val) && GCAlloc::FindBeginning(val) == GetRealPointer(val);
@@ -1196,14 +1215,14 @@ bail:
 		int *p = (int*)item;
 		// skip vtable, first 4 bytes are cleared in Alloc
 		p++;
-#ifdef MMGC_AMD64
+#ifdef MMGC_64BIT
 		p++; // vtable is 8-bytes
 		size--; 
 #endif		
 		// in incrementalValidation mode manually deleted items
 		// aren't put on the freelist so skip them
 		if(incrementalValidation) {
-			if(*p == 0xcacacaca)
+			if(*p == (int32)0xcacacaca)
 				return;
 		}
 		for(int i=1; i<size; i++,p++)
@@ -1329,10 +1348,10 @@ bail:
 				}
 #endif
 				// invoke prereap on all callbacks
-				GCCallback *cb = gc->m_callbacks;
-				while(cb) {
-					cb->prereap(rcobj);
-					cb = cb->nextCB;
+				GCCallback *cbb = gc->m_callbacks;
+				while(cbb) {
+					cbb->prereap(rcobj);
+					cbb = cbb->nextCB;
 				}
 
 				GCAssert(*(int*)rcobj != 0);
@@ -1437,7 +1456,7 @@ bail:
 		else 
 		{
 			GCDebugMsg(false, "GCRoot object: 0x%x\n", container);
-			if((intptr)container >= memStart && (intptr)container < memEnd)
+			if((uintptr)container >= memStart && (uintptr)container < memEnd)
 				PrintStackTrace(container);
 		}
 	}
@@ -1450,8 +1469,8 @@ bail:
 		if(size && size <= itemSize) {
 			// skip traceIndex + data + endMarker
 			p += (2 + (size>>2));
-			GCAssert(sizeof(intptr) == sizeof(void*));
-			*p = (intptr) container;
+			GCAssert(sizeof(uintptr) == sizeof(void*));
+			*p = (uintptr) container;
 		}
 	}
 
@@ -1459,14 +1478,14 @@ bail:
 
 	bool GC::IsRCObject(const void *item)
 	{
-		if((intptr)item >= memStart && (intptr)item < memEnd && ((intptr)item&0xfff) != 0)
+		if((uintptr)item >= memStart && (uintptr)item < memEnd && ((uintptr)item&0xfff) != 0)
 		{
-			int bits = GetPageMapValue((intptr)item);		
+			int bits = GetPageMapValue((uintptr)item);		
 			item = GetRealPointer(item);
 			switch(bits)
 			{
 			case kGCAllocPage:
-				if((char*)item < ((GCAlloc::GCBlock*)((intptr)item&~0xfff))->items)
+				if((char*)item < ((GCAlloc::GCBlock*)((uintptr)item&~0xfff))->items)
 					return false;
 				return GCAlloc::IsRCObject(item);
 			case kGCLargeAllocPageFirst:
@@ -1529,7 +1548,7 @@ bail:
 			{			
 				// b->firstFree should be either 0 end of free list or a pointer into b, otherwise, someone
 				// wrote to freed memory and hosed our freelist
-				GCAssert(freelist == 0 || ((intptr) freelist >= (intptr) b->items && (intptr) freelist < (intptr) b + GCHeap::kBlockSize));
+				GCAssert(freelist == 0 || ((uintptr) freelist >= (uintptr) b->items && (uintptr) freelist < (uintptr) b + GCHeap::kBlockSize));
 				freelist = *((void**)freelist);
 			}
 			b = b->nextFree;
@@ -1547,15 +1566,15 @@ bail:
 
 	void GC::UnmarkedScan(const void *mem, size_t size)
 	{
-		intptr lowerBound = memStart;
-		intptr upperBound = memEnd;
+		uintptr lowerBound = memStart;
+		uintptr upperBound = memEnd;
 		
-		intptr *p = (intptr *) mem;
-		intptr *end = p + (size / sizeof(void*));
+		uintptr *p = (uintptr *) mem;
+		uintptr *end = p + (size / sizeof(void*));
 
 		while(p < end)
 		{
-			intptr val = *p++;
+			uintptr val = *p++;
 			
 			if(val < lowerBound || val >= upperBound)
 				continue;
@@ -1584,7 +1603,7 @@ bail:
 	{
 		if(findUnmarkedPointers)
 		{
-			intptr m = memStart;
+			uintptr m = memStart;
 
 			while(m < memEnd)
 			{
@@ -1636,19 +1655,19 @@ bail:
 	for(; n<3*(i); n++) b[n] = ' '; \
 	b[n] = '\0'; }
 
-	void GC::ProbeForMatch(const void *mem, size_t size, intptr value, int recurseDepth, int currentDepth)
+	void GC::ProbeForMatch(const void *mem, size_t size, uintptr value, int recurseDepth, int currentDepth)
 	{
-		intptr lowerBound = memStart;
-		intptr upperBound = memEnd;
+		uintptr lowerBound = memStart;
+		uintptr upperBound = memEnd;
 		
-		intptr *p = (intptr *) mem;
-		intptr *end = p + (size / sizeof(void*));
+		uintptr *p = (uintptr *) mem;
+		uintptr *end = p + (size / sizeof(void*));
 
-		int bits = GetPageMapValue((intptr)mem);
+		int bits = GetPageMapValue((uintptr)mem);
 
 		while(p < end)
 		{
-			intptr val = *p++;
+			uintptr val = *p++;
 			
 			if(val < lowerBound || val >= upperBound)
 				continue;
@@ -1657,7 +1676,7 @@ bail:
 			if (val == value)
 			{
 				// ok so let's see where we are 
-				intptr* where = p-1;
+				uintptr* where = p-1;
 				GCHeap::HeapBlock* block = heap->AddrToBlock(where);
 				//GCAssertMsg(block->inUse(), "Not sure how we got here if the block is not in use?");
 				GCAssertMsg(block->committed, "Means we are probing uncommitted memory. not good");
@@ -1671,13 +1690,13 @@ bail:
 						{
 							// fixed sized entries find out the size of the block
 							FixedAlloc::FixedBlock* fixed = (FixedAlloc::FixedBlock*) block->baseAddr;
-							int size = fixed->size;
+							int fixedsize = fixed->size;
 
 							// now compute which element we are 
-							intptr startAt = (intptr) &(fixed->items[0]);
-							intptr item = ((intptr)where-startAt) / size;
+							uintptr startAt = (uintptr) &(fixed->items[0]);
+							uintptr item = ((uintptr)where-startAt) / fixedsize;
 
-							ptr = (int*) ( startAt + (item*size) );
+							ptr = (int*) ( startAt + (item*fixedsize) );
 						}
 						else
 						{
@@ -1720,8 +1739,8 @@ bail:
 	 */
 	void GC::WhosPointingAtMe(void* me, int recurseDepth, int currentDepth)
 	{
-		intptr val = (intptr)me;
-		intptr m = memStart;
+		uintptr val = (uintptr)me;
+		uintptr m = memStart;
 
 		char* buffer = 0;
 		ALLOCA_AND_FILL_WITH_SPACES(buffer, currentDepth);
@@ -1846,7 +1865,7 @@ bail:
 	// TODO: SSE2 version
 	void GC::MarkItem_MMX(const void *ptr, size_t size, GCStack<GCWorkItem> &work)
 	{
-		 intptr *p = (intptr*) ptr;
+		 uintptr *p = (uintptr*) ptr;
 		// deleted things are removed from the queue by setting them to null
 		if(!p)
 			return;
@@ -1854,8 +1873,8 @@ bail:
 		bytesMarked += size;
 		marks++;
 
-		intptr *end = p + (size / sizeof(void*));
-		intptr thisPage = (intptr)p & ~0xfff;
+		uintptr *end = p + (size / sizeof(void*));
+		uintptr thisPage = (uintptr)p & ~0xfff;
 
 		// since MarkItem recurses we have to do this before entering the loop
 		if(IsPointerToGCPage(ptr)) 
@@ -1949,13 +1968,13 @@ bail:
 	void GC::MarkItem(GCWorkItem &wi, GCStack<GCWorkItem> &work)
 	{
 		size_t size = wi.GetSize();
-		intptr *p = (intptr*) wi.ptr;
+		uintptr *p = (uintptr*) wi.ptr;
 
 		bytesMarked += size;
 		marks++;
 
-		intptr *end = p + (size / sizeof(void*));
-		intptr thisPage = (intptr)p & ~0xfff;
+		uintptr *end = p + (size / sizeof(void*));
+		uintptr thisPage = (uintptr)p & ~0xfff;
 
 		// set the mark bits on this guy
 		if(wi.IsGCItem())
@@ -1976,8 +1995,8 @@ bail:
 			GCAssert(!IsPointerToGCPage(wi.ptr));
 		}
 
-		intptr _memStart = memStart;
-		intptr _memEnd = memEnd;
+		uintptr _memStart = memStart;
+		uintptr _memEnd = memEnd;
 		
 #ifdef DEBUGGER
 		numObjects++;
@@ -1986,7 +2005,7 @@ bail:
 
 		while(p < end) 
 		{
-			intptr val = *p++;  
+			uintptr val = *p++;  
 
 			if(val < _memStart || val >= _memEnd)
 				continue;
@@ -1999,7 +2018,7 @@ bail:
 				//GCAlloc::ConservativeMark(work, (void*) (val&~7), workitem.ptr);
 				const void* item = (void*) (val&~7);
 
-				GCAlloc::GCBlock *block = (GCAlloc::GCBlock*) ((intptr) item & ~0xFFF);
+				GCAlloc::GCBlock *block = (GCAlloc::GCBlock*) ((uintptr) item & ~0xFFF);
 
 				// back up to real beginning
 				item = GetRealPointer((const void*) item);
@@ -2019,9 +2038,9 @@ bail:
 				// FIXME: see if using 32 bit values is faster
 				uint32 *pbits = &block->GetBits()[itemNum>>3];
 				int shift = (itemNum&0x7)<<2;
-				int bits = *pbits;
+				int bits2 = *pbits;
 				//if(GCAlloc::IsWhite(block, itemNum)) 
-				if((bits & ((GCAlloc::kMark|GCAlloc::kQueued)<<shift)) == 0)
+				if((bits2 & ((GCAlloc::kMark|GCAlloc::kQueued)<<shift)) == 0)
 				{
 					if(block->alloc->ContainsPointers())
 					{
@@ -2031,15 +2050,15 @@ bail:
 						realItem = GetUserPointer(realItem);
 						itemSize -= DebugSize();
 						#endif
-						if(((intptr)realItem & ~0xfff) != thisPage)
+						if(((uintptr)realItem & ~0xfff) != thisPage)
 						{							
-							*pbits = bits | (GCAlloc::kQueued << shift);
+							*pbits = bits2 | (GCAlloc::kQueued << shift);
 							block->gc->PushWorkItem(work, GCWorkItem(realItem, itemSize, true));
 						}
 						else
 						{
 							// clear queued bit
-							*pbits = bits & ~(GCAlloc::kQueued << shift);
+							*pbits = bits2 & ~(GCAlloc::kQueued << shift);
 							// skip stack for same page items, this recursion is naturally limited by
 							// how many item can appear on a page, worst case is 8 byte linked list or
 							// 512
@@ -2051,8 +2070,8 @@ bail:
 					{
 						//GCAlloc::SetBit(block, itemNum, GCAlloc::kMark);
 						// clear queued bit
-						*pbits = bits & ~(GCAlloc::kQueued << shift);
-						*pbits = bits | (GCAlloc::kMark << shift);
+						*pbits = bits2 & ~(GCAlloc::kQueued << shift);
+						*pbits = bits2 | (GCAlloc::kMark << shift);
 					}
 					#if defined(MEMORY_INFO)
 					GC::WriteBackPointer(item, (end==(void*)0x130000) ? p-1 : wi.ptr, block->size);
@@ -2067,21 +2086,21 @@ bail:
 				// back up to real beginning
 				item = GetRealPointer((const void*) item);
 
-				if(((intptr) item & 0xfff) == sizeof(GCLargeAlloc::LargeBlock))
+				if(((uintptr) item & 0xfff) == sizeof(GCLargeAlloc::LargeBlock))
 				{
 					GCLargeAlloc::LargeBlock *b = GCLargeAlloc::GetBlockHeader(item);
 					if((b->flags & (GCLargeAlloc::kQueuedFlag|GCLargeAlloc::kMarkFlag)) == 0) 
 					{
-						size_t size = b->usableSize;
+						size_t usize = b->usableSize;
 						if((b->flags & GCLargeAlloc::kContainsPointers) != 0) 
 						{
 							b->flags |= GCLargeAlloc::kQueuedFlag;
 							const void *realItem = item;
 							#ifdef MEMORY_INFO
 							realItem = GetUserPointer(item);
-							size -= DebugSize();
+							usize -= DebugSize();
 							#endif
-							b->gc->PushWorkItem(work, GCWorkItem(realItem, size, true));
+							b->gc->PushWorkItem(work, GCWorkItem(realItem, usize, true));
 						} 
 						else
 						{
@@ -2089,7 +2108,7 @@ bail:
 							b->flags |= GCLargeAlloc::kMarkFlag;
 						}
 						#if defined(MEMORY_INFO)
-						GC::WriteBackPointer(item, end==(void*)0x130000 ? p-1 : wi.ptr, size);
+						GC::WriteBackPointer(item, end==(void*)0x130000 ? p-1 : wi.ptr, usize);
 						#endif
 					}
 				}
@@ -2240,7 +2259,7 @@ bail:
 		// normalize and divide by 4K to get index
 		if(!IsPointerToGCPage(item))
 			return false;
-		int bits = GetPageMapValue((intptr)item);	
+		int bits = GetPageMapValue((uintptr)item);	
 		switch(bits) {
 		case 1:
 			return GCAlloc::IsWhite(item);
@@ -2257,15 +2276,15 @@ bail:
 	void GC::WriteBarrierWrite(const void *address, const void *value)
 	{
 		GCAssert(!IsRCObject(value));
-		*(intptr*)address = (intptr) value;
+		*(uintptr*)address = (uintptr) value;
 	}
 
 	// optimized version with no RC checks or pointer swizzling
 	void GC::writeBarrierRC(const void *container, const void *address, const void *value)
 	{
 		GCAssert(IsPointerToGCPage(container));
-		GCAssert(((intptr)container & 3) == 0);
-		GCAssert(((intptr)address & 2) == 0);
+		GCAssert(((uintptr)container & 3) == 0);
+		GCAssert(((uintptr)address & 2) == 0);
 		GCAssert(address >= container);
 		GCAssert(address < (char*)container + Size(container));
 
@@ -2284,7 +2303,7 @@ bail:
 				rc->DecrementRef();
 			}
 		#endif
-		*(intptr*)address = (intptr) value;
+		*(uintptr*)address = (uintptr) value;
 		#ifdef MMGC_DRC		
 			rc = (RCObject*)Pointer(value);
 			if(rc != NULL) {
@@ -2348,7 +2367,7 @@ bail:
 
 	bool GC::IsGCMemory (const void *item)
 	{
-		int bits = GetPageMapValue((intptr)item);
+		int bits = GetPageMapValue((uintptr)item);
 		return (bits != 0);
 	}
 
@@ -2374,7 +2393,7 @@ bail:
 		if(!m_bitsNext)
 			m_bitsNext = (uint32*)heap->Alloc(1);
 
-		int leftOver = GCHeap::kBlockSize - ((intptr)m_bitsNext & 0xfff);
+		int leftOver = GCHeap::kBlockSize - ((uintptr)m_bitsNext & 0xfff);
 		if(leftOver >= numBytes) {
 			bits = m_bitsNext;
 			if(leftOver == numBytes) 
@@ -2494,18 +2513,18 @@ bail:
 	
 	void GC::WhitePointerScan(const void *mem, size_t size)
 	{		
-		intptr *p = (intptr *) mem;
+		uintptr *p = (uintptr *) mem;
 		// the minus 8 skips the deadbeef and back pointer 
-		intptr *end = p + ((size) / sizeof(void*));
+		uintptr *end = p + ((size) / sizeof(void*));
 
 		while(p < end)
 		{
-			intptr val = *p;		
+			uintptr val = *p;		
 			if(val == 0xdeadbeef)
 				break;
 			if(IsWhite((const void*) (val&~7)) && 
-			   *(((int*)(val&~7))+1) != 0xcacacaca && // Free'd
-			   *(((int*)(val&~7))+1) != 0xbabababa) // Swept
+			   *(((int32*)(val&~7))+1) != (int32)0xcacacaca && // Free'd
+			   *(((int32*)(val&~7))+1) != (int32)0xbabababa) // Swept
 			{
 				GCDebugMsg(false, "Object 0x%x allocated here:\n", mem);
 				PrintStackTrace(mem);
@@ -2522,7 +2541,7 @@ bail:
 		if(!incrementalValidation)
 			return;
 
-		intptr m = memStart;
+		uintptr m = memStart;
 		while(m < memEnd)
 		{
 #ifdef WIN32
@@ -2584,7 +2603,7 @@ bail:
 		while(cb) {
 			cb->startGCActivity();
 			cb = cb->nextCB;
-		}
+		} 
 	}
 
 	void GC::StopGCActivity()
@@ -2609,9 +2628,9 @@ bail:
 #endif  /* DEBUGGER*/
 
 #if defined(_MAC) && (defined(MMGC_IA32) || defined(MMGC_AMD64))
-	intptr GC::GetStackTop() const
+	uintptr GC::GetStackTop() const
 	{
-		return (intptr)pthread_get_stackaddr_np(pthread_self());
+		return (uintptr)pthread_get_stackaddr_np(pthread_self());
 	}
 #endif
 

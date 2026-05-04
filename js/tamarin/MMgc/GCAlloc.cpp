@@ -38,14 +38,14 @@
 
 namespace MMgc
 {
-	GCAlloc::GCAlloc(GC* gc, int itemSize, bool containsPointers, bool isRC, int sizeClassIndex) : 
-		m_gc(gc),
-		containsPointers(containsPointers), 
-		containsRCObjects(isRC),
-		m_sizeClassIndex(sizeClassIndex)
+	GCAlloc::GCAlloc(GC* _gc, int _itemSize, bool _containsPointers, bool _isRC, int _sizeClassIndex) : 
+		m_gc(_gc),
+		containsPointers(_containsPointers), 
+		containsRCObjects(_isRC),
+		m_sizeClassIndex(_sizeClassIndex)
 	{
 		// Round itemSize to the nearest boundary of 8
-		itemSize = (itemSize+7)&~7;
+		_itemSize = (_itemSize+7)&~7;
 
 		m_firstBlock    = NULL;
 		m_lastBlock     = NULL;
@@ -53,7 +53,7 @@ namespace MMgc
 		m_needsSweeping = NULL;
 		m_numAlloc      = 0;
 		m_maxAlloc      = 0;
-		m_itemSize      = itemSize;
+		m_itemSize      = _itemSize;
 		m_numBlocks = 0;
 		m_finalized = false;
 
@@ -90,7 +90,7 @@ namespace MMgc
 		GCAssertMsg(GetNumAlloc() == 0, "You have leaks");
 
 		while (m_firstBlock) {
-			if(((intptr)m_firstBlock->bits & 0xfff) == 0)
+			if(((uintptr)m_firstBlock->bits & 0xfff) == 0)
 				m_gc->GetGCHeap()->Free(m_firstBlock->bits);
 #ifdef _DEBUG
 			// go through every item on the free list and make sure it wasn't written to
@@ -100,7 +100,7 @@ namespace MMgc
 				for(int i=3, n=(m_firstBlock->size>>2)-1; i<n; i++)
 				{
 					int data = ((int*)item)[i];
-					if(data != 0xbabababa && data != 0xcacacaca)
+					if(data != (int32)0xbabababa && data != (int32)0xcacacaca)
 					{
 						GCDebugMsg(false, "Object 0x%x was written to after it was deleted, allocation trace:");
 						PrintStackTrace((int*)item+2);
@@ -254,14 +254,14 @@ start:
 #ifdef MEMORY_INFO
 			// ensure previously used item wasn't written to
 			// -1 because write back pointer space isn't poisoned.
-#ifdef MMGC_AMD64			
+#ifdef MMGC_64BIT			
 			for(int i=3, n=(b->size>>2)-3; i<n; i++)
 #else
 			for(int i=3, n=(b->size>>2)-1; i<n; i++)
 #endif			
 			{
 				int data = ((int*)item)[i];
-				if(data != 0xcacacaca && data != 0xbabababa)
+				if(data != (int32)0xcacacaca && data != (int32)0xbabababa)
 				{
 					GCDebugMsg(false, "Object 0x%x was written to after it was deleted, allocation trace:", item);
 					PrintStackTrace((int*)item+2);
@@ -273,7 +273,7 @@ start:
 #endif
 		} else {
 			item = b->nextItem;
-			if(((intptr)((char*)item + b->size) & 0xfff) != 0) {
+			if(((uintptr)((char*)item + b->size) & 0xfff) != 0) {
 				b->nextItem = (char*)item +  b->size;
 			} else {
 				b->nextItem = NULL;
@@ -327,7 +327,7 @@ start:
 	/* static */
 	void GCAlloc::Free(void *item)
 	{
-		GCBlock *b = (GCBlock*) ((intptr) item & ~0xFFF);
+		GCBlock *b = (GCBlock*) ((uintptr) item & ~0xFFF);
 		GCAlloc *a = b->alloc;
 	
 #ifdef _DEBUG		
@@ -612,7 +612,7 @@ start:
 	/*static*/
 	int GCAlloc::ConservativeGetMark(const void *item, bool bogusPointerReturnValue)
 	{
-		GCBlock *block = (GCBlock*) ((intptr) item & ~0xFFF);
+		GCBlock *block = (GCBlock*) ((uintptr) item & ~0xFFF);
 
 #ifdef MEMORY_INFO
 		item = GetRealPointer(item);

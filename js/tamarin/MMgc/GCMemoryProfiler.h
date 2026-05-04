@@ -192,19 +192,19 @@ namespace MMgc
 	/**
 	* Given a user pointer back up to real beginning
 	*/
-	inline void *GetRealPointer(const void *item) { return (void*)((intptr) item -  2 * sizeof(int)); }
+	inline void *GetRealPointer(const void *item) { return (void*)((uintptr) item -  2 * sizeof(int)); }
 
 	/**
 	* Given a user pointer back up to real beginning
 	*/
-	inline void *GetUserPointer(const void *item) { return (void*)((intptr) item +  2 * sizeof(int)); }
+	inline void *GetUserPointer(const void *item) { return (void*)((uintptr) item +  2 * sizeof(int)); }
 
 	const char* GetTypeName(int index, void *obj);
 
 	void GetInfoFromPC(int pc, char *buff, int buffSize);
 	void GetStackTrace(int *trace, int len, int skip);
 	// print stack trace of index into trace table
-	void PrintStackTraceByIndex(unsigned int index);
+	void PrintStackTraceByIndex(int index);
 	void PrintStackTrace(const void *item);
 	// print stack trace of caller
 	void DumpStackTrace();

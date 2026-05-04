@@ -144,7 +144,7 @@ namespace avmplus
 		return *this;
 	}
 
-	PrintWriter& PrintWriter::operator<< (intptr value)
+	PrintWriter& PrintWriter::operator<< (uint64 value)
 	{
 		#ifdef AVMPLUS_64BIT
 		AvmAssert(0); // convertInteger routine needs to be upgraded to handle 64-bit ints
@@ -152,7 +152,7 @@ namespace avmplus
 	
 		wchar buffer[256];
 		int len;
-		if (MathUtils::convertIntegerToString(value, buffer, len)) {
+		if (MathUtils::convertIntegerToString((int)value, buffer, len)) {
 			*this << buffer;
 		}
 		return *this;
@@ -254,18 +254,7 @@ namespace avmplus
 		AvmAssert(0); // this is only supported in AVMPLUS_VERBOSE builds
 		return *this;
 #endif
-	}
-
-	PrintWriter& PrintWriter::operator<< (Atom atom)
-	{
-#ifdef AVMPLUS_VERBOSE
-		return *this << m_core->format(atom);
-#else
-		(void)atom;
-		AvmAssert(0); // this is only supported in AVMPLUS_VERBOSE builds
-		return *this;
-#endif
-	}
+	}	
 
 	void PrintWriter::writeHexNibble(uint8 value)
 	{
@@ -284,8 +273,8 @@ namespace avmplus
 
 	void PrintWriter::writeHexWord(uint16 value)
 	{
-		writeHexByte(value>>8);
-		writeHexByte(value&0xff);
+		writeHexByte((uint8)(value>>8));
+		writeHexByte((uint8)(value&0xff));
 	}
 
 	void PrintWriter::writeHexDWord(uint32 value)
@@ -456,7 +445,7 @@ namespace avmplus
 				case 'c':
 					{
 						// gcc complains if you put va_arg(ap, char)
-						char value = va_arg(ap, int);
+						char value = (char)(va_arg(ap, int));
 						*this << value;
 					}
 					break;
