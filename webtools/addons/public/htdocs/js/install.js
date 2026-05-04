@@ -35,12 +35,17 @@ function install( aEvent, extName, iconURL, extHash)  {
     if (aEvent.altKey)
         return true;
 
-    if (aEvent.target.href.match(/^.+\.xpi$/)) {
+    var url = aEvent.target.href;
+    if (!url) {
+        // rustico puts it somewhere else, of course
+        url = aEvent.target.parentNode.href;
+    }
+    if (url.match(/^.+\.xpi$/)) {
 
         var params = new Array();
 
         params[extName] = {
-            URL: aEvent.target.href,
+            URL: url,
             IconURL: iconURL,
             toString: function () { return this.URL; }
         };
@@ -57,7 +62,7 @@ function install( aEvent, extName, iconURL, extHash)  {
 
         try {
             var p = new XMLHttpRequest();
-            p.open("GET", "/install.php?uri="+aEvent.target.href, true);
+            p.open("GET", "/install.php?uri=" + url, true);
             p.send(null);
         } catch(e) { }
 
@@ -67,12 +72,36 @@ function install( aEvent, extName, iconURL, extHash)  {
 }
 
 function installTheme( aEvent, extName) {
-    InstallTrigger.installChrome(InstallTrigger.SKIN,aEvent.target.href,extName);
+    var url = aEvent.target.href;
+    if (!url) {
+        // rustico puts it somewhere else, of course
+        url = aEvent.target.parentNode.href;
+    }
+    InstallTrigger.installChrome(InstallTrigger.SKIN,url,extName);
 
     try {
         var p = new XMLHttpRequest();
-        p.open("GET", "/install.php?uri="+aEvent.target.href, true);
+        p.open("GET", "/install.php?uri="+url, true);
         p.send(null);
     } catch(e) { }
     return false;
+}
+
+function fixPlatformLinks(addonID, name)
+{
+    var platform = getPlatformName();
+    var outer = document.getElementById("install-"+ addonID);
+    var installs = outer.getElementsByTagName("p");
+    var found = false;
+    for (var i = 0; i < installs.length; i++) {
+        var className = installs[i].className;
+        if (className.indexOf("platform-" + platform) != -1 ||
+            className.indexOf("platform-ALL") != -1) {
+                found = true;
+        } else {
+                installs[i].style.display = "none";
+        }
+    }
+    if (!found)
+        outer.appendChild(document.createTextNode(name + " is not available for " + platform)); 
 }

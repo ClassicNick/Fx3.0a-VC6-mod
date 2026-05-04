@@ -137,7 +137,6 @@
 ],
 
 'reports/report.html.tmpl' => [
-  'imagebase', 
   'width', 
   'height', 
   'imageurl', 
@@ -318,13 +317,13 @@
   'selname',
   '" accesskey=\"$accesskey\"" IF accesskey',
   'inputname',
-  '" colspan=\"$colspan\"" IF $colspan',
+  '" colspan=\"$colspan\"" IF colspan',
   '" size=\"$size\"" IF size',
-  '" maxlength=\"$maxlength\"" IF maxlength'
+  '" maxlength=\"$maxlength\"" IF maxlength',
+  'flag.status',
 ],
 
 'bug/knob.html.tmpl' => [
-  'bug.bug_id', 
   'knum', 
 ],
 

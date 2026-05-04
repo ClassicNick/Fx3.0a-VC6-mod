@@ -1,4 +1,29 @@
+{if $app eq "firefox"}
+<h1>Welcome to Firefox Add-ons</h1>
 
+<a href="{$config.webpath}/{$app}/recommended/" id="home-rec-link"><img src="{$config.webpath}/images/rustico/addons/firefox-addons-puzzle-ico.png" width="50" height="50" alt="" /></a>
+  
+<p class="frontpage-intro">Add-ons extend Firefox, letting you personalize your browsing experience.  They can make a tiny tweak, or bring a whole new range of features to your favorite browser.  Take a look around and make Firefox your own.</p>
+
+<p>We've got a list of some of our <a href="{$config.webpath}/{$app}/recommended/">favorite add-ons</a> to get you started, including the one featured below.</p>
+
+<div class="addon-feature clearfix">
+	<div class="corner-box">
+		<h3>Featured Add-on: <a href="{$config.webpath}/{$app}/{$feature.id}/">{$feature.name}</a></h3>
+		<img src="{$config.webpath}{$feature.previewuri}" alt="" class="addon-feature-image" />
+		<div class="addon-feature-text">
+			<p>{$feature.body} <a href="{$config.webpath}/{$app}/{$feature.id}/">Learn more&hellip;</a></p>
+			<p class="install-button"><a href="{$feature.uri}" onclick="return install(event,'{$feature.name} {$feature.version}', '{$config.webpath}/images/default.png');"><span>Install now ({$feature.size} KB)</span></a></p>
+      {if $feature.id eq SUPER_MAGIC_YAHOO_ID}
+      <p class="eula">By clicking Install, you agree to the <a href="http://del.icio.us/help/firefox/bookmarks/license">Software License</a> for this add-on.</p>
+      {/if}
+		</div>
+	</div>
+</div>
+
+{include file="inc/search-box.tpl"}
+
+{else} 
 <div class="split-feature">
     <div class="split-feature-one">
         <div class="feature-download">
@@ -56,4 +81,4 @@
     <li><a href="http://developer.mozilla.org/en/docs/Themes">Theme Documentation on MDC</a></li>
     </ul>
 </div>
-
+{/if}

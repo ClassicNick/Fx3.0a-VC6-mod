@@ -32,7 +32,11 @@ ini_set('magic_quotes_gpc',0);
  */
 define('SCRIPT_NAME',basename($_SERVER['PHP_SELF']));
 
-
+/*
+ * Add-on ID for which we show the extra EULA link and text -- do not look directly into
+ * this code with remaining eye.
+ */
+define('SUPER_MAGIC_YAHOO_ID', 3615);
 
 /**
  * Page output caching.
@@ -149,7 +153,32 @@ class AMO_Smarty extends Smarty
     }
 }
 
+/**
+ * Set $clean['app'] and $sql['app'] based on incoming params.
+ */
+function setApp()
+{
+    global $clean, $sql;
+    // If app is not set or empty, set it to null for our switch.
+    $_GET['app'] = (!empty($_GET['app'])) ? $_GET['app'] : null;
 
+    // Determine our application.
+    switch( $_GET['app'] ) {
+        case 'mozilla':
+            $clean['app'] = 'Mozilla';
+            break;
+        case 'thunderbird':
+            $clean['app'] = 'Thunderbird';
+            break;
+        case 'firefox':
+        default:
+            $clean['app'] = 'Firefox';
+            break;
+    }
+
+    // $sql['app'] can equal $clean['app'] since it was assigned in a switch().
+    $sql['app'] = $clean['app'];
+}
 
 /**
  * Begin template processing.

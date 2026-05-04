@@ -258,10 +258,10 @@ calWcapSession.prototype = {
                        "gettime.wcap?appid=mozilla-calendar" +
                        "&fmt-out=text%2Fcalendar&id=" +
                        encodeURIComponent(this.m_sessionId));
-            var str = issueSyncRequest( url );
             // xxx todo: think about
             // assure that locally calculated server time is smaller than the
             // current (real) server time:
+            var str = issueSyncRequest( url );
             var localTime = getTime();
             var icalRootComp = getIcsService().parseICS( str );
             if (icalRootComp == null)
