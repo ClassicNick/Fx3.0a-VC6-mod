@@ -383,7 +383,7 @@
   <key id="key_findPrev"  key="&findPrevCmd.key;"    oncommand="goDoCommand('cmd_findPrevious')"  modifiers="accel, shift"/>
   <key keycode="&findAgainCmd.key2;"   oncommand="goDoCommand('cmd_findAgain')"/>
   <key keycode="&findPrevCmd.key2;"    oncommand="goDoCommand('cmd_findPrevious')"  modifiers="shift"/>
-  <key key="&quickSearchCmd.key;"  oncommand="QuickSearchFocus()" modifiers="accel"/>
+  <key id="key_quickSearchFocus" key="&quickSearchCmd.key;"  oncommand="QuickSearchFocus()" modifiers="accel"/>
   <key id="key_stop" keycode="VK_ESCAPE" command="cmd_stop"/>
 
   <keyset id="viewZoomKeys">
@@ -709,6 +709,7 @@
         oncommand="MsgSaveAsFile();"/>
     <menuitem id="threadPaneContext-printpreview"
         label="&contextPrintPreview.label;"
+        accesskey="&contextPrintPreview.accesskey;"
         oncommand="PrintEnginePrintPreview();"/>
     <menuitem id="threadPaneContext-print"
         label="&contextPrint.label;"
@@ -1109,7 +1110,9 @@
               label="&saveImageCmd.label;"
               accesskey="&saveImageCmd.accesskey;"
               oncommand="gContextMenu.saveImage();"/>
-
+    <menuseparator id="messagePaneContext-sep-reportPhishing"/>
+    <menuitem id="reportPhishingURL" label="&reportPhishingURL.label;" accesskey="&reportPhishingURL.accesskey;"
+              oncommand="gPhishingDetector.reportPhishingURL(gContextMenu.linkURL());"/>
 </popup>
 
 <popup id="toolbar-context-menu">
@@ -2016,14 +2019,14 @@
         <menupopup/>
       </toolbarbutton>
       
-      <toolbarbutton class="toolbarbutton-1" type="menu-button" id="button-goback" label="&backButton.label;" chromedir="&locale.dir;" oncommand="goDoCommand('cmd_goBack')" tooltiptext="&goBackButton.tooltip;" observes="button_goBack">
+      <toolbarbutton class="toolbarbutton-1" type="menu-button" id="button-goback" label="&backButton1.label;" chromedir="&locale.dir;" oncommand="goDoCommand('cmd_goBack')" tooltiptext="&goBackButton.tooltip;" observes="button_goBack">
          <menupopup onpopupshowing="backToolbarMenu_init(this)">
           <menuitem label="&goBackCmd.label;" observes="cmd_goBack"/>
           <menuseparator/>
         </menupopup>
       </toolbarbutton>  
           
-      <toolbarbutton class="toolbarbutton-1" type="menu-button" id="button-goforward" label="&goForwardButton.label;" chromedir="&locale.dir;" oncommand="goDoCommand('cmd_goForward')" tooltiptext="&goForwardButton.tooltip;" observes="button_goForward">
+      <toolbarbutton class="toolbarbutton-1" type="menu-button" id="button-goforward" label="&goForwardButton1.label;" chromedir="&locale.dir;" oncommand="goDoCommand('cmd_goForward')" tooltiptext="&goForwardButton.tooltip;" observes="button_goForward">
         <menupopup onpopupshowing="forwardToolbarMenu_init(this)">
           <menuitem label="&goForwardCmd.label;" observes="cmd_goForward"/>
           <menuseparator/>
@@ -2197,8 +2200,8 @@
       <image id="remoteContentImage"/>
       <vbox>
         <description flex="1" class="msgNotificationBarText">&remoteContentMessage.label;</description>
-        <description id="allowRemoteContentForAuthorDesc" class="text-link" flex="1" 
-                     onclick="allowRemoteContentForSender();"></description>
+        <label id="allowRemoteContentForAuthorDesc" class="text-link" flex="1"
+               onclick="allowRemoteContentForSender();"/>
       </vbox>
       <spacer flex="1"/>
       <button label="&loadRemoteContentButton1.label;" oncommand="loadMsgWithRemoteContent();"/>

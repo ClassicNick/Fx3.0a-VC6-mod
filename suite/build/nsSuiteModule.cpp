@@ -38,10 +38,12 @@
 
 #include "nsIGenericFactory.h"
 #include "nsSuiteDirectoryProvider.h"
+#include "nsProfileMigrator.h"
 
 /////////////////////////////////////////////////////////////////////////////
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsSuiteDirectoryProvider)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsProfileMigrator)
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -51,7 +53,12 @@ static const nsModuleComponentInfo components[] = {
     NS_SUITEDIRECTORYPROVIDER_CONTRACTID,
     nsSuiteDirectoryProviderConstructor,
     nsSuiteDirectoryProvider::Register,
-    nsSuiteDirectoryProvider::Unregister }
+    nsSuiteDirectoryProvider::Unregister },
+
+  { "Profile Migrator",
+    NS_SUITEPROFILEMIGRATOR_CID,
+    NS_PROFILEMIGRATOR_CONTRACTID,
+    nsProfileMigratorConstructor }
 };
 
 NS_IMPL_NSGETMODULE(SuiteModule, components)

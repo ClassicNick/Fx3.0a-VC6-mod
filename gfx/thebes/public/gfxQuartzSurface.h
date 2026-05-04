@@ -58,6 +58,7 @@ public:
     unsigned long Height() { return mHeight; }
 
     CGContextRef GetCGContext() { return mCGContext; }
+
 protected:
     CGContextRef mCGContext;
     unsigned long mWidth, mHeight;

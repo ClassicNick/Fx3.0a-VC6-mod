@@ -49,6 +49,9 @@ var gPrivacyPane = {
     
     // Update the MP buttons
     this.updateMasterPasswordButton();
+    
+    // update the checkbox for downloading phishing url tables
+    this.updateDownloadedPhishingListState();
 
     var preference = document.getElementById("mail.preferences.privacy.selectedTabIndex");
     if (preference.value)
@@ -160,27 +163,8 @@ var gPrivacyPane = {
     }
   },
 
-  showCertificates: function ()
+  updateDownloadedPhishingListState: function()
   {
-    document.documentElement.openWindow("mozilla:certmanager", "chrome://pippki/content/certManager.xul",
-                                        "width=600,height=400", null);
+    document.getElementById('useDownloadedList').disabled = !document.getElementById('enablePhishingDetector').checked;
   },
-  
-  showCRLs: function ()
-  {
-    document.documentElement.openWindow("Mozilla:CRLManager", "chrome://pippki/content/crlManager.xul",
-                                        "width=600,height=400", null);
-  },
-  
-  showOCSP: function ()
-  {
-    document.documentElement.openSubDialog("chrome://mozapps/content/preferences/ocsp.xul",
-                                           "", null);
-  },
-  
-  showSecurityDevices: function ()
-  {
-    document.documentElement.openWindow("mozilla:devicemanager", "chrome://pippki/content/device_manager.xul",
-                                        "width=600,height=400", null);
-  }
 };

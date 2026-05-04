@@ -5,6 +5,10 @@
 <!-- File Menu -->
 <!ENTITY newFolderCmd.label "Folder...">
 <!ENTITY newFolderCmd.accesskey "F">
+<!ENTITY newTabCmd.label "New Tab">
+<!ENTITY newTabCmd.accesskey "T">
+<!ENTITY closeTabCmd.label "Close Tab">
+<!ENTITY closeTabCmd.accesskey "e">
 <!ENTITY newVirtualFolderCmd.label "Saved Search...">
 <!ENTITY newVirtualFolderCmd.accesskey "S">
 <!ENTITY newAccountCmd.label "Account...">
@@ -442,8 +446,8 @@
 <!ENTITY fileButton.label "File">
 <!ENTITY nextButton.label "Next">
 <!ENTITY previousButton.label "Previous">
-<!ENTITY backButton.label "Go Back">
-<!ENTITY goForwardButton.label "Go Forward">
+<!ENTITY backButton1.label "Back">
+<!ENTITY goForwardButton1.label "Forward">
 <!ENTITY deleteButton.label "Delete">
 <!ENTITY markButton.label "Mark">
 <!ENTITY printButton.label "Print">
@@ -491,6 +495,8 @@
 <!-- Folder Pane Context Menu -->
 <!ENTITY folderContextOpenNewWindow.label "Open">
 <!ENTITY folderContextOpenNewWindow.accesskey "O">
+<!ENTITY folderContextOpenNewTab.label "Open in New Tab">
+<!ENTITY folderContextOpenNewTab.accesskey "T">
 <!ENTITY folderContextNew.label "New Subfolder...">
 <!ENTITY folderContextNew.accesskey "N">
 <!ENTITY folderContextRename.label "Rename">
@@ -579,6 +585,8 @@
 <!-- Thread Pane Context Menu -->
 <!ENTITY contextOpenNewWindow.label "Open Message in New Window">
 <!ENTITY contextOpenNewWindow.accesskey "W">
+<!ENTITY contextOpenNewTab.label "Open Message in New Tab">
+<!ENTITY contextOpenNewTab.accesskey "T">
 <!ENTITY contextEditAsNew.label "Edit As New...">
 <!ENTITY contextEditAsNew.accesskey "E">
 <!ENTITY contextReplySender.label "Reply to Sender Only">
@@ -602,6 +610,7 @@
 <!ENTITY contextPrint.label "Print...">
 <!ENTITY contextPrint.accesskey "P">
 <!ENTITY contextPrintPreview.label "Print Preview">
+<!ENTITY contextPrintPreview.accesskey "v">
 <!ENTITY contextDelete.label "Delete">
 <!ENTITY contextDelete.accesskey "D">
 <!ENTITY contextAddSenderToAddressBook.label "Add Sender To Address Book">
@@ -636,6 +645,8 @@
 <!ENTITY CreateFilter.accesskey "F">
 <!ENTITY BlockAddress.label "Block Address">
 <!ENTITY BlockAddress.accesskey "A">
+<!ENTITY reportPhishingURL.label "Report E-mail Scam">
+<!ENTITY reportPhishingURL.accesskey "o">
 
 <!-- Statusbar -->
 <!ENTITY statusText.label "Done">

@@ -45,7 +45,10 @@
 
 #include <PMApplication.h>
 
-class nsDeviceContextSpecX : public nsIDeviceContextSpec, public nsIPrintingContext
+class nsDeviceContextSpecX : public nsIDeviceContextSpec
+#ifndef MOZ_CAIRO_GFX
+, public nsIPrintingContext
+#endif
 {
 public:
     /**
@@ -57,6 +60,11 @@ public:
     NS_DECL_ISUPPORTS
 #ifdef MOZ_CAIRO_GFX
     NS_IMETHOD GetSurfaceForPrinter(gfxASurface **surface);
+    NS_IMETHOD BeginDocument(PRUnichar*  aTitle, 
+                             PRUnichar*  aPrintToFileName,
+                             PRInt32     aStartPage, 
+                             PRInt32     aEndPage) { return NS_ERROR_NOT_IMPLEMENTED; }
+    NS_IMETHOD EndDocument() { return NS_ERROR_NOT_IMPLEMENTED; }
 #endif
 
     /**
@@ -82,6 +90,7 @@ public:
      */
     NS_IMETHOD ClosePrintManager();
 
+#ifndef MOZ_CAIRO_GFX
     NS_IMETHOD BeginDocument(PRUnichar*  aTitle, 
                              PRUnichar*  aPrintToFileName,
                              PRInt32     aStartPage, 
@@ -94,6 +103,7 @@ public:
     NS_IMETHOD BeginPage();
     
     NS_IMETHOD EndPage();
+#endif
 
     NS_IMETHOD GetPrinterResolution(double* aResolution);
     

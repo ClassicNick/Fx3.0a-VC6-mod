@@ -277,6 +277,14 @@ public:
   }
 
   /*
+   * Releasing a source image will prevent FixupTarget() from copying pixels
+   * outside of the filter sub-region to the target surface.
+   */
+  void ReleaseSource() {
+    mSourceData = nsnull;
+  }
+
+  /*
    * Returns total length of data buffer in bytes
    */
   PRUint32 GetDataLength() {
@@ -414,7 +422,13 @@ nsSVGFilterResource::FixupTarget()
   // left
   if (mRect.x > 0) {
     for (PRInt32 y = mRect.y; y < mRect.y + mRect.height; y++)
-      memcpy(mTargetData + y * mStride, mSourceData + y * mStride, 4 * mRect.x);
+      if (mSourceData) {
+        memcpy(mTargetData + y * mStride,
+               mSourceData + y * mStride,
+               4 * mRect.x);
+      } else {
+        memset(mTargetData + y * mStride, 0, 4 * mRect.x);
+      }
   }
 
   // right
@@ -1565,6 +1579,7 @@ nsSVGFEMergeElement::Filter(nsSVGFilterInstance *instance)
     cairo_set_source_surface(cr, sourceSurface, 0, 0);
     cairo_paint(cr);
   }
+  fr.ReleaseSource();
   cairo_destroy(cr);
   return NS_OK;
 }

@@ -56,6 +56,7 @@ class nsEventChainPostVisitor;
 #include "nsPIWindowRoot.h"
 #include "nsIFocusController.h"
 #include "nsIDOMEventTarget.h"
+#include "nsIFrame.h"
 
 class nsWindowRoot : public nsIDOMEventReceiver,
                      public nsIDOM3EventTarget,

@@ -64,6 +64,7 @@
 #include "nsRuleData.h"
 #include "nsILanguageAtomService.h"
 #include "nsIStyleRule.h"
+#include "nsIFrame.h"
 
 /*
  * For storage of an |nsRuleNode|'s children in a linked list.

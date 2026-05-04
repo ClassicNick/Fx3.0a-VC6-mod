@@ -31,13 +31,13 @@ sub lookup_name_by_id
   die "Invalid Build ID" 
       unless defined $build_id && length($build_id) > 0 && $build_id > 0;
       
-  Bugzilla->login;
+  $self->login;
   
   my $build = new Bugzilla::Testopia::Build($build_id);
 
   my $result = defined $build ? $build->name : '';
   
-  Bugzilla->logout;
+  $self->logout;
   
   # Result is build name string or empty string if failed
   return $result;
@@ -48,11 +48,11 @@ sub lookup_id_by_name
   my $self = shift;
   my ($name) = @_;
 
-  Bugzilla->login;
+  $self->login;
 
   my $result = Bugzilla::Testopia::Build->check_build_by_name($name);
   
-  Bugzilla->logout;
+  $self->logout;
 
   if (!defined $result)
   {

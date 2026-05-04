@@ -721,7 +721,12 @@ nsXMLHttpRequest::Abort()
 
   ChangeState(XML_HTTP_REQUEST_COMPLETED, PR_TRUE, PR_TRUE);
 
-  ChangeState(XML_HTTP_REQUEST_UNINITIALIZED, PR_FALSE);  // IE seems to do it
+  // The ChangeState call above calls onreadystatechange handlers which
+  // if they load a new url will cause nsXMLHttpRequest::OpenRequest to clear
+  // the abort state bit. If this occurs we're not uninitialized (bug 361773).
+  if (mState & XML_HTTP_REQUEST_ABORTED) {
+    ChangeState(XML_HTTP_REQUEST_UNINITIALIZED, PR_FALSE);  // IE seems to do it
+  }
 
   return NS_OK;
 }
@@ -1513,9 +1518,21 @@ nsXMLHttpRequest::Send(nsIVariant *aBody)
           nsCOMPtr<nsIDOMSerializer> serializer(do_CreateInstance(NS_XMLSERIALIZER_CONTRACTID, &rv));
           if (NS_FAILED(rv)) return rv;
 
-          rv = serializer->SerializeToString(doc, serial);
-          if (NS_FAILED(rv))
-            return rv;
+          // Serialize to a stream so that the encoding used will
+          // match the document's.
+          nsCOMPtr<nsIInputStream> input;
+          nsCOMPtr<nsIOutputStream> output;
+          rv = NS_NewPipe(getter_AddRefs(input), getter_AddRefs(output),
+                          0, PR_UINT32_MAX);
+          NS_ENSURE_SUCCESS(rv, rv);
+
+          // Empty string for encoding means to use document's current
+          // encoding.
+          rv = serializer->SerializeToStream(doc, output, EmptyCString());
+          NS_ENSURE_SUCCESS(rv, rv);
+
+          output->Close();
+          postDataStream = input;
         } else {
           // nsISupportsString?
           nsCOMPtr<nsISupportsString> wstr(do_QueryInterface(supports));

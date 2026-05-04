@@ -49,8 +49,14 @@ $cgi->send_cookie(-name => "TEST_LAST_ORDER",
                   -expires => "Fri, 01-Jan-2038 00:00:00 GMT");
 Bugzilla->login();
 
+# Determine the format in which the user would like to receive the output.
+# Uses the default format if the user did not specify an output format;
+# otherwise validates the user's choice against the list of available formats.
+my $format = $template->get_format("testopia/case/list", scalar $cgi->param('format'), scalar $cgi->param('ctype'));
+       
 my $action = $cgi->param('action') || '';
-my $serverpush = support_server_push($cgi);
+my $serverpush = ( support_server_push($cgi) ) && ( $format->{'extension'} eq "html" );
+
 if ($serverpush) {
     print $cgi->multipart_init;
     print $cgi->multipart_start;
@@ -58,9 +64,7 @@ if ($serverpush) {
     $template->process("list/server-push.html.tmpl", $vars)
       || ThrowTemplateError($template->error());
 }
-else {
-    print $cgi->header;
-}
+
 # prevent DOS attacks from multiple refreshes of large data
 $::SIG{TERM} = 'DEFAULT';
 $::SIG{PIPE} = 'DEFAULT';
@@ -75,8 +79,11 @@ if ($action eq 'Commit'){
     my $reg = qr/c_([\d]+)/;
     my $params = join(" ", $cgi->param());
     my @params = $cgi->param();
-    
-    ThrowUserError('testopia-none-selected', {'object' => 'case'}) unless $params =~ $reg;
+
+    unless ($params =~ $reg){
+        print $cgi->multipart_end if $serverpush;
+        ThrowUserError('testopia-none-selected', {'object' => 'case'});
+    }
 
     my $progress_interval = 250;
     my $i = 0;
@@ -86,7 +93,10 @@ if ($action eq 'Commit'){
         my $case = Bugzilla::Testopia::TestCase->new($1) if $p =~ $reg;
         next unless $case;
         
-        ThrowUserError("testopia-read-only", {'object' => 'case', 'id' => $case->id}) unless $case->canedit;
+        unless ($case->canedit){
+            print $cgi->multipart_end if $serverpush;
+            ThrowUserError("testopia-read-only", {'object' => 'case', 'id' => $case->id});
+        }
         
         $i++;
         if ($i % $progress_interval == 0 && $serverpush){
@@ -105,6 +115,7 @@ if ($action eq 'Commit'){
         my $priority = $cgi->param('priority') == -1 ? $case->{'priority_id'} : $cgi->param('priority');
         my $category = $cgi->param('category') == -1 ? $case->{'category_id'} : $cgi->param('category');
         my $isautomated = $cgi->param('isautomated') == -1 ? $case->isautomated : $cgi->param('isautomated');
+        my @comps       = $cgi->param("components");
         my $tester = $cgi->param('tester') || ''; 
         if ($tester && $tester ne '--Do Not Change--'){
             $tester = DBNameToIdAndCheck(trim($cgi->param('tester')));
@@ -122,7 +133,14 @@ if ($action eq 'Commit'){
         detaint_natural($priority);
         detaint_natural($category);
         detaint_natural($isautomated);
-        
+
+        my @components;
+        foreach my $id (@comps){
+            detaint_natural($id);
+            validate_selection($id, 'id', 'components');
+            push @components, $id;
+        }
+
         my %newvalues = ( 
             'case_status_id' => $status,
             'category_id'    => $category,
@@ -135,6 +153,7 @@ if ($action eq 'Commit'){
         );
       
         $case->update(\%newvalues);
+        $case->add_component($_) foreach (@components);
         if ($cgi->param('addtags')){
             foreach my $name (split(/[,]+/, $cgi->param('addtags'))){
                 trick_taint($name);
@@ -199,8 +218,10 @@ if ($action eq 'Commit'){
 $cgi->param('current_tab', 'case');
 my $search = Bugzilla::Testopia::Search->new($cgi);
 my $table = Bugzilla::Testopia::Table->new('case', 'tr_list_cases.cgi', $cgi, undef, $search->query);
-ThrowUserError('testopia-query-too-large', {'limit' => $query_limit}) if $table->view_count > $query_limit;
-
+if ($table->view_count > $query_limit){
+    print $cgi->multipart_end if $serverpush;
+    ThrowUserError('testopia-query-too-large', {'limit' => $query_limit});
+}
 # Check that all of the test cases returned only belong to one product.
 if ($table->list_count > 0){
     my %case_prods;
@@ -253,11 +274,41 @@ $vars->{'status_list'} = $status_list;
 $vars->{'priority_list'} = $priority_list;
 $vars->{'dotweak'} = UserInGroup('edittestcases');
 $vars->{'table'} = $table;
+$vars->{'urlquerypart'} = $cgi->canonicalise_query('cmdtype');
+
+my $contenttype;
+
+if ($format->{'extension'} eq "html") {
+    $contenttype = "text/html";
+}
+else {
+    $contenttype = $format->{'ctype'};
+}
+
 if ($serverpush && !$cgi->param('debug')) {
     print $cgi->multipart_end;
     print $cgi->multipart_start;
-}
-$template->process("testopia/case/list.html.tmpl", $vars)
-    || ThrowTemplateError($template->error());
+}                              
+else {
+	my @time = localtime(time());
+	my $date = sprintf "%04d-%02d-%02d", 1900+$time[5],$time[4]+1,$time[3];
+	my $filename = "testcases-$date.$format->{extension}";
+	
+	my $disp = "inline";
+	# We set CSV files to be downloaded, as they are designed for importing
+    # into other programs.
+    if ($format->{'extension'} eq "csv")
+    {
+		$disp = "attachment";
+		$vars->{'displaycolumns'} = \@Bugzilla::Testopia::Constants::TESTCASE_EXPORT;
+    }
 
+    # Suggest a name for the bug list if the user wants to save it as a file.
+    print $cgi->header(-type => $contenttype,
+					   -content_disposition => "$disp; filename=$filename");
+} 
+                                       
+$template->process($format->{'template'}, $vars)
+    || ThrowTemplateError($template->error());
+    
 print $cgi->multipart_final if $serverpush;

@@ -55,6 +55,7 @@
 #include "nsUnitConversion.h"
 #include "nsStyleContext.h"
 #include "imgIRequest.h"
+#include "nsIFrame.h"
 
 #include "nsPrintfCString.h"
 

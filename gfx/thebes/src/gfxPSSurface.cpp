@@ -39,11 +39,29 @@
 
 #include <cairo-ps.h>
 
+#ifdef UNTESTED_CODE
+static cairo_status_t
+write_func(void *closure,
+           const unsigned char *data,
+           unsigned int length)
+{
+    fwrite(data, 1, length, (FILE*)closure);
+}
+#endif
+
 gfxPSSurface::gfxPSSurface(const char *filename, gfxSize aSizeInPoints)
     : mXDPI(-1), mYDPI(-1), mSize(aSizeInPoints)
 {
     Init(cairo_ps_surface_create(filename, mSize.width, mSize.height));
 }
+
+#ifdef UNTESTED_CODE
+gfxPSSurface::gfxPSSurface(FILE *file, gfxSize aSizeInPoints)
+    : mXDPI(-1), mYDPI(-1), mSize(aSizeInPoints)
+{
+    Init(cairo_ps_surface_create_for_stream(write_func, file, mSize.width, mSize.height));
+}
+#endif
 
 gfxPSSurface::~gfxPSSurface()
 {

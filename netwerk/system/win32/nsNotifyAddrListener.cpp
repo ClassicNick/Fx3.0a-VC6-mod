@@ -53,6 +53,7 @@
 
 // Unfortunately, this header file is not available in older SDKs.
 // #include <IPTypes.h>
+// #include <iphlpapi.h>
 // #include <iprtrmib.h>
 
 #ifndef ULONGLONG

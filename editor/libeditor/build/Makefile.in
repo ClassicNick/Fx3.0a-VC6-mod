@@ -76,6 +76,7 @@ REQUIRES	= xpcom \
 		  gfx \
 		  widget \
 		  txtsvc \
+		  locale \
 		  $(NULL)
 
 CPPSRCS = nsEditorRegistration.cpp

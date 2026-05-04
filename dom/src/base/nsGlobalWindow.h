@@ -95,6 +95,7 @@
 #include "nsIDOMStorage.h"
 #include "nsIDOMStorageList.h"
 #include "nsIDOMStorageWindow.h"
+#include "nsIFrame.h"
 
 #define DEFAULT_HOME_PAGE "www.mozilla.org"
 #define PREF_BROWSER_STARTUP_HOMEPAGE "browser.startup.homepage"

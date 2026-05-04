@@ -1974,6 +1974,7 @@ nsChildView::GetChildViewQuickDrawPort()
 {
   if ([mView isKindOfClass:[ChildView class]])
     return (GrafPtr)[(ChildView*)mView qdPort];
+  return NULL;
 }
 
 #pragma mark -
@@ -2515,33 +2516,43 @@ NSEvent* globalDragEvent = nil;
 
   nsRefPtr<gfxContext> targetContext = new gfxContext(targetSurface);
 
+  nsCOMPtr<nsIRenderingContext> rc;
+  mGeckoChild->GetDeviceContext()->CreateRenderingContextInstance(*getter_AddRefs(rc));
+  rc->Init(mGeckoChild->GetDeviceContext(), targetContext);
+
+  /* clip and build a region */
+  nsCOMPtr<nsIRegion> rgn(do_CreateInstance(kRegionCID));
+  if (rgn)
+    rgn->Init();
+
   const NSRect *rects;
   int count, i;
   [self getRectsBeingDrawn:&rects count:&count];
   for (i = 0; i < count; ++i) {
-    targetContext->Rectangle(gfxRect(rects[i].origin.x, rects[i].origin.y,
-                                     rects[i].size.width, rects[i].size.height));
+    const NSRect& r = rects[i];
+
+    /* add to the region */
+    if (rgn)
+      rgn->Union(r.origin.x, r.origin.y, r.size.width, r.size.height);
+
+    /* to the context for clipping */
+    targetContext->Rectangle(gfxRect(r.origin.x, r.origin.y, r.size.width, r.size.height));
   }
   targetContext->Clip();
-
-  nsCOMPtr<nsIRenderingContext> rc;
-  mGeckoChild->GetDeviceContext()->CreateRenderingContextInstance(*getter_AddRefs(rc));
-  rc->Init (mGeckoChild->GetDeviceContext(), targetContext);
   
-  nsRect r, tr;
-  NSRectToGeckoRect(aRect, r);
-  tr = r;
-
-  mGeckoChild->LocalToWindowCoordinate(tr);
-  //targetContext->Translate(gfxPoint(tr.x, tr.y));
+  /* bounding box of the dirty area */
+  nsRect fullRect;
+  NSRectToGeckoRect(aRect, fullRect);
 
   nsPaintEvent paintEvent(PR_TRUE, NS_PAINT, mGeckoChild);
   paintEvent.renderingContext = rc;
-  paintEvent.rect = &r;
+  paintEvent.rect = &fullRect;
+  paintEvent.region = rgn;
 
   mGeckoChild->DispatchWindowEvent(paintEvent);
 
   paintEvent.renderingContext = nsnull;
+  paintEvent.region = nsnull;
 
   targetContext = nsnull;
   targetSurface = nsnull;
@@ -2564,8 +2575,8 @@ NSEvent* globalDragEvent = nil;
                        CGRectMake(aRect.origin.x, aRect.origin.y, aRect.size.width, aRect.size.height));
 #endif
 
-#else
-
+#else 
+  /* non-MOZ_CAIRO_GFX */
   nsCOMPtr<nsIRegion> rgn(do_CreateInstance(kRegionCID));
   if (rgn) {
     rgn->Init();
@@ -2723,7 +2734,43 @@ NSEvent* globalDragEvent = nil;
 
 - (void)mouseMoved:(NSEvent*)theEvent
 {
-  NSView* view = [[[self window] contentView] hitTest:[theEvent locationInWindow]];
+  // Most of the time we don't want mouse moved events to go to any window
+  // but the active one. That isn't the case for popup windows though!
+  if ([mWindow level] == NSPopUpMenuWindowLevel) {
+    NSPoint screenLocation = [mWindow convertBaseToScreen:[theEvent locationInWindow]];
+    NSRect windowFrame = [mWindow frame];
+    // just take the event if it is over our own window
+    if (!NSPointInRect(screenLocation, windowFrame)) {
+      // it isn't over our own window, look for another popup window that is under the mouse
+      NSArray* appWindows = [NSApp windows];
+      unsigned int appWindowsCount = [appWindows count];
+      for (unsigned int i = 0; i < appWindowsCount; i++) {
+        NSWindow* currentWindow = [appWindows objectAtIndex:i];
+        // make sure this window is not our own window, is a popup window, is visible, and is
+        // underneath the event
+        if (!(currentWindow != mWindow &&
+             [currentWindow level] == NSPopUpMenuWindowLevel &&
+             [currentWindow isVisible] &&
+             NSPointInRect(screenLocation, [currentWindow frame])))
+          continue;
+        // found another popup window to send the event to, do it
+        NSPoint newLocationInWindow = [currentWindow convertScreenToBase:screenLocation];
+        NSEvent* newEvent = [NSEvent mouseEventWithType:NSMouseMoved
+                                               location:newLocationInWindow
+                                          modifierFlags:[theEvent modifierFlags]
+                                              timestamp:[theEvent timestamp]
+                                           windowNumber:[currentWindow windowNumber]
+                                                context:nil
+                                            eventNumber:[theEvent eventNumber]
+                                             clickCount:0
+                                               pressure:0.0];
+        [[currentWindow contentView] mouseMoved:newEvent];
+        return;
+      }
+    }
+  }
+
+  NSView* view = [[mWindow contentView] hitTest:[theEvent locationInWindow]];
   if (view != (NSView*)self) {
     // We shouldn't handle this.  Send it to the right view.
     [view mouseMoved: theEvent];

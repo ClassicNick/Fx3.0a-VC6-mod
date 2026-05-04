@@ -121,6 +121,8 @@
 #include "nsIPrefBranch.h"
 #include "nsIPrefService.h"
 #include "nsITimer.h"
+#include "nsIScriptSecurityManager.h"
+#include "nsContentPolicyUtils.h"
 
 #ifdef NS_DEBUG
 /**
@@ -191,6 +193,48 @@ PingsEnabled(PRInt32 *maxPerLink, PRBool *requireSameHost)
   return allow;
 }
 
+static PRBool
+CheckPingURI(nsIURI* uri, nsIContent* content)
+{
+  if (!uri)
+    return PR_FALSE;
+
+  // Check with nsIScriptSecurityManager
+  nsCOMPtr<nsIScriptSecurityManager> ssmgr =
+    do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID);
+  NS_ENSURE_TRUE(ssmgr, PR_FALSE);
+
+  nsresult rv =
+    ssmgr->CheckLoadURIWithPrincipal(content->NodePrincipal(), uri,
+                                     nsIScriptSecurityManager::STANDARD);
+  if (NS_FAILED(rv)) {
+    return PR_FALSE;
+  }
+
+  // Ignore non-HTTP(S)
+  PRBool match;
+  if ((NS_FAILED(uri->SchemeIs("http", &match)) || !match) &&
+      (NS_FAILED(uri->SchemeIs("https", &match)) || !match)) {
+    return PR_FALSE;
+  }
+
+  // Check with contentpolicy
+  PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
+  nsIURI* docURI = nsnull;
+  nsIDocument* doc = content->GetOwnerDoc();
+  if (doc) {
+    docURI = doc->GetDocumentURI();
+  }
+  rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_OTHER,
+                                 uri,
+                                 docURI,
+                                 content,
+                                 EmptyCString(), // mime hint
+                                 nsnull, //extra
+                                 &shouldLoad);
+  return NS_SUCCEEDED(rv) && NS_CP_ACCEPTED(shouldLoad);
+}
+
 typedef void (* ForEachPingCallback)(void *closure, nsIContent *content,
                                      nsIURI *uri, nsIIOService *ios);
 
@@ -243,13 +287,8 @@ ForEachPing(nsIContent *content, ForEachPingCallback callback, void *closure)
         ios->NewURI(NS_ConvertUTF16toUTF8(Substring(start, iter)),
                     doc->GetDocumentCharacterSet().get(),
                     baseURI, getter_AddRefs(uri));
-        if (uri) {
-          // Ignore non-HTTP(S) pings:
-          PRBool match;
-          if ((NS_SUCCEEDED(uri->SchemeIs("http", &match)) && match) ||
-              (NS_SUCCEEDED(uri->SchemeIs("https", &match)) && match)) {
-            callback(closure, content, uri, ios);
-          }
+        if (CheckPingURI(uri, content)) {
+          callback(closure, content, uri, ios);
         }
       }
       start = iter = iter + 1;
@@ -293,12 +332,14 @@ public:
   NS_DECL_NSIINTERFACEREQUESTOR
   NS_DECL_NSICHANNELEVENTSINK
 
-  nsPingListener(PRBool requireSameHost)
-    : mRequireSameHost(requireSameHost)
+  nsPingListener(PRBool requireSameHost, nsIContent* content)
+    : mRequireSameHost(requireSameHost),
+      mContent(content)
   {}
 
 private:
   PRBool mRequireSameHost;
+  nsCOMPtr<nsIContent> mContent;
 };
 
 NS_IMPL_ISUPPORTS4(nsPingListener, nsIStreamListener, nsIRequestObserver,
@@ -342,12 +383,17 @@ NS_IMETHODIMP
 nsPingListener::OnChannelRedirect(nsIChannel *oldChan, nsIChannel *newChan,
                                   PRUint32 flags)
 {
+  nsCOMPtr<nsIURI> newURI;
+  newChan->GetURI(getter_AddRefs(newURI));
+
+  if (!CheckPingURI(newURI, mContent))
+    return NS_ERROR_ABORT;
+
   if (!mRequireSameHost)
     return NS_OK;
 
-  nsCOMPtr<nsIURI> oldURI, newURI;
+  nsCOMPtr<nsIURI> oldURI;
   oldChan->GetURI(getter_AddRefs(oldURI));
-  newChan->GetURI(getter_AddRefs(newURI));
   NS_ENSURE_STATE(oldURI && newURI);
 
   if (!IsSameHost(oldURI, newURI))
@@ -441,7 +487,7 @@ SendPing(void *closure, nsIContent *content, nsIURI *uri, nsIIOService *ios)
   // opening the channel, then it is not necessary to hold a reference to the
   // channel.  The networking subsystem will take care of that for us.
   nsCOMPtr<nsIStreamListener> listener =
-      new nsPingListener(info->requireSameHost);
+      new nsPingListener(info->requireSameHost, content);
   if (!listener)
     return;
 

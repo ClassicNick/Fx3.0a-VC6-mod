@@ -42,6 +42,8 @@
 #ifndef __NS_SVGCAIRO_CANVAS_H__
 #define __NS_SVGCAIRO_CANVAS_H__
 
+#include "nsIFrame.h"
+
 class nsIRenderingContext;
 class nsISVGRendererCanvas;
 class nsPresContext;

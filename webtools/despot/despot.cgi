@@ -21,6 +21,7 @@
 # Contributor(s): Terry Weissman <terry@mozilla.org>
 #                 Dan Mosedale <dmose@mozilla.org>
 #                 Zach Lipton <zach@zachlipton.org>
+#                 Reed Loden <reed@reedloden.com>
 
 use strict;
 use diagnostics;
@@ -120,7 +121,7 @@ sub Authenticate {
     my $query = $::db->prepare("SELECT passwd, despot, neednewpassword, id, disabled FROM users WHERE email = ?");
     $query->execute($F::loginname);
     my @row = $query->fetchrow_array();
-    if (!@row || !checkpassword($F::loginpassword, $row[0])) {
+    if (!@row || ($F::loginpassword && !checkpassword($F::loginpassword, $row[0]))) {
         PrintHeader();
         print h1("Authentication Failed");
         print p("I can't figure out who you are.  Either your email address/password " . 
@@ -252,8 +253,8 @@ sub MainMenu {
                            -default=>$vals[0],
                            -labels=>\%labels);
     push(@list, li(MyForm("FindPartition") .
-                   submit("Find partition containing file") .
-                   "named<nobr> " .
+                   submit("Find partition containing file with path") .
+                   "<nobr> " .
                    textfield(-name=>"file", -size=>60) .
                    "</nobr> in <nobr>repository " . $radio .
                    end_form()));
@@ -324,16 +325,17 @@ sub AddUser() {
     if ($row[0] < 1) {
         my $p = "";
         my $realname = "";
+        my $pserverhosts = "";
         my $plain = pickrandompassword();
         $p = cryptit($plain);
         my $feedback = "'" . tt($plain) . "'";
         my $mailwords = "of '$plain'";
-        my $sth = $::db->do("INSERT INTO users (email, passwd, neednewpassword, realname) VALUES (?,?,?,?)",
-            undef, $email, $p, 'Yes', $realname);
+        my $sth = $::db->do("INSERT INTO users (email, passwd, neednewpassword, realname, pserverhosts) VALUES (?,?,?,?,?)",
+            undef, $email, $p, 'Yes', $realname, $pserverhosts);
         PrintHeader();
         print p("New account created.  Password initialized to $feedback; " .
                 "please " .
-                a({href=>"mailto:$email?subject=Change your mozilla.org password&body=Your new mozilla.org account has been created.  It initially has a%0apassword $mailwords.  Please go to http://despot.mozilla.org/despot.cgi%0aand change your password as soon as possible.  You won't actually be%0aable to use it for anything until you do."},
+                a({href=>"mailto:$email?subject=Change your mozilla.org password&body=Your new mozilla.org account has been created.  It initially has a%0apassword $mailwords.  Please go to https://despot.mozilla.org/despot.cgi%0aand change your password as soon as possible.  You won't actually be%0aable to use it for anything until you do."},
                   "send mail") .
                 " and have the user change the password!");
         print hr();
@@ -394,25 +396,23 @@ sub EditUser() {
     print MyForm("GeneratePassword") . hidden(-name=>"email");
     print submit("Generate a new random password for this user");
     print end_form();
-# DeleteUser is currently a bad idea, as it leaves dangling pointers.  
-# See bugzilla.mozilla.org bug 17589
-#
-#    print MyForm("DeleteUser") . hidden(-name=>"email");
-#    print submit("Delete user");
-#    print end_form();
+    print MyForm("DeleteUser") . hidden(-name=>"email");
+    print submit("Delete user");
+    print end_form();
 }
 
-# DeleteUser is currently a bad idea, as it leaves dangling pointers.  
-# See bugzilla.mozilla.org bug 17589
-# 
-#sub DeleteUser() {
-#    $::db->do("DELETE FROM users WHERE email = ?", undef, $F::email);
-#    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
-#    PrintHeader();
-#    print h1("OK, $F::email is gone.");
-#    print hr();
-#    MainMenu();
-#}
+sub DeleteUser() {
+    my $id = EmailToId($F::email, 1);
+    $::db->do("DELETE FROM members WHERE userid = ?", undef, $id);
+    $::db->do("DELETE FROM users WHERE id = ?", undef, $id);
+    $::db->do("INSERT INTO changes (email, field, oldvalue, newvalue, who) VALUES (?,?,?,?,?)",
+              undef, $F::email, 'deleted', 'No', 'Yes', $F::loginname);
+    $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
+    PrintHeader();
+    print h1("OK, $F::email is gone.");
+    print hr();
+    MainMenu();
+}
 
 sub ChangeUser() {
     foreach my $field ("email") {
@@ -445,12 +445,14 @@ sub ChangeUser() {
             }
             $::db->do("INSERT INTO changes (email, field, oldvalue, newvalue, who) VALUES (?,?,?,?,?)",
                 undef, $F::orig_email, $row[0], $old, $new, $F::loginname);
+            push(@list, "$row[0] = ?");
+            push(@values, $new);
         }
-        push(@list, "$row[0] = ?");
-        push(@values, $new);
     }
-    my $qstr = "UPDATE users SET " . join(",", @list) . " WHERE email = ?";
-    $::db->do($qstr, undef, @values, $F::orig_email);
+    if (@list) {
+        my $qstr = "UPDATE users SET " . join(",", @list) . " WHERE email = ?";
+        $::db->do($qstr, undef, @values, $F::orig_email);
+    }
     PrintHeader();
     print h1("OK, record for $F::email has been updated.");
     print hr();
@@ -466,13 +468,18 @@ sub GeneratePassword {
     Punt("$email is not an email address in the database.") unless ($query->fetchrow_array());
     my $plain = pickrandompassword();
     my $p = cryptit($plain);
+    my $query2 = $::db->prepare("SELECT neednewpassword FROM users WHERE email = ?");
+    $query2->execute($email);
+    my $old_neednewpassword = $query2->fetchrow_array();
+    $::db->do("INSERT INTO changes (email, field, oldvalue, newvalue, who) VALUES (?,?,?,?,?)",
+        undef, $email, 'neednewpassword', $old_neednewpassword, 'Yes', $F::loginname);
     $::db->do("UPDATE users SET passwd = ?, neednewpassword='Yes' WHERE email = ?",
         undef, $p, $email);
     PrintHeader();
     print h1("OK, new password generated.");
     print "$email now has a new password of '" . tt($plain) . "'.  ";
     print "Please " .
-        a({href=>"mailto:$email?subject=Change your mozilla.org password&body=Your mozilla.org account now has a password of '$plain'.  Please go to%0ahttp://despot.mozilla.org/despot.cgi and change your password as soon as%0apossible.  You won't actually be able to use your mozilla.org account%0afor anything until you do."},
+        a({href=>"mailto:$email?subject=Change your mozilla.org password&body=Your mozilla.org account now has a password of '$plain'.  Please go to%0ahttps://despot.mozilla.org/despot.cgi and change your password as soon as%0apossible.  You won't actually be able to use your mozilla.org account%0afor anything until you do."},
           "send mail") .
               " to have the user change the password!";
     $::db->do("INSERT INTO syncneeded (needed) VALUES (1)");
@@ -1241,13 +1248,13 @@ sub EmailToId {
         return $row[0];
     }
     if ($forcevalid || $email ne "") {
-        Punt("$email is not a registered email address.");
+        Punt("$email is not an email address in the database.");
     }
     return 0;
 }
 
 {
-    my $EnableDeleteUser = 0;
+    my $EnableDeleteUser = 1;
     for ( defined $F::command ? $F::command : 'MainMenu')
     {
         /^FindPartition$/ || do { Authenticate(); };

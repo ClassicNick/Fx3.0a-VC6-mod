@@ -39,6 +39,7 @@
 #ifndef TRANSFRMX_TXMOZILLAXSLTPROCESSOR_H
 #define TRANSFRMX_TXMOZILLAXSLTPROCESSOR_H
 
+#include "nsCOMPtr.h"
 #include "nsAutoPtr.h"
 #include "nsIMutationObserver.h"
 #include "nsIDocumentTransformer.h"

@@ -24,7 +24,7 @@ $chrome_dir = "$profile_dir/chrome";
 
 $pref_content = <<PREFEND;
 user_pref("browser.dom.window.dump.enabled", true);
-user_pref("capability.principal.codebase.p1.granted", "UniversalXPConnect");
+user_pref("capability.principal.codebase.p1.granted", "UniversalXPConnect UniversalBrowserRead UniversalBrowserWrite UniversalPreferencesRead UniversalPreferencesWrite UniversalFileRead");
 user_pref("capability.principal.codebase.p1.id", "http://localhost:8888");
 user_pref("capability.principal.codebase.p1.subjectName", "");
 user_pref("dom.disable_open_during_load", false);
@@ -50,6 +50,7 @@ CHROMEEND
 # set env vars so Firefox doesn't quit weirdly and break the script
 $ENV{'MOZ_NO_REMOTE'} = '1';
 $ENV{'NO_EM_RESTART'} = '1';
+$ENV{'XPCOM_DEBUG_BREAK'} = 'stack';
 
 # mark the start
 $start = localtime;

@@ -134,6 +134,7 @@ function initCommands()
          ["load",              cmdLoad,                            CMD_CONSOLE],
          ["log",               cmdLog,                             CMD_CONSOLE],
          ["map",               cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
+         ["match-users",       cmdMatchUsers,      CMD_NEED_CHAN | CMD_CONSOLE],
          ["me",                cmdMe,                              CMD_CONSOLE],
          ["motd",              cmdSimpleCommand,    CMD_NEED_SRV | CMD_CONSOLE],
          ["mode",              cmdMode,             CMD_NEED_SRV | CMD_CONSOLE],
@@ -211,8 +212,8 @@ function initCommands()
          ["part",             "leave",                             CMD_CONSOLE],
          ["raw",              "quote",                             CMD_CONSOLE],
          // Shortcuts to useful URLs:
-         ["faq",              "goto-url http://chatzilla.hacksrus.com/faq/", 0],
-         ["homepage",         "goto-url http://chatzilla.hacksrus.com/",     0],
+         ["faq",              "goto-url faq",                                0],
+         ["homepage",         "goto-url homepage",                           0],
          // Used to display a nickname in the menu only.
          ["label-user",       "echo",                                        0],
          // These are all the font family/size menu commands...
@@ -1867,6 +1868,29 @@ function cmdAttach(e)
     gotoIRCURL(e.ircUrl);
 }
 
+function cmdMatchUsers(e)
+{
+    var matches = e.channel.findUsers(e.mask);
+    var uc = matches.unchecked;
+    var msgNotChecked = "";
+
+    // Get a pretty list of nicknames:
+    var nicknames = [];
+    for (var i = 0; i < matches.users.length; i++)
+        nicknames.push(matches.users[i].unicodeName);
+
+    var nicknameStr = arraySpeak(nicknames);
+
+    // Were we unable to check one or more of the users?
+    if (uc != 0)
+        msgNotChecked = getMsg(MSG_MATCH_UNCHECKED, uc);
+
+    if (matches.users.length == 0)
+        display(getMsg(MSG_NO_MATCHING_NICKS, msgNotChecked));
+    else 
+        display(getMsg(MSG_MATCHING_NICKS, [nicknameStr, msgNotChecked]));
+}
+
 function cmdMe(e)
 {
     if (!("act" in e.sourceObject))
@@ -2167,7 +2191,6 @@ function cmdFocusInput(e)
 
 function cmdGotoURL(e)
 {
-    const IO_SVC = "@mozilla.org/network/io-service;1";
     const EXT_PROTO_SVC = "@mozilla.org/uriloader/external-protocol-service;1";
 
     if (e.url.search(/^ircs?:/i) == 0)
@@ -2184,13 +2207,28 @@ function cmdGotoURL(e)
         return;
     }
 
+    try
+    {
+        var uri = client.iosvc.newURI(e.url, "UTF-8", null);
+    }
+    catch (ex)
+    {
+        var localeURLKey = "msg.localeurl." + e.url;
+        if (localeURLKey != getMsg(localeURLKey))
+            dispatch(e.command.name + " " + getMsg(localeURLKey));
+        else
+            display(getMsg(MSG_ERR_INVALID_URL, e.url), MT_ERROR);
+
+        dispatch("focus-input");
+        return;
+    }
+
     if ((e.command.name == "goto-url-external") || (client.host == "XULrunner"))
     {
-        const ioSvc = getService(IO_SVC, "nsIIOService");
         const extProtoSvc = getService(EXT_PROTO_SVC,
                                        "nsIExternalProtocolService");
-        var uri = ioSvc.newURI(e.url, "UTF-8", null);
         extProtoSvc.loadUrl(uri);
+        dispatch("focus-input");
         return;
     }
 

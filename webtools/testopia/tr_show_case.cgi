@@ -43,19 +43,28 @@ my $query_limit = 15000;
 require "globals.pl";
 
 Bugzilla->login();
-print Bugzilla->cgi->header();
-   
+
 my $dbh = Bugzilla->dbh;
 my $cgi = Bugzilla->cgi;
 
 my $case_id = trim(Bugzilla->cgi->param('case_id')) || '';
 
 unless ($case_id){
-  $template->process("testopia/case/choose.html.tmpl", $vars) 
-      || ThrowTemplateError($template->error());
+	print $cgi->header();
+	$template->process("testopia/case/choose.html.tmpl", $vars) 
+		|| ThrowTemplateError($template->error());
   exit;
 }
 validate_test_id($case_id, 'case');
+
+my $format = $template->get_format("testopia/case/show", scalar $cgi->param('format'), scalar $cgi->param('ctype'));
+unless ( $format->{'extension'} eq "html" ){
+	export($case_id);
+	exit;
+}
+
+print $cgi->header();
+
 $vars->{'action'} = "Commit";
 $vars->{'form_action'} = "tr_show_case.cgi";
 
@@ -340,6 +349,11 @@ sub do_update{
         ValidateBugID($bug);
         push @buglist, $bug;
     }
+    my @runs;
+    foreach my $runid (split(/[\s,]+/, $cgi->param('addruns'))){
+        validate_test_id($runid, 'run');
+        push @runs, Bugzilla::Testopia::TestRun->new($runid);
+    }
     
     ThrowUserError('testiopia-alias-exists', 
         {'alias' => $alias}) if $case->check_alias($alias);
@@ -376,6 +390,10 @@ sub do_update{
     foreach my $bug (@buglist){
         $case->attach_bug($bug);
     }
+    # Add to runs
+    foreach my $run (@runs){
+        $run->add_case_run($case->id);
+    }
     $cgi->delete_all;
     $cgi->param('case_id', $case->id);
 }
@@ -394,4 +412,40 @@ sub display {
     $vars->{'user'} = Bugzilla->user;
     $template->process("testopia/case/show.html.tmpl", $vars) ||
         ThrowTemplateError($template->error());
+}
+
+sub export {
+	my ($case_id) = @_;
+	my $case = Bugzilla::Testopia::TestCase->new($case_id);
+    unless ($case->canview){
+        print $cgi->header;
+        ThrowUserError("testopia-permission-denied", {'object' => 'case'});
+    } 
+    $cgi->param('case_id', $case->id);
+    $cgi->param('isactive', 1);
+    $cgi->param('current_tab', 'case_run');
+	my $search = Bugzilla::Testopia::Search->new($cgi);
+	my $table = Bugzilla::Testopia::Table->new('case_run', 'tr_show_case.cgi', $cgi, undef, $search->query);
+	$vars->{'case'} = $case;
+	$vars->{'table'} = $table;
+	$vars->{'user'} = Bugzilla->user;
+	
+	my $disp = "inline";
+	# We set CSV files to be downloaded, as they are designed for importing
+    # into other programs.
+    if ($format->{'extension'} eq "csv")
+    {
+		$disp = "attachment";
+		$vars->{'displaycolumns'} = \@Bugzilla::Testopia::Constants::TESTCASE_EXPORT;
+    }
+	
+	# Suggest a name for the bug list if the user wants to save it as a file.
+    my @time = localtime(time());
+    my $date = sprintf "%04d-%02d-%02d", 1900+$time[5],$time[4]+1,$time[3];
+	my $filename = "testcase-$case_id-$date.$format->{extension}";
+    print $cgi->header(-type => $format->{'ctype'},
+					   -content_disposition => "$disp; filename=$filename");
+					   
+	$template->process($format->{'template'}, $vars) ||
+		ThrowTemplateError($template->error());
 }

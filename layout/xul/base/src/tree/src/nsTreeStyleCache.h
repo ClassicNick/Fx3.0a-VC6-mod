@@ -44,6 +44,7 @@
 #include "nsIAtom.h"
 #include "nsICSSPseudoComparator.h"
 #include "nsStyleContext.h"
+#include "nsIFrame.h"
 
 class nsDFAState : public nsHashKey
 {

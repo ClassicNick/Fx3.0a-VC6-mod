@@ -56,7 +56,7 @@ else
 EXTRA_PP_COMPONENTS = nsSearchServiceObsolete.js
 endif
 
-ifdef MOZ_BRANDING_DIRECTORY
+ifneq (,$(BUILD_OFFICIAL)$(MOZILLA_OFFICIAL))
 DEFINES += -DOFFICIAL_BUILD=1
 endif
 

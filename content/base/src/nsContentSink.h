@@ -55,6 +55,7 @@
 #include "nsHTMLAtoms.h"
 #include "nsTHashtable.h"
 #include "nsHashKeys.h"
+#include "nsIFrame.h"
 
 class nsIDocument;
 class nsIURI;

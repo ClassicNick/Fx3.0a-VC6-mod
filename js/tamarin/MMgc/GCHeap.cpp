@@ -55,10 +55,10 @@ namespace MMgc
 	// happening too frequently
 	const bool decommitStress = false;
 
-	void GCHeap::Init(GCMallocFuncPtr m, GCFreeFuncPtr f)
+	void GCHeap::Init(GCMallocFuncPtr m, GCFreeFuncPtr f, int initialSize)
 	{
 		GCAssert(instance == NULL);
-		instance = new GCHeap(m,f);
+		instance = new GCHeap(m,f, initialSize);
 	}
 
 	void GCHeap::Destroy()
@@ -68,12 +68,15 @@ namespace MMgc
 		instance = NULL;
 	}
 
-	const int GCHeap::kInitialHeapSize = 128;
-
-	GCHeap::GCHeap(GCMallocFuncPtr m, GCFreeFuncPtr f)
+	GCHeap::GCHeap(GCMallocFuncPtr m, GCFreeFuncPtr f, int initialSize)
 		: heapVerbose(false),
 		  kNativePageSize(0)
 	{
+#ifdef _DEBUG
+		// dump memory profile after sweeps
+		enableMemoryProfiling = false;
+#endif
+
 #if defined(_MAC) || defined(MMGC_ARM)
 		m_malloc = m ? m : malloc;
 		m_free = f ? f : free;		
@@ -120,7 +123,7 @@ namespace MMgc
 #endif
 
 		// Create the initial heap
-		ExpandHeap(kInitialHeapSize);
+		ExpandHeap(initialSize);
 
 		decommitTicks = 0;
 		decommitThresholdTicks = kDecommitThresholdMillis * GC::GetPerformanceFrequency() / 1000;
@@ -136,7 +139,7 @@ namespace MMgc
 				HeapBlock *block = &blocks[i];
 				if(block->baseAddr)
 				{
-					int megamapIndex = ((int)(uintptr)block->baseAddr) >> 12;
+					uint32 megamapIndex = ((uint32)(uintptr)block->baseAddr) >> 12;
 					GCAssert(m_megamap[megamapIndex] == 0);
 				}
 				if(block->inUse() && block->baseAddr)
@@ -182,7 +185,7 @@ namespace MMgc
 			// Check for debug builds only:
 			// Use the megamap to double-check that we haven't handed
 			// any of these pages out already.
-			int megamapIndex = ((int)(uintptr)block->baseAddr)>>12;
+			uint32 megamapIndex = ((uint32)(uintptr)block->baseAddr)>>12;
 			for (int i=0; i<size; i++) {
 				GCAssert(m_megamap[megamapIndex] == 0);
 				
@@ -225,7 +228,7 @@ namespace MMgc
 			// For debug builds only:
 			// Check the megamap to ensure that all the pages
 			// being freed are in fact allocated.
-			int megamapIndex = ((int)(uintptr)block->baseAddr) >> 12;
+			uint32 megamapIndex = ((uint32)(uintptr)block->baseAddr) >> 12;
 			for (int i=0; i<block->size; i++) {
 				if(m_megamap[megamapIndex] != 1) {
 					GCAssertMsg(false, "Megamap is screwed up, are you freeing freed memory?");
@@ -725,7 +728,7 @@ namespace MMgc
 
 	void GCHeap::AddToFreeList(HeapBlock *block)
 	{
-		GCAssert(m_megamap[((int)(uintptr)block->baseAddr)>>12] == 0);
+		GCAssert(m_megamap[((uint32)(uintptr)block->baseAddr)>>12] == 0);
 
 		int index = GetFreeListIndex(block->size);
 		HeapBlock *freelist = &freelists[index];
@@ -765,7 +768,7 @@ namespace MMgc
 		// Try to coalesce this block with its predecessor
 		HeapBlock *prevBlock = block - block->sizePrevious;
 		if (!prevBlock->inUse() && prevBlock->committed) {
-			GCAssert(m_megamap[((int)(uintptr)prevBlock->baseAddr)>>12] == 0);
+			GCAssert(m_megamap[((uint32)(uintptr)prevBlock->baseAddr)>>12] == 0);
 			// Remove predecessor block from free list
 			RemoveFromList(prevBlock);
 

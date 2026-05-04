@@ -69,6 +69,7 @@
 #include "nsIDragDropHandler.h"
 
 #include "nsCommandHandler.h"
+#include "nsIFrame.h"
 
 class nsWebBrowser;
 class ChromeTooltipListener;

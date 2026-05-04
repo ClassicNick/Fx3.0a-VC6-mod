@@ -64,6 +64,8 @@ REQUIRES	= xpcom \
 		  docshell \
 		  content \
 		  pref \
+		  gfx \
+		  locale \
 		  $(NULL)
 
 XPIDLSRCS	= \

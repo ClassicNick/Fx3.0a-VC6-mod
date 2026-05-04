@@ -938,6 +938,9 @@ suite/components/Makefile
 suite/components/xulappinfo/Makefile
 suite/locales/Makefile
 suite/profile/Makefile
+suite/profile/migration/Makefile
+suite/profile/migration/public/Makefile
+suite/profile/migration/src/Makefile
 "
 
 MAKEFILES_xulrunner="
@@ -1044,6 +1047,7 @@ mail/components/preferences/Makefile
 mail/components/build/Makefile
 mail/components/shell/Makefile
 mail/components/shell/public/Makefile
+mail/components/phishing/Makefile
 mail/extensions/Makefile
 mail/extensions/smime/Makefile
 mail/config/Makefile
@@ -1056,7 +1060,6 @@ mail/themes/pinstripe/Makefile
 mail/themes/qute/mail/Makefile
 mail/themes/qute/editor/Makefile
 mail/themes/qute/Makefile
-xpfe/components/build2/Makefile
 "
 
 MAKEFILES_standalone_composer="
@@ -1472,10 +1475,6 @@ for extension in $MOZ_EXTENSIONS; do
         reporter ) MAKEFILES_extensions="$MAKEFILES_extensions
             extensions/reporter/Makefile
 	    extensions/reporter/locales/Makefile
-            " ;;
-
-        safe-browsing ) MAKEFILES_extensions="$MAKEFILES_extensions
-            extensions/safe-browsing/Makefile
             " ;;
 
         tasks ) MAKEFILES_extensions="$MAKEFILES_extensions

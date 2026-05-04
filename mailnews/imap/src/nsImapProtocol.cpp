@@ -4427,7 +4427,9 @@ char* nsImapProtocol::CreateNewLineFromSocket()
         case NS_ERROR_NET_RESET:
         case NS_BASE_STREAM_CLOSED:
         case NS_ERROR_NET_INTERRUPT:
-          if (TestFlag(IMAP_RECEIVED_GREETING) && m_runningUrl && !m_retryUrlOnError)
+          // we should retry on RESET, especially for SSL...
+          if ((TestFlag(IMAP_RECEIVED_GREETING) || rv == NS_ERROR_NET_RESET) &&
+              m_runningUrl && !m_retryUrlOnError)
           {
             m_runningUrl->SetRerunningUrl(PR_TRUE);
             m_retryUrlOnError = PR_TRUE;
@@ -5440,9 +5442,9 @@ void nsImapProtocol::UploadMessageFromFile (nsIFileSpec* fileSpec,
     
       if (flags)
       {
-      SetupMessageFlagsString(flagString, flags,
-        GetServerStateParser().SupportsUserFlags());
-      command.Append(flagString);
+        SetupMessageFlagsString(flagString, flags,
+          GetServerStateParser().SupportsUserFlags());
+        command.Append(flagString);
       }
       if (keywords.Length())
       {
@@ -8206,8 +8208,7 @@ NS_IMETHODIMP nsImapMockChannel::SetURI(nsIURI* aURI)
  
 NS_IMETHODIMP nsImapMockChannel::Open(nsIInputStream **_retval)
 {
-    NS_NOTREACHED("nsImapMockChannel::Open");
-    return NS_ERROR_NOT_IMPLEMENTED;
+  return NS_ImplementChannelOpen(this, _retval);
 }
 
 NS_IMETHODIMP

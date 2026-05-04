@@ -512,7 +512,7 @@ function RemoveAllMessageTags()
     if (keywords.length > 0)
       msgHdr.folder.removeKeywordFromMessages(msg, keywords);
   }
-  onTagsChange();
+  OnTagsChange();
 }
 
 function ToggleMessageTagKey(index)
@@ -586,7 +586,7 @@ function ToggleMessageTag(key, addKey)
   }
   if (prevHdrFolder)
     prevHdrFolder[toggler](messages, key);
-  onTagsChange();
+  OnTagsChange();
 }
 
 function AddTag()
@@ -660,10 +660,12 @@ function InitMessageTags(menuPopup)
     SetMessageTagLabel(newMenuItem, i + 1, taginfo.tag);
     newMenuItem.setAttribute("value", taginfo.key);
     newMenuItem.setAttribute("type", "checkbox");
-    newMenuItem.style.color = tagService.getColorForKey(taginfo.key);
     var removeKey = (" " + curKeys + " ").indexOf(" " + taginfo.key + " ") > -1;
     newMenuItem.setAttribute('checked', removeKey);
     newMenuItem.setAttribute('oncommand', 'ToggleMessageTagMenu(event.target);');
+    var color = taginfo.color;
+    if (color)
+      newMenuItem.setAttribute("class", "lc-" + color.substr(1));    
     menuPopup.insertBefore(newMenuItem, menuseparator);
   }
 }
@@ -2041,13 +2043,13 @@ function SendUnsentMessages()
 function CoalesceGetMsgsForPop3ServersByDestFolder(currentServer, pop3DownloadServersArray, localFoldersToDownloadTo)
 {
   var outNumFolders = new Object();
-  var inboxFolder = currentServer.rootMsgFolder.getFoldersWithFlag(0x1000, 1, outNumFolders);
-  var pop3Server = currentServer.QueryInterface(Components.interfaces.nsIPop3IncomingServer);
+  var inboxFolder = currentServer.rootMsgFolder.getFoldersWithFlag(0x1000, 1, outNumFolders); 
+  pop3Server = currentServer.QueryInterface(Components.interfaces.nsIPop3IncomingServer);
   // coalesce the servers that download into the same folder...
   var index = localFoldersToDownloadTo.GetIndexOf(inboxFolder);
   if (index == -1)
   {
-    if(inboxFolder)
+    if(inboxFolder) 
     {
       inboxFolder.biffState =  Components.interfaces.nsIMsgFolder.nsMsgBiffState_NoMail;
       inboxFolder.clearNewMessages();
@@ -2251,15 +2253,9 @@ var gMessageNotificationBar =
     this.updateMsgNotificationBar(kMsgNotificationRemoteImages, true);
   },
 
-  // aUrl is the nsIURI for the message currently loaded in the message pane
-  setPhishingMsg: function(aUrl)
+  setPhishingMsg: function()
   {
-    // if we've explicitly marked this message as not being an email scam, then don't
-    // bother checking it with the phishing detector.
-    var phishingMsg = false;
-    if (!checkMsgHdrPropertyIsNot("notAPhishMessage", kIsAPhishMessage))
-      phishingMsg = isMsgEmailScam(aUrl);
-    this.updateMsgNotificationBar(kMsgNotificationPhishingBar, phishingMsg);
+    this.updateMsgNotificationBar(kMsgNotificationPhishingBar, true);
   },
 
   clearMsgNotifications: function()
@@ -2269,7 +2265,6 @@ var gMessageNotificationBar =
     this.mMsgNotificationBar.collapsed = true;
   },
 
-  // private method used to set our message notification deck to the correct value...
   updateMsgNotificationBar: function(aIndex, aSet)
   {
     var chunk = this.mBarFlagValues[aIndex];
@@ -2279,13 +2274,22 @@ var gMessageNotificationBar =
     // the phishing message takes precedence over the junk message
     // which takes precedence over the remote content message
     this.mMsgNotificationBar.selectedIndex = this.mBarFlagValues.indexOf(status & -status);
-
     this.mMsgNotificationBar.collapsed = !status;
-  }
+  },
+  
+  /**
+   * @param aFlag (kMsgNotificationPhishingBar, kMsgNotificationJunkBar, kMsgNotificationRemoteImages
+   * @return true if aFlag is currently set for the loaded message
+   */
+  isFlagSet: function(aFlag)
+  {
+    var chunk = this.mBarFlagValues[aFlag];
+    return this.mBarStatus & chunk;
+  },
 };
 
 /**
- * LoadMsgWithRemoteContent
+ * loadMsgWithRemoteContent
  *   Reload the current message, allowing remote content
  */
 function loadMsgWithRemoteContent()
@@ -2344,23 +2348,27 @@ function allowRemoteContentForSender()
       cardForEmailAddress = addrbook.cardForEmailAddress(authorEmailAddress);
   }
 
+  var allowRemoteContent = false;
   if (cardForEmailAddress)
   {
     // set the property for remote content
     cardForEmailAddress.allowRemoteContent = true;
     cardForEmailAddress.editCardToDatabase(""); 
+    allowRemoteContent = true;
   }
   else
   {
+    var args = {primaryEmail:authorEmailAddress, displayName:names.value[0],
+                allowRemoteContent:true};
     // create a new card and set the property
     window.openDialog("chrome://messenger/content/addressbook/abNewCardDialog.xul",
-                      "",
-                      "chrome,resizable=no,titlebar,modal,centerscreen",
-                      {primaryEmail:authorEmailAddress, displayName:names.value[0], allowRemoteContent:'true'});
+                      "", "chrome,resizable=no,titlebar,modal,centerscreen", args);
+    allowRemoteContent = args.allowRemoteContent;
   } 
   
-  // reload the message now that we've updated the remote content policy for the sender  
-  MsgReload();
+  // reload the message if we've updated the remote content policy for the sender  
+  if (allowRemoteContent)
+    MsgReload();
 }
 
 function MsgIsNotAScam()
@@ -2420,7 +2428,9 @@ function OnMsgParsed(aUrl)
   if (!findBar.hidden)
     findBar.onFindAgainCommand(false);
     
-  gMessageNotificationBar.setPhishingMsg(aUrl);
+  // run the phishing detector on the message
+  if (!checkMsgHdrPropertyIsNot("notAPhishMessage", kIsAPhishMessage))
+    gPhishingDetector.analyzeMsgForPhishingURLs(aUrl);
 }
 
 function OnMsgLoaded(aUrl)

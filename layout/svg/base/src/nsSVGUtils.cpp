@@ -87,7 +87,6 @@ struct nsSVGFilterProperty {
 cairo_surface_t *nsSVGUtils::mCairoComputationalSurface = nsnull;
 
 static PRBool gSVGEnabled;
-static PRBool gSVGRendererAvailable = PR_FALSE;
 static const char SVG_PREF_STR[] = "svg.enabled";
 
 PR_STATIC_CALLBACK(int)
@@ -98,12 +97,10 @@ SVGPrefChanged(const char *aPref, void *aClosure)
     return 0;
 
   gSVGEnabled = prefVal;
-  if (gSVGRendererAvailable) {
-    if (gSVGEnabled)
-      nsContentDLF::RegisterSVG();
-    else
-      nsContentDLF::UnregisterSVG();
-  }
+  if (gSVGEnabled)
+    nsContentDLF::RegisterSVG();
+  else
+    nsContentDLF::UnregisterSVG();
 
   return 0;
 }
@@ -114,8 +111,6 @@ NS_SVGEnabled()
   static PRBool sInitialized = PR_FALSE;
   
   if (!sInitialized) {
-    gSVGRendererAvailable = PR_TRUE;
-
     /* check and register ourselves with the pref */
     gSVGEnabled = nsContentUtils::GetBoolPref(SVG_PREF_STR);
     nsContentUtils::RegisterPrefCallback(SVG_PREF_STR, SVGPrefChanged, nsnull);
@@ -123,7 +118,7 @@ NS_SVGEnabled()
     sInitialized = PR_TRUE;
   }
 
-  return gSVGEnabled && gSVGRendererAvailable;
+  return gSVGEnabled;
 }
 
 nsresult

@@ -79,9 +79,8 @@ endif
 
 ifdef _MSC_VER
 ifneq ($(_MSC_VER), 1100)
-# MMX disabled until we figure out the cause of bug 359054.
-#CSRCS   += fbmmx.c
-#DEFINES += -DUSE_MMX
+CSRCS   += fbmmx.c
+DEFINES += -DUSE_MMX
 endif
 endif
 

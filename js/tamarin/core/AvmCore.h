@@ -94,9 +94,9 @@ const int kBufferPadding = 16;
 		Debugger *debugger;
 		Profiler *profiler;
 		bool allocationTracking;
-		static bool sampling;
+		bool sampling;
 		// call startSampling in AvmCore ctor
-		static bool autoStartSampling;
+		bool autoStartSampling;
 
 		bool samplingNow;
 		int takeSample;
@@ -1017,6 +1017,8 @@ const int kBufferPadding = 16;
 
 		/** env of the highest catch handler on the call stack, or NULL */
 		ExceptionFrame *exceptionFrame;
+		
+		Exception *exceptionAddr;
 
 		/**
 		 * Searches the exception handler table of info for

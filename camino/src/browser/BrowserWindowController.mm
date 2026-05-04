@@ -88,6 +88,7 @@
 #include "nsIHistoryItems.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMNSDocument.h"
+#include "nsIDOMNSHTMLDocument.h"
 #include "nsIDOMLocation.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMEvent.h"
@@ -125,6 +126,7 @@
 
 // for spellchecking
 #include "nsIEditor.h"
+#include "nsIEditingSession.h"
 #include "nsIInlineSpellChecker.h"
 #include "nsIEditorSpellCheck.h"
 #include "nsISelection.h"
@@ -1224,13 +1226,18 @@ enum BWCOpenDest {
 //
 // gets the foreground/background tab loading pref
 //
-
-+ (BOOL)shouldLoadInBackground
++ (BOOL)shouldLoadInBackground:(id)aSender
 {
   BOOL loadInBackground = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.loadInBackground" withSuccess:NULL];
 
-  if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
-    loadInBackground = !loadInBackground;
+  if ([aSender respondsToSelector:@selector(keyEquivalentModifierMask)]) {
+    if ([aSender keyEquivalentModifierMask] & NSShiftKeyMask)
+      loadInBackground = !loadInBackground;
+  }
+  else {
+    if ([[NSApp currentEvent] modifierFlags] & NSShiftKeyMask)
+      loadInBackground = !loadInBackground;
+  }
 
   return loadInBackground;
 }
@@ -2461,7 +2468,7 @@ enum BWCOpenDest {
   if (modifiers & NSCommandKeyMask) {
     BOOL loadInTab = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.opentabfor.middleclick" withSuccess:NULL];
     BWCOpenDest destination = loadInTab ? kDestinationNewTab : kDestinationNewWindow;
-    [self performSearch:mSearchBar inView:destination inBackground:[BrowserWindowController shouldLoadInBackground]];
+    [self performSearch:mSearchBar inView:destination inBackground:[BrowserWindowController shouldLoadInBackground:nil]];
   }
   else
     [self performSearch:mSearchBar];
@@ -3063,17 +3070,12 @@ enum BWCOpenDest {
   [self forward:sender];
 }
 
-//
-// -focusedElement
-//
-// Returns the currently focused DOM element in the currently visible tab
-//
-- (void)focusedElement:(nsIDOMElement**)outElement
+- (void)focusController:(nsIFocusController**)outController
 {
   #define ENSURE_TRUE(x) if (!x) return;
-  if (!outElement)
+  if (!outController)
     return;
-  *outElement = nsnull;
+  *outController = nsnull;
 
   nsCOMPtr<nsIWebBrowser> webBrizzle = dont_AddRef([[[self getBrowserWrapper] getBrowserView] getWebBrowser]);
   ENSURE_TRUE(webBrizzle);
@@ -3081,20 +3083,36 @@ enum BWCOpenDest {
   webBrizzle->GetContentDOMWindow(getter_AddRefs(domWindow));
   nsCOMPtr<nsPIDOMWindow> privateWindow = do_QueryInterface(domWindow);
   ENSURE_TRUE(privateWindow);
-  nsIFocusController *controller = privateWindow->GetRootFocusController();
-  ENSURE_TRUE(controller);
+  *outController = privateWindow->GetRootFocusController();
+  NS_IF_ADDREF(*outController);
+  #undef ENSURE_TRUE
+}
+
+//
+// -focusedElement
+//
+// Returns the currently focused DOM element in the currently visible tab
+//
+- (void)focusedElement:(nsIDOMElement**)outElement
+{
+  if (!outElement)
+    return;
+  *outElement = nsnull;
+
+  nsCOMPtr<nsIFocusController> controller;
+  [self focusController:getter_AddRefs(controller)];
+  if (!controller)
+    return;
   nsCOMPtr<nsIDOMElement> focusedItem;
   controller->GetFocusedElement(getter_AddRefs(focusedItem));
   *outElement = focusedItem.get();
   NS_IF_ADDREF(*outElement);
-
-  #undef ENSURE_TRUE
 }
 
 //
 // -currentEditor:
 //
-// Returns the nsIEditor of the currently focused text area or input
+// Returns the nsIEditor of the currently focused text area, input, or midas editor
 //
 - (void)currentEditor:(nsIEditor**)outEditor
 {
@@ -3105,8 +3123,36 @@ enum BWCOpenDest {
   nsCOMPtr<nsIDOMElement> focusedElement;
   [self focusedElement:getter_AddRefs(focusedElement)];
   nsCOMPtr<nsIDOMNSEditableElement> editElement = do_QueryInterface(focusedElement);
-  if (editElement)
+  if (editElement) {
     editElement->GetEditor(outEditor);
+  }
+  // if there's no element focused, we're probably in a Midas editor
+  else {
+    #define ENSURE_TRUE(x) if (!x) return;
+    nsCOMPtr<nsIFocusController> controller;
+    [self focusController:getter_AddRefs(controller)];
+    ENSURE_TRUE(controller);
+    nsCOMPtr<nsIDOMWindowInternal> winInternal;
+    controller->GetFocusedWindow(getter_AddRefs(winInternal));
+    nsCOMPtr<nsIDOMWindow> focusedWindow(do_QueryInterface(winInternal));
+    ENSURE_TRUE(focusedWindow);
+    nsCOMPtr<nsIDOMDocument> domDoc;
+    focusedWindow->GetDocument(getter_AddRefs(domDoc));
+    nsCOMPtr<nsIDOMNSHTMLDocument> htmlDoc(do_QueryInterface(domDoc));
+    ENSURE_TRUE(htmlDoc);
+    nsAutoString designMode;
+    htmlDoc->GetDesignMode(designMode);
+    if (designMode.EqualsLiteral("on")) {
+      // we are in a Midas editor, so find its editor
+      nsCOMPtr<nsPIDOMWindow> privateWindow = do_QueryInterface(focusedWindow);
+      ENSURE_TRUE(privateWindow);
+      nsIDocShell *docshell = privateWindow->GetDocShell();
+      nsCOMPtr<nsIEditingSession> editSession = do_GetInterface(docshell);
+      ENSURE_TRUE(editSession)
+      editSession->GetEditorForWindow(focusedWindow, outEditor);
+    }
+    #undef ENSURE_TRUE
+  }
 }
 
 //
@@ -3397,7 +3443,7 @@ enum BWCOpenDest {
     if (tabViewItem)
     {
       NSString* url = [[tabViewItem view] getCurrentURI];
-      BOOL backgroundLoad = [BrowserWindowController shouldLoadInBackground];
+      BOOL backgroundLoad = [BrowserWindowController shouldLoadInBackground:nil];
 
       [self openNewWindowWithURL:url referrer:nil loadInBackground:backgroundLoad allowPopups:NO];
 
@@ -3621,7 +3667,7 @@ enum BWCOpenDest {
   
   // if we replace all tabs (because we opened a tab group), or we open additional tabs
   // with the "focus new tab"-pref on, focus the first new tab.
-  if (!((tabPolicy == eAppendTabs) && [BrowserWindowController shouldLoadInBackground]))
+  if (!((tabPolicy == eAppendTabs) && [BrowserWindowController shouldLoadInBackground:nil]))
     [mTabBrowser selectTabViewItem:tabViewToSelect];
     
 }
@@ -3893,16 +3939,40 @@ enum BWCOpenDest {
   BOOL showSpellingItems = NO;
   BOOL needsAlternates = NO;
 
-  NSMenu* menuPrototype = nil;
-  int contextMenuFlags = mDataOwner->mContextMenuFlags;
-
   NSArray* emailAddresses = nil;
   unsigned numEmailAddresses = 0;
 
   BOOL hasSelection = [[mBrowserView getBrowserView] canCopy];
+  BOOL isMidas = NO;
 
-  if ((contextMenuFlags & nsIContextMenuListener::CONTEXT_LINK) != 0)
-  {
+  if (mDataOwner->mContextMenuNode) {
+    nsCOMPtr<nsIDOMDocument> ownerDoc;
+    mDataOwner->mContextMenuNode->GetOwnerDocument(getter_AddRefs(ownerDoc));
+
+    // Check to see if it's a Midas frame
+    nsCOMPtr<nsIDOMNSHTMLDocument> htmlDoc(do_QueryInterface(ownerDoc));
+    if (htmlDoc) {
+      nsAutoString designMode;
+      htmlDoc->GetDesignMode(designMode);
+      isMidas = designMode.EqualsLiteral("on");
+    }
+
+    // If it's not a Midas frame, check to see if it's a subframe
+    if (!isMidas) {
+      nsCOMPtr<nsIDOMWindow> contentWindow = [[mBrowserView getBrowserView] getContentWindow];
+
+      nsCOMPtr<nsIDOMDocument> contentDoc;
+      if (contentWindow)
+        contentWindow->GetDocument(getter_AddRefs(contentDoc));
+
+      showFrameItems = (contentDoc != ownerDoc);
+    }
+  }
+
+  NSMenu* menuPrototype = nil;
+  int contextMenuFlags = mDataOwner->mContextMenuFlags;
+
+  if ((contextMenuFlags & nsIContextMenuListener::CONTEXT_LINK) != 0) {
     emailAddresses = [self mailAddressesInContextMenuLinkNode];
     if (emailAddresses != nil)
       numEmailAddresses = [emailAddresses count];
@@ -3923,7 +3993,9 @@ enum BWCOpenDest {
     }
   }
   else if ((contextMenuFlags & nsIContextMenuListener::CONTEXT_INPUT) != 0 ||
-           (contextMenuFlags & nsIContextMenuListener::CONTEXT_TEXT) != 0) {
+           (contextMenuFlags & nsIContextMenuListener::CONTEXT_TEXT) != 0 ||
+           isMidas)
+  {
     menuPrototype = mInputMenu;
     showSpellingItems = YES;
   }
@@ -3939,19 +4011,6 @@ enum BWCOpenDest {
     [mBackItem    setEnabled: [[mBrowserView getBrowserView] canGoBack]];
     [mForwardItem setEnabled: [[mBrowserView getBrowserView] canGoForward]];
     [mCopyItem    setEnabled:hasSelection];
-  }
-
-  if (mDataOwner->mContextMenuNode) {
-    nsCOMPtr<nsIDOMDocument> ownerDoc;
-    mDataOwner->mContextMenuNode->GetOwnerDocument(getter_AddRefs(ownerDoc));
-
-    nsCOMPtr<nsIDOMWindow> contentWindow = [[mBrowserView getBrowserView] getContentWindow];
-
-    nsCOMPtr<nsIDOMDocument> contentDoc;
-    if (contentWindow)
-      contentWindow->GetDocument(getter_AddRefs(contentDoc));
-
-    showFrameItems = (contentDoc != ownerDoc);
   }
 
   // we have to clone the menu and return that, so that we don't change
@@ -4011,8 +4070,7 @@ enum BWCOpenDest {
     NSArray* menuArray = [result itemArray];
     BOOL inNewTab = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.opentabfor.middleclick" withSuccess:NULL];
 
-    unsigned i;
-    for (i = 0; i < [menuArray count]; i++) {
+    for (int i = [menuArray count] - 1; i >= 0; i--) {
       NSMenuItem* menuItem = [menuArray objectAtIndex:i];
 
       // Only create alternates for the items that need them
@@ -4027,15 +4085,15 @@ enum BWCOpenDest {
         id target = [menuItem target];
 
         // Create the alternates and insert them into the two places after the menu item
-        NSMenuItem* cmdMenuItem = [NSMenu alternateMenuItemWithTitle:altMenuItemTitle
-                                                              action:action
-                                                              target:target
-                                                           modifiers:NSCommandKeyMask];
+        NSMenuItem* cmdMenuItem = [NSMenuItem alternateMenuItemWithTitle:altMenuItemTitle
+                                                                  action:action
+                                                                  target:target
+                                                               modifiers:NSCommandKeyMask];
         [result insertItem:cmdMenuItem atIndex:(i + 1)];
-        NSMenuItem* cmdShiftMenuItem = [NSMenu alternateMenuItemWithTitle:altMenuItemTitle
-                                                                   action:action
-                                                                   target:target
-                                                                modifiers:(NSCommandKeyMask | NSShiftKeyMask)];
+        NSMenuItem* cmdShiftMenuItem = [NSMenuItem alternateMenuItemWithTitle:altMenuItemTitle
+                                                                       action:action
+                                                                       target:target
+                                                                    modifiers:(NSCommandKeyMask | NSShiftKeyMask)];
         [result insertItem:cmdShiftMenuItem atIndex:(i + 2)];
       }
     }
@@ -4055,10 +4113,10 @@ enum BWCOpenDest {
       // @"Force Format" = @"Force %@", so this gives the menu's title prepended with "Force"
       NSString* title = [NSString stringWithFormat:NSLocalizedString(@"Force Format", nil), [menuItem title]];
 
-      NSMenuItem* forceReloadItem = [NSMenu alternateMenuItemWithTitle:title
-                                                                action:[menuItem action]
-                                                                target:[menuItem target]
-                                                             modifiers:([menuItem keyEquivalentModifierMask] | NSShiftKeyMask)];
+      NSMenuItem* forceReloadItem = [NSMenuItem alternateMenuItemWithTitle:title
+                                                                    action:[menuItem action]
+                                                                    target:[menuItem target]
+                                                                 modifiers:([menuItem keyEquivalentModifierMask] | NSShiftKeyMask)];
 
       [inMenu insertItem:forceReloadItem atIndex:(i + 1)];
     }
@@ -4179,22 +4237,22 @@ enum BWCOpenDest {
 
 - (IBAction)openLinkInNewWindow:(id)aSender
 {
-  [self openLinkInNewWindowOrTab: YES];
+  [self openLinkInNewWindowOrTab:YES];
 }
 
 - (IBAction)openLinkInNewTab:(id)aSender
 {
-  [self openLinkInNewWindowOrTab: NO];
+  [self openLinkInNewWindowOrTab:NO];
 }
 
--(void)openLinkInNewWindowOrTab: (BOOL)aUseWindow
+-(void)openLinkInNewWindowOrTab:(BOOL)aUseWindow
 {
   NSString* hrefStr = [self getContextMenuNodeHrefText];
 
   if ([hrefStr length] == 0)
     return;
 
-  BOOL loadInBackground = [BrowserWindowController shouldLoadInBackground];
+  BOOL loadInBackground = [BrowserWindowController shouldLoadInBackground:nil];
 
   NSString* referrer = [[mBrowserView getBrowserView] getFocusedURLString];
 
@@ -4284,7 +4342,7 @@ enum BWCOpenDest {
 
     if (modifiers & NSCommandKeyMask) {
       BOOL loadInTab = [[PreferenceManager sharedInstance] getBooleanPref:"browser.tabs.opentabfor.middleclick" withSuccess:NULL];
-      BOOL loadInBG = [BrowserWindowController shouldLoadInBackground];
+      BOOL loadInBG = [BrowserWindowController shouldLoadInBackground:nil];
       if (loadInTab)
         [self openNewTabWithURL:urlStr referrer:referrer loadInBackground:loadInBG allowPopups:NO setJumpback:NO];
       else

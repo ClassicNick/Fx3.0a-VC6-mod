@@ -88,6 +88,7 @@
 #include "nsIComponentRegistrar.h"
 #include "nsPluginLogging.h"
 #include "nsIPrefBranch2.h"
+#include "nsIFrame.h"
 
 // Friggin' X11 has to "#define None". Lame!
 #ifdef None

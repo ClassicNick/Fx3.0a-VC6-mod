@@ -1083,7 +1083,7 @@ HRESULT nsDataObj::GetPreferredDropEffect ( FORMATETC& aFE, STGMEDIUM& aSTG )
 //-----------------------------------------------------
 HRESULT nsDataObj::GetText(const nsACString & aDataFlavor, FORMATETC& aFE, STGMEDIUM& aSTG)
 {
-  void* data;
+  void* data = NULL;
   PRUint32   len;
   
   // if someone asks for text/plain, look up text/unicode instead in the transferable.
@@ -1100,6 +1100,9 @@ HRESULT nsDataObj::GetText(const nsACString & aDataFlavor, FORMATETC& aFE, STGME
   if ( !len )
     return ResultFromScode(E_FAIL);
   nsPrimitiveHelpers::CreateDataFromPrimitive ( flavorStr, genericDataWrapper, &data, len );
+  if ( !data )
+    return ResultFromScode(E_FAIL);
+
   HGLOBAL     hGlobalMemory = NULL;
 
   aSTG.tymed          = TYMED_HGLOBAL;

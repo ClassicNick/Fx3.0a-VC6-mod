@@ -103,6 +103,7 @@
 #include "nsITimelineService.h"
 #include "nsDOMScriptObjectHolder.h"
 #include "prmem.h"
+#include "nsIFrame.h"
 
 #ifdef NS_DEBUG
 #include "jsgc.h"       // for WAY_TOO_MUCH_GC, if defined for GC debugging
@@ -776,7 +777,7 @@ nsJSContext::DOMBranchCallback(JSContext *cx, JSScript *script)
                                   getter_Copies(stopButton));
   rv |= bundle->GetStringFromName(NS_LITERAL_STRING("WaitForScriptButton").get(),
                                   getter_Copies(waitButton));
-  rv |= bundle->GetStringFromName(NS_LITERAL_STRING("NeverShowDialogAgain").get(),
+  rv |= bundle->GetStringFromName(NS_LITERAL_STRING("DontAskAgain").get(),
                                   getter_Copies(neverShowDlg));
 
 

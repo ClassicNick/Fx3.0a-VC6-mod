@@ -36,11 +36,6 @@ namespace avmplus
 {
 	using namespace MMgc;
 
-#ifdef DEBUGGER	
-		bool AvmCore::sampling = false;
-		bool AvmCore::autoStartSampling = false;
-#endif
-
 	BEGIN_NATIVE_CLASSES(AvmCore)
 		NATIVE_CLASS(abcclass_Object,				ObjectClass,	ScriptObject)
 		NATIVE_CLASS(abcclass_Class,				ClassClass,		ClassClosure)
@@ -106,6 +101,11 @@ namespace avmplus
 		AvmAssert (sizeof(uintptr) == 4);		
 		#endif	
 			
+		#ifdef DEBUGGER	
+		sampling = false;
+		autoStartSampling = false;
+		#endif
+
 		// set default mode flags
 		#ifdef AVMPLUS_VERBOSE
 		verbose = false;
@@ -167,7 +167,7 @@ namespace avmplus
 		profiler		   = NULL;
 		callStack          = NULL;
 		stackTraces        = NULL;
-		numTraces          = NULL;
+		numTraces          = 0;
 		samples            = NULL;
 		takeSample         = false;
 		samplingNow        = false;
@@ -1604,7 +1604,7 @@ return the result of the comparison ToPrimitive(x) == y.
 
 		int exception_count = info->exceptions->exception_count;
 		ExceptionHandler* handler = info->exceptions->exceptions;
-		int atom = exception->atom;
+		Atom atom = exception->atom;
 		
 		while (--exception_count >= 0) 
 		{

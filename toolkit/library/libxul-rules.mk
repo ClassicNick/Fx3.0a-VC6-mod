@@ -74,6 +74,7 @@ ifeq ($(MOZ_WIDGET_TOOLKIT),windows)
 OS_LIBS += $(call EXPAND_LIBNAME,usp10)
 endif
 ifneq (,$(filter $(MOZ_GFX_TOOLKIT),mac cocoa))
+EXTRA_DSO_LDOPTS += -lcups
 ifdef MOZ_ENABLE_GLITZ
 EXTRA_DSO_LDOPTS += -lmozglitzagl -framework OpenGL -framework AGL
 endif

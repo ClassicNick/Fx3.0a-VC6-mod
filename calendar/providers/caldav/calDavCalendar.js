@@ -64,6 +64,7 @@ function calDavCalendar() {
     this.wrappedJSObject = this;
     this.mObservers = Array();
     this.unmappedProperties = [];
+    this.mUriParams = null;
 }
 
 // some shorthand
@@ -165,6 +166,11 @@ calDavCalendar.prototype = {
         return false;
     },
 
+    // mUriParams stores trailing ?parameters from the
+    // supplied calendar URI. Needed for (at least) Cosmo
+    // tickets
+    mUriParams: null,
+
     // attribute nsIURI uri;
     mUri: null,
     get uri() { return this.mUri; },
@@ -172,10 +178,23 @@ calDavCalendar.prototype = {
 
     get mCalendarUri() { 
         calUri = this.mUri.clone();
+        var parts = calUri.spec.split('?');
+        if (parts.length > 1) {
+            calUri.spec = parts.shift();
+            this.mUriParams = '?' + parts.join('?');
+        }
         if (calUri.spec.charAt(calUri.spec.length-1) != '/') {
             calUri.spec += "/";
         }
         return calUri;
+    },
+    
+    mMakeUri: function caldav_makeUri(aInsertString) {
+        var spec = this.mCalendarUri.spec + aInsertString;
+        if (this.mUriParams) {
+            return spec + this.mUriParams;
+        }
+        return spec;
     },
 
     refresh: function() {
@@ -231,7 +250,7 @@ calDavCalendar.prototype = {
         // XXX how are we REALLY supposed to figure this out?
         var locationPath = aItem.id + ".ics";
         var itemUri = this.mCalendarUri.clone();
-        itemUri.spec = itemUri.spec + locationPath;
+        itemUri.spec = this.mMakeUri(locationPath);
         LOG("itemUri.spec = " + itemUri.spec);
         var eventResource = new WebDavResource(itemUri);
 
@@ -295,7 +314,7 @@ calDavCalendar.prototype = {
         // do WebDAV put
         var webSvc = Components.classes['@mozilla.org/webdav/service;1']
             .getService(Components.interfaces.nsIWebDAVService);
-        webSvc.putFromString(eventResource, "text/calendar", 
+        webSvc.putFromString(eventResource, "text/calendar; charset=utf-8",
                              aItem.icalString, listener, this, null);
 
         return;
@@ -334,11 +353,11 @@ calDavCalendar.prototype = {
 
         var eventUri = this.mCalendarUri.clone();
         try {
-            eventUri.spec = this.mCalendarUri.spec + aNewItem.getProperty("X-MOZ-LOCATIONPATH");
+            eventUri.spec = this.mMakeUri(aNewItem.getProperty("X-MOZ-LOCATIONPATH"));
             LOG("using X-MOZ-LOCATIONPATH: " + eventUri.spec);
         } catch (ex) {
             // XXX how are we REALLY supposed to figure this out?
-            eventUri.spec = eventUri.spec + aNewItem.id + ".ics";
+            eventUri.spec = this.mMakeUri(aNewItem.id + ".ics");
         }
 
         if (aOldItem.parentItem.generation != aNewItem.generation) {
@@ -425,7 +444,7 @@ calDavCalendar.prototype = {
         LOG("modifyItem: aNewItem.icalString = " + aNewItem.icalString);
         var webSvc = Components.classes['@mozilla.org/webdav/service;1']
             .getService(Components.interfaces.nsIWebDAVService);
-        webSvc.putFromString(eventResource, "text/calendar",
+        webSvc.putFromString(eventResource, "text/calendar; charset=utf-8",
                              modifiedItemICS, listener, this, null);
 
         return;
@@ -450,12 +469,11 @@ calDavCalendar.prototype = {
 
         var eventUri = this.mCalendarUri.clone();
         try {
-            eventUri.spec = this.mCalendarUri.spec +
-                            aItem.getProperty("X-MOZ-LOCATIONPATH");
+            eventUri.spec = this.mMakeUri(aItem.getProperty("X-MOZ-LOCATIONPATH"));
             LOG("using X-MOZ-LOCATIONPATH: " + eventUri.spec);
         } catch (ex) {
             // XXX how are we REALLY supposed to figure this out?
-            eventUri.spec = eventUri.spec + aItem.id + ".ics";
+            eventUri.spec = this.mMakeUri(aItem.id + ".ics");
         }
 
         var eventResource = new WebDavResource(eventUri);
@@ -806,6 +824,7 @@ calDavCalendar.prototype = {
 
         // construct the resource we want to search against
         var calendarDirUri = this.mCalendarUri.clone();
+        calendarDirUri.spec = this.mMakeUri('');
         LOG("report uri = " + calendarDirUri.spec);
         var calendarDirResource = new WebDavResource(calendarDirUri);
 
