@@ -315,80 +315,6 @@ function InitViewMessagesMenu()
       ignoredTheadsMenuItem.setAttribute("checked", (viewFlags & nsMsgViewFlagsType.kShowIgnored) != 0);
 }
 
-function InitViewMessageViewMenu()
-{
-  var viewType = (gDBView) ? gDBView.viewType : 0;
-  var currentViewValue = document.getElementById("viewPicker").value;
-
-  var allMenuItem = document.getElementById("viewAll");
-  if(allMenuItem)
-    allMenuItem.setAttribute("checked",  currentViewValue == 0);  // from msgViewPickerOveraly.xul <menuitem value="0" id="viewPickerAll" label="&viewPickerAll.label;"/>
-    
-  var unreadMenuItem = document.getElementById("viewUnread");
-  if(unreadMenuItem)
-    unreadMenuItem.setAttribute("checked", currentViewValue == 1); // from msgViewPickerOveraly.xul, <menuitem value="1" id="viewPickerUnread" label="&viewPickerUnread.label;"/>
-  
-  for (var i = 1; i <= 5; i++) {
-    var prefString = gPrefBranch.getComplexValue("mailnews.labels.description." + i, Components.interfaces.nsIPrefLocalizedString).data;
-    var viewLabelMenuItem = document.getElementById("viewLabelMenuItem" + i);
-    viewLabelMenuItem.setAttribute("label", prefString);
-    viewLabelMenuItem.setAttribute("checked", (i == (currentViewValue - 1)));  // 1=2-1, from msgViewPickerOveraly.xul, <menuitem value="2" id="labelMenuItem1"/>
-  }
-
-  viewRefreshCustomMailViews(currentViewValue);
-}
-
-function viewRefreshCustomMailViews(aCurrentViewValue)
-{
-  // for each mail view in the msg view list, add a menu item
-  var mailViewList = Components.classes["@mozilla.org/messenger/mailviewlist;1"].getService(Components.interfaces.nsIMsgMailViewList);
-
-  // XXX TODO, fix code in msgViewPickerOverlay.js, to be like this.
-  // remove any existing entries...
-  var menupopupNode = document.getElementById('viewMessageViewPopup');
-  var userDefinedItems = menupopupNode.getElementsByAttribute("userdefined","true");
-  for (var i=0; userDefinedItems.item(i); )
-  {
-    if (!menupopupNode.removeChild(userDefinedItems[i]))
-      ++i;
-  }
-  
-  // now rebuild the list
-  var numItems = mailViewList.mailViewCount; 
-  var viewCreateCustomViewSeparator = document.getElementById('viewCreateCustomViewSeparator');
-  
-  for (i = 0; i < numItems; i++)
-  {
-    var newMenuItem = document.createElement("menuitem");
-    newMenuItem.setAttribute("label", mailViewList.getMailViewAt(i).prettyName);
-    newMenuItem.setAttribute("userdefined", "true");
-    var oncommandStr = "ViewMessagesBy('userdefinedview" + (kLastDefaultViewIndex + i) + "');";  
-    newMenuItem.setAttribute("oncommand", oncommandStr);
-    var item = menupopupNode.insertBefore(newMenuItem, viewCreateCustomViewSeparator);
-    item.setAttribute("value",  kLastDefaultViewIndex + i); 
-    item.setAttribute("type",  "radio"); // for checked
-    item.setAttribute("name", "viewmessages");  // for checked
-    item.setAttribute("checked", (kLastDefaultViewIndex + i == aCurrentViewValue)); 
-  }
-
-  if (!numItems)
-    viewCreateCustomViewSeparator.setAttribute('collapsed', true);
-  else
-    viewCreateCustomViewSeparator.removeAttribute('collapsed');
-}
-
-// called by the View | Messages | Views ... menu items
-// see mailWindowOverlay.xul
-function ViewMessagesBy(id)
-{
-  var viewPicker = document.getElementById('viewPicker');
-  if (viewPicker)
-  {
-    viewPicker.selectedItem = document.getElementById(id);
-    viewChange(viewPicker, viewPicker.value);
-  }
-}
-
 function InitMessageMenu()
 {
   var aMessage = GetFirstSelectedMessage();
@@ -1599,11 +1525,12 @@ function MsgViewPageSource()
 
 function MsgFind()
 {
-  gFindBar.onFindCmd();
+  document.getElementById("FindToolbar").onFindCommand();
 }
+
 function MsgFindAgain(reverse)
 {
-  gFindBar.onFindAgainCmd(reverse);
+  document.getElementById("FindToolbar").onFindAgainCommand(reverse);
 }
 
 function MsgFilters(emailAddress, folder)
@@ -2377,8 +2304,7 @@ function loadMsgWithRemoteContent()
 function msgHdrForCurrentMessage()
 {
   var msgURI = GetLoadedMessage();
-  if (msgURI && !(/type=application\/x-message-display/.test(msgURI)))
-    return (msgURI && !(/type=application\/x-message-display/.test(msgURI))) ? messenger.msgHdrFromURI(msgURI) : null;
+  return (msgURI && !(/type=application\/x-message-display/.test(msgURI))) ? messenger.msgHdrFromURI(msgURI) : null;
 }
 
 /**
@@ -2490,8 +2416,9 @@ function OnMsgParsed(aUrl)
   // If the find bar is visible and we just loaded a new message, re-run 
   // the find command. This means the new message will get highlighted and
   // we'll scroll to the first word in the message that matches the find text.
-  if (gFindBar.isFindBarVisible())
-    gFindBar.find();
+  var findBar = document.getElementById("FindToolbar");
+  if (!findBar.hidden)
+    findBar.onFindAgainCommand(false);
     
   gMessageNotificationBar.setPhishingMsg(aUrl);
 }
@@ -2599,11 +2526,8 @@ function HandleMDNResponse(aUrl)
 
   var msgFolder = aUrl.folder;
   var msgURI = GetLoadedMessage();
-  if (!msgFolder || !msgURI)
+  if (!msgFolder || !msgURI || IsNewsMessage(msgURI))
     return;
-
-	if (IsNewsMessage(msgURI))
-		return;
 
   // if the message is marked as junk, do NOT attempt to process a return receipt
   // in order to better protect the user
@@ -2629,7 +2553,7 @@ function HandleMDNResponse(aUrl)
     if (mimeMsgId)
       msgHdr.messageId = mimeMsgId;
   }
-  
+
   // After a msg is downloaded it's already marked READ at this point so we must check if
   // the msg has a "Disposition-Notification-To" header and no MDN report has been sent yet.
   var msgFlags = msgHdr.flags;
@@ -2640,7 +2564,7 @@ function HandleMDNResponse(aUrl)
   var oldDNTHeader = mimeHdr.extractHeader("Return-Receipt-To", false);
   if (!DNTHeader && !oldDNTHeader)
     return;
- 
+
   // Everything looks good so far, let's generate the MDN response.
   var mdnGenerator = Components.classes["@mozilla.org/messenger-mdn/generator;1"].
                                   createInstance(Components.interfaces.nsIMsgMdnGenerator);

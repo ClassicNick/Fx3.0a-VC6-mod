@@ -291,12 +291,9 @@ var folderListener = {
                // get the view value from the folder
                if (msgFolder)
                {
-                 var msgDatabase = msgFolder.getMsgDatabase(msgWindow);
-                 var dbFolderInfo = msgDatabase.dBFolderInfo; 
-                 var result = dbFolderInfo.getUint32Property("current-view", 0);
-                 
                  // if our new view is the same as the old view and we already have the list of search terms built up
                  // for the old view, just re-use it
+                 var result = GetMailViewForFolder(msgFolder);
                  if (gCurrentViewValue == result && gDefaultSearchViewTerms)
                  {
                    viewDebug("searching gDefaultSearchViewTerms and rerootingFolder\n");
@@ -914,8 +911,6 @@ function delayedOnLoadMessenger()
   //Set focus to the Thread Pane the first time the window is opened.
   SetFocusThreadPane();
   
-  gFindBar.initFindBar();  
-  
   // initialize the customizeDone method on the customizeable toolbar
   var toolbox = document.getElementById("mail-toolbox");
   toolbox.customizeDone = MailToolboxCustomizeDone;
@@ -931,8 +926,6 @@ function OnUnloadMessenger()
   pref.QueryInterface(Components.interfaces.nsIPrefBranch2);
   pref.removeObserver("mail.pane_config.dynamic", MailPrefObserver);
   pref.removeObserver("mail.showFolderPaneColumns", MailPrefObserver);
-  
-  gFindBar.uninitFindBar();
 
   // FIX ME - later we will be able to use onload from the overlay
   OnUnloadMsgHeaderPane();

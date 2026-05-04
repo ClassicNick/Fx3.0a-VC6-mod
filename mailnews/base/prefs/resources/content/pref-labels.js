@@ -37,10 +37,10 @@
 // Each tag entry in our list looks like this, where <key> is tag's unique key:
 //    <listitem>
 //      <listcell>
-//        <textbox onfocus='OnFocus(<key>)/>
+//        <textbox/>
 //      </listcell>
 //      <listcell>
-//        <colorpicker onfocus='OnFocus(<key>) type='button'/>
+//        <colorpicker type='button'/>
 //      </listcell>
 //    </listitem>
 const TAGPANEL_URI    = 'chrome://messenger/content/pref-labels.xul';
@@ -82,10 +82,8 @@ function GetFields(aPageData)
     if (entry.localName == 'listitem')
     {
       // update taginfo with current values from textbox and colorpicker
-      var taginfo = entry.taginfo;
-      taginfo.tag   = entry.firstChild.firstChild.value;
-      taginfo.color = entry.lastChild.lastChild.color;
-      tags.push(taginfo);
+      UpdateTagInfo(entry.taginfo, entry);
+      tags.push(entry.taginfo);
     }
   aPageData[ACTIVE_TAGS_ID] = tags;
 
@@ -131,6 +129,13 @@ function SetFields(aPageData)
   gDeletedTags = (DELETED_TAGS_ID in aPageData) ? aPageData[DELETED_TAGS_ID] : {};
 }
 
+// read text and color from the listitem
+function UpdateTagInfo(aTagInfo, aEntry)
+{
+  aTagInfo.tag   = aEntry.firstChild.firstChild.value;
+  aTagInfo.color = aEntry.lastChild.lastChild.color;
+}
+
 // set text and color of the listitem
 function UpdateTagEntry(aTagInfo, aEntry)
 {
@@ -169,11 +174,7 @@ function AppendTagEntry(aTagInfo, aRefChild)
 
 function OnFocus(aEvent)
 {
-  // walk up until we find the listitem
-  var entry = aEvent.target;
-  while (entry.localName != 'listitem')
-    entry = entry.parentNode;
-  gTagList.selectedItem = entry;
+  gTagList.selectedItem = this;
   UpdateButtonStates();
 }
 
@@ -251,11 +252,12 @@ function MoveTag(aMoveUp)
   // This reordering may require changing ordinal strings, which will happen
   // when we write tag data to the preferences system in the OKHandler.
   var entry = gTagList.selectedItem;
+  UpdateTagInfo(entry.taginfo, entry); // remember changed values
   var successor = aMoveUp ? gTagList.getPreviousItem(entry, 1)
                           : gTagList.getNextItem(entry, 2);
   entry.parentNode.insertBefore(entry, successor);
-  UpdateTagEntry(entry.taginfo, entry);
   FocusTagEntry(entry);
+  UpdateTagEntry(entry.taginfo, entry); // needs to be visible
 }
 
 function Restore()

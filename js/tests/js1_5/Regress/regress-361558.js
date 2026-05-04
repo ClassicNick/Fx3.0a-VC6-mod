@@ -12,22 +12,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG Cairo Renderer project.
+ * The Original Code is JavaScript Engine testing utilities.
  *
- * The Initial Developer of the Original Code is IBM Corporation.
- * Portions created by the Initial Developer are Copyright (C) 2004
+ * The Initial Developer of the Original Code is
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Parts of this file contain code derived from the following files(s)
- * of the Mozilla SVG project (these parts are Copyright (C) by their
- * respective copyright-holders):
- *    layout/svg/renderer/src/libart/nsSVGLibartCanvas.h
- *
- * Contributor(s):
+ * Contributor(s): Jesse Ruderman
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -38,19 +34,17 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 361558;
+var summary = 'Assertion: sprop->setter != js_watch_set';
+var actual = '';
+var expect = '';
 
-#ifndef __NS_SVGCAIRO_CANVAS_H__
-#define __NS_SVGCAIRO_CANVAS_H__
+printBugNumber (bug);
+printStatus (summary);
+  
+expect = actual = 'No Crash';
 
-class nsIRenderingContext;
-class nsISVGRendererCanvas;
-class nsPresContext;
-struct nsRect;
+({}.__proto__.watch('x', print)); ({}.watch('x', print));
 
-nsresult
-NS_NewSVGCairoCanvas(nsISVGRendererCanvas **result,
-                     nsIRenderingContext *ctx,
-                     nsPresContext *presContext,
-                     const nsRect & dirtyRect);
-
-#endif // __NS_SVGCAIRO_CANVAS_H__
+reportCompare(expect, actual, summary);
