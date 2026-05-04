@@ -47,6 +47,7 @@
 #include "nsIDOMSVGImageElement.h"
 #include "nsSVGElement.h"
 #include "nsSVGUtils.h"
+#include "nsIImage.h" /* for MOZ_PLATFORM_IMAGES_BOTTOM_TO_TOP */
 #include "nsSVGMatrix.h"
 #include "nsISVGCairoCanvas.h"
 #include "cairo.h"
@@ -59,6 +60,7 @@ class nsSVGImageListener : public nsStubImageDecoderObserver
 {
 public:
   nsSVGImageListener(nsSVGImageFrame *aFrame);
+  virtual ~nsSVGImageListener();
 
   NS_DECL_ISUPPORTS
   // imgIDecoderObserver (override nsStubImageDecoderObserver)
@@ -124,10 +126,12 @@ private:
   nsCOMPtr<nsIDOMSVGPreserveAspectRatio> mPreserveAspectRatio;
 
   nsCOMPtr<imgIDecoderObserver> mListener;
+  cairo_surface_t *mSurface;
 
-  nsCOMPtr<imgIContainer> mImageContainer;
+  nsresult ConvertFrame(gfxIImageFrame *aNewFrame);
 
   friend class nsSVGImageListener;
+  PRPackedBool mSurfaceInvalid;
 };
 
 //----------------------------------------------------------------------
@@ -158,6 +162,9 @@ nsSVGImageFrame::~nsSVGImageFrame()
     NS_REINTERPRET_CAST(nsSVGImageListener*, mListener.get())->SetFrame(nsnull);
   }
   mListener = nsnull;
+
+  if (mSurface)
+    cairo_surface_destroy(mSurface);
 }
 
 NS_IMETHODIMP
@@ -176,6 +183,9 @@ nsSVGImageFrame::InitSVG()
     NS_ASSERTION(mPreserveAspectRatio, "no preserveAspectRatio");
     if (!mPreserveAspectRatio) return NS_ERROR_FAILURE;
   }
+
+  mSurface = nsnull;
+  mSurfaceInvalid = PR_TRUE;
 
   mListener = new nsSVGImageListener(this);
   if (!mListener) return NS_ERROR_OUT_OF_MEMORY;
@@ -218,9 +228,9 @@ nsSVGImageFrame::GetImageTransform()
   nsSVGElement *element = NS_STATIC_CAST(nsSVGElement*, mContent);
   element->GetAnimatedLengthValues(&x, &y, &width, &height, nsnull);
 
-  PRInt32 nativeWidth, nativeHeight;
-  mImageContainer->GetWidth(&nativeWidth);
-  mImageContainer->GetHeight(&nativeHeight);
+  PRUint32 nativeWidth, nativeHeight;
+  nativeWidth = cairo_image_surface_get_width(mSurface);
+  nativeHeight = cairo_image_surface_get_height(mSurface);
 
   nsCOMPtr<nsIDOMSVGImageElement> image = do_QueryInterface(mContent);
   nsCOMPtr<nsIDOMSVGAnimatedPreserveAspectRatio> ratio;
@@ -249,31 +259,27 @@ nsSVGImageFrame::PaintSVG(nsISVGRendererCanvas* canvas, nsRect *aDirtyRect)
   if (!GetStyleVisibility()->IsVisible())
     return NS_OK;
 
-  if (!mImageContainer) {
+  if (mSurfaceInvalid) {
     nsCOMPtr<imgIRequest> currentRequest;
     nsCOMPtr<nsIImageLoadingContent> imageLoader = do_QueryInterface(mContent);
     if (imageLoader)
       imageLoader->GetRequest(nsIImageLoadingContent::CURRENT_REQUEST,
                               getter_AddRefs(currentRequest));
 
+    nsCOMPtr<imgIContainer> currentContainer;
     if (currentRequest)
-      currentRequest->GetImage(getter_AddRefs(mImageContainer));
-  }
+      currentRequest->GetImage(getter_AddRefs(currentContainer));
 
-  nsCOMPtr<gfxIImageFrame> currentFrame;
-  if (mImageContainer)
-    mImageContainer->GetCurrentFrame(getter_AddRefs(currentFrame));
+    nsCOMPtr<gfxIImageFrame> currentFrame;
+    if (currentContainer) 
+      currentContainer->GetCurrentFrame(getter_AddRefs(currentFrame));
 
-  gfxASurface *thebesSurface = nsnull;
-  if (currentFrame) {
-    nsCOMPtr<nsIImage> img(do_GetInterface(currentFrame));
-
-    nsThebesImage *thebesImage = nsnull;
-    if (img)
-      thebesImage = NS_STATIC_CAST(nsThebesImage*, img.get());
-
-    if (thebesImage)
-      thebesSurface = thebesImage->ThebesSurface();
+    if (currentFrame) {
+      ConvertFrame(currentFrame);
+      mSurfaceInvalid = PR_FALSE;
+    } else {
+      return NS_OK;
+    }
   }
 
   if (mSurface) {
@@ -306,10 +312,10 @@ nsSVGImageFrame::PaintSVG(nsISVGRendererCanvas* canvas, nsRect *aDirtyRect)
 NS_IMETHODIMP
 nsSVGImageFrame::GetFrameForPointSVG(float x, float y, nsIFrame** hit)
 {
-  if (GetStyleDisplay()->IsScrollableOverflow() && mImageContainer) {
-    PRInt32 nativeWidth, nativeHeight;
-    mImageContainer->GetWidth(&nativeWidth);
-    mImageContainer->GetHeight(&nativeHeight);
+  if (GetStyleDisplay()->IsScrollableOverflow() && mSurface) {
+    PRUint32 nativeWidth, nativeHeight;
+    nativeWidth = cairo_image_surface_get_width(mSurface);
+    nativeHeight = cairo_image_surface_get_height(mSurface);
 
     nsCOMPtr<nsIDOMSVGMatrix> fini = GetImageTransform();
 
@@ -328,6 +334,166 @@ nsIAtom *
 nsSVGImageFrame::GetType() const
 {
   return nsLayoutAtoms::svgImageFrame;
+}
+
+nsresult
+nsSVGImageFrame::ConvertFrame(gfxIImageFrame *aNewFrame)
+{
+  PRInt32 width, height;
+  aNewFrame->GetWidth(&width);
+  aNewFrame->GetHeight(&height);
+
+  mSurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+  if (!mSurface)
+    return NS_ERROR_FAILURE;
+
+  PRUint8 *data, *target;
+  PRUint32 length;
+  PRInt32 stride;
+
+  data = cairo_image_surface_get_data(mSurface);
+  stride = cairo_image_surface_get_stride(mSurface);
+
+#ifdef MOZ_PLATFORM_IMAGES_BOTTOM_TO_TOP
+  stride = -stride;
+#endif
+
+  aNewFrame->LockImageData();
+  aNewFrame->LockAlphaData();
+  
+  PRUint8 *rgb, *alpha = nsnull;
+  PRUint32 bpr, abpr;
+  aNewFrame->GetImageData(&rgb, &length);
+  aNewFrame->GetImageBytesPerRow(&bpr);
+  if (!rgb) {
+    aNewFrame->UnlockImageData();
+    aNewFrame->UnlockAlphaData();
+    return NS_ERROR_FAILURE;
+  }
+
+#ifdef MOZ_CAIRO_GFX
+  // cairo gfx already has the data in the order/format - just copy
+  memcpy(data, rgb, bpr*height);
+#else
+
+  aNewFrame->GetAlphaData(&alpha, &length);
+  aNewFrame->GetAlphaBytesPerRow(&abpr);
+
+  // some platforms return 4bpp (OSX and Win32 under some circumstances)
+  const PRUint32 bpp = bpr/width;
+
+#ifdef XP_MACOSX
+  // pixels on os-x have a lead byte we don't care about (alpha or
+  // garbage, depending on the image format) - shift our pointer down
+  // one so we can use the rest of the code as-is
+  rgb++;
+#endif
+
+#if (defined(XP_UNIX) && !defined(XP_MACOSX)) || defined(MOZ_CAIRO_GFX)
+#define REVERSE_CHANNELS
+#endif
+
+#if defined(XP_MACOSX) && defined(__i386__)
+#define REVERSE_CHANNELS
+#endif
+
+  // cairo/os-x wants ABGR format, GDI+ wants RGBA, cairo/unix wants BGRA
+  if (!alpha) {
+    for (PRInt32 y=0; y<height; y++) {
+      if (stride > 0)
+        target = data + stride * y;
+      else
+        target = data + stride * (1 - height) + stride * y;
+      for (PRInt32 x=0; x<width; x++) {
+#if defined(XP_MACOSX) && !defined(__i386__)
+        *target++ = 255;
+#endif
+#ifndef REVERSE_CHANNELS
+        *target++ = rgb[y*bpr + bpp*x];
+        *target++ = rgb[y*bpr + bpp*x + 1];
+        *target++ = rgb[y*bpr + bpp*x + 2];
+#else
+        *target++ = rgb[y*bpr + bpp*x + 2];
+        *target++ = rgb[y*bpr + bpp*x + 1];
+        *target++ = rgb[y*bpr + bpp*x];
+#endif
+#if !defined(XP_MACOSX) || (defined(XP_MACOSX) && defined(__i386__))
+        *target++ = 255;
+#endif
+      }
+    }
+  } else {
+    if (abpr >= width) {
+      /* 8-bit alpha */
+      for (PRInt32 y=0; y<height; y++) {
+        if (stride > 0)
+          target = data + stride * y;
+        else
+          target = data + stride * (1 - height) + stride * y;
+        for (PRInt32 x=0; x<width; x++) {
+          PRUint32 a = alpha[y*abpr + x];
+#if defined(XP_MACOSX) && !defined(__i386__)
+          *target++ = a;
+#endif
+#ifndef REVERSE_CHANNELS
+          FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x] * a);
+          FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x + 1] * a);
+          FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x + 2] * a);
+#else
+          FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x + 2] * a);
+          FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x + 1] * a);
+          FAST_DIVIDE_BY_255(*target++, rgb[y*bpr + bpp*x] * a);
+#endif
+#if !defined(XP_MACOSX) || (defined(XP_MACOSX) && defined(__i386__))
+          *target++ = a;
+#endif
+        }
+      }
+    } else {
+      /* 1-bit alpha */
+      for (PRInt32 y=0; y<height; y++) {
+        if (stride > 0)
+          target = data + stride * y;
+        else
+          target = data + stride * (1 - height) + stride * y;
+        PRUint8 *alphaRow = alpha + y*abpr;
+        
+        for (PRUint32 x=0; x<width; x++) {
+          if (NS_GET_BIT(alphaRow, x)) {
+#ifdef XP_MACOSX
+            *target++ = 255;
+#endif
+#ifndef REVERSE_CHANNELS
+            *target++ = rgb[y*bpr + bpp*x];
+            *target++ = rgb[y*bpr + bpp*x + 1];
+            *target++ = rgb[y*bpr + bpp*x + 2];
+#else
+            *target++ = rgb[y*bpr + bpp*x + 2];
+            *target++ = rgb[y*bpr + bpp*x + 1];
+            *target++ = rgb[y*bpr + bpp*x];
+#endif
+#ifndef XP_MACOSX
+            *target++ = 255;
+#endif
+          } else {
+            *target++ = 0;
+            *target++ = 0;
+            *target++ = 0;
+            *target++ = 0;
+          }
+        }
+      }
+    }
+  }
+
+#undef REVERSE_CHANNELS
+
+#endif // MOZ_CAIRO_GFX
+  
+  aNewFrame->UnlockImageData();
+  aNewFrame->UnlockAlphaData();
+  
+  return NS_OK;
 }
 
 //----------------------------------------------------------------------
@@ -384,6 +550,10 @@ nsSVGImageListener::nsSVGImageListener(nsSVGImageFrame *aFrame) :  mFrame(aFrame
 {
 }
 
+nsSVGImageListener::~nsSVGImageListener()
+{
+}
+
 NS_IMETHODIMP nsSVGImageListener::OnStopDecode(imgIRequest *aRequest,
                                                nsresult status,
                                                const PRUnichar *statusArg)
@@ -391,6 +561,7 @@ NS_IMETHODIMP nsSVGImageListener::OnStopDecode(imgIRequest *aRequest,
   if (!mFrame)
     return NS_ERROR_FAILURE;
 
+  mFrame->mSurfaceInvalid = PR_TRUE;
   mFrame->UpdateGraphic();
   return NS_OK;
 }
@@ -402,6 +573,7 @@ NS_IMETHODIMP nsSVGImageListener::FrameChanged(imgIContainer *aContainer,
   if (!mFrame)
     return NS_ERROR_FAILURE;
 
+  mFrame->mSurfaceInvalid = PR_TRUE;
   mFrame->UpdateGraphic();
   return NS_OK;
 }

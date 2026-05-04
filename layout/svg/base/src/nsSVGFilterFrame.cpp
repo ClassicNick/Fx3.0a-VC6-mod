@@ -433,7 +433,12 @@ nsSVGFilterFrame::FilterPaint(nsISVGRendererCanvas *aCanvas,
 
   ctm->Multiply(scale, getter_AddRefs(fini));
 
+<<<<<<< HEAD
   nsresult rv = aCanvas->CompositeSurfaceMatrix(filterResult, fini, 1.0);
+=======
+  nsSVGUtils::CompositeSurfaceMatrix(aContext->GetGfxContext(),
+                                     filterResult, fini, 1.0);
+>>>>>>> parent of 718f464... Bug 362008 - remove nsSVGImageFrame copy of image data.  r=pavlov, sr=roc
 
   aTarget->SetOverrideCTM(nsnull);
   aTarget->SetMatrixPropagation(PR_TRUE);
