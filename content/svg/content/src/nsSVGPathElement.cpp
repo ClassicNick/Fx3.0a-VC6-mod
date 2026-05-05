@@ -36,11 +36,11 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "nsCOMPtr.h"
 #include "nsGkAtoms.h"
 #include "nsSVGPathSegList.h"
 #include "nsIDOMSVGPathSeg.h"
 #include "nsSVGPathSeg.h"
-#include "nsCOMPtr.h"
 #include "nsIFrame.h"
 #include "nsSVGPathDataParser.h"
 #include "nsSVGPathElement.h"

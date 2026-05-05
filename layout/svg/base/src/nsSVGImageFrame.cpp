@@ -594,7 +594,7 @@ NS_IMETHODIMP nsSVGImageListener::OnStartContainer(imgIRequest *aRequest,
   if (!mFrame)
     return NS_ERROR_FAILURE;
 
-  mFrame->mImageContainer = aContainer;
+  mFrame->mSurfaceInvalid = PR_TRUE;
   mFrame->UpdateGraphic();
 
   return NS_OK;

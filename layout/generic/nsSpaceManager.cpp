@@ -433,14 +433,14 @@ nsSpaceManager::GetNextBand(const BandRect* aBandRect) const
 nsSpaceManager::BandRect*
 nsSpaceManager::GetPrevBand(const BandRect* aBandRect) const
 {
-  NS_ASSERTION(aBandRect->Prev() == &mBandList ||
+  NS_ASSERTION(aBandRect->Prev() == (const BandRect*) &mBandList ||
                aBandRect->Prev()->mBottom <= aBandRect->mTop,
                "aBandRect should be first rect within its band");
 
   BandRect* prev = aBandRect->Prev();
   nscoord topOfBand = prev->mTop;
 
-  while (prev != &mBandList) {
+  while (prev != (const BandRect*) &mBandList) {
     // Check whether the prev rect is part of the same band
     if (prev->mTop != topOfBand) {
       // We found the beginning of this band
