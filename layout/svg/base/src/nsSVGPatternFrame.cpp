@@ -283,9 +283,9 @@ nsSVGPatternFrame::PaintPattern(nsISVGRendererCanvas* canvas,
 
   // Now that we have all of the necessary geometries, we can
   // create our surface.
-  cairo_surface_t *patternSurface = CreateSurface(bbox);
-  if (!patternSurface)
-    return NS_ERROR_FAILURE;
+  float surfaceWidth, surfaceHeight;
+  bbox->GetWidth(&surfaceWidth);
+  bbox->GetHeight(&surfaceHeight);
 
   // Push the surface
   if (NS_FAILED(canvas->PushSurface(patternSurface, PR_FALSE))) {
@@ -771,20 +771,6 @@ nsSVGPatternFrame::GetCallerGeometry(nsIDOMSVGMatrix **aCTM,
     (*aBBox)->SetHeight(height);
   }
   return NS_OK;
-}
-
-cairo_surface_t *
-nsSVGPatternFrame::CreateSurface(nsIDOMSVGRect *bbox)
-{
-  float width, height;
-  bbox->GetWidth(&width);
-  bbox->GetHeight(&height);
-
-#ifdef DEBUG_scooter
-  printf("Creating %dX%d surface\n",(int)(width),(int)(height));
-#endif
-  return cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-                                    (int)(width), (int)(height));
 }
 
 //----------------------------------------------------------------------

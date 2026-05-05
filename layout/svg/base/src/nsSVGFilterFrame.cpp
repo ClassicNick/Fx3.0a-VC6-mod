@@ -389,9 +389,9 @@ nsSVGFilterFrame::FilterPaint(nsISVGRendererCanvas *aCanvas,
       return NS_OK;
     }
 
-    PRUint8 *data = cairo_image_surface_get_data(surface);
+    PRUint8 *data = tmpSurface->Data();
     PRUint8 *alphaData = cairo_image_surface_get_data(alpha);
-    PRUint32 stride = cairo_image_surface_get_stride(surface);
+    PRUint32 stride = tmpSurface->Stride();
 
     for (PRUint32 yy=0; yy<filterResY; yy++)
       for (PRUint32 xx=0; xx<filterResX; xx++) {
@@ -407,7 +407,8 @@ nsSVGFilterFrame::FilterPaint(nsISVGRendererCanvas *aCanvas,
 
   // this always needs to be defined last because the default image
   // for the first filter element is supposed to be SourceGraphic
-  instance.DefineImage(NS_LITERAL_STRING("SourceGraphic"), surface,
+  instance.DefineImage(NS_LITERAL_STRING("SourceGraphic"),
+                       tmpSurface->CairoSurface(),
                        nsRect(0, 0, filterResX, filterResY));
 
   for (PRUint32 k=0; k<count; ++k) {
@@ -420,10 +421,18 @@ nsSVGFilterFrame::FilterPaint(nsISVGRendererCanvas *aCanvas,
     }
   }
 
-  cairo_surface_t *filterResult;
+  cairo_surface_t *filterResult = nsnull;
   nsRect filterRect;
+  nsRefPtr<gfxASurface> resultSurface;
 
   instance.LookupImage(NS_LITERAL_STRING(""), &filterResult, &filterRect);
+
+  if (filterResult)
+    resultSurface = gfxASurface::Wrap(filterResult);
+  if (!resultSurface) {
+    FilterFailCleanup(aContext, aTarget);
+    return NS_OK;
+  }
 
   nsCOMPtr<nsIDOMSVGMatrix> scale, fini;
   NS_NewSVGMatrix(getter_AddRefs(scale),
