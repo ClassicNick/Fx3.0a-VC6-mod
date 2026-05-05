@@ -374,6 +374,7 @@ nsBulletFrame::PaintBullet(nsIRenderingContext& aRenderingContext, nsPoint aPt)
     aRenderingContext.SetFont(fm);
     nscoord ascent;
     fm->GetMaxAscent(ascent);
+    aRenderingContext.SetTextRunRTL(PR_FALSE);
     aRenderingContext.DrawString(text, mPadding.left + aPt.x,
                                  mPadding.top + aPt.y + ascent);
     break;
@@ -390,21 +391,26 @@ nsBulletFrame::PaintBullet(nsIRenderingContext& aRenderingContext, nsPoint aPt)
     if (bidiUtils) {
       const PRUnichar* buffer = text.get();
       PRInt32 textLength = text.Length();
+      PRUint32 hints = 0;
+      aRenderingContext.GetHints(hints);
+      PRBool isNewTextRunSystem = (hints & NS_RENDERING_HINT_NEW_TEXT_RUNS) != 0;
       if (eCharType_RightToLeft == charType) {
         bidiUtils->FormatUnicodeText(presContext, (PRUnichar*)buffer, textLength,
-                                     charType, level, PR_FALSE);
+                                     charType, level, PR_FALSE, isNewTextRunSystem);
       }
       else {
 //Mohamed
         aRenderingContext.GetHints(hints);
         isBidiSystem = (hints & NS_RENDERING_HINT_ARABIC_SHAPING);
         bidiUtils->FormatUnicodeText(presContext, (PRUnichar*)buffer, textLength,
-                                     charType, level, isBidiSystem);//Mohamed
+                                     charType, level, isBidiSystem, isNewTextRunSystem);//Mohamed
       }
     }
+    // XXX is this right?
+    aRenderingContext.SetTextRunRTL(level);
     aRenderingContext.DrawString(text, mPadding.left + aPt.x,
                                  mPadding.top + aPt.y + ascent);
-  }   
+  }
 #endif // IBMBIDI
 }
 
@@ -1439,10 +1445,7 @@ nsBulletFrame::GetDesiredSize(nsPresContext*  aCX,
 #endif
 
       aMetrics.width = mComputedSize.width;
-      aMetrics.height = mComputedSize.height;
-
-      aMetrics.ascent = aMetrics.height;
-      aMetrics.descent = 0;
+      aMetrics.ascent = aMetrics.height = mComputedSize.height;
 
       return;
     }
@@ -1466,9 +1469,7 @@ nsBulletFrame::GetDesiredSize(nsPresContext*  aCX,
   switch (myList->mListStyleType) {
     case NS_STYLE_LIST_STYLE_NONE:
       aMetrics.width = 0;
-      aMetrics.height = 0;
-      aMetrics.ascent = 0;
-      aMetrics.descent = 0;
+      aMetrics.ascent = aMetrics.height = 0;
       break;
 
     case NS_STYLE_LIST_STYLE_DISC:
@@ -1485,9 +1486,7 @@ nsBulletFrame::GetDesiredSize(nsPresContext*  aCX,
       bulletSize = NSIntPixelsToTwips(bulletSize, p2t);
       mPadding.bottom = NSIntPixelsToTwips((nscoord) NSToIntRound((float)ascent / (8.0f * p2t)),p2t);
       aMetrics.width = mPadding.right + bulletSize;
-      aMetrics.height = mPadding.bottom + bulletSize;
-      aMetrics.ascent = mPadding.bottom + bulletSize;
-      aMetrics.descent = 0;
+      aMetrics.ascent = aMetrics.height = mPadding.bottom + bulletSize;
       break;
 
     default:
@@ -1545,10 +1544,9 @@ nsBulletFrame::GetDesiredSize(nsPresContext*  aCX,
       GetListItemText(*myList, text);
       fm->GetHeight(aMetrics.height);
       aRenderingContext->SetFont(fm);
-      aRenderingContext->GetWidth(text, aMetrics.width);
+      aMetrics.width = nsLayoutUtils::GetStringWidth(this, aRenderingContext, text.get(), text.Length());
       aMetrics.width += mPadding.right;
       fm->GetMaxAscent(aMetrics.ascent);
-      fm->GetMaxDescent(aMetrics.descent);
       break;
   }
 }
@@ -1571,7 +1569,6 @@ nsBulletFrame::Reflow(nsPresContext* aPresContext,
   aMetrics.width += borderPadding.left + borderPadding.right;
   aMetrics.height += borderPadding.top + borderPadding.bottom;
   aMetrics.ascent += borderPadding.top;
-  aMetrics.descent += borderPadding.bottom;
 
   aStatus = NS_FRAME_COMPLETE;
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowState, aMetrics);

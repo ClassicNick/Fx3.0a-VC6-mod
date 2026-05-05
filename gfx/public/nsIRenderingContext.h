@@ -827,6 +827,12 @@ public:
   NS_IMETHOD SetRightToLeftText(PRBool aIsRTL) = 0;
 
   /**
+   * This sets the direction of the text; all characters should be
+   * overridden to have this direction.
+   */
+  virtual void SetTextRunRTL(PRBool aIsRTL) {}
+
+  /**
    *  Draw a portion of an image, scaling it to fit within a specified rect.
    *  @param aImage     The image to draw
    *  @param aSrcRect   The rect (in twips) of the image to draw.
@@ -999,6 +1005,17 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsIRenderingContext, NS_IRENDERING_CONTEXT_IID)
  * visual order if characters and word spacing are to be applied.
  */
 #define NS_RENDERING_HINT_REORDER_SPACED_TEXT 0x40
+
+/**
+ * This bit, when set, indicates that gfx is using the new gfxTextRun API
+ * underneath.
+ * In particular, only single-direction text runs should be passed to
+ * string methods, and the direction set by SetTextRunRTL will be honoured
+ * for all characters in the string.
+ * XXX TEMPORARY This will go away when all gfx implementations implement
+ * gfxTextRun properly.
+ */
+#define NS_RENDERING_HINT_NEW_TEXT_RUNS 0x80
 
 //flags for copy CopyOffScreenBits
 

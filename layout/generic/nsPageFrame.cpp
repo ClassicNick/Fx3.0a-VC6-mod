@@ -170,8 +170,6 @@ NS_IMETHODIMP nsPageFrame::Reflow(nsPresContext*          aPresContext,
   if (aReflowState.availableHeight != NS_UNCONSTRAINEDSIZE) {
     aDesiredSize.height = aReflowState.availableHeight;
   }
-  aDesiredSize.ascent = aDesiredSize.height;
-  aDesiredSize.descent = 0;
   PR_PL(("PageFrame::Reflow %p ", this));
   PR_PL(("[%d,%d]\n", aReflowState.availableWidth, aReflowState.availableHeight));
 
@@ -270,8 +268,8 @@ nscoord nsPageFrame::GetXPosition(nsIRenderingContext& aRenderingContext,
                                   PRInt32              aJust,
                                   const nsString&      aStr)
 {
-  PRInt32 width;
-  aRenderingContext.GetWidth(aStr, width);
+  nscoord width = nsLayoutUtils::GetStringWidth(this, &aRenderingContext,
+                                                aStr.get(), aStr.Length());
 
   nscoord x = aRect.x;
   switch (aJust) {
@@ -406,24 +404,7 @@ nsPageFrame::DrawHeaderFooter(nsIRenderingContext& aRenderingContext,
     aRenderingContext.PushState();
     aRenderingContext.SetColor(NS_RGB(0,0,0));
     aRenderingContext.SetClipRect(aRect, nsClipCombine_kReplace);
-#ifdef IBMBIDI
-    nsresult rv = NS_ERROR_FAILURE;
-
-    nsPresContext* pc = GetPresContext();
-    if (pc->BidiEnabled()) {
-      nsBidiPresUtils* bidiUtils =  pc->GetBidiUtils();
-      
-      if (bidiUtils) {
-        // Base direction is always LTR for now. If bug 139337 is fixed, 
-        // that should change.
-        rv = bidiUtils->RenderText(str.get(), str.Length(), NSBIDI_LTR,
-                                   pc, aRenderingContext,
-                                   x, y + aAscent);
-      }
-    }
-    if (NS_FAILED(rv))
-#endif // IBMBIDI
-    aRenderingContext.DrawString(str, x, y + aAscent);
+    nsLayoutUtils::DrawString(this, &aRenderingContext, str.get(), str.Length(), nsPoint(x, y + aAscent));
     aRenderingContext.PopState();
   }
 }
@@ -644,7 +625,6 @@ nsPageBreakFrame::Reflow(nsPresContext*          aPresContext,
   // round the height down to the nearest pixel
   aDesiredSize.height -=
     aDesiredSize.height % GetPresContext()->IntScaledPixelsToTwips(1);
-  aDesiredSize.ascent = aDesiredSize.descent = 0;
 
   // Note: not using NS_FRAME_FIRST_REFLOW here, since it's not clear whether
   // DidReflow will always get called before the next Reflow() call.

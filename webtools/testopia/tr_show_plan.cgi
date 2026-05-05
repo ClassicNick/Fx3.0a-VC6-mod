@@ -61,12 +61,6 @@ unless ($plan_id){
 }
 validate_test_id($plan_id, 'plan');
 
-my $format = $template->get_format("testopia/plan/show", scalar $cgi->param('format'), scalar $cgi->param('ctype'));
-unless ( $format->{'extension'} eq "html" ){
-	export($plan_id);
-	exit;
-}
-
 push @{$::vars->{'style_urls'}}, 'testopia/css/default.css';
 
 my $serverpush = support_server_push($cgi);
@@ -168,7 +162,22 @@ elsif ($action eq 'do_clone'){
             # Copy test cases creating new ones
             if ($cgi->param('copy_cases') == 2 ){
                 my $caseid = $case->copy($newplan->id, $author, 1);
+                my $newcase = Bugzilla::Testopia::TestCase->new($caseid);
                 $case->link_plan($newplan->id, $caseid);
+
+                foreach my $tag (@{$case->tags}){
+                    # Doing it this way avoids collisions
+                    my $newtag = Bugzilla::Testopia::TestTag->new({
+                                   tag_name  => $tag->name
+                                 });
+                    my $newtagid = $newtag->store;
+                    $newcase->add_tag($newtagid);
+                }
+
+                foreach my $comp (@{$case->components}){
+                    $newcase->add_component($comp->{'id'});
+                }
+                
             }
             # Just create a link
             else {
@@ -203,12 +212,14 @@ elsif ($action eq 'Commit'){
 }
 
 elsif ($action eq 'Print'){
-    print $cgi->header;
     my $plan = Bugzilla::Testopia::TestPlan->new($plan_id);
-    ThrowUserError("testopia-permission-denied", {'object' => 'plan'}) unless $plan->canview;
-    $vars->{'plan'} = $plan;    
-    $template->process("testopia/plan/show-document.html.tmpl", $vars)
-      || ThrowTemplateError($template->error());
+    unless ($plan->canview){
+        print $cgi->header;
+        ThrowUserError("testopia-permission-denied", {'object' => 'plan'});
+    }
+    $vars->{'printdoc'} = 1;
+    $cgi->param('ctype', 'print');
+    display($plan);    
 }
 
 elsif ($action eq 'History'){
@@ -327,7 +338,6 @@ elsif ($action eq 'caselist'){
 ### Just show it ###
 ####################
 else{
-    print $cgi->header;
     my $plan = Bugzilla::Testopia::TestPlan->new($plan_id);
     ThrowUserError("testopia-permission-denied", {'object' => 'plan'}) unless $plan->canview;
     display($plan);
@@ -443,29 +453,19 @@ sub display {
         $vars->{'run_table'} = $table;    
       
     }
+    # Dojo will try to parse every tag looking for widgets unless we tell it 
+    # which tags have them. 
     my @dojo_search;
     foreach my $run (@{$plan->test_runs}){
         push @dojo_search, "tip_" . $run->id;
     }
     push @dojo_search, "plandoc","newtag","tagTable";
     $vars->{'dojo_search'} = objToJson(\@dojo_search);
+    
     $vars->{'plan'} = $plan;
     
-    $template->process("testopia/plan/show.html.tmpl", $vars) ||
-        ThrowTemplateError($template->error());
-}
-
-sub export {
-	my ($plan_id) = @_;
-	my $casequery = new Bugzilla::CGI($cgi);
-	
-	$casequery->param('current_tab', 'case');
-	my $search = Bugzilla::Testopia::Search->new($casequery);
-	my $table = Bugzilla::Testopia::Table->new('case', 'tr_show_plan.cgi', $casequery, undef, $search->query);
-	ThrowUserError('testopia-query-too-large', {'limit' => $case_query_limit}) if $table->view_count > $case_query_limit;
-	$vars->{'table'} = $table;    
-		
-	my $disp = "inline";
+    my $format = $template->get_format("testopia/plan/show", scalar $cgi->param('format'), scalar $cgi->param('ctype'));
+  	my $disp = "inline";
 	# We set CSV files to be downloaded, as they are designed for importing
     # into other programs.
     if ( $format->{'extension'} eq "csv" || $format->{'extension'} eq "xml" )
@@ -474,14 +474,18 @@ sub export {
 		$vars->{'displaycolumns'} = \@Bugzilla::Testopia::Constants::TESTCASE_EXPORT;
     }
 	
-	# Suggest a name for the bug list if the user wants to save it as a file.
+	# Suggest a name for the file if the user wants to save it as a file.
     my @time = localtime(time());
     my $date = sprintf "%04d-%02d-%02d", 1900+$time[5],$time[4]+1,$time[3];
 	my $filename = "testcases-$date.$format->{extension}";
+#	print $cgi->multipart_final if ($serverpush && $vars->{'case_table'}->list_count >= 1000);
     print $cgi->header(-type => $format->{'ctype'},
 					   -content_disposition => "$disp; filename=$filename");
-					   	  
+	
+	$vars->{'percentage'} = \&percentage;			   	  
 	$template->process($format->{'template'}, $vars) ||
 		ThrowTemplateError($template->error());
+
 }
+
 

@@ -549,6 +549,37 @@ public:
   // Implement nsIFrame::GetMinWidth in terms of nsIFrame::AddInlineMinWidth
   static nscoord MinWidthFromInline(nsIFrame* aFrame,
                                     nsIRenderingContext* aRenderingContext);
+
+  static void DrawString(const nsIFrame*      aFrame,
+                         nsIRenderingContext* aContext,
+                         const PRUnichar*     aString,
+                         PRInt32              aLength,
+                         nsPoint              aPoint);
+
+  static nscoord GetStringWidth(const nsIFrame*      aFrame,
+                                nsIRenderingContext* aContext,
+                                const PRUnichar*     aString,
+                                PRInt32              aLength);
+
+  /**
+   * Derive a baseline of |aFrame| (measured from its top border edge)
+   * from its first in-flow line box (not descending into anything with
+   * 'overflow' not 'visible', potentially including aFrame itself).
+   *
+   * Returns true if a baseline was found (and fills in aResult).
+   * Otherwise returns false.
+   */
+  static PRBool GetFirstLineBaseline(const nsIFrame* aFrame, nscoord* aResult);
+
+  /**
+   * Derive a baseline of |aFrame| (measured from its top border edge)
+   * from its last in-flow line box (not descending into anything with
+   * 'overflow' not 'visible', potentially including aFrame itself).
+   *
+   * Returns true if a baseline was found (and fills in aResult).
+   * Otherwise returns false.
+   */
+  static PRBool GetLastLineBaseline(const nsIFrame* aFrame, nscoord* aResult);
 };
 
 #endif // nsLayoutUtils_h__

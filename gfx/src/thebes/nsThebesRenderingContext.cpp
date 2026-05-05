@@ -248,6 +248,10 @@ nsThebesRenderingContext::GetHints(PRUint32& aResult)
                 NS_RENDERING_HINT_ARABIC_SHAPING |
                 NS_RENDERING_HINT_REORDER_SPACED_TEXT);
 
+#ifdef MOZ_X11
+    aResult |= NS_RENDERING_HINT_NEW_TEXT_RUNS;
+#endif
+
     return NS_OK;
 }
 
@@ -1102,6 +1106,12 @@ nsThebesRenderingContext::GetRightToLeftText(PRBool* aIsRTL)
 {
     *aIsRTL = mFontMetrics->GetRightToLeftText();
     return NS_OK;
+}
+
+void
+nsThebesRenderingContext::SetTextRunRTL(PRBool aIsRTL)
+{
+	mFontMetrics->SetTextRunRTL(aIsRTL);
 }
 
 NS_IMETHODIMP

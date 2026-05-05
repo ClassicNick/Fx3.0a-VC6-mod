@@ -111,9 +111,11 @@
 // objects alive during the unlinking.
 // 
 
+#ifndef __MINGW32__
 #ifdef WIN32
 #include <crtdbg.h>
 #include <errno.h>
+#endif
 #endif
 
 #include "nsCycleCollectionParticipant.h"
@@ -489,6 +491,7 @@ struct nsCycleCollector
     void Allocated(void *n, size_t sz);
     void Freed(void *n);
     void Collect();
+    void Shutdown();
 };
 
 
@@ -886,12 +889,14 @@ nsCycleCollector::CollectWhite()
     for (i = 0; i < nsIProgrammingLanguage::MAX+1; ++i)
         mBufs[i]->Empty();
 
+#ifndef __MINGW32__
 #ifdef WIN32
 #if defined (_MSC_VER) && _MSC_VER >= 1200
     struct _CrtMemState ms1, ms2;
     _CrtMemCheckpoint(&ms1);
 #endif // _MSC_VER
 #endif // WIN32
+#endif // __MINGW32__
 
     mGraph.Enumerate(FindWhiteCallback, this);
 
@@ -929,6 +934,7 @@ nsCycleCollector::CollectWhite()
     for (i = 0; i < nsIProgrammingLanguage::MAX+1; ++i)
         mBufs[i]->Empty();
 
+#ifndef __MINGW32__
 #ifdef WIN32
 #if defined (_MSC_VER) && _MSC_VER >= 1200
     _CrtMemCheckpoint(&ms2);
@@ -936,6 +942,7 @@ nsCycleCollector::CollectWhite()
         mStats.mFreedBytes += (ms1.lTotalCount - ms2.lTotalCount);
 #endif
 #endif // WIN32
+#endif __MINGW32__
 }
 
 
@@ -1278,6 +1285,7 @@ void (*__malloc_initialize_hook) (void) = InitMemHook;
 
 
 #elif defined(WIN32)
+#ifndef __MINGW32__
 
 static int 
 AllocHook(int allocType, void *userData, size_t size, int 
@@ -1297,7 +1305,7 @@ static void InitMemHook(void)
         hookedMalloc = PR_TRUE;        
     }
 }
-
+#endif // __MINGW32__
 
 #elif 0 // defined(XP_MACOSX)
 
@@ -1530,8 +1538,10 @@ nsCycleCollector::Suspect(nsISupports *n)
     if (nsCycleCollector_shouldSuppress(n))
         return;
 
+#ifndef __MINGW32__
     if (mParams.mHookMalloc)
         InitMemHook();
+#endif
 
     mPurpleBuf.Put(n);
 
@@ -1561,8 +1571,10 @@ nsCycleCollector::Forget(nsISupports *n)
     if (!NS_IsMainThread())
         Fault("trying to forget from non-main thread");
 
+#ifndef __MINGW32__
     if (mParams.mHookMalloc)
         InitMemHook();
+#endif
 
     mPurpleBuf.Remove(n);
     
@@ -1614,8 +1626,10 @@ nsCycleCollector::Collect()
 
     if (! mParams.mDoNothing) {
 
+#ifndef __MINGW32__
         if (mParams.mHookMalloc)
             InitMemHook();
+#endif
         
         CollectPurple();
 
@@ -1660,6 +1674,19 @@ nsCycleCollector::Collect()
         if (mRuntimes[i])
             mRuntimes[i]->FinishCycleCollection();
     }    
+}
+
+void
+nsCycleCollector::Shutdown()
+{
+    // Here we want to run a final collection on everything we've seen
+    // buffered, irrespective of age; then permanently disable
+    // the collector because the program is shutting down.
+
+    mPurpleBuf.BumpGeneration();
+    mParams.mScanDelay = 0;
+    Collect();
+    mParams.mDoNothing = PR_TRUE;
 }
 
 
@@ -1716,6 +1743,15 @@ nsCycleCollector_collect()
         return;
 
     sCollector.Collect();
+}
+
+void 
+nsCycleCollector_shutdown()
+{
+    if (sCollectorConstructed == 0)
+        return;
+
+    sCollector.Shutdown();
 }
 
 

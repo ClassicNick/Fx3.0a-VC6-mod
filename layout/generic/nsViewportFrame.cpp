@@ -304,8 +304,6 @@ ViewportFrame::Reflow(nsPresContext*          aPresContext,
   aDesiredSize.height = aReflowState.availableHeight != NS_UNCONSTRAINEDSIZE
                           ? aReflowState.availableHeight
                           : kidRect.height;
-  aDesiredSize.ascent = aDesiredSize.height;
-  aDesiredSize.descent = 0;
 
   // Make a copy of the reflow state and change the computed width and height
   // to reflect the available space for the fixed items
@@ -331,6 +329,10 @@ ViewportFrame::Reflow(nsPresContext*          aPresContext,
     nsRect damageRect(0, 0, aDesiredSize.width, aDesiredSize.height);
     Invalidate(damageRect, PR_FALSE);
   }
+
+  // XXX Should we do something to clip our children to this?
+  aDesiredSize.mOverflowArea =
+    nsRect(nsPoint(0, 0), nsSize(aDesiredSize.width, aDesiredSize.height));
 
   NS_FRAME_TRACE_REFLOW_OUT("ViewportFrame::Reflow", aStatus);
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowState, aDesiredSize);

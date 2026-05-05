@@ -881,8 +881,6 @@ nsImageFrame::Reflow(nsPresContext*          aPresContext,
       aStatus = NS_FRAME_NOT_COMPLETE;
     }
   }
-  aMetrics.ascent  = aMetrics.height;
-  aMetrics.descent = 0;
 
   aMetrics.mOverflowArea.SetRect(0, 0, aMetrics.width, aMetrics.height);
   FinishAndStoreOverflow(&aMetrics);
@@ -917,6 +915,7 @@ nsImageFrame::MeasureString(const PRUnichar*     aString,
 {
   nscoord totalWidth = 0;
   nscoord spaceWidth;
+  aContext.SetTextRunRTL(PR_FALSE);
   aContext.GetWidth(' ', spaceWidth);
 
   aMaxFit = 0;
@@ -933,8 +932,8 @@ nsImageFrame::MeasureString(const PRUnichar*     aString,
     }
   
     // Measure this chunk of text, and see if it fits
-    nscoord width;
-    aContext.GetWidth(aString, len, width);
+    nscoord width =
+      nsLayoutUtils::GetStringWidth(this, &aContext, aString, len);
     PRBool  fits = (totalWidth + width) <= aMaxWidth;
 
     // If it fits on the line, or it's the first word we've processed then

@@ -1119,7 +1119,8 @@ nsBidiPresUtils::FormatUnicodeText(nsPresContext*  aPresContext,
                                    PRInt32&         aTextLength,
                                    nsCharType       aCharType,
                                    PRBool           aIsOddLevel,
-                                   PRBool           aIsBidiSystem)
+                                   PRBool           aIsBidiSystem,
+                                   PRBool           aIsNewTextRunSystem)
 {
   NS_ASSERTION(aIsOddLevel == 0 || aIsOddLevel == 1, "aIsOddLevel should be 0 or 1");
   nsresult rv = NS_OK;
@@ -1168,15 +1169,17 @@ nsBidiPresUtils::FormatUnicodeText(nsPresContext*  aPresContext,
   PRBool doReverse = PR_FALSE;
   PRBool doShape = PR_FALSE;
 
-  if (aIsBidiSystem) {
-    if ( (CHARTYPE_IS_RTL(aCharType)) ^ (aIsOddLevel) )
-      doReverse = PR_TRUE;
-  }
-  else {
-    if (aIsOddLevel)
-      doReverse = PR_TRUE;
-    if (eCharType_RightToLeftArabic == aCharType) 
-      doShape = PR_TRUE;
+  if (!aIsNewTextRunSystem) {
+    if (aIsBidiSystem) {
+      if ( (CHARTYPE_IS_RTL(aCharType)) ^ (aIsOddLevel) )
+        doReverse = PR_TRUE;
+    }
+    else {
+      if (aIsOddLevel)
+        doReverse = PR_TRUE;
+      if (eCharType_RightToLeftArabic == aCharType) 
+        doShape = PR_TRUE;
+    }
   }
 
   if (doReverse || doShape) {
@@ -1325,15 +1328,17 @@ nsresult nsBidiPresUtils::GetBidiEngine(nsBidi** aBidiEngine)
   return rv; 
 }
 
-nsresult nsBidiPresUtils::RenderText(const PRUnichar*     aText,
-                                     PRInt32              aLength,
-                                     nsBidiDirection      aBaseDirection,
-                                     nsPresContext*      aPresContext,
-                                     nsIRenderingContext& aRenderingContext,
-                                     nscoord              aX,
-                                     nscoord              aY,
-                                     nsBidiPositionResolve* aPosResolve,
-                                     PRInt32              aPosResolveCount)
+nsresult nsBidiPresUtils::ProcessText(const PRUnichar*       aText,
+                                      PRInt32                aLength,
+                                      nsBidiDirection        aBaseDirection,
+                                      nsPresContext*         aPresContext,
+                                      nsIRenderingContext&   aRenderingContext,
+                                      Mode                   aMode,
+                                      nscoord                aX,
+                                      nscoord                aY,
+                                      nsBidiPositionResolve* aPosResolve,
+                                      PRInt32                aPosResolveCount,
+                                      nscoord*               aWidth)
 {
   NS_ASSERTION((aPosResolve == nsnull) != (aPosResolveCount > 0), "Incorrect aPosResolve / aPosResolveCount arguments");
 
@@ -1351,6 +1356,7 @@ nsresult nsBidiPresUtils::RenderText(const PRUnichar*     aText,
 
   nscoord width, xEndRun, xStartText = aX;
   PRBool isRTL = PR_FALSE;
+  nscoord totalWidth = 0;
   PRInt32 i, start, limit, length;
   PRUint32 visualStart = 0;
   PRUint8 charType;
@@ -1393,6 +1399,8 @@ nsresult nsBidiPresUtils::RenderText(const PRUnichar*     aText,
      * subrun before rendering. After rendering all the subruns, we restore the
      * x-coordinate of the end of the run for the start of the next run.
      */
+    aRenderingContext.SetTextRunRTL(level & 1);
+
     if (level & 1) {
       aRenderingContext.GetWidth(aText + start, subRunLength, width, nsnull);
       aX += width;
@@ -1419,13 +1427,16 @@ nsresult nsBidiPresUtils::RenderText(const PRUnichar*     aText,
         return NS_ERROR_OUT_OF_MEMORY;
       FormatUnicodeText(aPresContext, runVisualText.BeginWriting(), subRunLength,
                         (nsCharType)charType, level & 1,
-                        isBidiSystem);
+                        isBidiSystem, (hints & NS_RENDERING_HINT_NEW_TEXT_RUNS) != 0);
 
       aRenderingContext.GetWidth(runVisualText.get(), subRunLength, width, nsnull);
+      totalWidth += width;
       if (level & 1) {
         aX -= width;
       }
-      aRenderingContext.DrawString(runVisualText.get(), subRunLength, aX, aY, width);
+      if (aMode == MODE_DRAW) {
+        aRenderingContext.DrawString(runVisualText.get(), subRunLength, aX, aY);
+      }
 
       /*
        * The caller may request to calculate the visual position of one
@@ -1508,6 +1519,9 @@ nsresult nsBidiPresUtils::RenderText(const PRUnichar*     aText,
   if (isRTL) {
     aRenderingContext.SetRightToLeftText(PR_FALSE);
   }
+  if (aWidth) {
+    *aWidth = totalWidth;
+  }
   return NS_OK;
 }
   
@@ -1516,19 +1530,22 @@ nsBidiPresUtils::ReorderUnicodeText(PRUnichar*       aText,
                                     PRInt32&         aTextLength,
                                     nsCharType       aCharType,
                                     PRBool           aIsOddLevel,
-                                    PRBool           aIsBidiSystem)
+                                    PRBool           aIsBidiSystem,
+                                    PRBool           aIsNewTextRunSystem)
 {
   NS_ASSERTION(aIsOddLevel == 0 || aIsOddLevel == 1, "aIsOddLevel should be 0 or 1");
   nsresult rv = NS_OK;
   PRBool doReverse = PR_FALSE;
 
-  if (aIsBidiSystem) {
-    if ( (CHARTYPE_IS_RTL(aCharType)) ^ (aIsOddLevel) )
-      doReverse = PR_TRUE;
-  }
-  else {
-    if (aIsOddLevel)
-      doReverse = PR_TRUE;
+  if (!aIsNewTextRunSystem) {
+    if (aIsBidiSystem) {
+      if ( (CHARTYPE_IS_RTL(aCharType)) ^ (aIsOddLevel) )
+        doReverse = PR_TRUE;
+    }
+    else {
+      if (aIsOddLevel)
+        doReverse = PR_TRUE;
+    }
   }
 
   if (doReverse) {
