@@ -98,10 +98,10 @@ class nsWeakFrame;
 
 typedef short SelectionType;
 
-// 5A76F236-B93A-4C70-BC22-250F71C90518
+// B6AFC710-43B8-4FD0-8B18-782FD621B270
 #define NS_IPRESSHELL_IID     \
-{ 0x5a76f236, 0xb93a, 0x4c70, \
- { 0xbc, 0x22, 0x25, 0x0f, 0x71, 0xc9, 0x05, 0x18 } }
+{ 0xb6afc710, 0x43b8, 0x4fd0, \
+ { 0x8b, 0x18, 0x78, 0x2f, 0xd6, 0x21, 0xb2, 0x70 } }
 
 // Constants uses for ScrollFrameIntoView() function
 #define NS_PRESSHELL_SCROLL_TOP      0
@@ -173,10 +173,24 @@ public:
   virtual void* AllocateFrame(size_t aSize) = 0;
   virtual void  FreeFrame(size_t aSize, void* aFreeChunk) = 0;
 
-  // Dynamic stack memory allocation
-  NS_IMETHOD PushStackMemory() = 0;
-  NS_IMETHOD PopStackMemory() = 0;
-  NS_IMETHOD AllocateStackMemory(size_t aSize, void** aResult) = 0;
+  /**
+   * Stack memory allocation:
+   *
+   * Callers who wish to allocate memory whose lifetime corresponds to
+   * the lifetime of a stack-allocated object can use this API.  The
+   * caller must use a pair of calls to PushStackMemory and
+   * PopStackMemory, such that all stack object lifetimes are either
+   * entirely between the calls or containing both calls.
+   *
+   * Then, between the calls, the caller can call AllocateStackMemory to
+   * allocate memory from an arena pool that will be freed by the call
+   * to PopStackMemory.
+   *
+   * The allocations cannot be for more than 4044 bytes.
+   */
+  virtual void PushStackMemory() = 0;
+  virtual void PopStackMemory() = 0;
+  virtual void* AllocateStackMemory(size_t aSize) = 0;
   
   nsIDocument* GetDocument() { return mDocument; }
 
@@ -377,12 +391,6 @@ public:
 
   NS_IMETHOD PostReflowCallback(nsIReflowCallback* aCallback) = 0;
   NS_IMETHOD CancelReflowCallback(nsIReflowCallback* aCallback) = 0;
- /**
-   * Reflow batching
-   */   
-  NS_IMETHOD BeginReflowBatching() = 0;
-  NS_IMETHOD EndReflowBatching(PRBool aFlushPendingReflows) = 0;
-  NS_IMETHOD GetReflowBatchingStatus(PRBool* aIsBatching) = 0;
 
   NS_IMETHOD ClearFrameRefs(nsIFrame* aFrame) = 0;
 

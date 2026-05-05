@@ -3085,9 +3085,6 @@ nsFrame::ComputeSize(nsIRenderingContext *aRenderingContext,
   if (minWidth > result.width)
     result.width = minWidth;
 
-  if (result.width < 0)
-    result.width = 0;
-
   // Compute height
 
   if (!IsAutoHeight(stylePos->mHeight, aCBSize.height)) {
@@ -3116,6 +3113,33 @@ nsFrame::ComputeSize(nsIRenderingContext *aRenderingContext,
         result.height = minHeight;
     }
   }
+
+  const nsStyleDisplay *disp = GetStyleDisplay();
+  if (IsThemed(disp)) {
+    nsSize size(0, 0);
+    PRBool canOverride = PR_TRUE;
+    nsPresContext *presContext = GetPresContext();
+    presContext->GetTheme()->
+      GetMinimumWidgetSize(aRenderingContext, this, disp->mAppearance,
+                           &size, &canOverride);
+
+    // GMWS() returns size in pixels, we need to convert it back to twips
+    float p2t = presContext->ScaledPixelsToTwips();
+    size.width = NSIntPixelsToTwips(size.width, p2t);
+    size.height = NSIntPixelsToTwips(size.height, p2t);
+
+    // GMWS() returns border-box; we need content-box
+    size.width -= aBorder.width + aPadding.width;
+    size.height -= aBorder.height + aPadding.height;
+
+    if (size.height > result.height || !canOverride)
+      result.height = size.height;
+    if (size.width > result.width || !canOverride)
+      result.width = size.width;
+  }
+
+  if (result.width < 0)
+    result.width = 0;
 
   if (result.height < 0)
     result.height = 0;
@@ -5228,12 +5252,23 @@ nsIFrame::FinishAndStoreOverflow(nsRect* aOverflowArea, nsSize aNewSize)
 {
   // This is now called FinishAndStoreOverflow() instead of 
   // StoreOverflow() because frame-generic ways of adding overflow
-  // can happen here, e.g. CSS2 outline.
+  // can happen here, e.g. CSS2 outline and native theme.
   // If we find more things other than outline that need to be added,
   // we should think about starting a new method like GetAdditionalOverflow()
   NS_ASSERTION(aNewSize.width == 0 || aNewSize.height == 0 ||
                aOverflowArea->Contains(nsRect(nsPoint(0, 0), aNewSize)),
                "Computed overflow area must contain frame bounds");
+
+  const nsStyleDisplay *disp = GetStyleDisplay();
+  if (IsThemed(disp)) {
+    nsRect r;
+    nsPresContext *presContext = GetPresContext();
+    if (presContext->GetTheme()->
+          GetWidgetOverflow(presContext->DeviceContext(), this,
+                            disp->mAppearance, &r)) {
+      aOverflowArea->UnionRect(*aOverflowArea, r);
+    }
+  }
 
   PRBool geometricOverflow =
     aOverflowArea->x < 0 || aOverflowArea->y < 0 ||
@@ -6045,27 +6080,10 @@ nsFrame::BoxReflow(nsBoxLayoutState&        aState,
   // ok now reflow the child into the spacers calculated space
   if (needsReflow) {
 
-    nsMargin border(0,0,0,0);
-    GetBorderAndPadding(border);
-
-
     aDesiredSize.width = 0;
     aDesiredSize.height = 0;
 
-    nsSize size(aWidth, aHeight);
-
     // create a reflow state to tell our child to flow at the given size.
-    if (size.height != NS_INTRINSICSIZE) {
-        size.height -= (border.top + border.bottom);
-        if (size.height < 0)
-          size.height = 0;
-    }
-
-    if (size.width != NS_INTRINSICSIZE) {
-        size.width -= (border.left + border.right);
-        if (size.width < 0)
-          size.width = 0;
-    }
 
     // Construct a bogus parent reflow state so that there's a usable
     // containing block reflow state.
@@ -6092,6 +6110,7 @@ nsFrame::BoxReflow(nsBoxLayoutState&        aState,
     if (parentSize.height != NS_INTRINSICSIZE)
       parentReflowState.mComputedHeight = parentSize.height;
     parentReflowState.mComputedMargin.SizeTo(0, 0, 0, 0);
+    // XXX use box methods
     parentFrame->GetPadding(parentReflowState.mComputedPadding);
     parentFrame->GetBorder(parentReflowState.mComputedBorderPadding);
     parentReflowState.mComputedBorderPadding +=
@@ -6109,10 +6128,18 @@ nsFrame::BoxReflow(nsBoxLayoutState&        aState,
 
     // mComputedWidth and mComputedHeight are content-box, not
     // border-box
-    if (size.width != NS_INTRINSICSIZE)
-      reflowState.mComputedWidth = size.width;
-    if (size.height != NS_INTRINSICSIZE)
-      reflowState.mComputedHeight = size.height;
+    if (aWidth != NS_INTRINSICSIZE) {
+      reflowState.mComputedWidth =
+        aWidth - reflowState.mComputedBorderPadding.LeftRight();
+      if (reflowState.mComputedWidth < 0)
+        reflowState.mComputedWidth = 0;
+    }
+    if (aHeight != NS_INTRINSICSIZE) {
+      reflowState.mComputedHeight =
+        aHeight - reflowState.mComputedBorderPadding.TopBottom();
+      if (reflowState.mComputedHeight < 0)
+        reflowState.mComputedHeight = 0;
+    }
 
     // Box layout calls SetRect before Layout, whereas non-box layout
     // calls SetRect after Reflow.
@@ -6171,8 +6198,10 @@ nsFrame::BoxReflow(nsBoxLayoutState&        aState,
              else {
               if (aDesiredSize.width > aWidth)
               {
-                 reflowState.mComputedWidth = aDesiredSize.width - (border.left + border.right);
-                 reflowState.availableWidth = reflowState.mComputedWidth;
+                 reflowState.mComputedWidth = aDesiredSize.width - reflowState.mComputedBorderPadding.LeftRight();
+                 if (reflowState.mComputedWidth < 0)
+                   reflowState.mComputedWidth = 0;
+                 reflowState.availableWidth = aDesiredSize.width;
                  DidReflow(aPresContext, &reflowState, NS_FRAME_REFLOW_FINISHED);
                  #ifdef DEBUG_REFLOW
                   nsAdaptorAddIndents();

@@ -651,24 +651,6 @@ nsHTMLReflowState::CalculateHorizBorderPaddingMargin(nscoord aContainingBlockWid
          margin.left + margin.right;
 }
 
-static nsIFrame*
-FindImmediateChildOf(nsIFrame* aParent, nsIFrame* aDescendantFrame)
-{
-  nsIFrame* result = aDescendantFrame;
-
-  while (result) {
-    nsIFrame* parent = result->GetParent();
-    if (parent == aParent) {
-      break;
-    }
-
-    // The frame is not an immediate child of aParent so walk up another level
-    result = parent;
-  }
-
-  return result;
-}
-
 /**
  * Returns PR_TRUE iff a pre-order traversal of the normal child
  * frames rooted at aFrame finds no non-empty frame before aDescendant.
@@ -776,7 +758,8 @@ nsHTMLReflowState::CalculateHypotheticalBox(nsPresContext*    aPresContext,
                                   NS_REINTERPRET_CAST(void**, &blockFrame)))) {
     // We need the immediate child of the block frame, and that may not be
     // the placeholder frame
-    nsIFrame *blockChild = FindImmediateChildOf(blockFrame, aPlaceholderFrame);
+    nsIFrame *blockChild =
+      nsLayoutUtils::FindChildContainingDescendant(blockFrame, aPlaceholderFrame);
     nsBlockFrame::line_iterator lineBox = blockFrame->FindLineFor(blockChild);
 
     // How we determine the hypothetical box depends on whether the element
@@ -1451,12 +1434,19 @@ nsHTMLReflowState::InitConstraints(nsPresContext* aPresContext,
   // height equal to the available space
   if (nsnull == parentReflowState) {
     // XXXldb This doesn't mean what it used to!
-    mComputedWidth = availableWidth;
-    mComputedHeight = availableHeight;
+    InitOffsets(aContainingBlockWidth, aBorder, aPadding);
+    // Override mComputedMargin since reflow roots start from the
+    // frame's boundary, which is inside the margin.
     mComputedMargin.SizeTo(0, 0, 0, 0);
-    mComputedPadding.SizeTo(0, 0, 0, 0);
-    mComputedBorderPadding.SizeTo(0, 0, 0, 0);
     mComputedOffsets.SizeTo(0, 0, 0, 0);
+
+    mComputedWidth = availableWidth - mComputedBorderPadding.LeftRight();
+    if (mComputedWidth < 0)
+      mComputedWidth = 0;
+    mComputedHeight = availableHeight - mComputedBorderPadding.TopBottom();
+    if (mComputedHeight < 0)
+      mComputedHeight = 0;
+
     mComputedMinWidth = mComputedMinHeight = 0;
     mComputedMaxWidth = mComputedMaxHeight = NS_UNCONSTRAINEDSIZE;
   } else {
@@ -1666,7 +1656,22 @@ nsCSSOffsetState::InitOffsets(nscoord aContainingBlockWidth,
   // XXX fix to provide 0,0 for the top&bottom margins for
   // inline-non-replaced elements
   ComputeMargin(aContainingBlockWidth);
-  if (aPadding) { // padding is an input arg
+
+  const nsStyleDisplay *disp = frame->GetStyleDisplay();
+  PRBool isThemed = frame->IsThemed(disp);
+  nsPresContext *presContext = frame->GetPresContext();
+
+  if (isThemed &&
+      presContext->GetTheme()->GetWidgetPadding(presContext->DeviceContext(),
+                                                frame, disp->mAppearance,
+                                                &mComputedPadding)) {
+    float p2t = presContext->ScaledPixelsToTwips();
+    mComputedPadding.top = NSIntPixelsToTwips(mComputedPadding.top, p2t);
+    mComputedPadding.right = NSIntPixelsToTwips(mComputedPadding.right, p2t);
+    mComputedPadding.bottom = NSIntPixelsToTwips(mComputedPadding.bottom, p2t);
+    mComputedPadding.left = NSIntPixelsToTwips(mComputedPadding.left, p2t);
+  }
+  else if (aPadding) { // padding is an input arg
     mComputedPadding.top    = aPadding->top;
     mComputedPadding.right  = aPadding->right;
     mComputedPadding.bottom = aPadding->bottom;
@@ -1675,7 +1680,22 @@ nsCSSOffsetState::InitOffsets(nscoord aContainingBlockWidth,
   else {
     ComputePadding(aContainingBlockWidth);
   }
-  if (aBorder) {  // border is an input arg
+
+  if (isThemed) {
+    presContext->GetTheme()->GetWidgetBorder(presContext->DeviceContext(),
+                                             frame, disp->mAppearance,
+                                             &mComputedBorderPadding);
+    float p2t = presContext->ScaledPixelsToTwips();
+    mComputedBorderPadding.top =
+      NSIntPixelsToTwips(mComputedBorderPadding.top, p2t);
+    mComputedBorderPadding.right =
+      NSIntPixelsToTwips(mComputedBorderPadding.right, p2t);
+    mComputedBorderPadding.bottom =
+      NSIntPixelsToTwips(mComputedBorderPadding.bottom, p2t);
+    mComputedBorderPadding.left =
+      NSIntPixelsToTwips(mComputedBorderPadding.left, p2t);
+  }
+  else if (aBorder) {  // border is an input arg
     mComputedBorderPadding = *aBorder;
   }
   else {

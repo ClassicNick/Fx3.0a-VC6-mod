@@ -194,6 +194,7 @@ MODULES_core :=                                 \
   mozilla/storage                               \
   mozilla/db/sqlite3                            \
   mozilla/db/morkreader                         \
+  mozilla/testing/mochitest                     \
   $(NULL)
 
 LOCALES_necko :=                                \

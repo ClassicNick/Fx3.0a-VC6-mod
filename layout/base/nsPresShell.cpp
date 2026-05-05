@@ -442,10 +442,12 @@ public:
   StackArena();
   ~StackArena();
 
+  nsresult Init() { return mBlocks ? NS_OK : NS_ERROR_OUT_OF_MEMORY; }
+
   // Memory management functions
-  nsresult  Allocate(size_t aSize, void** aResult);
-  nsresult  Push();
-  nsresult  Pop();
+  void* Allocate(size_t aSize);
+  void Push();
+  void Pop();
 
 private:
   // our current position in memory
@@ -472,9 +474,8 @@ private:
 
 StackArena::StackArena()
 {
-  // allocate the marks array
-  mMarkLength = MARK_INCREMENT;
-  mMarks = new StackMark[mMarkLength];
+  mMarkLength = 0;
+  mMarks = nsnull;
 
   // allocate our stack memory
   mBlocks = new StackBlock();
@@ -496,34 +497,46 @@ StackArena::~StackArena()
   }
 } 
 
-nsresult
+void
 StackArena::Push()
 {
-  // if the we overrun our mark array. Resize it.
-  if (mStackTop + 1 >= mMarkLength)
+  // Resize the mark array if we overrun it.  Failure to allocate the
+  // mark array is not fatal; we just won't free to that mark.  This
+  // allows callers not to worry about error checking.
+  if (mStackTop >= mMarkLength)
   {
-    StackMark* oldMarks = mMarks;
-    PRUint32 oldLength = mMarkLength;
-    mMarkLength += MARK_INCREMENT;
-    mMarks = new StackMark[mMarkLength];
-    memcpy(mMarks, oldMarks, sizeof(StackMark)*oldLength);
-
-    delete[] oldMarks;
+    PRUint32 newLength = mStackTop + MARK_INCREMENT;
+    StackMark* newMarks = new StackMark[newLength];
+    if (newMarks) {
+      if (mMarkLength)
+        memcpy(newMarks, mMarks, sizeof(StackMark)*mMarkLength);
+      // Fill in any marks that we couldn't allocate during a prior call
+      // to Push().
+      for (; mMarkLength < mStackTop; ++mMarkLength) {
+        NS_NOTREACHED("should only hit this on out-of-memory");
+        newMarks[mMarkLength].mBlock = mCurBlock;
+        newMarks[mMarkLength].mPos = mPos;
+      }
+      delete [] mMarks;
+      mMarks = newMarks;
+      mMarkLength = newLength;
+    }
   }
 
-  // set a mark at the top
-  mMarks[mStackTop].mBlock = mCurBlock;
-  mMarks[mStackTop].mPos = mPos;
+  // set a mark at the top (if we can)
+  NS_ASSERTION(mStackTop < mMarkLength, "out of memory");
+  if (mStackTop < mMarkLength) {
+    mMarks[mStackTop].mBlock = mCurBlock;
+    mMarks[mStackTop].mPos = mPos;
+  }
 
   mStackTop++;
-
-  return NS_OK;
 }
 
-nsresult
-StackArena::Allocate(size_t aSize, void** aResult)
+void*
+StackArena::Allocate(size_t aSize)
 {
-  NS_ASSERTION(mStackTop > 0, "Error allocate called before push!!!");
+  NS_ASSERTION(mStackTop > 0, "Allocate called without Push");
 
   // make sure we are aligned. Beard said 8 was safer then 4. 
   // Round size to multiple of 8
@@ -541,18 +554,30 @@ StackArena::Allocate(size_t aSize, void** aResult)
   }
 
   // return the chunk they need.
-  *aResult = mCurBlock->mBlock + mPos;
+  void *result = mCurBlock->mBlock + mPos;
   mPos += aSize;
 
-  return NS_OK;
+  return result;
 }
 
-nsresult
+void
 StackArena::Pop()
 {
   // pop off the mark
-  NS_ASSERTION(mStackTop > 0, "Error Pop called 1 too many times");
+  NS_ASSERTION(mStackTop > 0, "unmatched pop");
   mStackTop--;
+
+  if (mStackTop >= mMarkLength) {
+    // We couldn't allocate the marks array at the time of the push, so
+    // we don't know where we're freeing to.
+    NS_NOTREACHED("out of memory");
+    if (mStackTop == 0) {
+      // But we do know if we've completely pushed the stack.
+      mCurBlock = mBlocks;
+      mPos = 0;
+    }
+    return;
+  }
 
 #ifdef DEBUG
   // Mark the "freed" memory with 0xdd to help with debugging of memory
@@ -569,8 +594,6 @@ StackArena::Pop()
 
   mCurBlock = mMarks[mStackTop].mBlock;
   mPos      = mMarks[mStackTop].mPos;
-
-  return NS_OK;
 }
 
 // Uncomment this to disable the frame arena.
@@ -803,9 +826,9 @@ public:
   virtual NS_HIDDEN_(void)  FreeFrame(size_t aSize, void* aFreeChunk);
 
   // Dynamic stack memory allocation
-  NS_IMETHOD PushStackMemory();
-  NS_IMETHOD PopStackMemory();
-  NS_IMETHOD AllocateStackMemory(size_t aSize, void** aResult);
+  virtual NS_HIDDEN_(void) PushStackMemory();
+  virtual NS_HIDDEN_(void) PopStackMemory();
+  virtual NS_HIDDEN_(void*) AllocateStackMemory(size_t aSize);
 
   NS_IMETHOD SetPreferenceStyleRules(PRBool aForceReflow);
   
@@ -856,13 +879,6 @@ public:
   NS_IMETHOD PostReflowCallback(nsIReflowCallback* aCallback);
   NS_IMETHOD CancelReflowCallback(nsIReflowCallback* aCallback);
 
-  /**
-   * Reflow batching
-   */   
-  NS_IMETHOD BeginReflowBatching();
-  NS_IMETHOD EndReflowBatching(PRBool aFlushPendingReflows);  
-  NS_IMETHOD GetReflowBatchingStatus(PRBool* aBatch);
-  
   NS_IMETHOD ClearFrameRefs(nsIFrame* aFrame);
   NS_IMETHOD CreateRenderingContext(nsIFrame *aFrame,
                                     nsIRenderingContext** aContext);
@@ -1139,10 +1155,9 @@ protected:
   
   nsCOMPtr<nsICaret>            mCaret;
   PRInt16                       mSelectionFlags;
-  PRPackedBool                  mBatchReflows;  // When set to true, the pres shell batches reflow commands.
   PresShellViewEventListener    *mViewEventListener;
   FrameArena                    mFrameArena;
-  StackArena*                   mStackArena;
+  StackArena                    mStackArena;
   nsCOMPtr<nsIDragService>      mDragService;
   
   nsRevocableEventPtr<ReflowEvent> mReflowEvent;
@@ -1183,8 +1198,6 @@ private:
   PRBool InZombieDocument(nsIContent *aContent);
   nsresult RetargetEventToParent(nsGUIEvent* aEvent,
                                  nsEventStatus*  aEventStatus);
-
-  void FreeDynamicStack();
 
   //helper funcs for event handling
 protected:
@@ -1425,9 +1438,6 @@ PresShell::~PresShell()
 
   mCurrentEventContent = nsnull;
 
-  // if we allocated any stack memory free it.
-  FreeDynamicStack();
-
   NS_IF_RELEASE(mPresContext);
   NS_IF_RELEASE(mDocument);
   NS_IF_RELEASE(mSelection);
@@ -1447,6 +1457,7 @@ PresShell::Init(nsIDocument* aDocument,
   NS_PRECONDITION(nsnull != aDocument, "null ptr");
   NS_PRECONDITION(nsnull != aPresContext, "null ptr");
   NS_PRECONDITION(nsnull != aViewManager, "null ptr");
+  nsresult result;
 
   if ((nsnull == aDocument) || (nsnull == aPresContext) ||
       (nsnull == aViewManager)) {
@@ -1456,6 +1467,8 @@ PresShell::Init(nsIDocument* aDocument,
     NS_WARNING("PresShell double init'ed");
     return NS_ERROR_ALREADY_INITIALIZED;
   }
+  result = mStackArena.Init();
+  NS_ENSURE_SUCCESS(result, result);
 
   mDocument = aDocument;
   NS_ADDREF(mDocument);
@@ -1474,7 +1487,7 @@ PresShell::Init(nsIDocument* aDocument,
   aPresContext->SetShell(this);
 
   // Now we can initialize the style set.
-  nsresult result = aStyleSet->Init(aPresContext);
+  result = aStyleSet->Init(aPresContext);
   NS_ENSURE_SUCCESS(result, result);
 
   // From this point on, any time we return an error we need to make
@@ -1707,47 +1720,23 @@ PresShell::Destroy()
 }
 
                   // Dynamic stack memory allocation
-NS_IMETHODIMP
+/* virtual */ void
 PresShell::PushStackMemory()
 {
-  if (!mStackArena) {
-    mStackArena = new StackArena();
-    if (!mStackArena)
-      return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  return mStackArena->Push();
+  mStackArena.Push();
 }
 
-NS_IMETHODIMP
+/* virtual */ void
 PresShell::PopStackMemory()
 {
-  NS_ENSURE_TRUE(mStackArena, NS_ERROR_UNEXPECTED);
-
-  return mStackArena->Pop();
+  mStackArena.Pop();
 }
 
-NS_IMETHODIMP
-PresShell::AllocateStackMemory(size_t aSize, void** aResult)
+/* virtual */ void*
+PresShell::AllocateStackMemory(size_t aSize)
 {
-  if (!mStackArena) {
-    mStackArena = new StackArena();
-    if (!mStackArena)
-      return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  return mStackArena->Allocate(aSize, aResult);
+  return mStackArena.Allocate(aSize);
 }
-
-void
-PresShell::FreeDynamicStack()
-{
-  if (mStackArena) {
-    delete mStackArena;
-    mStackArena = nsnull;
-  }
-}
- 
 
 void
 PresShell::FreeFrame(size_t aSize, void* aPtr)
@@ -3411,15 +3400,12 @@ PresShell::FrameNeedsReflow(nsIFrame *aFrame, IntrinsicDirty aIntrinsicDirty)
     }
   }
 
-  // Post a reflow event if we are not batching reflow commands.
-  if (!mBatchReflows) {
-    // If we're in the middle of a drag, process it right away (needed for mac,
-    // might as well do it on all platforms just to keep the code paths the same).
-    // XXXbz but how does this actually "process it right away"?
-    // Isn't this more like "never process it"?
-    if ( !IsDragInProgress() )
-      PostReflowEvent();
-  }
+  // If we're in the middle of a drag, process it right away (needed for mac,
+  // might as well do it on all platforms just to keep the code paths the same).
+  // XXXbz but how does this actually "process it right away"?
+  // Isn't this more like "never process it"?
+  if ( !IsDragInProgress() )
+    PostReflowEvent();
 
   return NS_OK;
 }
@@ -4160,7 +4146,7 @@ NS_IMETHODIMP PresShell::GetLinkLocation(nsIDOMNode* aNode, nsAString& aLocation
 NS_IMETHODIMP
 PresShell::GetSelectionForCopy(nsISelection** outSelection)
 {
-  nsresult rv;
+  nsresult rv = NS_OK;
 
   *outSelection = nsnull;
 
@@ -4724,35 +4710,6 @@ NS_IMETHODIMP
 PresShell::IsReflowLocked(PRBool* aIsReflowLocked) 
 {
   *aIsReflowLocked = mIsReflowing;
-  return NS_OK;
-}
-
-NS_IMETHODIMP 
-PresShell::BeginReflowBatching()
-{  
-  mBatchReflows = PR_TRUE;
-  return NS_OK;
-}
-
-NS_IMETHODIMP 
-PresShell::EndReflowBatching(PRBool aFlushPendingReflows)
-{  
-  nsresult rv = NS_OK;
-  mBatchReflows = PR_FALSE;
-  if (aFlushPendingReflows) {
-    rv = FlushPendingNotifications(Flush_OnlyReflow);
-  }
-  else {
-    PostReflowEvent();
-  }
-  return rv;
-}
-
-
-NS_IMETHODIMP
-PresShell::GetReflowBatchingStatus(PRBool* aIsBatching)
-{
-  *aIsBatching = mBatchReflows;
   return NS_OK;
 }
 
@@ -5938,22 +5895,18 @@ PresShell::ReflowEvent::Run() {
     }
 #endif
     // NOTE: the ReflowEvent class is a friend of the PresShell class
-    PRBool isBatching;
     ps->ClearReflowEventStatus();
-    ps->GetReflowBatchingStatus(&isBatching);
-    if (!isBatching) {
-      // Set a kung fu death grip on the view manager associated with the pres shell
-      // before processing that pres shell's reflow commands.  Fixes bug 54868.
-      nsCOMPtr<nsIViewManager> viewManager = ps->GetViewManager();
-      NS_ENSURE_TRUE(viewManager, NS_OK);
-      viewManager->BeginUpdateViewBatch();
-      ps->ProcessReflowCommands(PR_TRUE);
-      viewManager->EndUpdateViewBatch(NS_VMREFRESH_NO_SYNC);
+    // Set a kung fu death grip on the view manager associated with the pres shell
+    // before processing that pres shell's reflow commands.  Fixes bug 54868.
+    nsCOMPtr<nsIViewManager> viewManager = ps->GetViewManager();
+    NS_ENSURE_TRUE(viewManager, NS_OK);
+    viewManager->BeginUpdateViewBatch();
+    ps->ProcessReflowCommands(PR_TRUE);
+    viewManager->EndUpdateViewBatch(NS_VMREFRESH_NO_SYNC);
 
-      // Now, explicitly release the pres shell before the view manager
-      ps = nsnull;
-      viewManager = nsnull;
-    }
+    // Now, explicitly release the pres shell before the view manager
+    ps = nsnull;
+    viewManager = nsnull;
   }
   return NS_OK;
 }

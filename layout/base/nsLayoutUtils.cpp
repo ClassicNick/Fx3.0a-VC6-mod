@@ -58,6 +58,7 @@
 #include "nsDisplayList.h"
 #include "nsRegion.h"
 #include "nsFrameManager.h"
+#include "nsBlockFrame.h"
 
 #ifdef MOZ_SVG_FOREIGNOBJECT
 #include "nsSVGForeignObjectFrame.h"
@@ -110,20 +111,20 @@ GetLastChildFrame(nsIFrame*       aFrame,
 {
   NS_PRECONDITION(aFrame, "NULL frame pointer");
 
-  // Get the last in flow frame
-  nsIFrame* lastInFlow = aFrame->GetLastInFlow();
+  // Get the last continuation frame
+  nsIFrame* lastContinuation = aFrame->GetLastContinuation();
 
   // Get the last child frame
-  nsIFrame* firstChildFrame = lastInFlow->GetFirstChild(nsnull);
+  nsIFrame* firstChildFrame = lastContinuation->GetFirstChild(nsnull);
   if (firstChildFrame) {
     nsFrameList frameList(firstChildFrame);
     nsIFrame*   lastChildFrame = frameList.LastChild();
 
     NS_ASSERTION(lastChildFrame, "unexpected error");
 
-    // Get the frame's first-in-flow. This matters in case the frame has
-    // been continuted across multiple lines
-    lastChildFrame = lastChildFrame->GetFirstInFlow();
+    // Get the frame's first continuation. This matters in case the frame has
+    // been continued across multiple lines or split by BiDi resolution.
+    lastChildFrame = lastChildFrame->GetFirstContinuation();
     
     // If the last child frame is a pseudo-frame, then return its last child.
     // Note that the frame we create for the generated content is also a
@@ -145,7 +146,8 @@ nsIFrame*
 nsLayoutUtils::GetBeforeFrame(nsIFrame* aFrame)
 {
   NS_PRECONDITION(aFrame, "NULL frame pointer");
-  NS_ASSERTION(!aFrame->GetPrevInFlow(), "aFrame must be first-in-flow");
+  NS_ASSERTION(!aFrame->GetPrevContinuation(),
+               "aFrame must be first continuation");
   
   nsIFrame* firstFrame = GetFirstChildFrame(aFrame, aFrame->GetContent());
 
@@ -356,6 +358,96 @@ nsLayoutUtils::DoCompareTreePosition(nsIContent* aContent1,
   }
 
   return index1 - index2;
+}
+
+static nsIFrame* FillAncestors(nsIFrame* aFrame,
+                               nsIFrame* aStopAtAncestor, nsFrameManager* aFrameManager,
+                               nsTArray<nsIFrame*>* aAncestors)
+{
+  while (aFrame && aFrame != aStopAtAncestor) {
+    aAncestors->AppendElement(aFrame);
+    aFrame = nsLayoutUtils::GetParentOrPlaceholderFor(aFrameManager, aFrame);
+  }
+  return aFrame;
+}
+
+// Return true if aFrame1 is after aFrame2
+static PRBool IsFrameAfter(nsIFrame* aFrame1, nsIFrame* aFrame2)
+{
+  nsIFrame* f = aFrame2;
+  do {
+    f = f->GetNextSibling();
+    if (f == aFrame1)
+      return PR_TRUE;
+  } while (f);
+  return PR_FALSE;
+}
+
+// static
+PRInt32
+nsLayoutUtils::DoCompareTreePosition(nsIFrame* aFrame1,
+                                     nsIFrame* aFrame2,
+                                     PRInt32 aIf1Ancestor,
+                                     PRInt32 aIf2Ancestor,
+                                     nsIFrame* aCommonAncestor)
+{
+  NS_PRECONDITION(aFrame1, "aFrame1 must not be null");
+  NS_PRECONDITION(aFrame2, "aFrame2 must not be null");
+
+  nsPresContext* presContext = aFrame1->GetPresContext();
+  if (presContext != aFrame2->GetPresContext()) {
+    NS_ERROR("no common ancestor at all, different documents");
+    return 0;
+  }
+  nsFrameManager* frameManager = presContext->PresShell()->FrameManager();
+
+  nsAutoTArray<nsIFrame*,20> frame1Ancestors;
+  if (!FillAncestors(aFrame1, aCommonAncestor, frameManager, &frame1Ancestors)) {
+    // We reached the root of the frame tree ... if aCommonAncestor was set,
+    // it is wrong
+    aCommonAncestor = nsnull;
+  }
+
+  nsAutoTArray<nsIFrame*,20> frame2Ancestors;
+  if (!FillAncestors(aFrame2, aCommonAncestor, frameManager, &frame2Ancestors) &&
+      aCommonAncestor) {
+    // We reached the root of the frame tree ... aCommonAncestor was wrong.
+    // Try again with no hint.
+    return DoCompareTreePosition(aFrame1, aFrame2,
+                                 aIf1Ancestor, aIf2Ancestor, nsnull);
+  }
+
+  PRInt32 last1 = PRInt32(frame1Ancestors.Length()) - 1;
+  PRInt32 last2 = PRInt32(frame2Ancestors.Length()) - 1;
+  while (last1 >= 0 && last2 >= 0 &&
+         frame1Ancestors[last1] == frame2Ancestors[last2]) {
+    last1--;
+    last2--;
+  }
+
+  if (last1 < 0) {
+    if (last2 < 0) {
+      NS_ASSERTION(aFrame1 == aFrame2, "internal error?");
+      return 0;
+    }
+    // aFrame1 is an ancestor of aFrame2
+    return aIf1Ancestor;
+  }
+
+  if (last2 < 0) {
+    // aFrame2 is an ancestor of aFrame1
+    return aIf2Ancestor;
+  }
+
+  nsIFrame* ancestor1 = frame1Ancestors[last1];
+  nsIFrame* ancestor2 = frame2Ancestors[last2];
+  // Now we should be able to walk sibling chains to find which one is first
+  if (IsFrameAfter(ancestor2, ancestor1))
+    return -1;
+  if (IsFrameAfter(ancestor1, ancestor2))
+    return 1;
+  NS_WARNING("Frames were in different child lists???");
+  return 0;
 }
 
 // static
@@ -999,6 +1091,37 @@ nsLayoutUtils::GetFontMetricsForFrame(nsIFrame* aFrame,
 }
 
 nsIFrame*
+nsLayoutUtils::FindChildContainingDescendant(nsIFrame* aParent, nsIFrame* aDescendantFrame)
+{
+  nsIFrame* result = aDescendantFrame;
+
+  while (result) {
+    nsIFrame* parent = result->GetParent();
+    if (parent == aParent) {
+      break;
+    }
+
+    // The frame is not an immediate child of aParent so walk up another level
+    result = parent;
+  }
+
+  return result;
+}
+
+nsBlockFrame*
+nsLayoutUtils::FindNearestBlockAncestor(nsIFrame* aFrame)
+{
+  nsIFrame* nextAncestor;
+  for (nextAncestor = aFrame->GetParent(); nextAncestor;
+       nextAncestor = nextAncestor->GetParent()) {
+    nsBlockFrame* block;
+    if (NS_SUCCEEDED(nextAncestor->QueryInterface(kBlockFrameCID, (void**)&block)))
+      return block;
+  }
+  return nsnull;
+}
+
+nsIFrame*
 nsLayoutUtils::GetParentOrPlaceholderFor(nsFrameManager* aFrameManager,
                                          nsIFrame* aFrame)
 {
@@ -1262,6 +1385,27 @@ nsLayoutUtils::IntrinsicForContainer(nsIRenderingContext *aRenderingContext,
   min = AddPercents(aType, min, pctTotal);
   if (result < min)
     result = min;
+
+  const nsStyleDisplay *disp = aFrame->GetStyleDisplay();
+  if (aFrame->IsThemed(disp)) {
+    nsSize size(0, 0);
+    PRBool canOverride = PR_TRUE;
+    nsPresContext *presContext = aFrame->GetPresContext();
+    presContext->GetTheme()->
+      GetMinimumWidgetSize(aRenderingContext, aFrame, disp->mAppearance,
+                           &size, &canOverride);
+
+    // GMWS() returns size in pixels, we need to convert it back to twips
+    float p2t = presContext->ScaledPixelsToTwips();
+    nscoord themeWidth = NSIntPixelsToTwips(size.width, p2t);
+
+    // GMWS() returns a border-box width
+    themeWidth += offsets.hMargin;
+    themeWidth = AddPercents(aType, themeWidth, offsets.hPctMargin);
+
+    if (themeWidth > result || !canOverride)
+      result = themeWidth;
+  }
 
 #ifdef DEBUG_INTRINSIC_WIDTH
   nsFrame::IndentBy(stdout, gNoiseIndent);

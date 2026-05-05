@@ -35,7 +35,7 @@
 ; 
 ; ***** END LICENSE BLOCK ***** 
 
-LIBRARY         NSLDAPSSL32V6
+LIBRARY         NSLDAPSSL32V60
 DESCRIPTION     'Lightweight Directory Access Protocol Client API with SSL for 32-bit Windows'
 VERSION		6.0
 HEAPSIZE        4096
@@ -59,7 +59,10 @@ EXPORTS
 	ldapssl_set_strength		@460
 	ldapssl_set_option		@461
 	ldapssl_get_option		@462
-	ldap_start_tls_s			@463
+	ldap_start_tls_s		@463
+	ldapssl_shutdown		@464
+	ldapssl_import_fd		@465
+	ldapssl_reset_to_nonsecure		@466
 ;  the last Windows ordinal number that has been reserved for SSL is 469.
 
 ;  Windows ordinals 1100-1150 are reserved for privately/non-published

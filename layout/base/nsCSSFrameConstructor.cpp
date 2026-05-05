@@ -706,6 +706,10 @@ struct nsFrameItems {
 
   // Appends the frame to the end of the list
   void AddChild(nsIFrame* aChild);
+
+  // Inserts the frame somewhere in the list
+  void InsertChildAfter(nsIFrame* aChild, nsIFrame* aAfter);
+
   // Remove the frame from the list, return PR_FALSE if not found.
   PRBool RemoveChild(nsIFrame* aChild);
 };
@@ -738,6 +742,24 @@ nsFrameItems::AddChild(nsIFrame* aChild)
     NS_ASSERTION(oldLastChild != sib, "Loop in frame list");
     lastChild = sib;
   }
+}
+
+void
+nsFrameItems::InsertChildAfter(nsIFrame* aChild, nsIFrame* aAfter)
+{
+  if (!childList || (aAfter && !aAfter->GetNextSibling())) {
+    // Appending to the end of the list
+    AddChild(aChild);
+    return;
+  }
+  if (!aAfter) {
+    // Inserting at beginning of list
+    aChild->SetNextSibling(childList);
+    childList = aChild;
+    return;
+  }
+  aChild->SetNextSibling(aAfter->GetNextSibling());
+  aAfter->SetNextSibling(aChild);
 }
 
 PRBool
@@ -1152,7 +1174,9 @@ public:
                     nsIFrame* aParentFrame,
                     PRBool aCanBePositioned = PR_TRUE,
                     PRBool aCanBeFloated = PR_TRUE,
-                    PRBool aIsOutOfFlowPopup = PR_FALSE);
+                    PRBool aIsOutOfFlowPopup = PR_FALSE,
+                    PRBool aInsertAfter = PR_FALSE,
+                    nsIFrame* aInsertAfterFrame = nsnull);
 
 protected:
   friend class nsFrameConstructorSaveState;
@@ -1208,9 +1232,17 @@ nsFrameConstructorState::nsFrameConstructorState(nsIPresShell* aPresShell,
 
 nsFrameConstructorState::~nsFrameConstructorState()
 {
+  // Frame order comparison functions only work properly when the placeholders
+  // have been inserted into the frame tree. So for example if we have a new float
+  // containing the placeholder for a new abs-pos frame, and we process the abs-pos
+  // insertion first, then we won't be able to find the right place to insert in
+  // in the abs-pos list. So put floats in first, because they can contain placeholders
+  // for abs-pos and fixed-pos items whose containing blocks are outside the floats.
+  // Then put abs-pos frames in, because they can contain placeholders for fixed-pos
+  // items whose containing block is outside the abs-pos frames. 
+  ProcessFrameInsertions(mFloatedItems, nsGkAtoms::floatList);
   ProcessFrameInsertions(mAbsoluteItems, nsGkAtoms::absoluteList);
   ProcessFrameInsertions(mFixedItems, nsGkAtoms::fixedList);
-  ProcessFrameInsertions(mFloatedItems, nsGkAtoms::floatList);
 }
 
 static nsIFrame*
@@ -1314,7 +1346,9 @@ nsFrameConstructorState::AddChild(nsIFrame* aNewFrame,
                                   nsIFrame* aParentFrame,
                                   PRBool aCanBePositioned,
                                   PRBool aCanBeFloated,
-                                  PRBool aIsOutOfFlowPopup)
+                                  PRBool aIsOutOfFlowPopup,
+                                  PRBool aInsertAfter,
+                                  nsIFrame* aInsertAfterFrame)
 {
   // The comments in GetGeometricParent regarding root table frames
   // all apply here, unfortunately.
@@ -1387,7 +1421,11 @@ nsFrameConstructorState::AddChild(nsIFrame* aNewFrame,
   }
 #endif
 
-  frameItems->AddChild(aNewFrame);
+  if (aInsertAfter) {
+    frameItems->InsertChildAfter(aNewFrame, aInsertAfterFrame);
+  } else {
+    frameItems->AddChild(aNewFrame);
+  }
 
   // Now add the special siblings too.
   nsIFrame* specialSibling = aNewFrame;
@@ -1443,19 +1481,20 @@ nsFrameConstructorState::ProcessFrameInsertions(nsAbsoluteItems& aFrameItems,
     // So first test the last child of the containing block
     nsIFrame* lastChild = nsLayoutUtils::GetLastSibling(firstChild);
 
+    // CompareTreePosition uses placeholder hierarchy for out of flow frames,
+    // so this will make out-of-flows respect the ordering of placeholders,
+    // which is great because it takes care of anonymous content.
     if (!lastChild ||
-        nsLayoutUtils::CompareTreePosition(lastChild->GetContent(),
-                                           firstNewFrame->GetContent(),
-                                           containingBlock->GetContent()) < 0) {
+        nsLayoutUtils::CompareTreePosition(lastChild, firstNewFrame, containingBlock) < 0) {
       // no lastChild, or lastChild comes before the new children, so just append
       rv = containingBlock->AppendFrames(aChildListName, firstNewFrame);
     } else {
       nsIFrame* insertionPoint = nsnull;
       // try the other children
       for (nsIFrame* f = firstChild; f != lastChild; f = f->GetNextSibling()) {
-        if (nsLayoutUtils::CompareTreePosition(f->GetContent(),
-                                               firstNewFrame->GetContent(),
-                                               containingBlock->GetContent()) > 0) {
+        PRInt32 compare =
+          nsLayoutUtils::CompareTreePosition(f, firstNewFrame, containingBlock);
+        if (compare > 0) {
           // f comes after the new children, so stop here and insert after
           // the previous frame
           break;
@@ -11641,6 +11680,7 @@ static PRBool IsFirstLetterContent(nsIContent* aContent)
 void
 nsCSSFrameConstructor::CreateFloatingLetterFrame(
   nsFrameConstructorState& aState,
+  nsIFrame* aBlockFrame,
   nsIContent* aTextContent,
   nsIFrame* aTextFrame,
   nsIContent* aBlockContent,
@@ -11696,10 +11736,19 @@ nsCSSFrameConstructor::CreateFloatingLetterFrame(
 
   NS_ASSERTION(aResult.childList == nsnull,
                "aResult should be an empty nsFrameItems!");
+  nsIFrame* insertAfter = nsnull;
+  nsIFrame* f;
+  // Put the new float before any of the floats in the block we're
+  // doing first-letter for, that is, before any floats whose parent is aBlockFrame
+  for (f = aState.mFloatedItems.childList; f; f = f->GetNextSibling()) {
+    if (f->GetParent() == aBlockFrame)
+      break;
+    insertAfter = f;
+  }
 
   rv = aState.AddChild(letterFrame, aResult, letterFrame->GetStyleDisplay(),
                        aTextContent, aStyleContext, aParentFrame, PR_FALSE,
-                       PR_TRUE);
+                       PR_TRUE, PR_FALSE, PR_TRUE, insertAfter);
 
   if (nextTextFrame) {
     if (NS_FAILED(rv)) {
@@ -11716,6 +11765,7 @@ nsCSSFrameConstructor::CreateFloatingLetterFrame(
  */
 nsresult
 nsCSSFrameConstructor::CreateLetterFrame(nsFrameConstructorState& aState,
+                                         nsIFrame* aBlockFrame,
                                          nsIContent* aTextContent,
                                          nsIFrame* aParentFrame,
                                          nsFrameItems& aResult)
@@ -11745,7 +11795,7 @@ nsCSSFrameConstructor::CreateLetterFrame(nsFrameConstructorState& aState,
       const nsStyleDisplay* display = sc->GetStyleDisplay();
       if (display->IsFloating()) {
         // Make a floating first-letter frame
-        CreateFloatingLetterFrame(aState, aTextContent, textFrame,
+        CreateFloatingLetterFrame(aState, aBlockFrame, aTextContent, textFrame,
                                   blockContent, aParentFrame,
                                   sc, aResult);
       }
@@ -11783,7 +11833,7 @@ nsCSSFrameConstructor::WrapFramesInFirstLetterFrame(
   nsIFrame* prevFrame = nsnull;
   nsFrameItems letterFrames;
   PRBool stopLooking = PR_FALSE;
-  rv = WrapFramesInFirstLetterFrame(aState, aBlockFrame,
+  rv = WrapFramesInFirstLetterFrame(aState, aBlockFrame, aBlockFrame,
                                     aBlockFrames.childList,
                                     &parentFrame, &textFrame, &prevFrame,
                                     letterFrames, &stopLooking);
@@ -11829,6 +11879,7 @@ nsCSSFrameConstructor::WrapFramesInFirstLetterFrame(
 nsresult
 nsCSSFrameConstructor::WrapFramesInFirstLetterFrame(
   nsFrameConstructorState& aState,
+  nsIFrame*                aBlockFrame,
   nsIFrame*                aParentFrame,
   nsIFrame*                aParentFrameList,
   nsIFrame**               aModifiedParent,
@@ -11851,7 +11902,7 @@ nsCSSFrameConstructor::WrapFramesInFirstLetterFrame(
       nsIContent* textContent = frame->GetContent();
       if (IsFirstLetterContent(textContent)) {
         // Create letter frame to wrap up the text
-        rv = CreateLetterFrame(aState, textContent,
+        rv = CreateLetterFrame(aState, aBlockFrame, textContent,
                                aParentFrame, aLetterFrames);
         if (NS_FAILED(rv)) {
           return rv;
@@ -11869,7 +11920,7 @@ nsCSSFrameConstructor::WrapFramesInFirstLetterFrame(
              (nsGkAtoms::lineFrame == frameType) ||
              (nsGkAtoms::positionedInlineFrame == frameType)) {
       nsIFrame* kids = frame->GetFirstChild(nsnull);
-      WrapFramesInFirstLetterFrame(aState, frame, kids,
+      WrapFramesInFirstLetterFrame(aState, aBlockFrame, frame, kids,
                                    aModifiedParent, aTextFrame,
                                    aPrevFrame, aLetterFrames, aStopLooking);
       if (*aStopLooking) {
@@ -12102,7 +12153,7 @@ nsCSSFrameConstructor::RecoverLetterFrames(nsFrameConstructorState& aState,
   nsIFrame* prevFrame = nsnull;
   nsFrameItems letterFrames;
   PRBool stopLooking = PR_FALSE;
-  rv = WrapFramesInFirstLetterFrame(aState, aBlockFrame, blockKids,
+  rv = WrapFramesInFirstLetterFrame(aState, aBlockFrame, aBlockFrame, blockKids,
                                     &parentFrame, &textFrame, &prevFrame,
                                     letterFrames, &stopLooking);
   if (NS_FAILED(rv)) {

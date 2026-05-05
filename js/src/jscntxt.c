@@ -79,7 +79,7 @@ js_ThreadDestructorCB(void *ptr)
     if (!thread)
         return;
     while (!JS_CLIST_IS_EMPTY(&thread->contextList)) {
-        /* NB: must use a temporary, as the macro evaluates its actual twice. */
+        /* NB: use a temporary, as the macro evaluates its args many times. */
         JSCList *link = thread->contextList.next;
 
         JS_REMOVE_AND_INIT_LINK(link);
@@ -234,8 +234,6 @@ js_NewContext(JSRuntime *rt, size_t stackChunkSize)
      * done by js_DestroyContext).
      */
     cx->version = JSVERSION_DEFAULT;
-    cx->jsop_eq = JSOP_EQ;
-    cx->jsop_ne = JSOP_NE;
     JS_InitArenaPool(&cx->stackPool, "stack", stackChunkSize, sizeof(jsval));
     JS_InitArenaPool(&cx->tempPool, "temp", 1024, sizeof(jsdouble));
 
