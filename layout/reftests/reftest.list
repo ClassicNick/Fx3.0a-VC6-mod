@@ -34,6 +34,8 @@
 == bugs/18217-zorder-4.html bugs/18217-zorder-ref-inline.html
 == bugs/18217-zorder-5.html bugs/18217-zorder-ref-inline.html
 == bugs/142233-1.html bugs/142233-1-ref.html
+== bugs/328829-1.xhtml bugs/328829-1-ref.xhtml
+== bugs/328829-2.xhtml bugs/328829-2-ref.xhtml
 == bugs/339289-1.html bugs/339289-1-ref.html
 == bugs/347912-1.html bugs/347912-1-ref.html
 == bugs/351641-1a.html bugs/351641-1-ref.html
@@ -94,6 +96,11 @@ f== bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
 == bugs/367612-1e.html bugs/367612-1-ref.html
 == bugs/367612-1f.html bugs/367612-1-ref.html
 != bugs/367612-1g.html bugs/367612-1-ref.html
+f== bugs/368020-1.html bugs/368020-1-ref.html # bug 368079
+#== bugs/368020-2.html bugs/368020-2-ref.html # bug 368157 (X11 only?)
+f== bugs/368020-3.html bugs/368020-3-ref.html # bug 368085
+f== bugs/368020-4.html bugs/368020-4-ref.html # bug 368085
+== bugs/368020-5.html bugs/368020-5-ref.html
 
 # table-dom/
 == table-dom/appendCells1.html table-dom/appendCells1-ref.html

@@ -1407,8 +1407,10 @@ nsFrameSelection::MoveCaret(PRUint32          aKeycode,
     //  2. had select-all in a text input (DIV range), bug 352759.
     weakNodeUsed = mDomSelections[index]->FetchFocusNode();
     offsetused = mDomSelections[index]->FetchFocusOffset();
+    PRBool isBRFrame = frame->GetType() == nsGkAtoms::brFrame;
     mDomSelections[index]->Collapse(weakNodeUsed, offsetused);
-    if (frame->GetType() == nsGkAtoms::brFrame) {
+    // Note: 'frame' might be dead here.
+    if (isBRFrame) {
       tHint = mHint;    // 1: make the line below restore the original hint
     }
     else {
@@ -2586,12 +2588,14 @@ nsFrameSelection::GetFrameForNodeOffset(nsIContent *aNode,
         childIndex = aOffset;
     }
     
-    nsCOMPtr<nsIContent> childNode = theNode->GetChildAt(childIndex);
+    if (childIndex > 0 || numChildren > 0) {
+      nsCOMPtr<nsIContent> childNode = theNode->GetChildAt(childIndex);
 
-    if (!childNode)
-      return nsnull;
+      if (!childNode)
+        return nsnull;
 
-    theNode = childNode;
+      theNode = childNode;
+    }
 
 #ifdef DONT_DO_THIS_YET
     // XXX: We can't use this code yet because the hinting
