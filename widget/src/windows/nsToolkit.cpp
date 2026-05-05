@@ -47,7 +47,6 @@
 #include "nsComponentManagerUtils.h"
 #include "nsNativeCharsetUtils.h"
 #include "nsWidgetAtoms.h"
-#include "nsWindowAPI.h"
 #include <objbase.h>
 #include <initguid.h>
 
@@ -785,7 +784,7 @@ PRBool nsToolkit::UserIsMovingWindow(void)
 //
 //-------------------------------------------------------------------------
 LRESULT CALLBACK nsToolkit::WindowProc(HWND hWnd, UINT msg, WPARAM wParam, 
-                                       LPARAM lParam)
+                                            LPARAM lParam)
 {
     switch (msg) {
         case WM_CALLMETHOD:

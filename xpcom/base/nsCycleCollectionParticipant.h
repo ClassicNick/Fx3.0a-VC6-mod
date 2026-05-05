@@ -81,11 +81,11 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
 // Helpers for implementing a QI to nsCycleCollectionParticipant
 ///////////////////////////////////////////////////////////////////////////////
 
-#define NS_CYCLE_COLLECTION_INNERCLASS                                         \
-        cycleCollection
+#define NS_CYCLE_COLLECTION_INNERCLASS(_class)                                         \
+	cycleCollection_ ## _class
 
 #define NS_CYCLE_COLLECTION_CLASSNAME(_class)                                  \
-        _class::NS_CYCLE_COLLECTION_INNERCLASS
+        _class::NS_CYCLE_COLLECTION_INNERCLASS(_class)
 
 #define NS_CYCLE_COLLECTION_NAME(_class)                                       \
         _class##_cycleCollectorGlobal
@@ -156,13 +156,18 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
 ///////////////////////////////////////////////////////////////////////////////
 
 #define NS_DECL_CYCLE_COLLECTION_CLASS(_class)                                 \
-class NS_CYCLE_COLLECTION_INNERCLASS                                           \
+class NS_CYCLE_COLLECTION_INNERCLASS(_class)                                           \
  : public nsCycleCollectionParticipant                                         \
 {                                                                              \
   NS_IMETHOD Unlink(nsISupports *n);                                           \
   NS_IMETHOD Traverse(nsISupports *n,                                          \
                       nsCycleCollectionTraversalCallback &cb);                 \
-};                                                           
+};																			   \
+friend class NS_CYCLE_COLLECTION_INNERCLASS(_class);
+
+#define NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_USING(_class, _base_class)    \
+typedef NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                             \
+        NS_CYCLE_COLLECTION_CLASSNAME(_class);
 
 #define NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                 \
   static NS_CYCLE_COLLECTION_CLASSNAME(_class)                                 \

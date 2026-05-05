@@ -132,6 +132,9 @@
 #ifdef WIN32
 #include <io.h>
 #include <process.h>
+#ifndef _HOOK_FREE
+#define _HOOK_FREE      3
+#endif
 #endif
 
 
@@ -871,8 +874,10 @@ nsCycleCollector::CollectWhite()
         mBufs[i]->Empty();
 
 #ifdef WIN32
+#if defined (_MSC_VER) && _MSC_VER >= 1200
     struct _CrtMemState ms1, ms2;
     _CrtMemCheckpoint(&ms1);
+#endif // _MSC_VER
 #endif // WIN32
 
     mGraph.Enumerate(FindWhiteCallback, this);
@@ -912,9 +917,11 @@ nsCycleCollector::CollectWhite()
         mBufs[i]->Empty();
 
 #ifdef WIN32
+#if defined (_MSC_VER) && _MSC_VER >= 1200
     _CrtMemCheckpoint(&ms2);
     if (ms2.lTotalCount < ms1.lTotalCount)
         mStats.mFreedBytes += (ms1.lTotalCount - ms2.lTotalCount);
+#endif
 #endif // WIN32
 }
 
@@ -1347,7 +1354,8 @@ nsCycleCollector::~nsCycleCollector()
 
     mGraph.Clear();    
 
-    for (PRUint32 i = 0; i < nsIProgrammingLanguage::MAX+1; ++i) {
+	PRUint32 i;
+    for (i = 0; i < nsIProgrammingLanguage::MAX+1; ++i) {
         delete mBufs[i];
         mBufs[i] = NULL;
     }
@@ -1355,7 +1363,7 @@ nsCycleCollector::~nsCycleCollector()
     delete mRuntimes[nsIProgrammingLanguage::CPLUSPLUS];
     mRuntimes[nsIProgrammingLanguage::CPLUSPLUS] = NULL;
 
-    for (PRUint32 i = 0; i < nsIProgrammingLanguage::MAX+1; ++i) {
+    for (i = 0; i < nsIProgrammingLanguage::MAX+1; ++i) {
         mRuntimes[i] = NULL;
     }
 }
@@ -1576,7 +1584,8 @@ nsCycleCollector::Collect()
     // GC calls -- so it's essential that we actually execute this
     // step!
     
-    for (PRUint32 i = 0; i <= nsIProgrammingLanguage::MAX; ++i) {
+	PRUint32 i;
+    for (i = 0; i <= nsIProgrammingLanguage::MAX; ++i) {
         if (mRuntimes[i])
             mRuntimes[i]->BeginCycleCollection();
     }
@@ -1625,7 +1634,7 @@ nsCycleCollector::Collect()
         }
     }
 
-    for (PRUint32 i = 0; i <= nsIProgrammingLanguage::MAX; ++i) {
+    for (i = 0; i <= nsIProgrammingLanguage::MAX; ++i) {
         if (mRuntimes[i])
             mRuntimes[i]->FinishCycleCollection();
     }    
