@@ -21,6 +21,7 @@
  *
  * Contributor(s):
  *   Pierre Phaneuf <pp@ludusdesign.com>
+ *   Mats Palmgren <mats.palmgren@bredband.net>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -212,11 +213,10 @@ nsHTMLScrollFrame::RemoveFrame(nsIAtom*  aListName,
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsHTMLScrollFrame::IsSplittable(nsSplittableType& aIsSplittable) const
+nsSplittableType
+nsHTMLScrollFrame::GetSplittableType() const
 {
-  aIsSplittable = NS_FRAME_NOT_SPLITTABLE;
-  return NS_OK;
+  return NS_FRAME_NOT_SPLITTABLE;
 }
 
 PRIntn
@@ -674,10 +674,10 @@ nsHTMLScrollFrame::GetPrefWidth(nsIRenderingContext *aRenderingContext)
   if (ss.mVertical != NS_STYLE_OVERFLOW_HIDDEN && // ideal?
       mInner.mVScrollbarBox) {
     nsBoxLayoutState bls(GetPresContext(), aRenderingContext);
-    nsSize vScrollbarMinSize(0, 0);
+    nsSize vScrollbarPrefSize(0, 0);
     GetScrollbarMetrics(bls, mInner.mVScrollbarBox,
-                        &vScrollbarMinSize, nsnull, PR_TRUE);
-    result += vScrollbarMinSize.width;
+                        nsnull, &vScrollbarPrefSize, PR_TRUE);
+    result += vScrollbarPrefSize.width;
   }
 
   return result;
@@ -1009,11 +1009,10 @@ nsXULScrollFrame::RemoveFrame(nsIAtom*        aListName,
   return rv;
 }
 
-NS_IMETHODIMP
-nsXULScrollFrame::IsSplittable(nsSplittableType& aIsSplittable) const
+nsSplittableType
+nsXULScrollFrame::GetSplittableType() const
 {
-  aIsSplittable = NS_FRAME_NOT_SPLITTABLE;
-  return NS_OK;
+  return NS_FRAME_NOT_SPLITTABLE;
 }
 
 NS_IMETHODIMP
@@ -2017,8 +2016,8 @@ nsXULScrollFrame::LayoutScrollArea(nsBoxLayoutState& aState, const nsRect& aRect
 
 void nsGfxScrollFrameInner::PostOverflowEvents()
 {
-  nsSize childSize = mScrolledFrame->GetSize();
   nsSize scrollportSize = GetScrollPortSize();
+  nsSize childSize = GetScrolledRect(scrollportSize).Size();
     
   PRBool newVerticalOverflow = childSize.height > scrollportSize.height;
   PRBool vertChanged = mVerticalOverflow != newVerticalOverflow;
@@ -2605,13 +2604,10 @@ nsGfxScrollFrameInner::SaveState(nsIStatefulFrame::SpecialStateID aStateID)
     return nsnull;
   }
 
-  // XXX can this actually get hit? I don't think so  
-  nsCOMPtr<nsIScrollbarMediator> mediator;
-  nsIFrame* first = GetScrolledFrame();
-  mediator = do_QueryInterface(first);
+  nsIScrollbarMediator* mediator;
+  CallQueryInterface(GetScrolledFrame(), &mediator);
   if (mediator) {
-    // Child manages its own scrolling. Bail.
-    NS_ERROR("This code shouldn't be hit; alert robert@ocallahan.org");
+    // child handles its own scroll state, so don't bother saving state here
     return nsnull;
   }
 

@@ -65,12 +65,8 @@ sub components {
             WHERE product_id = ?
             ORDER BY name}, undef, $self->id);
 
-        my @components;
         require Bugzilla::Component;
-        foreach my $id (@$ids) {
-            push @components, new Bugzilla::Component($id);
-        }
-        $self->{components} = \@components;
+        $self->{components} = Bugzilla::Component->new_from_list($ids);
     }
     return $self->{components};
 }
@@ -110,15 +106,11 @@ sub versions {
     my $dbh = Bugzilla->dbh;
 
     if (!defined $self->{versions}) {
-        my $values = $dbh->selectcol_arrayref(q{
-            SELECT value FROM versions
+        my $ids = $dbh->selectcol_arrayref(q{
+            SELECT id FROM versions
             WHERE product_id = ?}, undef, $self->id);
 
-        my @versions;
-        foreach my $value (sort { vers_cmp (lc($a), lc($b)) } @$values) {
-            push @versions, new Bugzilla::Version($self->id, $value);
-        }
-        $self->{versions} = \@versions;
+        $self->{versions} = Bugzilla::Version->new_from_list($ids);
     }
     return $self->{versions};
 }
@@ -128,16 +120,11 @@ sub milestones {
     my $dbh = Bugzilla->dbh;
 
     if (!defined $self->{milestones}) {
-        my $values = $dbh->selectcol_arrayref(q{
-            SELECT value FROM milestones
-            WHERE product_id = ?
-            ORDER BY sortkey}, undef, $self->id);
+        my $ids = $dbh->selectcol_arrayref(q{
+            SELECT id FROM milestones
+             WHERE product_id = ?}, undef, $self->id);
  
-        my @milestones;
-        foreach my $value (@$values) {
-            push @milestones, new Bugzilla::Milestone($self->id, $value);
-        }
-        $self->{milestones} = \@milestones;
+        $self->{milestones} = Bugzilla::Milestone->new_from_list($ids);
     }
     return $self->{milestones};
 }

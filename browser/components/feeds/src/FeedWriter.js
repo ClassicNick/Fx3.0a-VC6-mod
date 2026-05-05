@@ -23,6 +23,7 @@
 #   Jeff Walden <jwalden+code@mit.edu>
 #   Asaf Romano <mano@mozilla.com>
 #   Robert Sayre <sayrer@gmail.com>
+#   Michael Ventnor <m.ventnor@gmail.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -205,7 +206,6 @@ FeedWriter.prototype = {
     return this._selectedApplicationItemWrapped;
   },
 
-#ifdef XP_WIN
   _defaultSystemReaderItemWrapped: null,
   get defaultSystemReaderItemWrapped() {
     if (!this._defaultSystemReaderItemWrapped) {
@@ -218,7 +218,27 @@ FeedWriter.prototype = {
 
     return this._defaultSystemReaderItemWrapped;
   },
-#endif
+
+   /**
+   * Returns a date suitable for displaying in the feed preview. 
+   * If the date cannot be parsed, the return value is "false".
+   * @param   dateString
+   *          A date as extracted from a feed entry. (entry.updated)
+   */
+  _parseDate: function FW__parseDate(dateString) {
+    // Convert the date into the user's local time zone
+    dateObj = new Date(dateString);
+
+    // Make sure the date we're given is valid.
+    if (!dateObj.getTime())
+      return false;
+
+    var dateService = Cc["@mozilla.org/intl/scriptabledateformat;1"].
+                      getService(Ci.nsIScriptableDateFormat);
+    return dateService.FormatDateTime("", dateService.dateFormatLong, dateService.timeFormatNoSeconds,
+                                      dateObj.getFullYear(), dateObj.getMonth()+1, dateObj.getDate(),
+                                      dateObj.getHours(), dateObj.getMinutes(), dateObj.getSeconds());
+  },
 
   /**
    * Writes the feed title into the preview document.
@@ -300,6 +320,14 @@ FeedWriter.prototype = {
         var title = this._document.createElementNS(HTML_NS, "h3");
         title.appendChild(a);
         entryContainer.appendChild(title);
+
+        var lastUpdated = this._parseDate(entry.updated);
+        if (lastUpdated) {
+          var dateDiv = this._document.createElementNS(HTML_NS, "div");
+          dateDiv.setAttribute("class", "lastUpdated");
+          title.appendChild(dateDiv);
+          dateDiv.textContent = lastUpdated;
+        }
       }
 
       var body = this._document.createElementNS(HTML_NS, "p");
@@ -584,7 +612,6 @@ FeedWriter.prototype = {
             selectedAppMenuItem.hidden = false;
             selectedAppMenuItem.doCommand();
 
-#ifdef XP_WIN
             // Only show the default reader menuitem if the default reader
             // isn't the selected application
             var defaultHandlerMenuItem = this.defaultSystemReaderItemWrapped;
@@ -592,7 +619,6 @@ FeedWriter.prototype = {
               defaultHandlerMenuItem.hidden =
                 defaultHandlerMenuItem.file.path == selectedApp.path;
             }
-#endif
             break;
           }
         }
@@ -641,50 +667,26 @@ FeedWriter.prototype = {
       selectedApplicationItem.hidden = true;
     }
 
-#ifdef XP_WIN
-    // On Windows, also list the default feed reader
-    var defaultReader;
+    // List the default feed reader
+    var defaultReader = null;
     try {
-      const WRK = Ci.nsIWindowsRegKey;
-      var regKey =
-          Cc["@mozilla.org/windows-registry-key;1"].createInstance(WRK);
-      regKey.open(WRK.ROOT_KEY_CLASSES_ROOT, 
-                  "feed\\shell\\open\\command", WRK.ACCESS_READ);
-      var path = regKey.readStringValue("");
-      if (path.charAt(0) == "\"") {
-        // Everything inside the quotes
-        path = path.substr(1);
-        path = path.substr(0, path.indexOf("\""));
-      }
-      else {
-        // Everything up to the first space
-        path = path.substr(0, path.indexOf(" "));
-      }
+      var defaultReader = Cc["@mozilla.org/browser/shell-service;1"].
+                          getService(Ci.nsIShellService).defaultFeedReader;
+      menuItem = this._document.createElementNS(XUL_NS, "menuitem");
+      menuItem.id = "defaultHandlerMenuItem";
+      menuItem.className = "menuitem-iconic";
+      menuItem.setAttribute("handlerType", "client");
+      handlersMenuPopup.appendChild(menuItem);
 
-      defaultReader = Cc["@mozilla.org/file/local;1"].
-                      createInstance(Ci.nsILocalFile);
-      defaultReader.initWithPath(path);
+      var defaultSystemReaderItem = this.defaultSystemReaderItemWrapped;
+      this._initMenuItemWithFile(defaultSystemReaderItem, defaultReader);
 
-      if (defaultReader.exists()) {
-        menuItem = this._document.createElementNS(XUL_NS, "menuitem");
-        menuItem.id = "defaultHandlerMenuItem";
-        menuItem.className = "menuitem-iconic";
-        menuItem.setAttribute("handlerType", "client");
-        handlersMenuPopup.appendChild(menuItem);
-
-        var defaultSystemReaderItem = this.defaultSystemReaderItemWrapped;
-        this._initMenuItemWithFile(defaultSystemReaderItem, defaultReader);
-
-        // Hide the default reader item if it points to the same application
-        // as the last-selected application
-        if (selectedApp && selectedApp.path == defaultReader.path)
-          defaultSystemReaderItem.hidden = true;
-      }
+      // Hide the default reader item if it points to the same application
+      // as the last-selected application
+      if (selectedApp && selectedApp.path == defaultReader.path)
+        defaultSystemReaderItem.hidden = true;
     }
-    catch (e) {
-      LOG("No feed handler registered on system");
-    }
-#endif
+    catch(ex) { /* no default reader */ }
 
     // "Choose Application..." menuitem
     menuItem = this._document.createElementNS(XUL_NS, "menuitem");
@@ -895,14 +897,12 @@ FeedWriter.prototype = {
           prefs.setCharPref(PREF_SELECTED_READER, "client");
           prefs.setComplexValue(PREF_SELECTED_APP, Ci.nsILocalFile, 
                                 this.selectedApplicationItemWrapped.file);
-          break;   
-#ifdef XP_WIN
+          break;
         case "defaultHandlerMenuItem":
           prefs.setCharPref(PREF_SELECTED_READER, "client");
           prefs.setComplexValue(PREF_SELECTED_APP, Ci.nsILocalFile, 
                                 this.defaultSystemReaderItemWrapped.file);
           break;
-#endif
         case "liveBookmarksMenuItem":
           defaultHandler = "bookmarks";
           prefs.setCharPref(PREF_SELECTED_READER, "bookmarks");
@@ -1029,8 +1029,7 @@ iconDataURIGenerator.prototype = {
     if (!requestFailed && this._countRead != 0) {
       var str = String.fromCharCode.apply(null, this._bytes);
       try {
-        var dataURI = ICON_DATAURL_PREFIX +
-                      this._element.ownerDocument.defaultView.btoa(str);
+        var dataURI = ICON_DATAURL_PREFIX + btoa(str);
         this._element.setAttribute("image", dataURI);
       }
       catch(ex) {}

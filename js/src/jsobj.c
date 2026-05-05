@@ -3058,7 +3058,7 @@ Detecting(JSContext *cx, jsbytecode *pc)
                 (pc += js_CodeSpec[op].length) < endpc) {
                 op = (JSOp) *pc;
                 return op == JSOP_EQ || op == JSOP_NE ||
-                       op == JSOP_NEW_EQ || op == JSOP_NEW_NE;
+                       op == JSOP_STRICTEQ || op == JSOP_STRICTNE;
             }
             break;
         }
@@ -3101,6 +3101,7 @@ js_LookupPropertyWithFlags(JSContext *cx, JSObject *obj, jsid id, uintN flags,
      */
     CHECK_FOR_STRING_INDEX(id);
 
+    JS_COUNT_OPERATION(cx, JSOW_LOOKUP_PROPERTY);
     /* Search scopes starting with obj and following the prototype link. */
     start = obj;
     for (;;) {
@@ -3359,6 +3360,7 @@ js_GetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
      */
     CHECK_FOR_STRING_INDEX(id);
 
+    JS_COUNT_OPERATION(cx, JSOW_GET_PROPERTY);
     if (!js_LookupProperty(cx, obj, id, &obj2, &prop))
         return JS_FALSE;
     if (!prop) {
@@ -3472,6 +3474,7 @@ js_SetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
      */
     CHECK_FOR_STRING_INDEX(id);
 
+    JS_COUNT_OPERATION(cx, JSOW_SET_PROPERTY);
     if (!js_LookupProperty(cx, obj, id, &pobj, &prop))
         return JS_FALSE;
 
@@ -3730,6 +3733,7 @@ js_DeleteProperty(JSContext *cx, JSObject *obj, jsid id, jsval *rval)
      */
     CHECK_FOR_STRING_INDEX(id);
 
+    JS_COUNT_OPERATION(cx, JSOW_DELETE_PROPERTY);
     if (!js_LookupProperty(cx, obj, id, &proto, &prop))
         return JS_FALSE;
     if (!prop || proto != obj) {
@@ -4711,10 +4715,21 @@ js_Mark(JSContext *cx, JSObject *obj, void *arg)
         if (sprop->attrs & (JSPROP_GETTER | JSPROP_SETTER)) {
 #ifdef GC_MARK_DEBUG
             char buf[64];
-            JSAtom *atom = JSID_TO_ATOM(sprop->id);
-            const char *id = (atom && ATOM_IS_STRING(atom))
-                             ? JS_GetStringBytes(ATOM_TO_STRING(atom))
-                             : "unknown";
+            char buf2[11];
+            const char *id;
+
+            if (JSID_IS_ATOM(sprop->id)) {
+                JSAtom *atom = JSID_TO_ATOM(sprop->id);
+
+                id = (atom && ATOM_IS_STRING(atom))
+                     ? JS_GetStringBytes(ATOM_TO_STRING(atom))
+                     : "unknown";
+            } else if (JSID_IS_INT(sprop->id)) {
+                JS_snprintf(buf2, sizeof buf2, "%d", JSID_TO_INT(sprop->id));
+                id = buf2;
+            } else {
+                id = "<object>";
+            }
 #endif
 
             if (sprop->attrs & JSPROP_GETTER) {

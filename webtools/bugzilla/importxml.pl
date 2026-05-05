@@ -326,8 +326,8 @@ sub init() {
                   moved-default-product. \n", "REOPEN", $exporter);
     my $def_component = new Bugzilla::Component(
         {
-            product_id => $def_product->id,
-            name       => $params->{"moved-default-component"}
+            product => $def_product,
+            name    => $params->{"moved-default-component"}
         })
     || Error("Cannot import these bugs because an invalid default 
               component was defined for the target db."
@@ -622,8 +622,8 @@ sub process_bug {
       new Bugzilla::Product( { name => $params->{"moved-default-product"} } );
     my $def_component = new Bugzilla::Component(
         {
-            product_id => $def_product->id,
-            name       => $params->{"moved-default-component"}
+            product => $def_product,
+            name    => $params->{"moved-default-component"}
         }
     );
     my $product;
@@ -643,8 +643,8 @@ sub process_bug {
     if ( defined $bug_fields{'component'} ) {
         $component = new Bugzilla::Component(
             {
-                product_id => $product->id,
-                name       => $bug_fields{'component'}
+                product => $product,
+                name    => $bug_fields{'component'}
             }
         );
         unless ($component) {
@@ -671,8 +671,8 @@ sub process_bug {
     # Since there is no default version for a product, we check that the one
     # coming over is valid. If not we will use the first one in @versions
     # and warn them.
-    my $version =
-      new Bugzilla::Version( $product->id, $bug_fields{'version'} );
+    my $version = new Bugzilla::Version(
+          { product => $product, name => $bug_fields{'version'} });
 
     push( @query, "version" );
     if ($version) {
@@ -692,9 +692,8 @@ sub process_bug {
 
     # Milestone
     if ( $params->{"usetargetmilestone"} ) {
-        my $milestone =
-          new Bugzilla::Milestone( $product->id,
-                                   $bug_fields{'target_milestone'} );
+        my $milestone = new Bugzilla::Milestone(
+            { product => $product, name => $bug_fields{'target_milestone'} });
         if ($milestone) {
             push( @values, $milestone->name );
         }

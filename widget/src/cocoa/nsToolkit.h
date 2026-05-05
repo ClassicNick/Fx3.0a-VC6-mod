@@ -37,7 +37,6 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsIToolkit.h"
-#include "nsIObserver.h"
 
 #include <IOKit/IOKitLib.h>
 
@@ -68,7 +67,7 @@
 #define MAC_OS_X_VERSION_10_3_HEX 0x00001030
 #define MAC_OS_X_VERSION_10_4_HEX 0x00001040
 
-class nsToolkit : public nsIToolkit, public nsIObserver
+class nsToolkit : public nsIToolkit
 {
 public:
                      nsToolkit();
@@ -76,7 +75,6 @@ public:
 
   NS_DECL_ISUPPORTS
   NS_DECL_NSITOOLKIT
-  NS_DECL_NSIOBSERVER
 
   // Returns the OS X version as returned from Gestalt(gestaltSystemVersion, ...)
   static long        OSXVersion();
@@ -87,10 +85,6 @@ protected:
 
   nsresult           RegisterForSleepWakeNotifcations();
   void               RemoveSleepWakeNotifcations();
-
-protected:
-
-  static void        SetupQuartzRendering();
 
 protected:
 

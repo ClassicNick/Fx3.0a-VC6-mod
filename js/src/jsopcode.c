@@ -3271,6 +3271,12 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 todo = Sprint(&ss->sprinter, fmt, lval, rval);
                 break;
 
+              case JSOP_GETTHISPROP:
+                atom = GET_ATOM(cx, jp->script, pc);
+                GET_QUOTE_AND_FMT(index_format, dot_format, rval);
+                todo = Sprint(&ss->sprinter, fmt, js_this_str, rval);
+                break;
+
 #if JS_HAS_XML_SUPPORT
               BEGIN_LITOPX_CASE(JSOP_GETMETHOD)
                 sn = js_GetSrcNote(jp->script, pc);
@@ -3730,12 +3736,12 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 break;
               }
 
-              case JSOP_NEW_EQ:
-              case JSOP_NEW_NE:
+              case JSOP_STRICTEQ:
+              case JSOP_STRICTNE:
                 rval = POP_STR();
                 lval = POP_STR();
                 todo = Sprint(&ss->sprinter, "%s %c== %s",
-                              lval, (op == JSOP_NEW_EQ) ? '=' : '!', rval);
+                              lval, (op == JSOP_STRICTEQ) ? '=' : '!', rval);
                 break;
 
               BEGIN_LITOPX_CASE(JSOP_CLOSURE)
@@ -4624,6 +4630,8 @@ js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
         /* Let pc2 be non-null only for JSOP_LITOPX. */
         pc2 = NULL;
         op = (JSOp) *pc;
+        if (op == JSOP_TRAP)
+            op = JS_GetTrapOpcode(cx, script, pc);
         cs = &js_CodeSpec[op];
         oplen = cs->length;
 

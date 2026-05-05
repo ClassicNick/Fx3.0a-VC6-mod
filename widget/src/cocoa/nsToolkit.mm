@@ -52,22 +52,14 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <Carbon/Carbon.h>
+#include <Gestalt.h>
 
 #include "nsWidgetAtoms.h"
 
 #include "nsIObserverService.h"
 #include "nsIServiceManager.h"
-#include "nsIPrefBranch2.h"
-#include "nsIPrefBranch.h"
-#include "nsIPrefService.h"
-
-#include <Gestalt.h>
-
 
 static io_connect_t gRootPort = MACH_PORT_NULL;
-
-static const char kQuartzRenderingPref[] = "browser.quartz.enable";
-static const char kAllFontSizesPref[] = "browser.quartz.enable.all_font_sizes";
 
 // Static thread local storage index of the Toolkit 
 // object associated with a given thread...
@@ -89,7 +81,7 @@ nsToolkit::~nsToolkit()
 }
 
 
-NS_IMPL_THREADSAFE_ISUPPORTS2(nsToolkit, nsIToolkit, nsIObserver);
+NS_IMPL_THREADSAFE_ISUPPORTS1(nsToolkit, nsIToolkit);
 
 
 NS_IMETHODIMP
@@ -100,24 +92,7 @@ nsToolkit::Init(PRThread * aThread)
   mInited = true;
   
   RegisterForSleepWakeNotifcations();
-  SetupQuartzRendering();
-  
-  nsCOMPtr<nsIPrefBranch2> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefs) {
-    prefs->AddObserver(kQuartzRenderingPref, this, PR_FALSE);  
-    prefs->AddObserver(kAllFontSizesPref, this, PR_FALSE);
-  }
-  return NS_OK;
-}
 
-
-// The pref changed, reset the app to use quartz rendering as dictated by the pref
-NS_IMETHODIMP
-nsToolkit::Observe(nsISupports*     aSubject,
-                       const char*      aTopic,
-                       const PRUnichar* aData)
-{
-  SetupQuartzRendering();
   return NS_OK;
 }
 
@@ -197,52 +172,6 @@ nsToolkit::RemoveSleepWakeNotifcations()
                             kCFRunLoopDefaultMode);
 
     mSleepWakeNotificationRLS = nsnull;
-  }
-}
-
-
-// SetupQuartzRendering
-//
-// Use apple's technote for 10.1.5 to turn on quartz rendering with CG metrics. This
-// slows us down about 12% when turned on.
-void
-nsToolkit::SetupQuartzRendering()
-{
-  // from Apple's technote at http://developer.apple.com/qa/qa2001/qa1193.html
-  enum {
-    kQDDontChangeFlags = 0xFFFFFFFF,         // don't change anything
-    kQDUseDefaultTextRendering = 0,          // bit 0
-    kQDUseTrueTypeScalerGlyphs = (1 << 0),   // bit 1
-    kQDUseCGTextRendering = (1 << 1),        // bit 2
-    kQDUseCGTextMetrics = (1 << 2)
-  };
-  
-  const int kFlagsWeUse = kQDUseCGTextRendering | kQDUseCGTextMetrics;
-  
-  // turn on quartz rendering if we find the symbol in the app framework. Just turn
-  // on the bits that we need, don't turn off what someone else might have wanted. If
-  // the pref isn't found, assume we want it on. That way, we have to explicitly put
-  // in a pref to disable it, rather than force everyone who wants it to carry around
-  // an extra pref.
-  nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (!prefs)
-    return;
-  
-  PRBool enableQuartz = PR_TRUE;
-  nsresult rv = prefs->GetBoolPref(kQuartzRenderingPref, &enableQuartz);
-  UInt32 oldFlags = QDSwapTextFlags(kQDDontChangeFlags);
-  if (NS_FAILED(rv) || enableQuartz) {
-    QDSwapTextFlags(oldFlags | kFlagsWeUse);
-    
-    // the system defaults to not anti-aliasing small fonts, but some people
-    // think it looks better that way. If the pref is set, turn them on
-    PRBool antiAliasAllFontSizes = PR_FALSE;
-    rv = prefs->GetBoolPref(kAllFontSizesPref, &antiAliasAllFontSizes);
-    if (NS_SUCCEEDED(rv) && antiAliasAllFontSizes)
-      SetOutlinePreferred(true);
-  }
-  else {
-    QDSwapTextFlags(oldFlags & !kFlagsWeUse);
   }
 }
 
