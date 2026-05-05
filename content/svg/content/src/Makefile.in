@@ -63,8 +63,7 @@ REQUIRES	= xpcom \
 		  webshell \
 		  unicharutil \
 		  imglib2 \
-		  docshell \
-		  thebes
+		  docshell
 
 CPPSRCS		= \
 		nsDOMSVGZoomEvent.cpp \
@@ -129,7 +128,6 @@ CPPSRCS		= \
 		nsSVGSVGElement.cpp \
 		nsSVGStopElement.cpp \
 		nsSVGStyleElement.cpp \
-		nsSVGSwitchElement.cpp \
 		nsSVGSymbolElement.cpp \
 		nsSVGTSpanElement.cpp \
 		nsSVGTextElement.cpp \

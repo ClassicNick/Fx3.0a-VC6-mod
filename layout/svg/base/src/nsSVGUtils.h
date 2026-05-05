@@ -69,8 +69,6 @@ class nsSVGElement;
 class nsSVGCoordCtxProvider;
 class nsAttrValue;
 class nsIRenderingContext;
-struct gfxRect;
-class gfxMatrix;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -268,8 +266,6 @@ public:
    */
   static nsRect
   ToBoundingPixelRect(double xmin, double ymin, double xmax, double ymax);
-  static nsRect
-  ToBoundingPixelRect(const gfxRect& rect);
 
   /*
    * Get a pointer to a surface that can be used to create cairo
@@ -289,12 +285,6 @@ public:
    */
   static cairo_matrix_t
   ConvertSVGMatrixToCairo(nsIDOMSVGMatrix *aMatrix);
-
-  /*
-   * Convert a nsIDOMSVGMatrix to a gfxMatrix.
-   */
-  static gfxMatrix
-  ConvertSVGMatrixToThebes(nsIDOMSVGMatrix *aMatrix);
 
   /*
    * Hit test a given rectangle/matrix.
