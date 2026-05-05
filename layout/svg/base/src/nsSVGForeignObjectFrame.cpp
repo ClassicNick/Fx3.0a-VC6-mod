@@ -82,6 +82,7 @@ nsSVGForeignObjectFrame::nsSVGForeignObjectFrame(nsStyleContext* aContext)
   : nsSVGForeignObjectFrameBase(aContext),
     mPropagateTransform(PR_TRUE), mInReflow(PR_FALSE)
 {
+  AddStateBits(NS_FRAME_REFLOW_ROOT);
 }
 
 //----------------------------------------------------------------------
@@ -142,6 +143,31 @@ nsSVGForeignObjectFrame::DidSetStyleContext()
   nsSVGUtils::StyleEffects(this);
   return NS_OK;
 }
+
+NS_IMETHODIMP
+nsSVGForeignObjectFrame::Reflow(nsPresContext*           aPresContext,
+                                nsHTMLReflowMetrics&     aDesiredSize,
+                                const nsHTMLReflowState& aReflowState,
+                                nsReflowStatus&          aStatus)
+{
+  NS_ASSERTION(!aReflowState.parentReflowState,
+               "should only get reflow from being reflow root");
+  NS_ASSERTION(aReflowState.ComputedWidth() == GetSize().width &&
+               aReflowState.mComputedHeight == GetSize().height,
+               "reflow roots should be reflown at existing size and "
+               "svg.css should ensure we have no padding/border/margin");
+
+  DoReflow();
+
+  aDesiredSize.width = aReflowState.ComputedWidth();
+  aDesiredSize.height = aReflowState.mComputedHeight;
+  aDesiredSize.mOverflowArea =
+    nsRect(nsPoint(0, 0), nsSize(aDesiredSize.width, aDesiredSize.height));
+  aStatus = NS_FRAME_COMPLETE;
+
+  return NS_OK;
+}
+
 
 //----------------------------------------------------------------------
 // nsISVGValueObserver methods:
@@ -524,7 +550,7 @@ nsSVGForeignObjectFrame::DoReflow()
                reflowState.mComputedMargin == nsMargin(0, 0, 0, 0),
                "style system should ensure that :-moz-svg-foreign content "
                "does not get styled");
-  NS_ASSERTION(reflowState.mComputedWidth == size.width,
+  NS_ASSERTION(reflowState.ComputedWidth() == size.width,
                "reflow state made child wrong size");
   reflowState.mComputedHeight = size.height;
   
