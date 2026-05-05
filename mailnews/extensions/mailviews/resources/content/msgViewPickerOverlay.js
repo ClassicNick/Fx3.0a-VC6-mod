@@ -76,10 +76,6 @@ function ViewChange(aValue, aLabel)
     return;
   }
 
-  // bail out early if the user picked the same view
-  if (gCurrentViewValue == aValue)
-    return;
-
   // persist the view
   gCurrentViewValue = aValue;
   gCurrentViewLabel = aLabel;
@@ -143,12 +139,6 @@ function ViewChangeByValue(aValue)
 }
 
 
-function ViewChangeByCustomValue(aCustomValue)
-{
-  ViewChangeByValue(aCustomValue + kViewItemFirstCustom);
-}
-
-
 function UpdateViewPicker(aValue, aLabel)
 {
   var viewPicker = document.getElementById("viewPicker");
@@ -200,7 +190,7 @@ function SetMailViewForFolder(aFolder, aValue)
   if (folderInfo)
   {
     // we can't map tags back to labels in general,
-    // so set view to none for backwards compatibility in this case
+    // so set view to all for backwards compatibility in this case
     folderInfo.setUint32Property (kViewCurrent, isNaN(aValue) ? kViewItemAll : aValue);
     folderInfo.setCharPtrProperty(kViewCurrentTag, aValue);
   }
@@ -209,11 +199,7 @@ function SetMailViewForFolder(aFolder, aValue)
 
 function LaunchCustomizeDialog()
 {
-  // made it modal, see bug #191188
-  window.openDialog("chrome://messenger/content/mailViewList.xul",
-                    "mailnews:mailviewlist",
-                    "chrome,modal,titlebar,resizable,centerscreen",
-                    {onCloseCallback: ViewChangeByCustomValue});
+  OpenOrFocusWindow({}, "mailnews:mailviewlist", "chrome://messenger/content/mailViewList.xul");
 }
 
 

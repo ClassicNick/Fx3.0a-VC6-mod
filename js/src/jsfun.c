@@ -274,7 +274,7 @@ js_GetArgsObject(JSContext *cx, JSStackFrame *fp)
     global = fp->scopeChain;
     while ((parent = OBJ_GET_PARENT(cx, global)) != NULL)
         global = parent;
-    argsobj->slots[JSSLOT_PARENT] = OBJECT_TO_JSVAL(global);
+    STOBJ_SET_PARENT(argsobj, global);
     fp->argsobj = argsobj;
     return argsobj;
 }
@@ -1191,10 +1191,17 @@ fun_finalize(JSContext *cx, JSObject *obj)
     fun = (JSFunction *) JS_GetPrivate(cx, obj);
     if (!fun)
         return;
+
     if (fun->object == obj)
         fun->object = NULL;
 
-    /* Null-check required since the parser sets interpreted very early. */
+    /*
+     * Null-check of i.script is required since the parser sets interpreted
+     * very early.
+     *
+     * Here js_IsAboutToBeFinalized works because obj is finalized before
+     * JSFunction. See comments in js_GC before the finalization loop.
+     */
     if (FUN_INTERPRETED(fun) && fun->u.i.script &&
         js_IsAboutToBeFinalized(cx, fun))
     {

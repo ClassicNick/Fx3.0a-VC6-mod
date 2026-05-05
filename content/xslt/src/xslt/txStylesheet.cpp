@@ -47,12 +47,7 @@
 #include "txXPathTreeWalker.h"
 
 txStylesheet::txStylesheet()
-    : mRootFrame(nsnull),
-      mNamedTemplates(PR_FALSE),
-      mDecimalFormats(PR_TRUE),
-      mAttributeSets(PR_FALSE),
-      mGlobalVariables(PR_TRUE),
-      mKeys(PR_TRUE)
+    : mRootFrame(nsnull)
 {
 }
 
@@ -72,6 +67,8 @@ txStylesheet::init()
 
     nsAutoPtr<Expr> nodeExpr(new LocationStep(nt, LocationStep::CHILD_AXIS));
     NS_ENSURE_TRUE(nodeExpr, NS_ERROR_OUT_OF_MEMORY);
+
+    nt.forget();
 
     txPushNewContext* pushContext = new txPushNewContext(nodeExpr);
     mContainerTemplate->mNext = pushContext;
@@ -99,6 +96,8 @@ txStylesheet::init()
 
     nodeExpr = new LocationStep(nt, LocationStep::SELF_AXIS);
     NS_ENSURE_TRUE(nodeExpr, NS_ERROR_OUT_OF_MEMORY);
+
+    nt.forget();
 
     mCharactersTemplate = new txValueOf(nodeExpr, PR_FALSE);
     NS_ENSURE_TRUE(mCharactersTemplate, NS_ERROR_OUT_OF_MEMORY);
@@ -129,7 +128,7 @@ txStylesheet::~txStylesheet()
     
     // We can't make the map own its values because then we wouldn't be able
     // to merge attributesets of the same name
-    txExpandedNameMap::iterator attrSetIter(mAttributeSets);
+    txExpandedNameMap<txInstruction>::iterator attrSetIter(mAttributeSets);
     while (attrSetIter.next()) {
         delete attrSetIter.value();
     }
@@ -167,22 +166,19 @@ txStylesheet::findTemplate(const txXPathNode& aNode,
            frame != endFrame) {
 
         // get templatelist for this mode
-        txList* templates =
-            NS_STATIC_CAST(txList*, frame->mMatchableTemplates.get(aMode));
+        nsTArray<MatchableTemplate>* templates =
+            frame->mMatchableTemplates.get(aMode);
 
         if (templates) {
-            txListIterator templateIter(templates);
-
             // Find template with highest priority
-            MatchableTemplate* templ;
-            while (!matchTemplate &&
-                   (templ =
-                    NS_STATIC_CAST(MatchableTemplate*, templateIter.next()))) {
-                if (templ->mMatch->matches(aNode, aContext)) {
-                    matchTemplate = templ->mFirstInstruction;
+            PRUint32 i, len = templates->Length();
+            for (i = 0; i < len && !matchTemplate; ++i) {
+                MatchableTemplate& templ = (*templates)[i];
+                if (templ.mMatch->matches(aNode, aContext)) {
+                    matchTemplate = templ.mFirstInstruction;
                     *aImportFrame = frame;
 #ifdef PR_LOGGING
-                    match = templ->mMatch;
+                    match = templ.mMatch;
 #endif
                 }
             }
@@ -236,19 +232,19 @@ txStylesheet::findTemplate(const txXPathNode& aNode,
 txDecimalFormat*
 txStylesheet::getDecimalFormat(const txExpandedName& aName)
 {
-    return NS_STATIC_CAST(txDecimalFormat*, mDecimalFormats.get(aName));
+    return mDecimalFormats.get(aName);
 }
 
 txInstruction*
 txStylesheet::getAttributeSet(const txExpandedName& aName)
 {
-    return NS_STATIC_CAST(txInstruction*, mAttributeSets.get(aName));
+    return mAttributeSets.get(aName);
 }
 
 txInstruction*
 txStylesheet::getNamedTemplate(const txExpandedName& aName)
 {
-    return NS_STATIC_CAST(txInstruction*, mNamedTemplates.get(aName));
+    return mNamedTemplates.get(aName);
 }
 
 txOutputFormat*
@@ -260,10 +256,10 @@ txStylesheet::getOutputFormat()
 txStylesheet::GlobalVariable*
 txStylesheet::getGlobalVariable(const txExpandedName& aName)
 {
-    return NS_STATIC_CAST(GlobalVariable*, mGlobalVariables.get(aName));
+    return mGlobalVariables.get(aName);
 }
 
-const txExpandedNameMap&
+const txOwningExpandedNameMap<txXSLKey>&
 txStylesheet::getKeyMap()
 {
     return mKeys;
@@ -419,59 +415,59 @@ txStylesheet::addTemplate(txTemplateItem* aTemplate,
     }
 
     // get the txList for the right mode
-    txList* templates =
-        NS_STATIC_CAST(txList*,
-                       aImportFrame->mMatchableTemplates.get(aTemplate->mMode));
+    nsTArray<MatchableTemplate>* templates =
+        aImportFrame->mMatchableTemplates.get(aTemplate->mMode);
 
     if (!templates) {
-        nsAutoPtr<txList> newList(new txList);
+        nsAutoPtr< nsTArray<MatchableTemplate> > newList(
+            new nsTArray<MatchableTemplate>);
         NS_ENSURE_TRUE(newList, NS_ERROR_OUT_OF_MEMORY);
 
-        rv = aImportFrame->mMatchableTemplates.add(aTemplate->mMode, newList);
+        rv = aImportFrame->mMatchableTemplates.set(aTemplate->mMode, newList);
         NS_ENSURE_SUCCESS(rv, rv);
-        
+
         templates = newList.forget();
     }
 
     // Add the simple patterns to the list of matchable templates, according
     // to default priority
-    txList simpleMatches;
-    rv = aTemplate->mMatch->getSimplePatterns(simpleMatches);
-    if (simpleMatches.get(0) == aTemplate->mMatch) {
-        aTemplate->mMatch.forget();
+    nsAutoPtr<txPattern> simple = aTemplate->mMatch;
+    nsAutoPtr<txPattern> unionPattern;
+    if (simple->getType() == txPattern::UNION_PATTERN) {
+        unionPattern = simple;
+        simple = unionPattern->getSubPatternAt(0);
+        unionPattern->setSubPatternAt(0, nsnull);
     }
-    
-    txListIterator simples(&simpleMatches);
-    while (simples.hasNext()) {
-        // XXX if we fail in this loop, we leak the remaining simple patterns
-        nsAutoPtr<txPattern> simple(NS_STATIC_CAST(txPattern*, simples.next()));
+
+    PRUint32 unionPos = 1; // only used when unionPattern is set
+    while (simple) {
         double priority = aTemplate->mPrio;
         if (Double::isNaN(priority)) {
             priority = simple->getDefaultPriority();
             NS_ASSERTION(!Double::isNaN(priority),
                          "simple pattern without default priority");
         }
-        nsAutoPtr<MatchableTemplate>
-            nt(new MatchableTemplate(instr, simple, priority));
-        NS_ENSURE_TRUE(nt, NS_ERROR_OUT_OF_MEMORY);
 
-        txListIterator templ(templates);
-        while (templ.hasNext()) {
-            MatchableTemplate* mt = NS_STATIC_CAST(MatchableTemplate*,
-                                                   templ.next());
-            if (priority > mt->mPriority) {
-                rv = templ.addBefore(nt);
-                NS_ENSURE_SUCCESS(rv, rv);
-
-                nt.forget();
+        PRUint32 i, len = templates->Length();
+        for (i = 0; i < len; ++i) {
+            if (priority > (*templates)[i].mPriority) {
                 break;
             }
         }
-        if (nt) {
-            rv = templates->add(nt);
-            NS_ENSURE_SUCCESS(rv, rv);
 
-            nt.forget();
+        MatchableTemplate* nt = templates->InsertElementAt(i);
+        NS_ENSURE_TRUE(nt, NS_ERROR_OUT_OF_MEMORY);
+
+        nt->mFirstInstruction = instr;
+        nt->mMatch = simple;
+        nt->mPriority = priority;
+
+        if (unionPattern) {
+            simple = unionPattern->getSubPatternAt(unionPos);
+            if (simple) {
+                unionPattern->setSubPatternAt(unionPos, nsnull);
+            }
+            ++unionPos;
         }
     }
 
@@ -532,9 +528,7 @@ nsresult
 txStylesheet::addAttributeSet(txAttributeSetItem* aAttributeSetItem)
 {
     nsresult rv = NS_OK;
-    txInstruction* oldInstr =
-        NS_STATIC_CAST(txInstruction*,
-                       mAttributeSets.get(aAttributeSetItem->mName));
+    txInstruction* oldInstr = mAttributeSets.get(aAttributeSetItem->mName);
     if (!oldInstr) {
         rv = mAttributeSets.add(aAttributeSetItem->mName,
                                 aAttributeSetItem->mFirstInstruction);
@@ -596,7 +590,7 @@ txStylesheet::addKey(const txExpandedName& aName,
 {
     nsresult rv = NS_OK;
 
-    txXSLKey* xslKey = NS_STATIC_CAST(txXSLKey*, mKeys.get(aName));
+    txXSLKey* xslKey = mKeys.get(aName);
     if (!xslKey) {
         xslKey = new txXSLKey(aName);
         NS_ENSURE_TRUE(xslKey, NS_ERROR_OUT_OF_MEMORY);
@@ -617,8 +611,7 @@ nsresult
 txStylesheet::addDecimalFormat(const txExpandedName& aName,
                                nsAutoPtr<txDecimalFormat> aFormat)
 {
-    txDecimalFormat* existing =
-        NS_STATIC_CAST(txDecimalFormat*, mDecimalFormats.get(aName));
+    txDecimalFormat* existing = mDecimalFormats.get(aName);
     if (existing) {
         NS_ENSURE_TRUE(existing->isEqual(aFormat),
                        NS_ERROR_XSLT_PARSE_FAILURE);
@@ -634,24 +627,8 @@ txStylesheet::addDecimalFormat(const txExpandedName& aName,
     return NS_OK;
 }
 
-txStylesheet::ImportFrame::ImportFrame()
-    : mMatchableTemplates(MB_TRUE),
-      mFirstNotImported(nsnull)
-{
-}
-
 txStylesheet::ImportFrame::~ImportFrame()
 {
-    // Delete templates in mMatchableTemplates
-    txExpandedNameMap::iterator mapIter(mMatchableTemplates);
-    while (mapIter.next()) {
-        txListIterator templIter(NS_STATIC_CAST(txList*, mapIter.value()));
-        MatchableTemplate* templ;
-        while ((templ = NS_STATIC_CAST(MatchableTemplate*, templIter.next()))) {
-            delete templ;
-        }
-    }
-    
     txListIterator tlIter(&mToplevelItems);
     while (tlIter.hasNext()) {
         delete NS_STATIC_CAST(txToplevelItem*, tlIter.next());

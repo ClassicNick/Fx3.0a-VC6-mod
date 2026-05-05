@@ -40,6 +40,6 @@
 // remove bookmarks file
 try {
   var file = dirSvc.get('ProfD', Ci.nsIFile);
-  file.append("bookmarks_history.sqlite");
+  file.append("places.sqlite");
   file.remove(false);
 } catch(ex) { dump(ex); }

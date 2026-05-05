@@ -35,7 +35,8 @@ use Bugzilla::User::Setting;
 use Bugzilla::Util qw(get_text);
 use Bugzilla::Version;
 
-use constant SETTINGS => {
+sub SETTINGS {
+    return {
     # 2005-03-03 travis@sedsystems.ca -- Bug 41972
     display_quips      => { options => ["on", "off"], default => "on" },
     # 2005-03-10 travis@sedsystems.ca -- Bug 199048
@@ -56,7 +57,10 @@ use constant SETTINGS => {
                             default => 'cc_unless_role' },
     # 2006-08-04 wurblzap@gmail.com -- Bug 322693
     skin               => { subclass => 'Skin', default => 'standard' },
-
+    # 2006-12-10 LpSolit@gmail.com -- Bug 297186
+    lang               => { options => [split(/[\s,]+/, Bugzilla->params->{'languages'})],
+                            default => Bugzilla->params->{'defaultlanguage'} }
+    }
 };
 
 use constant SYSTEM_GROUPS => (
@@ -274,7 +278,7 @@ sub create_admin {
 
     return if $admin_count;
 
-    my %answer    = %{$params->{answer} || {}};
+    my %answer    = %{Bugzilla->installation_answers};
     my $login     = $answer{'ADMIN_EMAIL'};
     my $password  = $answer{'ADMIN_PASSWORD'};
     my $full_name = $answer{'ADMIN_REALNAME'};

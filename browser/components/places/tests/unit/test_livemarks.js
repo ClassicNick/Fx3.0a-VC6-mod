@@ -44,6 +44,13 @@ try {
   do_throw("Could not get livemark-service\n");
 } 
 
+// Get bookmark service
+try {
+  var bmsvc = Cc["@mozilla.org/browser/nav-bookmarks-service;1"].getService(Ci.nsINavBookmarksService);
+} catch(ex) {
+  do_throw("Could not get nav-bookmarks-service\n");
+}
+
 // get bookmarks root index
 var root = bmsvc.bookmarksRoot;
 

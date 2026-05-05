@@ -1106,7 +1106,7 @@ JS_ToggleOptions(JSContext *cx, uint32 options)
 JS_PUBLIC_API(const char *)
 JS_GetImplementationVersion(void)
 {
-    return "JavaScript-C 1.7 pre-release 1 2006-04-04";
+    return "JavaScript-C 1.7 pre-release 2 2006-11-19";
 }
 
 
@@ -1900,12 +1900,12 @@ JS_MaybeGC(JSContext *cx)
 
     /*
      * We run the GC if we used all available free GC cells and had to
-     * allocate extra 1/5 of GC arenas since the last run of GC, or if
+     * allocate extra 1/3 of GC arenas since the last run of GC, or if
      * we have malloc'd more bytes through JS_malloc than we were told
      * to allocate by JS_NewRuntime.
      *
      * The reason for
-     *   bytes > 6/5 lastBytes
+     *   bytes > 4/3 lastBytes
      * condition is the following. Bug 312238 changed bytes and lastBytes
      * to mean the total amount of memory that the GC uses now and right
      * after the last GC.
@@ -1929,23 +1929,23 @@ JS_MaybeGC(JSContext *cx)
      * Bl*(1-Fl) are bytes and lastBytes with the original meaning.
      *
      * Our task is to exclude F and Fl from the last statement. According
-     * the stats from bug 331770 Fl is about 20-30% for GC allocations
-     * that contribute to S and Sl for a typical run of the browser. It
-     * means that the original condition implied that we did not run GC
-     * unless we exhausted the pool of free cells. Indeed if we still
-     * have free cells, then B == Bl since we did not yet allocated any
-     * new arenas and the condition means
+     * to the stats from bug 331966 comment 23, Fl is about 10-25% for a
+     * typical run of the browser. It means that the original condition
+     * implied that we did not run GC unless we exhausted the pool of
+     * free cells. Indeed if we still have free cells, then B == Bl since
+     * we did not yet allocated any new arenas and the condition means
      *   1 - F > 3/2 (1-Fl) or 3/2Fl > 1/2 + F
      * That implies 3/2 Fl > 1/2 or Fl > 1/3. That can not be fulfilled
      * for the state described by the stats. So we can write the original
      * condition as:
      *   F == 0 && B > 3/2 Bl(1-Fl)
-     * Again using the stats we see that Fl is about 20% when the browser
+     * Again using the stats we see that Fl is about 11% when the browser
      * starts up and when we are far from hitting rt->gcMaxBytes. With
      * this F we have
-     * F == 0 && B > 3/2 Bl(1-0.8) or just B > 6/5 Bl.
+     * F == 0 && B > 3/2 Bl(1-0.11)
+     * or approximately F == 0 && B > 4/3 Bl.
      */
-    if ((bytes > 8192 && bytes > lastBytes + lastBytes / 5) ||
+    if ((bytes > 8192 && bytes > lastBytes + lastBytes / 3) ||
         rt->gcMallocBytes >= rt->gcMaxMallocBytes) {
         JS_GC(cx);
     }
@@ -2325,7 +2325,7 @@ JS_GetPrototype(JSContext *cx, JSObject *obj)
     JSObject *proto;
 
     CHECK_REQUEST(cx);
-    proto = JSVAL_TO_OBJECT(GC_AWARE_GET_SLOT(cx, obj, JSSLOT_PROTO));
+    proto = GC_AWARE_GET_PROTO(cx, obj);
 
     /* Beware ref to dead object (we may be called from obj's finalizer). */
     return proto && proto->map ? proto : NULL;
@@ -2337,7 +2337,7 @@ JS_SetPrototype(JSContext *cx, JSObject *obj, JSObject *proto)
     CHECK_REQUEST(cx);
     if (obj->map->ops->setProto)
         return obj->map->ops->setProto(cx, obj, JSSLOT_PROTO, proto);
-    OBJ_SET_SLOT(cx, obj, JSSLOT_PROTO, OBJECT_TO_JSVAL(proto));
+    OBJ_SET_PROTO(cx, obj, proto);
     return JS_TRUE;
 }
 
@@ -2346,7 +2346,7 @@ JS_GetParent(JSContext *cx, JSObject *obj)
 {
     JSObject *parent;
 
-    parent = JSVAL_TO_OBJECT(GC_AWARE_GET_SLOT(cx, obj, JSSLOT_PARENT));
+    parent = GC_AWARE_GET_PARENT(cx, obj);
 
     /* Beware ref to dead object (we may be called from obj's finalizer). */
     return parent && parent->map ? parent : NULL;
@@ -2358,7 +2358,7 @@ JS_SetParent(JSContext *cx, JSObject *obj, JSObject *parent)
     CHECK_REQUEST(cx);
     if (obj->map->ops->setParent)
         return obj->map->ops->setParent(cx, obj, JSSLOT_PARENT, parent);
-    OBJ_SET_SLOT(cx, obj, JSSLOT_PARENT, OBJECT_TO_JSVAL(parent));
+    OBJ_SET_PARENT(cx, obj, parent);
     return JS_TRUE;
 }
 
@@ -2403,8 +2403,8 @@ JS_SealObject(JSContext *cx, JSObject *obj, JSBool deep)
 {
     JSScope *scope;
     JSIdArray *ida;
-    uint32 nslots;
-    jsval v, *vp, *end;
+    uint32 nslots, i;
+    jsval v;
 
     if (!OBJ_IS_NATIVE(obj)) {
         JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
@@ -2448,10 +2448,10 @@ JS_SealObject(JSContext *cx, JSObject *obj, JSBool deep)
     if (!deep)
         return JS_TRUE;
 
-    /* Walk obj->slots and if any value is a non-null object, seal it. */
+    /* Walk slots in obj and if any value is a non-null object, seal it. */
     nslots = JS_MIN(scope->map.freeslot, scope->map.nslots);
-    for (vp = obj->slots, end = vp + nslots; vp < end; vp++) {
-        v = *vp;
+    for (i = 0; i != nslots; ++i) {
+        v = STOBJ_GET_SLOT(obj, i);
         if (JSVAL_IS_PRIMITIVE(v))
             continue;
         if (!JS_SealObject(cx, JSVAL_TO_OBJECT(v), deep))
@@ -3388,8 +3388,8 @@ JS_NewPropertyIterator(JSContext *cx, JSObject *obj)
     }
 
     /* iterobj can not escape to other threads here. */
-    iterobj->slots[JSSLOT_PRIVATE] = PRIVATE_TO_JSVAL(pdata);
-    iterobj->slots[JSSLOT_ITER_INDEX] = INT_TO_JSVAL(index);
+    STOBJ_SET_SLOT(iterobj, JSSLOT_PRIVATE, PRIVATE_TO_JSVAL(pdata));
+    STOBJ_SET_SLOT(iterobj, JSSLOT_ITER_INDEX, INT_TO_JSVAL(index));
     return iterobj;
 
 bad:

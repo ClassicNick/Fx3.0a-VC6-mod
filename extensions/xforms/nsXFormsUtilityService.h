@@ -64,5 +64,8 @@ public:
   NS_IMETHOD GetRangeStep(nsIDOMNode *aElement, nsAString& aValue);
 
   NS_IMETHOD GetEditor(nsIDOMNode *aElement, nsIEditor **aEditor);
+
+  NS_IMETHOD IsDropmarkerOpen(nsIDOMNode *aElement, PRBool* aIsOpen);
+  NS_IMETHOD ToggleDropmarkerState(nsIDOMNode *aElement);
 };
 

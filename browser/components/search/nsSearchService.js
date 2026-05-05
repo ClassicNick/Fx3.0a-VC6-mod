@@ -78,6 +78,9 @@ const SEARCH_DATA_TEXT           = Ci.nsISearchEngine.DATA_TEXT;
 const XML_FILE_EXT      = "xml";
 const SHERLOCK_FILE_EXT = "src";
 
+// Delay for lazy serialization (ms)
+const LAZY_SERIALIZE_DELAY = 100;
+
 const ICON_DATAURL_PREFIX = "data:image/x-icon;base64,";
 
 // Supported extensions for Sherlock plugin icons
@@ -272,33 +275,46 @@ function ENSURE_ARG(assertion, message) {
 function b64(aBytes) {
   const B64_CHARS =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  var out = "", bits, i, j;
 
-  while (aBytes.length >= 3) {
-    bits = 0;
-    for (i = 0; i < 3; i++) {
-      bits <<= 8;
-      bits |= aBytes[i];
-    }
-    for (j = 18; j >= 0; j -= 6)
-      out += B64_CHARS[(bits>>j) & 0x3F];
+  var index = 0;
+  function get3Bytes() {
+    if (aBytes.length - index < 3)
+      return null; // Less than three bytes remaining
 
-    aBytes.splice(0, 3);
+    // Return the next three bytes in the array, and increment index for our
+    // next invocation
+    return aBytes.slice(index, index += 3);
   }
 
-  switch (aBytes.length) {
+  var out = "";
+  var bytes = null;
+  while ((bytes = get3Bytes())) {
+    var bits = 0;
+    for (var i = 0; i < 3; i++) {
+      bits <<= 8;
+      bits |= bytes[i];
+    }
+    for (var j = 18; j >= 0; j -= 6)
+      out += B64_CHARS[(bits>>j) & 0x3F];
+  }
+
+  // Get the remaining bytes
+  bytes = aBytes.slice(index);
+
+  switch (bytes.length) {
     case 2:
-      out += B64_CHARS[(aBytes[0]>>2) & 0x3F];
-      out += B64_CHARS[((aBytes[0] & 0x03) << 4) | ((aBytes[1] >> 4) & 0x0F)];
-      out += B64_CHARS[((aBytes[1] & 0x0F) << 2)];
-      out += "=";
+      out += B64_CHARS[(bytes[0]>>2) & 0x3F] +
+             B64_CHARS[((bytes[0] & 0x03) << 4) | ((bytes[1] >> 4) & 0x0F)] +
+             B64_CHARS[((bytes[1] & 0x0F) << 2)] +
+             "=";
       break;
     case 1:
-      out += B64_CHARS[(aBytes[0]>>2) & 0x3F];
-      out += B64_CHARS[(aBytes[0] & 0x03) << 4];
-      out += "==";
+      out += B64_CHARS[(bytes[0]>>2) & 0x3F] +
+             B64_CHARS[(bytes[0] & 0x03) << 4] +
+             "==";
       break;
   }
+
   return out;
 }
 
@@ -1018,6 +1034,8 @@ Engine.prototype = {
   _updateURL: null,
   // The url to check for a new icon
   _iconUpdateURL: null,
+  // A reference to the timer used for lazily serializing the engine to file
+  _serializeTimer: null,
 
   /**
    * Retrieves the data from the engine's file. If the engine's dataType is
@@ -1932,6 +1950,30 @@ Engine.prototype = {
     return doc;
   },
 
+  _lazySerializeToFile: function SRCH_ENG_serializeToFile() {
+    if (this._serializeTimer) {
+      // Reset the timer
+      this._serializeTimer.delay = LAZY_SERIALIZE_DELAY;
+    } else {
+      this._serializeTimer = Cc["@mozilla.org/timer;1"].
+                             createInstance(Ci.nsITimer);
+      var timerCallback = {
+        self: this,
+        notify: function SRCH_ENG_notify(aTimer) {
+          try {
+            this.self._serializeToFile();
+          } catch (ex) {
+            LOG("Serialization from timer callback failed:\n" + ex);
+          }
+          this.self._serializeTimer = null;
+        }
+      };
+      this._serializeTimer.initWithCallback(timerCallback,
+                                            LAZY_SERIALIZE_DELAY,
+                                            Ci.nsITimer.TYPE_ONE_SHOT);
+    }
+  },
+
   /**
    * Serializes the engine object to file.
    */
@@ -2103,6 +2145,9 @@ Engine.prototype = {
            Cr.NS_ERROR_FAILURE);
 
     url.addParam(aName, aValue);
+
+    // Serialize the changes to file lazily
+    this._lazySerializeToFile();
   },
 
   // from nsISearchEngine

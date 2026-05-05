@@ -75,11 +75,8 @@ txKeyFunctionCall::evaluate(txIEvalContext* aContext, txAExprResult** aResult)
     txExecutionState* es =
         NS_STATIC_CAST(txExecutionState*, aContext->getPrivateContext());
 
-    txListIterator iter(&params);
-
     nsAutoString keyQName;
-    Expr* param = NS_STATIC_CAST(Expr*, iter.next());
-    nsresult rv = param->evaluateToString(aContext, keyQName);
+    nsresult rv = mParams[0]->evaluateToString(aContext, keyQName);
     NS_ENSURE_SUCCESS(rv, rv);
 
     txExpandedName keyName;
@@ -87,7 +84,7 @@ txKeyFunctionCall::evaluate(txIEvalContext* aContext, txAExprResult** aResult)
     NS_ENSURE_SUCCESS(rv, rv);
 
     nsRefPtr<txAExprResult> exprResult;
-    rv = ((Expr*)iter.next())->evaluate(aContext, getter_AddRefs(exprResult));
+    rv = mParams[1]->evaluate(aContext, getter_AddRefs(exprResult));
     NS_ENSURE_SUCCESS(rv, rv);
 
     txXPathTreeWalker walker(aContext->getContextNode());
@@ -269,7 +266,7 @@ txKeyHash::getKeyNodes(const txExpandedName& aKeyName,
     }
 
     // The key needs to be indexed.
-    txXSLKey* xslKey = (txXSLKey*)mKeys.get(aKeyName);
+    txXSLKey* xslKey = mKeys.get(aKeyName);
     if (!xslKey) {
         // The key didn't exist, so bail.
         return NS_ERROR_INVALID_ARG;
@@ -309,18 +306,6 @@ txKeyHash::init()
     return NS_OK;
 }
 
-/**
- * Class holding all <xsl:key>s of a particular expanded name in the
- * stylesheet.
- */
-txXSLKey::~txXSLKey()
-{
-    txListIterator iter(&mKeys);
-    Key* key;
-    while ((key = (Key*)iter.next())) {
-        delete key;
-    }
-}
 
 /**
  * Adds a match/use pair.
@@ -333,16 +318,12 @@ PRBool txXSLKey::addKey(nsAutoPtr<txPattern> aMatch, nsAutoPtr<Expr> aUse)
     if (!aMatch || !aUse)
         return PR_FALSE;
 
-    nsAutoPtr<Key> key(new Key);
+    Key* key = mKeys.AppendElement();
     if (!key)
         return PR_FALSE;
 
     key->matchPattern = aMatch;
     key->useExpr = aUse;
-    nsresult rv = mKeys.add(key);
-    NS_ENSURE_SUCCESS(rv, PR_FALSE);
-    
-    key.forget();
 
     return PR_TRUE;
 }
@@ -416,18 +397,16 @@ nsresult txXSLKey::testNode(const txXPathNode& aNode,
                             txExecutionState& aEs)
 {
     nsAutoString val;
-    txListIterator iter(&mKeys);
-    while (iter.hasNext())
-    {
-        Key* key = (Key*)iter.next();
-        if (key->matchPattern->matches(aNode, &aEs)) {
+    PRUint32 currKey, numKeys = mKeys.Length();
+    for (currKey = 0; currKey < numKeys; ++currKey) {
+        if (mKeys[currKey].matchPattern->matches(aNode, &aEs)) {
             txSingleNodeContext evalContext(aNode, &aEs);
             nsresult rv = aEs.pushEvalContext(&evalContext);
             NS_ENSURE_SUCCESS(rv, rv);
 
             nsRefPtr<txAExprResult> exprResult;
-            rv = key->useExpr->evaluate(&evalContext,
-                                        getter_AddRefs(exprResult));
+            rv = mKeys[currKey].useExpr->evaluate(&evalContext,
+                                                  getter_AddRefs(exprResult));
             NS_ENSURE_SUCCESS(rv, rv);
 
             aEs.popEvalContext();

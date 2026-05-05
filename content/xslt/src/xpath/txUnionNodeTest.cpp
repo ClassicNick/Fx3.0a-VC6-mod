@@ -40,25 +40,6 @@
 #include "txExprResult.h"
 #include "txSingleNodeContext.h"
 
-txUnionNodeTest::~txUnionNodeTest()
-{
-    PRUint32 i, len = mNodeTests.Length();
-    for (i = 0; i < len; ++i) {
-        delete mNodeTests[i];
-    }
-}
-
-nsresult
-txUnionNodeTest::addNodeTest(txNodeTest* aNodeTest)
-{
-    if (!mNodeTests.AppendElement(aNodeTest)) {
-      delete aNodeTest;
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
-
-    return NS_OK;
-}
-
 PRBool
 txUnionNodeTest::matches(const txXPathNode& aNode,
                          txIMatchContext* aContext)

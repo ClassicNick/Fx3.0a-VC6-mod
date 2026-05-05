@@ -4496,16 +4496,7 @@ PRBool
 nsTextFrame::PeekOffsetNoAmount(PRBool aForward, PRInt32* aOffset)
 {
   NS_ASSERTION (aOffset && *aOffset <= mContentLength, "aOffset out of range");
-  nsAutoTextBuffer paintBuffer;
-  nsAutoIndexBuffer indexBuffer;
-  nsresult rv = indexBuffer.GrowTo(mContentLength + 1);
-  if (NS_FAILED(rv)) {
-    return PR_FALSE;
-  }  
-  PRInt32 textLength;  
-  nsTextTransformer tx(GetPresContext());
-  PrepareUnicodeText(tx, &indexBuffer, &paintBuffer, &textLength);
-  return (textLength > 0);
+  return (!IsEmpty());
 }
 
 PRBool
@@ -5425,8 +5416,10 @@ nsTextFrame::MeasureText(nsPresContext*          aPresContext,
       PRInt32 measureChars = textRun.mTotalNumChars;
       if (forcedOffset == -1) {
         forcedOffset -= aTextData.mOffset;
+#ifdef MOZ_CAIRO_GFX
         NS_ASSERTION(forcedOffset >= 0,
                      "Overshot forced offset, we should have already exited");
+#endif
         if (forcedOffset >= 0 && forcedOffset < textRun.mTotalNumChars) {
           // Only measure up to forcedOffset characters. We still need to measure
           // to make sure we get the right text dimensions, even though we know

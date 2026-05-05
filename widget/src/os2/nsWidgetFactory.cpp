@@ -83,7 +83,6 @@
 
 // Printing
 #include "nsDeviceContextSpecOS2.h"
-#include "nsDeviceContextSpecFactoryO.h"
 #include "nsPrintOptionsOS2.h"
 #include "nsPrintSession.h"
 
@@ -104,7 +103,6 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsHTMLFormatConverter)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDragService)
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceContextSpecOS2)
-NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceContextSpecFactoryOS2)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintOptionsOS2, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsPrinterEnumeratorOS2)
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsPrintSession, Init)
@@ -174,11 +172,6 @@ static const nsModuleComponentInfo components[] =
     //    "@mozilla.org/gfx/device_context_spec/gtk;1",
     "@mozilla.org/gfx/devicecontextspec;1",
     nsDeviceContextSpecOS2Constructor },
-  { "OS/2 Device Context Spec Factory",
-    NS_DEVICE_CONTEXT_SPEC_FACTORY_CID,
-    //    "@mozilla.org/gfx/device_context_spec_factory/gtk;1",
-    "@mozilla.org/gfx/devicecontextspecfactory;1",
-    nsDeviceContextSpecFactoryOS2Constructor },
   { "PrintSettings Service",
     NS_PRINTSETTINGSSERVICE_CID,
     //    "@mozilla.org/gfx/printsettings-service;1",
