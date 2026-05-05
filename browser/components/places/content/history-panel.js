@@ -103,37 +103,33 @@ function SetPlace(aSearchString)
   if (prefService.getBoolPref("browser.history.showSessions"))
       placeURI += "&showSessions=1";
 
-  // if there is a search string, root the places tree into
-  // the history root (sorted by SORT_BY_TITLE_ASCENDING)
-  // otherwise, root the tree based on gHistoryGrouping
-  if (aSearchString)
-    placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
-  else {
-    switch (gHistoryGrouping) {
-      case "site":
-        placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
-        break; 
-      case "visited":
-        placeURI += "&sort=" + NHQO.SORT_BY_VISITCOUNT_DESCENDING;
-        break; 
-      case "lastvisited":
-        placeURI += "&sort=" + NHQO.SORT_BY_DATE_DESCENDING;
-        break; 
-      case "dayandsite":
+  switch (gHistoryGrouping) {
+    case "site":
+      placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
+      break; 
+    case "visited":
+      placeURI += "&sort=" + NHQO.SORT_BY_VISITCOUNT_DESCENDING;
+      break; 
+    case "lastvisited":
+      placeURI += "&sort=" + NHQO.SORT_BY_DATE_DESCENDING;
+      break; 
+    case "dayandsite":
+      // if there isn't a search string, add the grouping
+      if (!aSearchString) {
         placeURI += "&group=" + NHQO.GROUP_BY_DAY;
         placeURI += "&group=" + NHQO.GROUP_BY_HOST; 
-        placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
-        break;
-      default: /* "day" */
-        placeURI += "&group=" + NHQO.GROUP_BY_DAY;
-        placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
-        break;
-    }
-  }
+      }
 
-  /* don't re-root if the placeURI has not changed */
-  if (gHistoryTree.place == placeURI)
-    return;
+      placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
+      break;
+    default: /* "day" */
+      // if there isn't a search string, add the grouping
+      if (!aSearchString)
+        placeURI += "&group=" + NHQO.GROUP_BY_DAY;
+    
+      placeURI += "&sort=" + NHQO.SORT_BY_TITLE_ASCENDING;
+      break;
+  }
 
   gHistoryTree.place = placeURI;
 }
@@ -144,25 +140,6 @@ function GroupBy(groupingType)
   gSearchBox.value = "";
   searchHistory(gSearchBox.value);
 }
-
-var historyDNDObserver = {
-    onDragStart: function (aEvent, aXferData, aDragAction)
-    {
-        var node = gHistoryTree.selectedURINode;
-        if (!node)
-          return false;
-        
-        var url = node.uri;
-        var title = node.title;
-
-        var htmlString = "<A HREF='" + url + "'>" + title + "</A>";
-        aXferData.data = new TransferData();
-        aXferData.data.addDataForFlavour("text/unicode", url);
-        aXferData.data.addDataForFlavour("text/html", htmlString);
-        aXferData.data.addDataForFlavour("text/x-moz-url", url + "\n" + title);
-        return true;
-    }
-};
 
 function collapseExpand()
 {
@@ -233,10 +210,7 @@ function historyAddBookmarks()
     return;
   
 #ifdef MOZ_PLACES_BOOKMARKS
-  var uri = Components.classes["@mozilla.org/network/io-service;1"]
-                      .getService(Ci.nsIIOService)
-                      .newURI(node.uri, null, null);
-  PlacesController.showAddBookmarkUI(uri, node.title);
+  PlacesUtils.showAddBookmarkUI(PlacesUtils._uri(node.uri), node.title);
 #else
   BookmarksUtils.addBookmark(node.uri, node.title, undefined);
 #endif

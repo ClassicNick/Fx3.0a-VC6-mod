@@ -41,6 +41,7 @@
 #include "nsToolkit.h"
 #include "nsQuickSort.h"
 
+#include <winuser.h>
 
 #ifndef WINCE
 static PRBool LangIDToCP (WORD aLangID, UINT* aCodePage);

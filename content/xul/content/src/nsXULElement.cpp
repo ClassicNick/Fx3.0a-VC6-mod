@@ -1864,8 +1864,8 @@ nsXULElement::GetBoxObject(nsIBoxObject** aResult)
 
   // XXX sXBL/XBL2 issue! Owner or current document?
   nsCOMPtr<nsIDOMNSDocument> nsDoc(do_QueryInterface(GetCurrentDoc()));
-  NS_ENSURE_TRUE(nsDoc, NS_ERROR_FAILURE);
-  return nsDoc->GetBoxObjectFor(this, aResult);
+
+  return nsDoc ? nsDoc->GetBoxObjectFor(this, aResult) : NS_ERROR_FAILURE;
 }
 
 // Methods for setting/getting attributes from nsIDOMXULElement
@@ -2606,6 +2606,9 @@ nsXULPrototypeElement::Deserialize(nsIObjectInputStream* aStream,
                 // If we failed to deserialize, consider deleting 'script'?
                 break;
             }
+            default:
+                NS_NOTREACHED("Unexpected child type!");
+                rv = NS_ERROR_UNEXPECTED;
             }
 
             mChildren[i] = child;

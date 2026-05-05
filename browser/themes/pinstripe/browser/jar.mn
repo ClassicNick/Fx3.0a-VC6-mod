@@ -6,8 +6,6 @@ classic.jar:
   skin/classic/browser/bookmark-open-right.png
 * skin/classic/browser/browser.css                          (browser.css)
   skin/classic/browser/browser.xml
-  skin/classic/browser/dropmark-nav-small.png
-  skin/classic/browser/dropmark-nav.png
 * skin/classic/browser/engineManager.css                    (engineManager.css)
   skin/classic/browser/find.png
   skin/classic/browser/find-bar-background.png
@@ -52,6 +50,7 @@ classic.jar:
   skin/classic/browser/places/livemarkFolder.png            (places/livemarkFolder.png)
   skin/classic/browser/places/livemarkFolderHover.png       (places/livemarkFolderHover.png)
   skin/classic/browser/places/bookmarkProperties.css        (places/bookmarkProperties.css)
+  skin/classic/browser/places/organizer-toolbar.png         (bookmarks/Bookmarks-toolbar.png)
 #else
   skin/classic/browser/bookmarks/addBookmark.css            (bookmarks/addBookmark.css)
   skin/classic/browser/bookmarks/bookmarksProperties.css    (bookmarks/bookmarksProperties.css)

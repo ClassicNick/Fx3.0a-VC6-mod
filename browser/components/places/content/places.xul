@@ -47,7 +47,12 @@
 <?xul-overlay href="chrome://browser/content/baseMenuOverlay.xul"?>
 <?xul-overlay href="chrome://global/content/editMenuOverlay.xul"?>
 
-<!DOCTYPE window SYSTEM "chrome://browser/locale/places/places.dtd">
+<!DOCTYPE window [
+<!ENTITY % placesDTD SYSTEM "chrome://browser/locale/places/places.dtd">
+%placesDTD;
+<!ENTITY % editMenuOverlayDTD SYSTEM "chrome://global/locale/editMenuOverlay.dtd">
+%editMenuOverlayDTD;
+]>
 
 <window id="places"
         title="&places.title;" 
@@ -81,6 +86,8 @@
   </stringbundleset>
   
   <commandset id="editMenuCommands"/>
+  <commandset id="baseMenuCommandSet"/>
+  <keyset id="baseMenuKeyset"/>
 
 #include commands.inc
   <commandset id="organizerCommandSet">
@@ -168,7 +175,13 @@
          command="placesCmd_reload" 
          key="&cmd.reload.key;" modifiers="accel"/>
   </keyset>
-  
+
+  <keyset id="editMenuKeys">
+#ifdef XP_MACOSX
+    <key id="key_delete2" keycode="VK_BACK" command="cmd_delete"/>
+#endif
+  </keyset>
+
   <popupset id="placesPopupset">
 #include context.inc
   </popupset>
@@ -257,17 +270,32 @@
                     oncommand="ViewMenu.setSortColumn(null, 'descending'); event.stopPropagation();"/>
         </menupopup>
       </menu>
-      <menu id="helpMenu">
-        <menupopup id="menu_HelpPopup">
-          <menuitem id="helpUsingBookmarks"
-                    label="&help.usingBookmarks.label;" accesskey="&help.usingBookmarks.accesskey;"/>
-          <menuitem id="helpUsingHistory"
-                    label="&help.usingHistory.label;" accesskey="&help.usingHistory.accesskey;"/>
-          <menuitem id="helpAdvancedTips"
-                    label="&help.advancedTips.label;" accesskey="&help.advancedTips.accesskey;"/>
-        </menupopup>
-      </menu>
+#ifdef XP_MACOSX
+      <menu id="windowMenu"/>
+      <menupopup id="menu_ToolsPopup"/>
+#endif
+      <menu id="helpMenu"/>
     </menubar>
+
+    <toolbar id="mainToolbar" class="chromeclass-toolbar">
+      <toolbarbutton id="newbookmark" command="placesCmd_new:bookmark"/>
+      <toolbarbutton id="newfolder" command="placesCmd_new:folder"/>
+      <toolbarbutton id="newseparator" command="placesCmd_new:separator"/>
+      <toolbarseparator/>
+      <!-- Not yet implemented 
+      <toolbarbutton id="moveBookmark" label="&command.moveBookmarkShort.label;"
+                     accesskey="&command.moveBookmark.accesskey;"
+                     command="cmd_bm_movebookmark"/>
+      <toolbarseparator/>
+      -->
+      <toolbarbutton id="properties" command="placesCmd_show:info"/>
+      <toolbarbutton id="rename" command="placesCmd_rename"/>
+      <toolbarbutton id="delete"
+                     command="cmd_delete"
+                     label="&deleteCmd.label;"
+                     accesskey="&deleteCmd.accesskey;" />
+    </toolbar>
+
     <toolbar class="chromeclass-toolbar">
       <textbox id="searchFilter" style="width: 23em;" timeout="500"
                oncommand="PlacesSearchBox.search(this.value);" 
@@ -283,8 +311,6 @@
           </menupopup>
         </button>
       </textbox>
-      <toolbarbutton id="toolbarNewFolder" command="placesCmd_new:folder" accesskey="&cmd.new_folder.accesskey;"/>
-      <toolbarbutton id="toolbarDelete" command="placesCmd_edit:delete"/>
       <spacer flex="1"/>
       <toolbarbutton id="toolbarGroupOff" type="radio" group="grouping" 
                      observes="placesBC_grouping:off"/>
@@ -293,8 +319,8 @@
     </toolbar>
   </toolbox>
   <hbox flex="1" id="placesView">
-    <tree id="placesList" class="placesTree" type="places" 
-          place="place:&amp;folder=1&amp;group=3&amp;excludeItems=1" 
+    <tree id="placesList" class="placesTree" type="places"
+          place="place:&amp;folder=1&amp;group=3&amp;excludeItems=1&amp;excludeQueries=1"
           hidecolumnpicker="true" context="placesContext"
           onselect="PlacesOrganizer.onPlaceSelected(true);
                     PlacesOrganizer.updateStatusBarForView(this);"
@@ -397,4 +423,3 @@
     <statusbarpanel id="status" flex="1"/>
   </statusbar>
 </window>
-
