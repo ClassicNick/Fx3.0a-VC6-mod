@@ -798,12 +798,11 @@ nsSVGPatternFrame::SetupPaintServer(nsISVGRendererCanvas *aCanvas,
                                     void **aClosure)
 {
   *aClosure = nsnull;
-  cairo_t *ctx = aContext->GetCairo();
 
   nsCOMPtr<nsISVGCairoCanvas> cairoCanvas = do_QueryInterface(aCanvas);
 
   cairo_matrix_t matrix;
-  cairo_get_matrix(ctx, &matrix);
+  cairo_get_matrix(aCtx, &matrix);
 
   // Paint it!
   cairo_surface_t *surface;
@@ -837,7 +836,7 @@ nsSVGPatternFrame::SetupPaintServer(nsISVGRendererCanvas *aCanvas,
   cairo_pattern_set_matrix (surface_pattern, &pmatrix);
   cairo_pattern_set_extend (surface_pattern, CAIRO_EXTEND_REPEAT);
 
-  cairo_set_source(ctx, surface_pattern);
+  cairo_set_source(aCtx, surface_pattern);
 
   *aClosure = surface_pattern;
 
@@ -845,7 +844,7 @@ nsSVGPatternFrame::SetupPaintServer(nsISVGRendererCanvas *aCanvas,
 }
 
 void
-nsSVGPatternFrame::CleanupPaintServer(gfxContext *aContext, void *aClosure)
+nsSVGPatternFrame::CleanupPaintServer(cairo_t *aCtx, void *aClosure)
 {
   cairo_pattern_t *pattern = NS_STATIC_CAST(cairo_pattern_t*, aClosure);
   cairo_pattern_destroy(pattern);

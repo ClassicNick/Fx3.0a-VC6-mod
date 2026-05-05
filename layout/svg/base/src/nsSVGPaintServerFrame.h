@@ -39,6 +39,7 @@
 
 #include "nsSVGContainerFrame.h"
 #include "nsSVGValue.h"
+#include "cairo.h"
 
 class nsISVGRendererCanvas;
 class nsSVGGeometryFrame;
@@ -57,7 +58,7 @@ public:
                                     nsSVGGeometryFrame *aSource,
                                     float aOpacity,
                                     void **aClosure) = 0;
-  virtual void CleanupPaintServer(gfxContext *aContext, void *aClosure) = 0;
+  virtual void CleanupPaintServer(cairo_t *aCtx, void *aClosure) = 0;
 
   // nsISupports interface:
   NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);

@@ -40,6 +40,7 @@
 #include "nsFrame.h"
 #include "nsWeakReference.h"
 #include "nsISVGValueObserver.h"
+#include <cairo.h>
 
 class nsSVGPaintServerFrame;
 class nsISVGRendererCanvas;
@@ -96,10 +97,10 @@ public:
   void CleanupCairoFill(cairo_t *aCtx, void *aClosure);
 
   // Set up a cairo context for measuring a stroked path
-  void SetupCairoStrokeGeometry(gfxContext *aContext);
+  void SetupCairoStrokeGeometry(cairo_t *aCtx);
 
   // Set up a cairo context for hit testing a stroked path
-  void SetupCairoStrokeHitGeometry(gfxContext *aContext);
+  void SetupCairoStrokeHitGeometry(cairo_t *aCtx);
 
   // Setup/Cleanup a cairo context for stroking path
   nsresult SetupCairoStroke(nsISVGRendererCanvas *aCanvas,
