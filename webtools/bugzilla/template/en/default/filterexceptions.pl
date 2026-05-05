@@ -247,6 +247,10 @@
   'series.frequency * 2',
 ],
 
+'global/per-bug-queries.html.tmpl' => [
+  '" value=\"$bugids\"" IF bugids',
+],
+
 'global/select-menu.html.tmpl' => [
   'options', 
   'size', 
@@ -254,10 +258,6 @@
 
 'global/tabs.html.tmpl' => [
   'content', 
-],
-
-'global/common-links.html.tmpl' => [
-  'email', 
 ],
 
 'global/useful-links.html.tmpl' => [
@@ -393,8 +393,6 @@
   'sel.name',
   'sel.description',
   'cloned_bug_id',
-  'flag_count',
-  'f.id',
 ],
 
 'bug/create/create-guided.html.tmpl' => [

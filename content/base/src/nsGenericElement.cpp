@@ -95,7 +95,6 @@
 #include "nsIDOMNSDocument.h"
 
 #include "nsLayoutAtoms.h"
-#include "nsHTMLAtoms.h"
 #include "nsContentUtils.h"
 #include "nsIJSContextStack.h"
 
@@ -412,7 +411,7 @@ nsNode3Tearoff::AreNodesEqual(nsIContent* aContent1,
     return PR_FALSE;
   }
 
-  if (aContent1->Tag() == nsLayoutAtoms::documentTypeNodeName) {
+  if (aContent1->Tag() == nsGkAtoms::documentTypeNodeName) {
     nsCOMPtr<nsIDOMDocumentType> docType1 = do_QueryInterface(aContent1);
     nsCOMPtr<nsIDOMDocumentType> docType2 = do_QueryInterface(aContent2);
 
@@ -580,7 +579,7 @@ nsNode3Tearoff::LookupPrefix(const nsAString& aNamespaceURI,
                                aNamespaceURI, eCaseMatters)) {
         // If the localName is "xmlns", the prefix we output should be
         // null.
-        if (name->LocalName() != nsLayoutAtoms::xmlns) {
+        if (name->LocalName() != nsGkAtoms::xmlns) {
           name->LocalName()->ToString(aPrefix);
         }
 
@@ -1860,7 +1859,7 @@ nsGenericElement::UnbindFromTree(PRBool aDeep, PRBool aNullParent)
     // anonymous content that the document is changing.
     document->BindingManager()->ChangeDocumentFor(this, document, nsnull);
 
-    if (HasAttr(kNameSpaceID_XLink, nsHTMLAtoms::href)) {
+    if (HasAttr(kNameSpaceID_XLink, nsGkAtoms::href)) {
       document->ForgetLink(this);
     }
 
@@ -2105,7 +2104,7 @@ nsGenericElement::GetBaseURI() const
   
   // Now check for an xml:base attr 
   nsAutoString value;
-  GetAttr(kNameSpaceID_XML, nsHTMLAtoms::base, value);
+  GetAttr(kNameSpaceID_XML, nsGkAtoms::base, value);
   if (value.IsEmpty()) {
     // No xml:base, so we just use the parent's base URL
     nsIURI *base = nsnull;
@@ -3153,7 +3152,7 @@ nsGenericElement::SetAttr(PRInt32 aNamespaceID, nsIAtom* aName,
                "Don't call SetAttr with unknown namespace");
 
   nsIDocument* doc = GetCurrentDoc();
-  if (kNameSpaceID_XLink == aNamespaceID && nsHTMLAtoms::href == aName) {
+  if (kNameSpaceID_XLink == aNamespaceID && nsGkAtoms::href == aName) {
     // XLink URI(s) might be changing. Drop the link from the map. If it
     // is still style relevant it will be re-added by
     // nsStyleUtil::IsSimpleXlink. Make sure to keep the style system
@@ -3288,7 +3287,7 @@ nsGenericElement::SetAttrAndNotify(PRInt32 aNamespaceID,
   }
   
   if (aNamespaceID == kNameSpaceID_XMLEvents && 
-      aName == nsHTMLAtoms::event && mNodeInfo->GetDocument()) {
+      aName == nsGkAtoms::event && mNodeInfo->GetDocument()) {
     mNodeInfo->GetDocument()->AddXMLEventsContent(this);
   }
 
@@ -3448,7 +3447,7 @@ nsGenericElement::UnsetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
   nsIDocument *document = GetCurrentDoc();    
   mozAutoDocUpdate updateBatch(document, UPDATE_CONTENT_MODEL, aNotify);
   if (document) {
-    if (kNameSpaceID_XLink == aNameSpaceID && nsHTMLAtoms::href == aName) {
+    if (kNameSpaceID_XLink == aNameSpaceID && nsGkAtoms::href == aName) {
       // XLink URI might be changing.
       document->ForgetLink(this);
     }
@@ -3575,10 +3574,39 @@ nsGenericElement::AppendTextTo(nsAString& aResult)
 
 #ifdef DEBUG
 void
-nsGenericElement::List(FILE* out, PRInt32 aIndent) const
+nsGenericElement::ListAttributes(FILE* out) const
+{
+  PRUint32 index, count = mAttrsAndChildren.AttrCount();
+  for (index = 0; index < count; index++) {
+    nsAutoString buffer;
+
+    // name
+    mAttrsAndChildren.AttrNameAt(index)->GetQualifiedName(buffer);
+
+    // value
+    buffer.AppendLiteral("=\"");
+    nsAutoString value;
+    mAttrsAndChildren.AttrAt(index)->ToString(value);
+    for (int i = value.Length(); i >= 0; --i) {
+      if (value[i] == PRUnichar('"'))
+        value.Insert(PRUnichar('\\'), PRUint32(i));
+    }
+    buffer.Append(value);
+    buffer.AppendLiteral("\"");
+
+    fputs(" ", out);
+    fputs(NS_LossyConvertUTF16toASCII(buffer).get(), out);
+  }
+}
+
+void
+nsGenericElement::List(FILE* out, PRInt32 aIndent,
+                       const nsCString& aPrefix) const
 {
   PRInt32 indent;
   for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
+
+  fputs(aPrefix.get(), out);
 
   nsAutoString buf;
   mNodeInfo->GetQualifiedName(buf);
@@ -3586,52 +3614,64 @@ nsGenericElement::List(FILE* out, PRInt32 aIndent) const
 
   fprintf(out, "@%p", (void *)this);
 
-  PRUint32 index, attrcount = mAttrsAndChildren.AttrCount();
-  for (index = 0; index < attrcount; index++) {
-    nsAutoString buffer;
-
-    // name
-    mAttrsAndChildren.AttrNameAt(index)->GetQualifiedName(buffer);
-
-    // value
-    buffer.AppendLiteral("=");
-    nsAutoString value;
-    mAttrsAndChildren.AttrAt(index)->ToString(value);
-    buffer.Append(value);
-
-    fputs(" ", out);
-    fputs(NS_LossyConvertUTF16toASCII(buffer).get(), out);
-  }
+  ListAttributes(out);
 
   fprintf(out, " intrinsicstate=[%08x]", IntrinsicState());
   fprintf(out, " refcount=%d<", mRefCnt.get());
 
-  fputs("\n", out);
-  PRUint32 kids = GetChildCount();
+  PRUint32 i, length = GetChildCount();
+  if (length > 0) {
+    fputs("\n", out);
 
-  for (index = 0; index < kids; index++) {
-    nsIContent *kid = GetChildAt(index);
-    kid->List(out, aIndent + 1);
+    for (i = 0; i < length; ++i) {
+      nsIContent *kid = GetChildAt(i);
+      kid->List(out, aIndent + 1);
+    }
+
+    for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
   }
-  for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
 
   fputs(">\n", out);
 
+  // XXX sXBL/XBL2 issue! Owner or current document?
   nsIDocument *document = GetOwnerDoc();
   if (document) {
+    nsIPresShell *shell = document->GetShellAt(0);
+    nsCOMPtr<nsISupportsArray> anonymousElements;
+    if (shell) {
+      shell->GetAnonymousContentFor(NS_CONST_CAST(nsGenericElement*, this),
+                                    getter_AddRefs(anonymousElements));
+    }
+
+    if (anonymousElements) {
+      anonymousElements->Count(&length);
+      if (length > 0) {
+        for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
+        fputs("native-anonymous-children<\n", out);
+
+        for (i = 0; i < length; ++i) {
+          nsCOMPtr<nsIDOMNode> node = do_QueryElementAt(anonymousElements, i);
+          nsCOMPtr<nsIContent> child = do_QueryInterface(node);
+          child->List(out, aIndent + 1);
+        }
+
+        for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
+        fputs(">\n", out);
+      }
+    }
+
     nsIBindingManager* bindingManager = document->BindingManager();
     nsCOMPtr<nsIDOMNodeList> anonymousChildren;
     bindingManager->GetAnonymousNodesFor(NS_CONST_CAST(nsGenericElement*, this),
                                          getter_AddRefs(anonymousChildren));
 
     if (anonymousChildren) {
-      PRUint32 length;
       anonymousChildren->GetLength(&length);
-      if (length) {
+      if (length > 0) {
         for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
         fputs("anonymous-children<\n", out);
 
-        for (PRUint32 i = 0; i < length; ++i) {
+        for (i = 0; i < length; ++i) {
           nsCOMPtr<nsIDOMNode> node;
           anonymousChildren->Item(i, getter_AddRefs(node));
           nsCOMPtr<nsIContent> child = do_QueryInterface(node);
@@ -3654,13 +3694,12 @@ nsGenericElement::List(FILE* out, PRInt32 aIndent) const
 
       NS_ASSERTION(contentList != nsnull, "oops, binding manager lied");
 
-      PRUint32 length;
       contentList->GetLength(&length);
-      if (length) {
+      if (length > 0) {
         for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
         fputs("content-list<\n", out);
 
-        for (PRUint32 i = 0; i < length; ++i) {
+        for (i = 0; i < length; ++i) {
           nsCOMPtr<nsIDOMNode> node;
           contentList->Item(i, getter_AddRefs(node));
           nsCOMPtr<nsIContent> child = do_QueryInterface(node);
@@ -3678,6 +3717,32 @@ void
 nsGenericElement::DumpContent(FILE* out, PRInt32 aIndent,
                               PRBool aDumpAll) const
 {
+  PRInt32 indent;
+  for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
+
+  nsAutoString buf;
+  mNodeInfo->GetQualifiedName(buf);
+  fputs("<", out);
+  fputs(NS_LossyConvertUTF16toASCII(buf).get(), out);
+
+  if(aDumpAll) ListAttributes(out);
+
+  fputs(">", out);
+
+  if(aIndent) fputs("\n", out);
+
+  PRInt32 index, kids = GetChildCount();
+  for (index = 0; index < kids; index++) {
+    nsIContent *kid = GetChildAt(index);
+    PRInt32 indent = aIndent ? aIndent + 1 : 0;
+    kid->DumpContent(out, indent, aDumpAll);
+  }
+  for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
+  fputs("</", out);
+  fputs(NS_LossyConvertUTF16toASCII(buf).get(), out);
+  fputs(">", out);
+
+  if(aIndent) fputs("\n", out);
 }
 #endif
 

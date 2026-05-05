@@ -76,7 +76,7 @@ NS_GetSVGMaskFrame(nsSVGMaskFrame **aResult,
     return NS_ERROR_FAILURE;
 
   nsIAtom* frameType = cpframe->GetType();
-  if (frameType != nsLayoutAtoms::svgMaskFrame)
+  if (frameType != nsGkAtoms::svgMaskFrame)
     return NS_ERROR_FAILURE;
 
   *aResult = (nsSVGMaskFrame *)cpframe;
@@ -299,7 +299,7 @@ nsSVGMaskFrame::ComputeMaskAlpha(nsISVGRendererCanvas* aCanvas,
 nsIAtom *
 nsSVGMaskFrame::GetType() const
 {
-  return nsLayoutAtoms::svgMaskFrame;
+  return nsGkAtoms::svgMaskFrame;
 }
 
 already_AddRefed<nsIDOMSVGMatrix>

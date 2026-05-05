@@ -40,7 +40,7 @@
 #include "nsCOMPtr.h"
 #include "nsInlineFrame.h"
 #include "nsBlockFrame.h"
-#include "nsHTMLAtoms.h"
+#include "nsLayoutAtoms.h"
 #include "nsHTMLParts.h"
 #include "nsStyleContext.h"
 #include "nsIPresShell.h"
@@ -48,7 +48,6 @@
 #include "nsIRenderingContext.h"
 #include "nsIFontMetrics.h"
 #include "nsAbsoluteContainingBlock.h"
-#include "nsLayoutAtoms.h"
 #include "nsCSSAnonBoxes.h"
 #include "nsAutoPtr.h"
 #include "nsFrameManager.h"
@@ -101,7 +100,7 @@ nsInlineFrame::GetFrameName(nsAString& aResult) const
 nsIAtom*
 nsInlineFrame::GetType() const
 {
-  return nsLayoutAtoms::inlineFrame;
+  return nsGkAtoms::inlineFrame;
 }
 
 PRBool
@@ -188,126 +187,6 @@ nsInlineFrame::PeekOffsetCharacter(PRBool aForward, PRInt32* aOffset)
     *aOffset = 1 - startOffset;
   }
   return PR_FALSE;
-}
-
-NS_IMETHODIMP
-nsInlineFrame::AppendFrames(nsIAtom*        aListName,
-                            nsIFrame*       aFrameList)
-{
-  if (nsnull != aListName) {
-#ifdef IBMBIDI
-    if (aListName != nsLayoutAtoms::nextBidi)
-#endif
-    {
-      NS_ERROR("unexpected child list");
-      return NS_ERROR_INVALID_ARG;
-    }
-  }
-  if (aFrameList) {
-    mFrames.AppendFrames(this, aFrameList);
-
-    // Ask the parent frame to reflow me.
-#ifdef IBMBIDI
-    if (nsnull == aListName)
-#endif
-    {
-      AddStateBits(NS_FRAME_IS_DIRTY);
-      GetPresContext()->PresShell()->
-        FrameNeedsReflow(this, nsIPresShell::eTreeChange);
-    }
-  }
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsInlineFrame::InsertFrames(nsIAtom*        aListName,
-                            nsIFrame*       aPrevFrame,
-                            nsIFrame*       aFrameList)
-{
-  NS_ASSERTION(!aPrevFrame || aPrevFrame->GetParent() == this,
-               "inserting after sibling frame with different parent");
-
-  if (nsnull != aListName) {
-#ifdef IBMBIDI
-    if (aListName != nsLayoutAtoms::nextBidi)
-#endif
-    {
-      NS_ERROR("unexpected child list");
-      return NS_ERROR_INVALID_ARG;
-    }
-  }
-  if (aFrameList) {
-    // Insert frames after aPrevFrame
-    mFrames.InsertFrames(this, aPrevFrame, aFrameList);
-
-#ifdef IBMBIDI
-    if (nsnull == aListName)
-#endif
-    // Ask the parent frame to reflow me.
-    AddStateBits(NS_FRAME_IS_DIRTY);
-    GetPresContext()->PresShell()->
-      FrameNeedsReflow(this, nsIPresShell::eTreeChange);
-  }
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsInlineFrame::RemoveFrame(nsIAtom*        aListName,
-                           nsIFrame*       aOldFrame)
-{
-  if (nsnull != aListName) {
-#ifdef IBMBIDI
-    if (nsLayoutAtoms::nextBidi != aListName)
-#endif
-    {
-      NS_ERROR("unexpected child list");
-      return NS_ERROR_INVALID_ARG;
-    }
-  }
-
-  if (aOldFrame) {
-    // Loop and destroy the frame and all of its continuations.
-    // If the frame we are removing is a brFrame, we need a reflow so
-    // the line the brFrame was on can attempt to pull up any frames
-    // that can fit from lines below it.
-    PRBool generateReflowCommand =
-      aOldFrame->GetType() == nsLayoutAtoms::brFrame;
-
-    nsInlineFrame* parent = NS_STATIC_CAST(nsInlineFrame*, aOldFrame->GetParent());
-    while (aOldFrame) {
-#ifdef IBMBIDI
-      if (nsLayoutAtoms::nextBidi != aListName) {
-#endif
-      // If the frame being removed has zero size then don't bother
-      // generating a reflow command, otherwise make sure we do.
-      nsRect bbox = aOldFrame->GetRect();
-      if (bbox.width || bbox.height) {
-        generateReflowCommand = PR_TRUE;
-      }
-#ifdef IBMBIDI
-      }
-#endif
-
-      // When the parent is an inline frame we have a simple task - just
-      // remove the frame from its parents list and generate a reflow
-      // command.
-      nsIFrame* oldFrameNextContinuation = aOldFrame->GetNextContinuation();
-      parent->mFrames.DestroyFrame(aOldFrame);
-      aOldFrame = oldFrameNextContinuation;
-      if (aOldFrame) {
-        parent = NS_STATIC_CAST(nsInlineFrame*, aOldFrame->GetParent());
-      }
-    }
-
-    if (generateReflowCommand) {
-      // Ask the parent frame to reflow me.
-      AddStateBits(NS_FRAME_IS_DIRTY);
-      GetPresContext()->PresShell()->
-        FrameNeedsReflow(this, nsIPresShell::eTreeChange);
-    }
-  }
-
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -747,7 +626,7 @@ nsInlineFrame::ReflowInlineFrame(nsPresContext* aPresContext,
     }
   }
   else if (NS_FRAME_IS_NOT_COMPLETE(aStatus)) {
-    if (nsLayoutAtoms::placeholderFrame == aFrame->GetType()) {
+    if (nsGkAtoms::placeholderFrame == aFrame->GetType()) {
       nsBlockReflowState* blockRS = lineLayout->mBlockRS;
       blockRS->mBlock->SplitPlaceholder(*blockRS, aFrame);
       // Allow the parent to continue reflowing
@@ -858,17 +737,17 @@ NS_IMETHODIMP nsInlineFrame::GetAccessible(nsIAccessible** aAccessible)
   // replaces the image or image control frame with an inline frame
   *aAccessible = nsnull;
   nsIAtom *tagAtom = mContent->Tag();
-  if ((tagAtom == nsHTMLAtoms::img || tagAtom == nsHTMLAtoms::input || 
-       tagAtom == nsHTMLAtoms::label) && mContent->IsNodeOfType(nsINode::eHTML)) {
+  if ((tagAtom == nsGkAtoms::img || tagAtom == nsGkAtoms::input || 
+       tagAtom == nsGkAtoms::label) && mContent->IsNodeOfType(nsINode::eHTML)) {
     // Only get accessibility service if we're going to use it
     nsCOMPtr<nsIAccessibilityService> accService(do_GetService("@mozilla.org/accessibilityService;1"));
     if (!accService)
       return NS_ERROR_FAILURE;
-    if (tagAtom == nsHTMLAtoms::input)  // Broken <input type=image ... />
+    if (tagAtom == nsGkAtoms::input)  // Broken <input type=image ... />
       return accService->CreateHTMLButtonAccessible(NS_STATIC_CAST(nsIFrame*, this), aAccessible);
-    else if (tagAtom == nsHTMLAtoms::img)  // Create accessible for broken <img>
+    else if (tagAtom == nsGkAtoms::img)  // Create accessible for broken <img>
       return accService->CreateHTMLImageAccessible(NS_STATIC_CAST(nsIFrame*, this), aAccessible);
-    else if (tagAtom == nsHTMLAtoms::label)  // Creat accessible for <label>
+    else if (tagAtom == nsGkAtoms::label)  // Creat accessible for <label>
       return accService->CreateHTMLLabelAccessible(NS_STATIC_CAST(nsIFrame*, this), aAccessible);
   }
 
@@ -911,7 +790,7 @@ nsFirstLineFrame::GetFrameName(nsAString& aResult) const
 nsIAtom*
 nsFirstLineFrame::GetType() const
 {
-  return nsLayoutAtoms::lineFrame;
+  return nsGkAtoms::lineFrame;
 }
 
 void
@@ -1152,7 +1031,7 @@ nsPositionedInlineFrame::GetFirstChild(nsIAtom* aListName) const
 nsIAtom*
 nsPositionedInlineFrame::GetType() const
 {
-  return nsLayoutAtoms::positionedInlineFrame;
+  return nsGkAtoms::positionedInlineFrame;
 }
 
 NS_IMETHODIMP

@@ -3134,7 +3134,7 @@ ExecuteREBytecode(REGlobalData *gData, REMatchState *x)
         if (!result) {
             if (gData->cursz == 0)
                 return NULL;
-            if (JS_CHECK_OPERATION_LIMIT(gData->cx, JSOW_JUMP)) {
+            if (!JS_CHECK_OPERATION_LIMIT(gData->cx, JSOW_JUMP)) {
                 gData->ok = JS_FALSE;
                 return NULL;
             }

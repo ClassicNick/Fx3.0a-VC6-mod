@@ -76,7 +76,7 @@
 #include "nsICSSOMFactory.h"
 #include "nsLayoutCID.h"
 #include "nsAttrAndChildArray.h"
-#include "nsXULAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsAutoPtr.h"
 #include "nsGenericElement.h"
 #include "nsDOMScriptObjectHolder.h"
@@ -85,7 +85,6 @@ class nsIDocument;
 class nsIRDFService;
 class nsISupportsArray;
 class nsIXULContentUtils;
-class nsIXULPrototypeDocument;
 class nsString;
 class nsVoidArray;
 class nsIDocShell;
@@ -94,6 +93,7 @@ class nsICSSStyleRule;
 
 class nsIObjectInputStream;
 class nsIObjectOutputStream;
+class nsIScriptGlobalObjectOwner;
 
 static NS_DEFINE_CID(kCSSParserCID, NS_CSSPARSER_CID);
 
@@ -116,7 +116,7 @@ class nsXULPrototypeAttribute
 {
 public:
     nsXULPrototypeAttribute()
-        : mName(nsXULAtoms::id),  // XXX this is a hack, but names have to have a value
+        : mName(nsGkAtoms::id),  // XXX this is a hack, but names have to have a value
           mEventHandler(nsnull)
     {
         XUL_PROTOTYPE_ATTRIBUTE_METER(gNumAttributes);
@@ -346,7 +346,7 @@ public:
     nsresult Compile(const PRUnichar* aText, PRInt32 aTextLength,
                      nsIURI* aURI, PRUint32 aLineNo,
                      nsIDocument* aDocument,
-                     nsIXULPrototypeDocument* aPrototypeDocument);
+                     nsIScriptGlobalObjectOwner* aGlobalOwner);
 
     nsCOMPtr<nsIURI>         mSrcURI;
     PRUint32                 mLineNo;

@@ -72,7 +72,6 @@
 #include "nsIViewManager.h"
 #include "nsIXULContentSink.h"
 #include "nsIXULDocument.h"
-#include "nsIXULPrototypeDocument.h"
 #include "nsIXULPrototypeCache.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsLayoutCID.h"
@@ -96,13 +95,11 @@
 
 #include "nsIExpatSink.h"
 #include "nsUnicharUtils.h"
-#include "nsXULAtoms.h"
-#include "nsHTMLAtoms.h"
+#include "nsLayoutAtoms.h"
 #include "nsNodeInfoManager.h"
 #include "nsContentUtils.h"
 #include "nsAttrName.h"
 #include "nsXMLContentSink.h"
-#include "nsLayoutAtoms.h"
 #include "nsIConsoleService.h"
 #include "nsIScriptError.h"
 
@@ -136,7 +133,7 @@ public:
     virtual nsISupports *GetTarget();
 
     // nsIXULContentSink
-    NS_IMETHOD Init(nsIDocument* aDocument, nsIXULPrototypeDocument* aPrototype);
+    NS_IMETHOD Init(nsIDocument* aDocument, nsXULPrototypeDocument* aPrototype);
 
 protected:
     // pseudo-constants
@@ -223,7 +220,7 @@ protected:
     nsWeakPtr              mDocument;             // [OWNER]
     nsCOMPtr<nsIURI>       mDocumentURL;          // [OWNER]
 
-    nsCOMPtr<nsIXULPrototypeDocument> mPrototype; // [OWNER]
+    nsRefPtr<nsXULPrototypeDocument> mPrototype;  // [OWNER]
     nsIParser*             mParser;               // [OWNER] We use regular pointer b/c of funky exports on nsIParser
     
     nsCOMPtr<nsICSSLoader> mCSSLoader;            // [OWNER]
@@ -486,7 +483,7 @@ XULContentSinkImpl::GetTarget()
 //
 
 NS_IMETHODIMP
-XULContentSinkImpl::Init(nsIDocument* aDocument, nsIXULPrototypeDocument* aPrototype)
+XULContentSinkImpl::Init(nsIDocument* aDocument, nsXULPrototypeDocument* aPrototype)
 {
     NS_PRECONDITION(aDocument != nsnull, "null ptr");
     if (! aDocument)
@@ -497,19 +494,18 @@ XULContentSinkImpl::Init(nsIDocument* aDocument, nsIXULPrototypeDocument* aProto
     mDocument    = do_GetWeakReference(aDocument);
     mPrototype   = aPrototype;
 
-    rv = mPrototype->GetURI(getter_AddRefs(mDocumentURL));
-    if (NS_FAILED(rv)) return rv;
+    mDocumentURL = mPrototype->GetURI();
 
     // XXX this presumes HTTP header info is already set in document
     // XXX if it isn't we need to set it here...
     // XXXbz not like GetHeaderData on the proto doc _does_ anything....
     nsAutoString preferredStyle;
-    rv = mPrototype->GetHeaderData(nsHTMLAtoms::headerDefaultStyle,
+    rv = mPrototype->GetHeaderData(nsGkAtoms::headerDefaultStyle,
                                    preferredStyle);
     if (NS_FAILED(rv)) return rv;
 
     if (!preferredStyle.IsEmpty()) {
-        aDocument->SetHeaderData(nsHTMLAtoms::headerDefaultStyle,
+        aDocument->SetHeaderData(nsGkAtoms::headerDefaultStyle,
                                  preferredStyle);
     }
 
@@ -572,8 +568,8 @@ XULContentSinkImpl::FlushText(PRBool aCreateTextNode)
                 NS_STATIC_CAST(nsXULPrototypeElement*, node)->mNodeInfo;
 
             if (nodeInfo->NamespaceEquals(kNameSpaceID_XUL))
-                stripWhitespace = !nodeInfo->Equals(nsXULAtoms::label) &&
-                                  !nodeInfo->Equals(nsXULAtoms::description);
+                stripWhitespace = !nodeInfo->Equals(nsGkAtoms::label) &&
+                                  !nodeInfo->Equals(nsGkAtoms::description);
         }
 
         // Don't bother if there's nothing but whitespace.
@@ -820,10 +816,7 @@ XULContentSinkImpl::HandleEndElement(const PRUnichar *aName)
         nsXULPrototypeElement* element =
             NS_STATIC_CAST(nsXULPrototypeElement*, node);
 
-        rv = mPrototype->SetRootElement(element);
-        NS_ASSERTION(NS_SUCCEEDED(rv), "unable to set document root");
-        if (NS_FAILED(rv)) return rv;
-
+        mPrototype->SetRootElement(element);
         mState = eInEpilog;
     }
 
@@ -1048,8 +1041,8 @@ XULContentSinkImpl::OpenRoot(const PRUnichar** aAttributes,
 
     nsresult rv;
 
-    if (aNodeInfo->Equals(nsHTMLAtoms::script, kNameSpaceID_XHTML) || 
-        aNodeInfo->Equals(nsHTMLAtoms::script, kNameSpaceID_XUL)) {
+    if (aNodeInfo->Equals(nsGkAtoms::script, kNameSpaceID_XHTML) || 
+        aNodeInfo->Equals(nsGkAtoms::script, kNameSpaceID_XUL)) {
         PR_LOG(gLog, PR_LOG_ERROR,
                ("xul: script tag not allowed as root content element"));
 
@@ -1136,8 +1129,8 @@ XULContentSinkImpl::OpenTag(const PRUnichar** aAttributes,
 
     children->AppendElement(element);
 
-    if (aNodeInfo->Equals(nsHTMLAtoms::script, kNameSpaceID_XHTML) || 
-        aNodeInfo->Equals(nsHTMLAtoms::script, kNameSpaceID_XUL)) {
+    if (aNodeInfo->Equals(nsGkAtoms::script, kNameSpaceID_XHTML) || 
+        aNodeInfo->Equals(nsGkAtoms::script, kNameSpaceID_XUL)) {
         // Do scripty things now.  Set a script language for the element,
         // even though it is ignored (the nsPrototypeScriptElement
         // has its own script-type).

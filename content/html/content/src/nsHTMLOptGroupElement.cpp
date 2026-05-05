@@ -38,7 +38,7 @@
 #include "nsIDOMHTMLOptGroupElement.h"
 #include "nsIDOMEventReceiver.h"
 #include "nsGenericHTMLElement.h"
-#include "nsHTMLAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsStyleConsts.h"
 #include "nsPresContext.h"
 #include "nsIFrame.h"
@@ -174,10 +174,10 @@ nsHTMLOptGroupElement::GetSelect()
   nsIContent* parent = this;
   while ((parent = parent->GetParent()) &&
          parent->IsNodeOfType(eHTML)) {
-    if (parent->Tag() == nsHTMLAtoms::select) {
+    if (parent->Tag() == nsGkAtoms::select) {
       return parent;
     }
-    if (parent->Tag() != nsHTMLAtoms::optgroup) {
+    if (parent->Tag() != nsGkAtoms::optgroup) {
       break;
     }
   }
@@ -190,7 +190,7 @@ nsHTMLOptGroupElement::AfterSetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
                                     const nsAString* aValue, PRBool aNotify)
 {
   if (aNotify && aNameSpaceID == kNameSpaceID_None &&
-      aName == nsHTMLAtoms::disabled) {
+      aName == nsGkAtoms::disabled) {
     nsIDocument* document = GetCurrentDoc();
     if (document) {
       mozAutoDocUpdate upd(document, UPDATE_CONTENT_STATE, PR_TRUE);
@@ -232,7 +232,7 @@ nsHTMLOptGroupElement::IntrinsicState() const
 {
   PRInt32 state = nsGenericHTMLElement::IntrinsicState();
   PRBool disabled;
-  GetBoolAttr(nsHTMLAtoms::disabled, &disabled);
+  GetBoolAttr(nsGkAtoms::disabled, &disabled);
   if (disabled) {
     state |= NS_EVENT_STATE_DISABLED;
     state &= ~NS_EVENT_STATE_ENABLED;

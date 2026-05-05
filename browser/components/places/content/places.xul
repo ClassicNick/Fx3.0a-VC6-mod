@@ -60,6 +60,8 @@
 
   <script type="application/x-javascript"
           src="chrome://global/content/globalOverlay.js"/>
+  <script type="application/x-javascript"
+          src="chrome://browser/content/utilityOverlay.js"/>
   <script type="application/x-javascript" 
           src="chrome://browser/content/places/utils.js"/>
   <script type="application/x-javascript"
@@ -294,7 +296,8 @@
     <tree id="placesList" class="placesTree" type="places" 
           place="place:&amp;folder=1&amp;group=3&amp;excludeItems=1" 
           hidecolumnpicker="true" context="placesContext"
-          onselect="PlacesOrganizer.onPlaceSelected(true);"
+          onselect="PlacesOrganizer.onPlaceSelected(true);
+                    PlacesOrganizer.updateStatusBarForView(this);"
           onclick="PlacesOrganizer.onTreeClick(event);"
           seltype="single">
       <treecols>
@@ -335,8 +338,9 @@
 #include advancedSearch.inc          
           <tree id="placeContent" class="placesTree" context="placesContext" 
                 flex="1" type="places" 
-                ondblclick="this.controller.openSelectedNodeInBrowser(event);"
-                onclick="PlacesOrganizer.onTreeClick(event);">
+                ondblclick="this.controller.openSelectedNodeWithEvent(event);"
+                onclick="PlacesOrganizer.onTreeClick(event);"
+                onselect="PlacesOrganizer.updateStatusBarForView(this);">
             <treecols id="placeContentColumns">
               <treecol label="&col.title.label;" id="title" flex="5" primary="true" 
                        persist="width hidden ordinal sortActive sortDirection"/>

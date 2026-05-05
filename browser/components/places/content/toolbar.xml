@@ -441,15 +441,6 @@
       
       <!-- nsIPlacesView -->
       <field name="childDropTypes">ViewConfig.GENERIC_DROP_TYPES</field>
-      
-      <!-- nsIPlacesView -->
-      <field name="excludeItems">false</field>
-      
-      <!-- nsIPlacesView -->
-      <field name="excludeQueries">false</field>
-      
-      <!-- nsIPlacesView -->
-      <field name="expandQueries">false</field>
      
       <!-- nsIPlacesView -->
       <method name="selectAll">
@@ -901,7 +892,7 @@
         <parameter name="aPopup"/>
         <body><![CDATA[
           this._enableEditCommands = true;
-          window.updateCommands("select");
+          PlacesUtils.updateAllCommands();
           aPopup.addEventListener("popuphiding", this, true);
           this.controller.buildContextMenu(aPopup);
         ]]></body>
@@ -914,7 +905,7 @@
           if (aEvent.type == "popuphiding" &&
               aEvent.eventPhase == Event.AT_TARGET) {
             this._enableEditCommands = false;
-            window.updateCommands("select");
+            PlacesUtils.updateAllCommands();
             aEvent.target.removeEventListener("popuphiding", this, true);
           }
         ]]></body>
@@ -930,7 +921,7 @@
         else 
           this._selection = this.getResult().root;
 
-        window.updateCommands("select");
+        window.updateCommands("places-select");
       ]]></handler>
       <handler event="draggesture"><![CDATA[
         if (event.target.localName == "toolbarbutton")

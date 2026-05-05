@@ -185,8 +185,12 @@ var PlacesOrganizer = {
     var node = asQuery(this._places.selectedNode);
     LOG("Node URI: " + node.uri);
     var queries = node.getQueries({});
+
+    // Items are only excluded on the left pane
+    var options = node.queryOptions.clone();
+    options.excludeItems = false;
     this._content.load(queries, 
-                       OptionsFilter.filter(queries, node.queryOptions, null));
+                       OptionsFilter.filter(queries, options, null));
     
     // Make sure the query builder is hidden.
     PlacesQueryBuilder.hide();
@@ -231,7 +235,7 @@ var PlacesOrganizer = {
     }
     if (currentView.hasSingleSelection && event.button == 1) {
       if (PlacesUtils.nodeIsURI(currentView.selectedNode))
-        controller.openSelectedNodeInBrowser(event);
+        controller.openSelectedNodeWithEvent(event);
       else if (PlacesUtils.nodeIsContainer(currentView.selectedNode)) {
         // The command execution function will take care of seeing the 
         // selection is a folder/container and loading its contents in 
@@ -272,6 +276,24 @@ var PlacesOrganizer = {
                 getService(Ci.nsINavBookmarksService);
       bms.exportBookmarksHTML(fp.file);
     }
+  },
+
+  updateStatusBarForView: function G_updateStatusBarForView(aView) {
+    var statusText = "";
+    var selectedNode = aView.selectedNode;
+    if (selectedNode) {
+      if (PlacesUtils.nodeIsFolder(selectedNode)) {
+        var strings = document.getElementById("placeBundle");
+        var childsCount =
+          PlacesUtils.getFolderContents(asFolder(selectedNode).folderId)
+                     .childCount;
+        statusText = strings.getFormattedString("status_foldercount",
+                                                [childsCount]);
+      }
+      else if (PlacesUtils.nodeIsBookmark(selectedNode))
+        statusText = selectedNode.uri;
+    }
+    document.getElementById("status").label = statusText;
   }
 };
 

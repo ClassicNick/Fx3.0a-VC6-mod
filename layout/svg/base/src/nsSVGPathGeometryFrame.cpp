@@ -45,7 +45,7 @@
 #include "nsSVGContainerFrame.h"
 #include "nsReadableUtils.h"
 #include "nsUnicharUtils.h"
-#include "nsSVGAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsCRT.h"
 #include "prdtoa.h"
 #include "nsSVGMarkerFrame.h"
@@ -151,7 +151,7 @@ nsSVGPathGeometryFrame::DidSetStyleContext()
 nsIAtom *
 nsSVGPathGeometryFrame::GetType() const
 {
-  return nsLayoutAtoms::svgPathGeometryFrame;
+  return nsGkAtoms::svgPathGeometryFrame;
 }
 
 PRBool

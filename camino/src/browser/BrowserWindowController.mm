@@ -1676,18 +1676,27 @@ enum BWCOpenDest {
 #pragma mark -
 
 
--(BOOL)validateMenuItem: (NSMenuItem*)aMenuItem
+- (BOOL)validateMenuItem:(NSMenuItem*)aMenuItem
 {
   SEL action = [aMenuItem action];
+
+  // Disable all window-specific menu items while a sheet is showing.
+  // We don't do this in validateActionBySelector: because toolbar items shouldn't
+  // suddenly get a disabled look when a sheet appears (they aren't clickable anyway).
+  if ([[self window] attachedSheet])
+    return NO;
 
   if (action == @selector(reloadSendersTab:)) {
     BrowserTabViewItem* sendersTab = [[self getTabBrowser] itemWithTag:[aMenuItem tag]];
     return [[sendersTab view] canReload];
   }
 
-  if(action == @selector(getInfo:)) {
-    if([self bookmarkManagerIsVisible])
+  if (action == @selector(getInfo:)) {
+    if ([self bookmarkManagerIsVisible]) {
       [aMenuItem setTitle:NSLocalizedString(@"Bookmark Info", nil)];
+      // let the BookmarkViewController validate based on selection
+      return [[self bookmarkViewControllerForCurrentTab] validateMenuItem:aMenuItem];
+    }
     else
       [aMenuItem setTitle:NSLocalizedString(@"Page Info", nil)];
   }
@@ -4134,6 +4143,14 @@ enum BWCOpenDest {
     }
   }
 
+  // Disable context menu items if the window is currently showing a sheet.
+  if ([[self window] attachedSheet]) {
+    NSArray* menuArray = [result itemArray];
+    for (unsigned i = 0; i < [menuArray count]; i++) {
+      [[menuArray objectAtIndex:i] setEnabled:NO];
+    }
+  }
+
   return result;
 }
 
@@ -4602,26 +4619,36 @@ enum BWCOpenDest {
 //
 - (BOOL)loadBookmarkBarIndex:(unsigned short)inIndex openBehavior:(EBookmarkOpenBehavior)inBehavior
 {
+  // We don't want to trigger bookmark bar loads if the bookmark bar isn't visible
+  if (![mPersonalToolbar isVisible])
+    return NO;
+
   NSArray* bookmarkBarChildren   = [[[BookmarkManager sharedBookmarkManager] toolbarFolder] childArray];
-  unsigned int loadableItemIndex = 0; // holds the number of loadable items we've cycled through
-  NSEnumerator* enumerator       = [bookmarkBarChildren objectEnumerator];
-  id item;
+  unsigned int bookmarkBarCount = [bookmarkBarChildren count];
+  unsigned int i;
+  int loadableItemIndex = -1;
+  BookmarkItem* item;
 
   // We cycle through all the toolbar items.  When we've skipped enough loadable items
-  // (ie loadableItemIndex > inIndex), we've gotten there and |item| is the bookmark we want to load.
-  while ((loadableItemIndex <= inIndex) && (item = [enumerator nextObject])) {
-    // Only if it's a real non-seperator bookmark, or a tab group
+  // (i.e., loadableItemIndex == inIndex), we've gotten there and |item| is the bookmark we want to load.
+  for (i = 0; i < bookmarkBarCount; ++i) {
+    item = [bookmarkBarChildren objectAtIndex:i];
+    // Only real (non-seperator) bookmarks and tab groups count
     if (([item isKindOfClass:[Bookmark class]] && ![(Bookmark *)item isSeparator]) || 
         ([item isKindOfClass:[BookmarkFolder class]] && [(BookmarkFolder *)item isGroup]))
-      ++loadableItemIndex;
+    {
+      if (++loadableItemIndex == inIndex)
+        break;
+    }
   }
 
-  if (item)
+  if (loadableItemIndex == inIndex) {
     [[NSApp delegate] loadBookmark:item withBWC:self openBehavior:inBehavior reverseBgToggle:NO];
-  else // We ran out of toolbar items before finding the nth loadable one
-    NSBeep();
-
-  return YES;
+    [mPersonalToolbar momentarilyHighlightButtonAtIndex:i];
+    return YES;
+  }
+  // We ran out of toolbar items before finding the nth loadable one
+  return NO;
 }
 
 //

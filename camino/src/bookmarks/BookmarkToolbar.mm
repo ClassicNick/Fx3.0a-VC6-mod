@@ -307,6 +307,22 @@ static void VerticalGrayGradient(void* inInfo, float const* inData, float* outDa
   [self reflowButtonsStartingAtIndex:0];
 }
 
+- (void)momentarilyHighlightButtonAtIndex:(int)aIndex
+{
+  BookmarkButton* button = [mButtons objectAtIndex:aIndex];
+  [button highlight:YES];
+  [NSTimer scheduledTimerWithTimeInterval:0.2
+                                   target:self
+                                 selector:@selector(unhighlightButton:)
+                                 userInfo:(id)button
+                                  repeats:NO];
+}
+
+- (void)unhighlightButton:(NSTimer*)timer
+{
+  [(BookmarkButton*)[timer userInfo] highlight:NO];
+}
+
 #define kBookmarkButtonHeight            16.0
 #define kMinBookmarkButtonWidth          16.0
 #define kMaxBookmarkButtonWidth         150.0
@@ -466,6 +482,10 @@ static void VerticalGrayGradient(void* inInfo, float const* inData, float* outDa
 //
 - (BOOL)validateMenuItem:(NSMenuItem*)aMenuItem
 {
+  // Window actions are disabled while a sheet is showing
+  if ([[self window] attachedSheet])
+    return NO;
+
   return YES;
 }
 

@@ -132,6 +132,9 @@ public:
         return (mFlags & DISABLE_ALL_LOADS) != 0;
     }
 
+    static nsresult Init();
+    static void Shutdown();
+
 private:
     nsresult DoTransform();
     void notifyError();

@@ -36,8 +36,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "nsCOMPtr.h"
-#include "nsGkAtoms.h"
+#include "nsLayoutAtoms.h"
 #include "nsIDOMSVGAnimatedEnum.h"
 #include "nsIDOMSVGAnimatedRect.h"
 #include "nsIDOMSVGAnimTransformList.h"
@@ -49,7 +48,6 @@
 #include "nsIDOMSVGRect.h"
 #include "nsSVGMatrix.h"
 #include "nsSVGRect.h"
-#include "nsLayoutAtoms.h"
 #include "nsISVGRenderer.h"
 #include "nsISVGRendererCanvas.h"
 #include "nsSVGUtils.h"
@@ -173,7 +171,7 @@ nsSVGPatternFrame::AttributeChanged(PRInt32         aNameSpaceID,
 nsIAtom*
 nsSVGPatternFrame::GetType() const
 {
-  return nsLayoutAtoms::svgPatternFrame;
+  return nsGkAtoms::svgPatternFrame;
 }
 
 //----------------------------------------------------------------------
@@ -558,7 +556,7 @@ nsSVGPatternFrame::checkURITarget(void) {
                                          mContent, 
                                          GetPresContext()->PresShell()))) {
     nsIAtom* frameType = nextPattern->GetType();
-    if (frameType != nsLayoutAtoms::svgPatternFrame)
+    if (frameType != nsGkAtoms::svgPatternFrame)
       return PR_FALSE;
     mNextPattern = (nsSVGPatternFrame *)nextPattern;
     // Are we looping?
@@ -717,7 +715,7 @@ nsSVGPatternFrame::GetCallerGeometry(nsIDOMSVGMatrix **aCTM,
   // actually want the parent, which should be the <svg:text> or <svg:tspan>
   // element.
   nsIAtom *callerType = aSource->GetType();
-  if (callerType ==  nsLayoutAtoms::svgGlyphFrame) {
+  if (callerType ==  nsGkAtoms::svgGlyphFrame) {
     *aContent = NS_STATIC_CAST(nsSVGElement*,
                                aSource->GetContent()->GetParent());
   } else {

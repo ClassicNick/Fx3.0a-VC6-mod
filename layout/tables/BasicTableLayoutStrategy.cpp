@@ -255,7 +255,7 @@ BasicTableLayoutStrategy::ComputeColumnIntrinsicWidths(nsIRenderingContext* aRen
         // each column in the group, not the group as a whole.
         // XXX Should we be doing this when we have widths on the column?
         NS_ASSERTION(colFrame->GetParent()->GetType() ==
-                         nsLayoutAtoms::tableColGroupFrame,
+                         nsGkAtoms::tableColGroupFrame,
                      "expected a column-group");
         colInfo = GetColWidthInfo(aRenderingContext, colFrame->GetParent());
         colInfo.minCoord = nsTableFrame::RoundToPixel(colInfo.minCoord, p2t);
@@ -566,7 +566,8 @@ BasicTableLayoutStrategy::ComputeColumnWidths(const nsHTMLReflowState& aReflowSt
 
     // border-spacing isn't part of the basis for percentages.
     nscoord subtract = spacing;
-    for (PRInt32 col = 0; col < colCount; ++col) {
+	PRInt32 col;
+    for (col = 0; col < colCount; ++col) {
         if (mTableFrame->GetNumCellsOriginatingInCol(col)) {
             subtract += spacing;
         }
@@ -628,7 +629,6 @@ BasicTableLayoutStrategy::ComputeColumnWidths(const nsHTMLReflowState& aReflowSt
             total_fixed_pref = 0;
     float total_pct = 0.0f; // 0.0f to 1.0f
 
-    PRInt32 col;
     for (col = 0; col < colCount; ++col) {
         nsTableColFrame *colFrame = mTableFrame->GetColFrame(col);
         if (!colFrame) {

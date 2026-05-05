@@ -42,7 +42,7 @@
 #include "nsISVGRendererCanvas.h"
 #include "nsSVGOuterSVGFrame.h"
 #include "nsISVGFilter.h"
-#include "nsSVGAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsIDOMSVGAnimatedInteger.h"
 #include "nsSVGUtils.h"
 #include "nsSVGFilterElement.h"
@@ -96,7 +96,7 @@ public:
   /**
    * Get the "type" of the frame
    *
-   * @see nsLayoutAtoms::svgFilterFrame
+   * @see nsGkAtoms::svgFilterFrame
    */
   virtual nsIAtom* GetType() const;
 
@@ -150,7 +150,7 @@ NS_GetSVGFilterFrame(nsISVGFilterFrame **aResult,
     return NS_ERROR_FAILURE;
 
   nsIAtom* frameType = filter->GetType();
-  if (frameType != nsLayoutAtoms::svgFilterFrame)
+  if (frameType != nsGkAtoms::svgFilterFrame)
     return NS_ERROR_FAILURE;
 
   *aResult = (nsSVGFilterFrame *)filter;
@@ -336,7 +336,7 @@ nsSVGFilterFrame::FilterPaint(nsISVGRendererCanvas *aCanvas,
   PRInt32 filterResX = PRInt32(s1 * width + 0.5);
   PRInt32 filterResY = PRInt32(s2 * height + 0.5);
 
-  if (mContent->HasAttr(kNameSpaceID_None, nsSVGAtoms::filterRes)) {
+  if (mContent->HasAttr(kNameSpaceID_None, nsGkAtoms::filterRes)) {
     mFilterResX->GetAnimVal(&filterResX);
     mFilterResY->GetAnimVal(&filterResY);
   }
@@ -531,7 +531,7 @@ nsSVGFilterFrame::GetInvalidationRegion(nsIFrame *aTarget)
 nsIAtom *
 nsSVGFilterFrame::GetType() const
 {
-  return nsLayoutAtoms::svgFilterFrame;
+  return nsGkAtoms::svgFilterFrame;
 }
 
 // ----------------------------------------------------------------
@@ -610,13 +610,13 @@ nsSVGFilterInstance::GetFilterSubregion(
 #endif
 
   nsCOMPtr<nsIContent> content = do_QueryInterface(aFilter);
-  if (!content->HasAttr(kNameSpaceID_None, nsSVGAtoms::x))
+  if (!content->HasAttr(kNameSpaceID_None, nsGkAtoms::x))
     region.x = defaultRegion.x;
-  if (!content->HasAttr(kNameSpaceID_None, nsSVGAtoms::y))
+  if (!content->HasAttr(kNameSpaceID_None, nsGkAtoms::y))
     region.y = defaultRegion.y;
-  if (!content->HasAttr(kNameSpaceID_None, nsSVGAtoms::width))
+  if (!content->HasAttr(kNameSpaceID_None, nsGkAtoms::width))
     region.width = defaultRegion.width;
-  if (!content->HasAttr(kNameSpaceID_None, nsSVGAtoms::height))
+  if (!content->HasAttr(kNameSpaceID_None, nsGkAtoms::height))
     region.height = defaultRegion.height;
 
   result->IntersectRect(filter, region);
