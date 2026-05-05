@@ -730,7 +730,6 @@ JS_NewRuntime(uint32 maxbytes)
         goto bad;
     rt->scopeSharingTodo = NO_SCOPE_SHARING_TODO;
 #endif
-    rt->propertyCache.empty = JS_TRUE;
     if (!js_InitPropertyTree(rt))
         goto bad;
     return rt;
@@ -2464,7 +2463,7 @@ JS_SealObject(JSContext *cx, JSObject *obj, JSBool deep)
         return JS_TRUE;
 
     /* Walk slots in obj and if any value is a non-null object, seal it. */
-    nslots = JS_MIN(scope->map.freeslot, scope->map.nslots);
+    nslots = LOCKED_OBJ_NSLOTS(obj);
     for (i = 0; i != nslots; ++i) {
         v = STOBJ_GET_SLOT(obj, i);
         if (JSVAL_IS_PRIMITIVE(v))

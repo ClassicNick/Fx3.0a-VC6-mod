@@ -63,11 +63,11 @@
 #include "jslock.h"
 #include "jsnum.h"
 #include "jsobj.h"
+#include "jsopcode.h"
 #include "jsscan.h"
 #include "jsscope.h"
 #include "jsscript.h"
 #include "jsstr.h"
-#include "jsopcode.h"
 
 #include "jsdbgapi.h"   /* whether or not JS_HAS_OBJ_WATCHPOINT */
 
@@ -787,7 +787,9 @@ js_obj_toSource(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
         size_t classnchars = strlen(classname);
         static const char classpropid[] = "C";
         const char *cp;
+#ifdef DEBUG
         size_t onchars = nchars;
+#endif
 
         /* 2 for ': ', 2 quotes around classname, 2 for ', ' after. */
         classnchars += sizeof classpropid - 1 + 2 + 2;
@@ -2203,7 +2205,6 @@ js_InitObjectMap(JSObjectMap *map, jsrefcount nrefs, JSObjectOps *ops,
 {
     map->nrefs = nrefs;
     map->ops = ops;
-    map->nslots = JS_INITIAL_NSLOTS;
     map->freeslot = JSSLOT_FREE(clasp);
 }
 
@@ -2252,44 +2253,131 @@ FreeSlots(JSContext *cx, JSObject *obj)
     }
 }
 
-static JSBool
-ReallocSlots(JSContext *cx, JSObject *obj, uint32 nslots)
-{
-    uint32 oslots, i;
-    jsval *slots;
+#define SLOTS_TO_DYNAMIC_WORDS(nslots)                                        \
+  (JS_ASSERT((nslots) > JS_INITIAL_NSLOTS), (nslots) + 1 - JS_INITIAL_NSLOTS)
 
+#define DYNAMIC_WORDS_TO_SLOTS(words)                                         \
+  (JS_ASSERT((words) > 1), (words) - 1 + JS_INITIAL_NSLOTS)
+
+static JSBool
+ReallocSlots(JSContext *cx, JSObject *obj, uint32 nslots,
+             JSBool exactAllocation)
+{
+    jsval *old, *slots;
+    uint32 oslots, nwords, owords, log, i;
+
+    /*
+     * Minimal number of dynamic slots to allocate.
+     */
+#define MIN_DYNAMIC_WORDS 4
+
+    /*
+     * The limit to switch to linear allocation strategy from the power of 2
+     * growth no to waste too much memory.
+     */
+#define LINEAR_GROWTH_STEP JS_BIT(16)
+
+    old = obj->dslots;
     if (nslots <= JS_INITIAL_NSLOTS) {
-        FreeSlots(cx, obj);
+        if (old &&
+            (exactAllocation ||
+             SLOTS_TO_DYNAMIC_WORDS((uint32)old[-1]) != MIN_DYNAMIC_WORDS ||
+             nslots <= (JS_INITIAL_NSLOTS +
+                        JSSLOT_FREE(STOBJ_GET_CLASS(obj))) / 2)) {
+            /*
+             * We do not want to free dynamic slots when allocation is a hint,
+             * we reached minimal allocation and almost all fixed slots are
+             * used. It avoids allocating dynamic slots again when properties
+             * are added to the object.
+             *
+             * If there were no private or reserved slots, the condition to
+             * free the slots would be
+             *
+             *   nslots <= JS_INITIAL_NSLOTS / 2
+             *
+             * but to account for never removed slots before JSSLOT_FREE(class)
+             * we need to subtract it from the slot counts which gives
+             *
+             *   nslots - JSSLOT_FREE <= (JS_INITIAL_NSLOTS - JSSLOT_FREE) / 2
+             *
+             * or
+             *
+             *   nslots <= (JS_INITIAL_NSLOTS + JSSLOT_FREE) / 2
+             */
+            FreeSlots(cx, obj);
+        }
         return JS_TRUE;
     }
 
-    if (obj->dslots) {
-        slots = obj->dslots - 1;
-        oslots = (uint32)slots[0];
-        JS_ASSERT(oslots > JS_INITIAL_NSLOTS);
-    } else {
-        slots = NULL;
-        oslots = JS_INITIAL_NSLOTS;
-    }
+    oslots = (old) ? (uint32)*--old : JS_INITIAL_NSLOTS;
+    nwords = SLOTS_TO_DYNAMIC_WORDS(nslots);
 
-    slots = (jsval *)
-        JS_realloc(cx, slots, (1 + nslots - JS_INITIAL_NSLOTS) * sizeof(jsval));
-    if (!slots) {
-        if (nslots > oslots)
+    if (nslots > oslots) {
+        if (!exactAllocation) {
+            /*
+             * Round up nslots so the number of bytes in dslots array is power
+             * of 2 to ensure exponential grouth.
+             */
+            if (nwords <= MIN_DYNAMIC_WORDS) {
+                nwords = MIN_DYNAMIC_WORDS;
+            } else if (nwords < LINEAR_GROWTH_STEP) {
+                JS_CEILING_LOG2(log, nwords);
+                nwords = JS_BIT(log);
+            } else {
+                nwords = JS_ROUNDUP(nwords, LINEAR_GROWTH_STEP);
+            }
+        }
+        slots = (jsval *)JS_realloc(cx, old, nwords * sizeof(jsval));
+        if (!slots)
             return JS_FALSE;
+    } else {
+        JS_ASSERT(nslots < oslots);
+        if (!exactAllocation) {
+            owords = DYNAMIC_WORDS_TO_SLOTS(oslots);
+            if (owords <= MIN_DYNAMIC_WORDS)
+                return JS_TRUE;
+            if (owords < LINEAR_GROWTH_STEP * 2) {
+                /*
+                 * Shrink only if 1/4 of slots are left and we need to grow
+                 * the array at least twice to reach the current capacity. It
+                 * prevents frequent capacity growth/shrinking when slots are
+                 * often removed and added.
+                 */
+                if (nwords > owords / 4)
+                    return JS_TRUE;
+                JS_CEILING_LOG2(log, nwords);
+                nwords = JS_BIT(log);
+                if (nwords < MIN_DYNAMIC_WORDS)
+                    nwords = MIN_DYNAMIC_WORDS;
+            } else {
+                /*
+                 * Shrink only if we free at least 2 linear allocation
+                 * segments, to prevent growth/shrinking resonance.
+                 */
+                if (nwords > owords - LINEAR_GROWTH_STEP * 2)
+                    return JS_TRUE;
+                nwords = JS_ROUNDUP(nwords, LINEAR_GROWTH_STEP);
+            }
+        }
 
-        /* Ignore failed shrinking */
-        slots = obj->dslots - 1;
+        /* We avoid JS_realloc not to report a failed shrink attempt. */
+        slots = (jsval *)realloc(old, nwords * sizeof(jsval));
+        if (!slots)
+            slots = old;
     }
 
-    obj->dslots = slots + 1;
-    slots[0] = nslots;
+    nslots = DYNAMIC_WORDS_TO_SLOTS(nwords);
+    *slots++ = (jsval)nslots;
+    obj->dslots = slots;
 
     /* If we're extending an allocation, initialize free slots. */
     for (i = oslots; i < nslots; i++)
-        slots[1 + i - JS_INITIAL_NSLOTS] = JSVAL_VOID;
+        slots[i - JS_INITIAL_NSLOTS] = JSVAL_VOID;
 
     return JS_TRUE;
+
+#undef LINEAR_GROWTH_STEP
+#undef MIN_DYNAMIC_WORDS
 }
 
 extern JSBool
@@ -2400,10 +2488,11 @@ js_NewObject(JSContext *cx, JSClass *clasp, JSObject *proto, JSObject *parent)
             goto bad;
         obj->map = map;
 
-        /* Let ops->newObjectMap set nslots so as to reserve slots. */
-        nslots = map->nslots;
+        /* Let ops->newObjectMap set freeslot so as to reserve slots. */
+        nslots = map->freeslot;
         JS_ASSERT(nslots >= JSSLOT_PRIVATE);
-        if (nslots > JS_INITIAL_NSLOTS && !ReallocSlots(cx, obj, nslots)) {
+        if (nslots > JS_INITIAL_NSLOTS &&
+            !ReallocSlots(cx, obj, nslots, JS_TRUE)) {
             js_DropObjectMap(cx, map, obj);
             obj->map = NULL;
             goto bad;
@@ -2682,26 +2771,18 @@ js_AllocSlot(JSContext *cx, JSObject *obj, uint32 *slotp)
 {
     JSObjectMap *map;
     JSClass *clasp;
-    uint32 nslots;
 
     map = obj->map;
     JS_ASSERT(!MAP_IS_NATIVE(map) || ((JSScope *)map)->object == obj);
     clasp = LOCKED_OBJ_GET_CLASS(obj);
-    if (map->freeslot == JSSLOT_FREE(clasp)) {
+    if (map->freeslot == JSSLOT_FREE(clasp) && clasp->reserveSlots) {
         /* Adjust map->freeslot to include computed reserved slots, if any. */
-        if (clasp->reserveSlots)
-            map->freeslot += clasp->reserveSlots(cx, obj);
+        map->freeslot += clasp->reserveSlots(cx, obj);
     }
-    if (map->freeslot >= map->nslots) {
-        if (map->freeslot < JS_INITIAL_NSLOTS) {
-            map->nslots = JS_INITIAL_NSLOTS;
-        } else {
-            nslots = map->freeslot;
-            nslots += (nslots + 1) / 2;
-            if (!ReallocSlots(cx, obj, nslots))
-                return JS_FALSE;
-            map->nslots = nslots;
-        }
+
+    if (map->freeslot >= STOBJ_NSLOTS(obj) &&
+        !ReallocSlots(cx, obj, map->freeslot + 1, JS_FALSE)) {
+        return JS_FALSE;
     }
 
 #ifdef TOO_MUCH_GC
@@ -2715,23 +2796,13 @@ void
 js_FreeSlot(JSContext *cx, JSObject *obj, uint32 slot)
 {
     JSObjectMap *map;
-    uint32 nslots;
 
-    LOCKED_OBJ_SET_SLOT(obj, slot, JSVAL_VOID);
     map = obj->map;
     JS_ASSERT(!MAP_IS_NATIVE(map) || ((JSScope *)map)->object == obj);
-    if (map->freeslot == slot + 1)
-        map->freeslot = slot;
-    nslots = map->nslots;
-    if (nslots > JS_INITIAL_NSLOTS && map->freeslot < nslots / 2) {
-        nslots = map->freeslot;
-        nslots += nslots / 2;
-        if (nslots < JS_INITIAL_NSLOTS)
-            nslots = JS_INITIAL_NSLOTS;
-
-        /* Ignore return code of ReallocSlots as shrinking always succeeds. */
-        ReallocSlots(cx, obj, nslots);
-        map->nslots = nslots;
+    LOCKED_OBJ_SET_SLOT(obj, slot, JSVAL_VOID);
+    if (map->freeslot == slot + 1) {
+        /* When shrinking ReallocSlots always returns true. */
+        ReallocSlots(cx, obj, slot, JS_FALSE);
     }
 }
 
@@ -2868,10 +2939,6 @@ js_ChangeNativePropertyAttrs(JSContext *cx, JSObject *obj,
     } else {
         sprop = js_ChangeScopePropertyAttrs(cx, scope, sprop, attrs, mask,
                                             getter, setter);
-        if (sprop) {
-            PROPERTY_CACHE_FILL(&cx->runtime->propertyCache, obj, sprop->id,
-                                sprop);
-        }
     }
     JS_UNLOCK_OBJ(cx, obj);
     return sprop;
@@ -3003,7 +3070,6 @@ js_DefineNativeProperty(JSContext *cx, JSObject *obj, jsid id, jsval value,
 #if JS_HAS_GETTER_SETTER
 out:
 #endif
-    PROPERTY_CACHE_FILL(&cx->runtime->propertyCache, obj, id, sprop);
     if (propp)
         *propp = (JSProperty *) sprop;
     else
@@ -3031,41 +3097,51 @@ Detecting(JSContext *cx, jsbytecode *pc)
     if (!cx->fp)
         return JS_FALSE;
     script = cx->fp->script;
-    for (endpc = script->code + script->length; pc < endpc; pc++) {
+    for (endpc = script->code + script->length;
+         pc < endpc;
+         pc += js_CodeSpec[op].length) {
         /* General case: a branch or equality op follows the access. */
         op = (JSOp) *pc;
         if (js_CodeSpec[op].format & JOF_DETECTING)
             return JS_TRUE;
 
-        /*
-         * Special case #1: handle (document.all == null).  Don't sweat about
-         * JS1.2's revision of the equality operators here.
-         */
-        if (op == JSOP_NULL) {
+        switch (op) {
+          case JSOP_NULL:
+            /*
+             * Special case #1: handle (document.all == null).  Don't sweat
+             * about JS1.2's revision of the equality operators here.
+             */
             if (++pc < endpc)
                 return *pc == JSOP_EQ || *pc == JSOP_NE;
-            break;
-        }
+            return JS_FALSE;
 
-        /*
-         * Special case #2: handle (document.all == undefined).  Don't worry
-         * about someone redefining undefined, which was added by Edition 3,
-         * so is read/write for backward compatibility.
-         */
-        if (op == JSOP_NAME) {
-            atom = GET_ATOM(cx, script, pc);
+          case JSOP_NAME:
+            /*
+             * Special case #2: handle (document.all == undefined).  Don't
+             * worry about someone redefining undefined, which was added by
+             * Edition 3, so is read/write for backward compatibility.
+             */
+            atom = js_GetAtomFromBytecode(cx, script, pc, 0);
             if (atom == cx->runtime->atomState.typeAtoms[JSTYPE_VOID] &&
                 (pc += js_CodeSpec[op].length) < endpc) {
                 op = (JSOp) *pc;
                 return op == JSOP_EQ || op == JSOP_NE ||
                        op == JSOP_STRICTEQ || op == JSOP_STRICTNE;
             }
+            return JS_FALSE;
+
+          case JSOP_GROUP:
+            break;
+
+          default:
+            /*
+             * At this point, anything but an extended atom index prefix means
+             * we're not detecting.
+             */
+            if (!(js_CodeSpec[op].format & JOF_ATOMBASE))
+                return JS_FALSE;
             break;
         }
-
-        /* At this point, anything but grouping means we're not detecting. */
-        if (op != JSOP_GROUP)
-            break;
     }
     return JS_FALSE;
 }
@@ -3263,34 +3339,14 @@ js_FindProperty(JSContext *cx, jsid id, JSObject **objp, JSObject **pobjp,
 {
     JSRuntime *rt;
     JSObject *obj, *pobj, *lastobj;
-    JSScopeProperty *sprop;
     JSProperty *prop;
 
     rt = cx->runtime;
     obj = cx->fp->scopeChain;
     do {
-        /* Try the property cache and return immediately on cache hit. */
-        if (OBJ_IS_NATIVE(obj)) {
-            JS_LOCK_OBJ(cx, obj);
-            PROPERTY_CACHE_TEST(&rt->propertyCache, obj, id, sprop);
-            if (sprop) {
-                JS_ASSERT(OBJ_IS_NATIVE(obj));
-                *objp = obj;
-                *pobjp = obj;
-                *propp = (JSProperty *) sprop;
-                return JS_TRUE;
-            }
-            JS_UNLOCK_OBJ(cx, obj);
-        }
-
-        /* If cache miss, take the slow path. */
         if (!OBJ_LOOKUP_PROPERTY(cx, obj, id, &pobj, &prop))
             return JS_FALSE;
         if (prop) {
-            if (OBJ_IS_NATIVE(pobj)) {
-                sprop = (JSScopeProperty *) prop;
-                PROPERTY_CACHE_FILL(&rt->propertyCache, pobj, id, sprop);
-            }
             *objp = obj;
             *pobjp = pobj;
             *propp = prop;
@@ -3361,16 +3417,11 @@ js_NativeGet(JSContext *cx, JSObject *obj, JSObject *pobj,
     JS_ASSERT(scope->object == pobj);
 
     slot = sprop->slot;
-    if (slot != SPROP_INVALID_SLOT) {
-        *vp = LOCKED_OBJ_GET_SLOT(pobj, slot);
-
-        /* If sprop has a stub getter, we're done. */
-        if (SPROP_HAS_STUB_GETTER(sprop))
-            return JS_TRUE;
-    } else {
-        JS_ASSERT(!SPROP_HAS_STUB_GETTER(sprop));
-        *vp = JSVAL_VOID;
-    }
+    *vp = (slot != SPROP_INVALID_SLOT)
+          ? LOCKED_OBJ_GET_SLOT(pobj, slot)
+          : JSVAL_VOID;
+    if (SPROP_HAS_STUB_GETTER(sprop))
+        return JS_TRUE;
 
     sample = cx->runtime->propertyRemovals;
     JS_UNLOCK_SCOPE(cx, scope);
@@ -3414,7 +3465,12 @@ js_NativeSet(JSContext *cx, JSObject *obj, JSScopeProperty *sprop, jsval *vp)
         if (SPROP_HAS_STUB_SETTER(sprop))
             goto set_slot;
     } else {
-        JS_ASSERT(!SPROP_HAS_STUB_GETTER(sprop));
+        /*
+         * No slot allocated, so either we must have a non-stub setter, or
+         * we will get a JSMSG_GETTER_ONLY error from SPROP_SET.
+         */
+        JS_ASSERT(!SPROP_HAS_STUB_SETTER(sprop) ||
+                  (sprop->attrs & JSPROP_GETTER));
         pval = JSVAL_VOID;
     }
 
@@ -3520,7 +3576,6 @@ js_GetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
     if (!js_NativeGet(cx, obj, obj2, sprop, vp))
         return JS_FALSE;
 
-    PROPERTY_CACHE_FILL(&cx->runtime->propertyCache, obj2, id, sprop);
     JS_UNLOCK_OBJ(cx, obj2);
     return JS_TRUE;
 }
@@ -3681,8 +3736,6 @@ js_SetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
                             js_RemoveScopeProperty(cx, scope, id);
                             JS_UNLOCK_SCOPE(cx, scope);
                             return JS_FALSE);
-
-        PROPERTY_CACHE_FILL(&cx->runtime->propertyCache, obj, id, sprop);
     }
 
     if (!js_NativeSet(cx, obj, sprop, vp))
@@ -3823,7 +3876,6 @@ js_DeleteProperty(JSContext *cx, JSObject *obj, jsid id, jsval *rval)
     if (SPROP_HAS_VALID_SLOT(sprop, scope))
         GC_POKE(cx, LOCKED_OBJ_GET_SLOT(obj, sprop->slot));
 
-    PROPERTY_CACHE_FILL(&cx->runtime->propertyCache, obj, id, NULL);
     ok = js_RemoveScopeProperty(cx, scope, id);
     OBJ_DROP_PROPERTY(cx, obj, prop);
     return ok;
@@ -4754,20 +4806,18 @@ js_Mark(JSContext *cx, JSObject *obj, void *arg)
     if (scope->object != obj) {
         /*
          * An unmutated object that shares a prototype's scope.  We can't tell
-         * how many slots are allocated and in use in obj by looking at scope,
-         * so we use STOBJ_NSLOTS(obj).
+         * how many slots are in use in obj by looking at scope, so we use
+         * STOBJ_NSLOTS(obj).
          */
         return STOBJ_NSLOTS(obj);
     }
-    return JS_MIN(scope->map.freeslot, scope->map.nslots);
+    return LOCKED_OBJ_NSLOTS(obj);
 }
 
 void
 js_Clear(JSContext *cx, JSObject *obj)
 {
     JSScope *scope;
-    JSRuntime *rt;
-    JSScopeProperty *sprop;
     uint32 i, n;
 
     /*
@@ -4779,20 +4829,11 @@ js_Clear(JSContext *cx, JSObject *obj)
     JS_LOCK_OBJ(cx, obj);
     scope = OBJ_SCOPE(obj);
     if (scope->object == obj) {
-        /* Clear the property cache before we clear the scope. */
-        rt = cx->runtime;
-        for (sprop = SCOPE_LAST_PROP(scope); sprop; sprop = sprop->parent) {
-            if (!SCOPE_HAD_MIDDLE_DELETE(scope) ||
-                SCOPE_HAS_PROPERTY(scope, sprop)) {
-                PROPERTY_CACHE_FILL(&rt->propertyCache, obj, sprop->id, NULL);
-            }
-        }
-
         /* Now that we're done using scope->lastProp/table, clear scope. */
         js_ClearScope(cx, scope);
 
         /* Clear slot values and reset freeslot so we're consistent. */
-        i = scope->map.nslots;
+        i = STOBJ_NSLOTS(obj);
         n = JSSLOT_FREE(LOCKED_OBJ_GET_CLASS(obj));
         while (--i >= n)
             STOBJ_SET_SLOT(obj, i, JSVAL_VOID);
@@ -4821,15 +4862,14 @@ js_SetRequiredSlot(JSContext *cx, JSObject *obj, uint32 slot, jsval v)
 
     JS_LOCK_OBJ(cx, obj);
     scope = OBJ_SCOPE(obj);
-    nslots = STOBJ_NSLOTS(obj);
-    if (slot >= nslots) {
+    if (slot >= JS_INITIAL_NSLOTS && !obj->dslots) {
         /*
          * At this point, obj may or may not own scope.  If some path calls
          * js_GetMutableScope but does not add a slot-owning property, then
-         * scope->object == obj but nslots will be nominal.  If obj shares a
+         * scope->object == obj but obj->dslots will be null. If obj shares a
          * prototype's scope, then we cannot update scope->map here. Instead
-         * we rely on STOBJ_NSLOTS(obj) to get the number of allocated slots
-         * after we increase the number of slots in obj.
+         * we rely on STOBJ_NSLOTS(obj) to get the number of available slots
+         * in obj after we allocate dynamic slots.
          *
          * See js_Mark, before the last return, where we make a special case
          * for unmutated (scope->object != obj) objects.
@@ -4839,12 +4879,10 @@ js_SetRequiredSlot(JSContext *cx, JSObject *obj, uint32 slot, jsval v)
         if (clasp->reserveSlots)
             nslots += clasp->reserveSlots(cx, obj);
         JS_ASSERT(slot < nslots);
-        if (!ReallocSlots(cx, obj, nslots)) {
+        if (!ReallocSlots(cx, obj, nslots, JS_TRUE)) {
             JS_UNLOCK_SCOPE(cx, scope);
             return JS_FALSE;
         }
-        if (scope->object == obj)
-            scope->map.nslots = nslots;
     }
 
     /* Whether or not we grew nslots, we may need to advance freeslot. */
@@ -4889,7 +4927,7 @@ void printObj(JSContext *cx, JSObject *jsobj) {
     fprintf(stderr, "object %p\n", (void *)jsobj);
     clasp = OBJ_GET_CLASS(cx, jsobj);
     fprintf(stderr, "class %p %s\n", (void *)clasp, clasp->name);
-    for (i=0; i < jsobj->map->nslots; i++) {
+    for (i=0; i < STOBJ_NSLOTS(jsobj); i++) {
         fprintf(stderr, "slot %3d ", i);
         val = STOBJ_GET_SLOT(jsobj, i);
         if (JSVAL_IS_OBJECT(val))

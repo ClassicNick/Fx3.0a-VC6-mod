@@ -57,7 +57,6 @@ JS_BEGIN_EXTERN_C
 struct JSObjectMap {
     jsrefcount  nrefs;          /* count of all referencing objects */
     JSObjectOps *ops;           /* high level object operation vtable */
-    uint32      nslots;         /* number of slots in object */
     uint32      freeslot;       /* index of next free slot in object */
 };
 
@@ -115,17 +114,7 @@ struct JSObjectMap {
 
 /*
  * When JSObject.dslots is not null, JSObject.dslots[-1] records the number of
- * available slots as we can not use obj->map->nslots for that. obj->map may
- * be a prototype object's map, shared by obj, where the prototype has many
- * slots allocated but the unmutated proto-child has no dynamic slots of its
- * own. With the advent of JS_GetReservedSlot, JS_SetReservedSlot and
- * JSCLASS_HAS_RESERVED_SLOTS (see jsapi.h), the size of the minimum length
- * slots cannot be constant.
- *
- * Thus when the number of slots exceeds JS_INITIAL_NSLOTS, the extra slots
- * goes to JSObject.dslots with the total number of slots recorded in
- * JSObject.dslots[-1] to avoid expensive recalculations of the number of
- * reserved slots.
+ * available slots.
  */
 struct JSObject {
     JSObjectMap *map;
@@ -147,11 +136,11 @@ struct JSObject {
 /*
  * STOBJ prefix means Single Threaded Object. Use the following fast macros to
  * directly manipulate slots in obj when only one thread can access obj and
- * when obj->map->freeslot, obj->map->nslots can be inconsistent with slots.
+ * when obj->map->freeslot can be inconsistent with slots.
  */
 
 #define STOBJ_NSLOTS(obj)                                                     \
-    ((obj)->dslots ? (uint32)(obj)->dslots[-1] : JS_INITIAL_NSLOTS)
+    ((obj)->dslots ? (uint32)(obj)->dslots[-1] : (uint32)JS_INITIAL_NSLOTS)
 
 #define STOBJ_GET_SLOT(obj,slot)                                              \
     ((slot) < JS_INITIAL_NSLOTS                                               \
@@ -178,18 +167,16 @@ struct JSObject {
 #define STOBJ_GET_CLASS(obj) \
     ((JSClass *)JSVAL_TO_PRIVATE((obj)->fslots[JSSLOT_CLASS]))
 
-#ifdef DEBUG
 #define OBJ_CHECK_SLOT(obj,slot)                                              \
-    (JS_ASSERT((uint32)slot < (uint32)(obj)->map->freeslot),                  \
-     JS_ASSERT((uint32)slot < (uint32)(obj)->map->nslots))
-#else
-#define OBJ_CHECK_SLOT(obj,slot) ((void)0)
-#endif
+    JS_ASSERT(slot < (obj)->map->freeslot)
 
 /*
  * Macros for accessing slots in obj while obj is locked (if thread-safe) and
- * when slot must stay within min(obj->map->freeslot, obj->map->nslots).
+ * when slot must be bound by the map->freeslot.
  */
+#define LOCKED_OBJ_NSLOTS(obj)                                                \
+   JS_MIN((obj)->map->freeslot, STOBJ_NSLOTS(obj))
+
 #define LOCKED_OBJ_GET_SLOT(obj,slot) \
     (OBJ_CHECK_SLOT(obj, slot), STOBJ_GET_SLOT(obj, slot))
 #define LOCKED_OBJ_SET_SLOT(obj,slot,value) \
@@ -201,9 +188,9 @@ struct JSObject {
     (OBJ_CHECK_SLOT(obj, JSSLOT_PROTO), STOBJ_SET_PROTO(obj, proto))
 
 #define LOCKED_OBJ_GET_PARENT(obj) \
-    (LOCKED_OBJ_CHECK_SLOT(obj, JSSLOT_PARENT), STOBJ_GET_PARENT(obj))
+    (OBJ_CHECK_SLOT(obj, JSSLOT_PARENT), STOBJ_GET_PARENT(obj))
 #define LOCKED_OBJ_SET_PARENT(obj,parent) \
-    (LOCKED_OBJ_CHECK_SLOT(obj, JSSLOT_PARENT), STOBJ_SET_PARENT(obj, parent))
+    (OBJ_CHECK_SLOT(obj, JSSLOT_PARENT), STOBJ_SET_PARENT(obj, parent))
 
 #define LOCKED_OBJ_GET_CLASS(obj) \
     (OBJ_CHECK_SLOT(obj, JSSLOT_CLASS), STOBJ_GET_CLASS(obj))
@@ -272,8 +259,8 @@ struct JSObject {
     OBJ_SET_SLOT(cx, obj, JSSLOT_PARENT, OBJECT_TO_JSVAL(parent))
 
 /*
- * Class is invariant and comes from the fixed slot. Thus no locking is
- * necessary to read it.
+ * Class is invariant and comes from the fixed JSCLASS_SLOT. Thus no locking
+ * is necessary to read it.
  */
 #define GC_AWARE_GET_CLASS(cx, obj)     STOBJ_GET_CLASS(obj)
 #define OBJ_GET_CLASS(cx,obj)           STOBJ_GET_CLASS(obj)

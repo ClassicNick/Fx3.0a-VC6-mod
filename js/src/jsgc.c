@@ -2092,7 +2092,7 @@ MarkGCThingChildren(JSContext *cx, void *thing, uint8 *flagp,
         /* Set up local variables to loop over unmarked things. */
         end = (obj->map->ops->mark)
               ? obj->map->ops->mark(cx, obj, NULL)
-              : JS_MIN(obj->map->freeslot, obj->map->nslots);
+              : LOCKED_OBJ_NSLOTS(obj);
         thing = NULL;
         flagp = NULL;
 #ifdef GC_MARK_DEBUG
@@ -2848,9 +2848,6 @@ js_GC(JSContext *cx, JSGCInvocationKind gckind)
     /* Reset malloc counter. */
     rt->gcMallocBytes = 0;
 
-    /* Drop atoms held by the property cache, and clear property weak links. */
-    js_DisablePropertyCache(cx);
-    js_FlushPropertyCache(cx);
 #ifdef DEBUG_scopemeters
   { extern void js_DumpScopeMeters(JSRuntime *rt);
     js_DumpScopeMeters(rt);
@@ -3172,7 +3169,6 @@ restart:
         JS_UNLOCK_GC(rt);
         goto restart;
     }
-    js_EnablePropertyCache(cx);
     rt->gcLevel = 0;
     rt->gcLastBytes = rt->gcBytes;
     rt->gcRunning = JS_FALSE;

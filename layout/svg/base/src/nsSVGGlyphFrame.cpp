@@ -1249,7 +1249,8 @@ nsSVGGlyphFrame::SetWhitespaceHandling(PRUint8 aWhitespaceHandling)
 
 void nsSVGGlyphFrame::SelectFont(cairo_t *ctx)
 {
-  nsFont font = GetStyleFont()->mFont;
+  const nsStyleFont* fontData = GetStyleFont();
+  nsFont font = fontData->mFont;
 
   // XXX eventually we will have to treat decorations separately from
   // fonts, because they can have a different color than the current
@@ -1306,7 +1307,7 @@ void nsSVGGlyphFrame::SelectFont(cairo_t *ctx)
   presContext->DeviceContext()->GetCanonicalPixelScale(pixelScale);
   float textZoom = presContext->TextZoom();
 
-  cairo_set_font_size(ctx, font.size * pxPerTwips / pixelScale / textZoom);
+  cairo_set_font_size(ctx, fontData->mSize * pxPerTwips / pixelScale / textZoom);
 }
 
 void nsSVGGlyphFrame::UpdateGeometry(PRBool bRedraw,

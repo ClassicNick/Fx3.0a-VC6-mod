@@ -69,6 +69,7 @@
 #include "nsIXPConnect.h"
 #include "nsContentErrors.h"
 #include "nsIParser.h"
+#include "nsThreadUtils.h"
 
 //////////////////////////////////////////////////////////////
 //
@@ -638,6 +639,17 @@ nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest,
     ::JS_EndRequest(cx);
   }
   return rv;
+}
+
+void
+nsScriptLoader::ProcessPendingRequestsAsync()
+{
+  if (mPendingRequests.Count()) {
+    nsCOMPtr<nsIRunnable> ev = new nsRunnableMethod<nsScriptLoader>(this,
+      &nsScriptLoader::ProcessPendingRequests);
+
+    NS_DispatchToCurrentThread(ev);
+  }
 }
 
 void

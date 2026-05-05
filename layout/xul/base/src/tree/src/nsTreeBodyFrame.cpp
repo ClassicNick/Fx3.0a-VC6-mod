@@ -226,20 +226,21 @@ nsTreeBodyFrame::Init(nsIContent*     aContent,
   return rv;
 }
 
-NS_IMETHODIMP
-nsTreeBodyFrame::GetMinSize(nsBoxLayoutState& aBoxLayoutState, nsSize& aSize)
+nsSize
+nsTreeBodyFrame::GetMinSize(nsBoxLayoutState& aBoxLayoutState)
 {
   EnsureView();
 
   nsIContent* baseElement = GetBaseElement();
 
+  nsSize min(0,0);
   PRInt32 desiredRows;
   if (NS_UNLIKELY(!baseElement)) {
     desiredRows = 0;
   }
   else if (baseElement->Tag() == nsGkAtoms::select &&
            baseElement->IsNodeOfType(nsINode::eHTML)) {
-    aSize.width = CalcMaxRowWidth();
+    min.width = CalcMaxRowWidth();
     nsAutoString size;
     baseElement->GetAttr(kNameSpaceID_None, nsGkAtoms::size, size);
     if (!size.IsEmpty()) {
@@ -254,7 +255,6 @@ nsTreeBodyFrame::GetMinSize(nsBoxLayoutState& aBoxLayoutState, nsSize& aSize)
   }
   else {
     // tree
-    aSize.width = 0;
     nsAutoString rows;
     baseElement->GetAttr(kNameSpaceID_None, nsGkAtoms::rows, rows);
     if (!rows.IsEmpty()) {
@@ -267,13 +267,13 @@ nsTreeBodyFrame::GetMinSize(nsBoxLayoutState& aBoxLayoutState, nsSize& aSize)
     }
   }
 
-  aSize.height = mRowHeight * desiredRows;
+  min.height = mRowHeight * desiredRows;
 
-  AddBorderAndPadding(aSize);
-  AddInset(aSize);
-  nsIBox::AddCSSMinSize(aBoxLayoutState, this, aSize);
+  AddBorderAndPadding(min);
+  AddInset(min);
+  nsIBox::AddCSSMinSize(aBoxLayoutState, this, min);
 
-  return NS_OK;
+  return min;
 }
 
 nscoord
@@ -630,7 +630,7 @@ nsTreeBodyFrame::InvalidateColumn(nsITreeColumn* aCol)
   if (mUpdateBatchNest)
     return NS_OK;
 
-  nsTreeColumn* col = GetColumnImpl(aCol);
+  nsRefPtr<nsTreeColumn> col = GetColumnImpl(aCol);
   if (!col)
     return NS_ERROR_INVALID_ARG;
 
@@ -675,7 +675,7 @@ nsTreeBodyFrame::InvalidateCell(PRInt32 aIndex, nsITreeColumn* aCol)
   if (aIndex < 0 || aIndex > mPageLength)
     return NS_OK;
 
-  nsTreeColumn* col = GetColumnImpl(aCol);
+  nsRefPtr<nsTreeColumn> col = GetColumnImpl(aCol);
   if (!col)
     return NS_ERROR_INVALID_ARG;
 
@@ -718,7 +718,7 @@ nsTreeBodyFrame::InvalidateColumnRange(PRInt32 aStart, PRInt32 aEnd, nsITreeColu
   if (mUpdateBatchNest)
     return NS_OK;
 
-  nsTreeColumn* col = GetColumnImpl(aCol);
+  nsRefPtr<nsTreeColumn> col = GetColumnImpl(aCol);
   if (!col)
     return NS_ERROR_INVALID_ARG;
 
@@ -1639,7 +1639,7 @@ nsTreeBodyFrame::IsCellCropped(PRInt32 aRow, nsITreeColumn* aCol, PRBool *_retva
   nsCOMPtr<nsIRenderingContext> rc;
   GetPresContext()->PresShell()->CreateRenderingContext(this, getter_AddRefs(rc));
 
-  nsTreeColumn* col = GetColumnImpl(aCol);
+  nsRefPtr<nsTreeColumn> col = GetColumnImpl(aCol);
   if (!col)
     return NS_ERROR_INVALID_ARG;
 
@@ -2954,7 +2954,8 @@ nsTreeBodyFrame::PaintCell(PRInt32              aRowIndex,
     // Resolve the style to use for the connecting lines.
     nsStyleContext* lineContext = GetPseudoStyleContext(nsCSSAnonBoxes::moztreeline);
     
-    if (lineContext->GetStyleVisibility()->IsVisibleOrCollapsed() && level) {
+    if (mIndentation && level &&
+        lineContext->GetStyleVisibility()->IsVisibleOrCollapsed()) {
       // Paint the thread lines.
 
       // Get the size of the twisty. We don't want to paint the twisty
@@ -2983,46 +2984,34 @@ nsTreeBodyFrame::PaintCell(PRInt32              aRowIndex,
       style = borderStyle->GetBorderStyle(NS_SIDE_LEFT);
       aRenderingContext.SetLineStyle(ConvertBorderStyleToLineStyle(style));
 
-      nscoord lineX = currX;
+      nscoord srcX = currX + twistyRect.width - mIndentation / 2;
       nscoord lineY = (aRowIndex - mTopRowIndex) * mRowHeight + aPt.y;
 
-      // Compute the maximal level to paint.
-      PRInt32 maxLevel = level;
-      if (maxLevel > cellRect.width / mIndentation)
-        maxLevel = cellRect.width / mIndentation;
+      // Don't paint off our cell.
+      if (srcX <= cellRect.x + cellRect.width) {
+        nscoord destX = currX + twistyRect.width;
+        if (destX > cellRect.x + cellRect.width)
+          destX = cellRect.x + cellRect.width;
+        aRenderingContext.DrawLine(srcX, lineY + mRowHeight / 2, destX, lineY + mRowHeight / 2);
+      }
 
       PRInt32 currentParent = aRowIndex;
       for (PRInt32 i = level; i > 0; i--) {
-        if (i <= maxLevel) {
-          lineX = currX + twistyRect.width + mIndentation / 2;
-
-          nscoord srcX = lineX - (level - i + 1) * mIndentation;
-          if (srcX <= cellRect.x + cellRect.width) {
-            // Paint full vertical line only if we have next sibling.
-            PRBool hasNextSibling;
-            mView->HasNextSibling(currentParent, aRowIndex, &hasNextSibling);
-            if (hasNextSibling)
-              aRenderingContext.DrawLine(srcX, lineY, srcX, lineY + mRowHeight);
-            else if (i == level)
-              aRenderingContext.DrawLine(srcX, lineY, srcX, lineY + mRowHeight / 2);
-          }
+        if (srcX <= cellRect.x + cellRect.width) {
+          // Paint full vertical line only if we have next sibling.
+          PRBool hasNextSibling;
+          mView->HasNextSibling(currentParent, aRowIndex, &hasNextSibling);
+          if (hasNextSibling)
+            aRenderingContext.DrawLine(srcX, lineY, srcX, lineY + mRowHeight);
+          else if (i == level)
+            aRenderingContext.DrawLine(srcX, lineY, srcX, lineY + mRowHeight / 2);
         }
 
         PRInt32 parent;
         if (NS_FAILED(mView->GetParentIndex(currentParent, &parent)) || parent < 0)
           break;
         currentParent = parent;
-      }
-
-      // Don't paint off our cell.
-      if (level == maxLevel) {
-        nscoord srcX = lineX - mIndentation + 16;
-        if (srcX <= cellRect.x + cellRect.width) {
-          nscoord destX = lineX - mIndentation / 2;
-          if (destX > cellRect.x + cellRect.width)
-            destX = cellRect.x + cellRect.width;
-          aRenderingContext.DrawLine(srcX, lineY + mRowHeight / 2, destX, lineY + mRowHeight / 2);
-        }
+        srcX -= mIndentation;
       }
 
       aRenderingContext.PopState();
@@ -3185,6 +3174,8 @@ nsTreeBodyFrame::PaintImage(PRInt32              aRowIndex,
 
   // Get the image destination size.
   nsSize imageDestSize = GetImageDestSize(imageContext, useImageRegion, image);
+  if (!imageDestSize.width || !imageDestSize.height)
+    return;
 
   // Get the borders and padding.
   nsMargin bp(0,0,0,0);
@@ -3663,7 +3654,7 @@ nsresult nsTreeBodyFrame::EnsureRowIsVisibleInternal(const ScrollParts& aParts, 
 
 NS_IMETHODIMP nsTreeBodyFrame::EnsureCellIsVisible(PRInt32 aRow, nsITreeColumn* aCol)
 {
-  nsTreeColumn* col = GetColumnImpl(aCol);
+  nsRefPtr<nsTreeColumn> col = GetColumnImpl(aCol);
   if (!col)
     return NS_ERROR_INVALID_ARG;
 
@@ -3708,7 +3699,7 @@ NS_IMETHODIMP nsTreeBodyFrame::ScrollToColumn(nsITreeColumn* aCol)
 nsresult nsTreeBodyFrame::ScrollToColumnInternal(const ScrollParts& aParts,
                                                  nsITreeColumn* aCol)
 {
-  nsTreeColumn* col = GetColumnImpl(aCol);
+  nsRefPtr<nsTreeColumn> col = GetColumnImpl(aCol);
   if (!col)
     return NS_ERROR_INVALID_ARG;
   return ScrollHorzInternal(aParts, col->GetX());

@@ -612,12 +612,23 @@ GraphWalker::DescribeNode(size_t refCount, size_t objSz, const char *objName)
 }
 
 
+static nsISupports *
+canonicalize(nsISupports *in)
+{
+    // Use the canonical nsISupports pointer throughout the system.
+    nsCOMPtr<nsISupports> child = do_QueryInterface(in);
+    return child.get();
+}
+
+
 void 
 GraphWalker::NoteXPCOMChild(nsISupports *child) 
 {
     if (!child)
         Fault("null XPCOM pointer returned"); 
    
+    child = canonicalize(child);
+
     if (nsCycleCollector_isScanSafe(child) && 
         !nsCycleCollector_shouldSuppress(child)) {
         PtrInfo childPi;
@@ -634,10 +645,10 @@ GraphWalker::NoteScriptChild(PRUint32 langID, void *child)
 {
     if (!child)
         Fault("null script language pointer returned");
-    
+
     if (!mRuntimes[langID])
         Fault("traversing pointer for unregistered language", child);
-   
+
     PtrInfo childPi;
     childPi.mLang = langID;
     EnsurePtrInfo(mGraph, child, childPi);
@@ -731,6 +742,7 @@ nsCycleCollector::MarkRoots()
     for (i = 0; i < mBufs[0]->GetSize(); ++i) {
         PtrInfo pi;
         nsISupports *s = NS_STATIC_CAST(nsISupports *, mBufs[0]->ObjectAt(i));
+        s = canonicalize(s);
         EnsurePtrInfo(mGraph, s, pi);
         MarkGreyWalker(mGraph, mRuntimes).Walk(s);
     }
@@ -817,6 +829,7 @@ nsCycleCollector::ScanRoots()
 
     for (i = 0; i < mBufs[0]->GetSize(); ++i) {
         nsISupports *s = NS_STATIC_CAST(nsISupports *, mBufs[0]->ObjectAt(i));
+        s = canonicalize(s);
         scanWalker(mGraph, mRuntimes).Walk(s); 
     }
 
@@ -1432,6 +1445,7 @@ nsCycleCollector::MaybeDrawGraphs()
             graphVizWalker gw(mGraph, mRuntimes);
             while (roots.GetSize() > 0) {
                 nsISupports *s = NS_STATIC_CAST(nsISupports *, roots.Pop());
+                s = canonicalize(s);
                 gw.Walk(s);
             }
         }
@@ -1495,6 +1509,13 @@ nsCycleCollector_shouldSuppress(nsISupports *s)
 void 
 nsCycleCollector::Suspect(nsISupports *n)
 {
+    // Re-entering ::Suspect during collection used to be a fault, but
+    // we are canonicalizing nsISupports pointers using QI, so we will
+    // see some spurious refcount traffic here. 
+
+    if (mScanInProgress)
+        return;
+
     mStats.mSuspectNode++;
 
     if (mParams.mDoNothing)
@@ -1502,9 +1523,6 @@ nsCycleCollector::Suspect(nsISupports *n)
 
     if (!NS_IsMainThread())
         Fault("trying to suspect from non-main thread");
-
-    if (mScanInProgress)
-        Fault("tried to suspect a node during scanning", n);
 
     if (!nsCycleCollector_isScanSafe(n))
         Fault("suspected a non-scansafe pointer", n);    
@@ -1528,6 +1546,13 @@ nsCycleCollector::Suspect(nsISupports *n)
 void 
 nsCycleCollector::Forget(nsISupports *n)
 {
+    // Re-entering ::Forget during collection used to be a fault, but
+    // we are canonicalizing nsISupports pointers using QI, so we will
+    // see some spurious refcount traffic here. 
+
+    if (mScanInProgress)
+        return;
+
     mStats.mForgetNode++;
 
     if (mParams.mDoNothing)
@@ -1535,9 +1560,6 @@ nsCycleCollector::Forget(nsISupports *n)
 
     if (!NS_IsMainThread())
         Fault("trying to forget from non-main thread");
-
-    if (mScanInProgress)
-        Fault("tried to forget a node during scanning", n);
 
     if (mParams.mHookMalloc)
         InitMemHook();
