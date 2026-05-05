@@ -99,15 +99,14 @@ sub Send {
     my $msg = "";
 
     my $dbh = Bugzilla->dbh;
-    
-    my $fields = $dbh->selectall_arrayref('SELECT name, description, mailhead 
-                                           FROM fielddefs ORDER BY sortkey');
 
-    foreach my $fielddef (@$fields) {
-        my ($field, $description, $mailhead) = @$fielddef;
-        push(@headerlist, $field);
-        $defmailhead{$field} = $mailhead;
-        $fielddescription{$field} = $description;
+    # XXX - These variables below are useless. We could use field object
+    # methods directly. But we first have to implement a cache in
+    # Bugzilla->get_fields to avoid querying the DB all the time.
+    foreach my $field (Bugzilla->get_fields({obsolete => 0})) {
+        push(@headerlist, $field->name);
+        $defmailhead{$field->name} = $field->in_new_bugmail;
+        $fielddescription{$field->name} = $field->description;
     }
 
     my %values = %{$dbh->selectrow_hashref(
@@ -592,7 +591,7 @@ sub sendMail {
 
     my $diffs = $difftext . "\n\n" . $newcomments;
     if ($isnew) {
-        $diffs = $head . "\n\n" . $diffs;
+        $diffs = $head . ($difftext ? "\n\n" : "") . $diffs;
     }
 
     my (@reasons, @reasons_watch);

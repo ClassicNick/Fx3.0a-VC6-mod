@@ -199,20 +199,20 @@ nsSVGGeometryFrame::GetStrokeWidth()
 }
 
 nsresult
-nsSVGGeometryFrame::GetStrokeDashArray(double **aDashes, PRUint32 *aCount)
+nsSVGGeometryFrame::GetStrokeDashArray(gfxFloat **aDashes, PRUint32 *aCount)
 {
   *aDashes = nsnull;
   *aCount = 0;
 
   PRUint32 count = GetStyleSVG()->mStrokeDasharrayLength;
-  double *dashes = nsnull;
+  gfxFloat *dashes = nsnull;
 
   if (count) {
     const nsStyleCoord *dasharray = GetStyleSVG()->mStrokeDasharray;
     nsPresContext *presContext = GetPresContext();
-    float totalLength = 0.0f;
+    gfxFloat totalLength = 0.0f;
 
-    dashes = new double[count];
+    dashes = new gfxFloat[count];
     if (dashes) {
       for (PRUint32 i = 0; i < count; i++) {
         dashes[i] =
@@ -323,13 +323,12 @@ nsSVGGeometryFrame::IsClipChild()
 }
 
 static void
-SetupCairoColor(cairo_t *aCtx, nscolor aRGB, float aOpacity)
+SetupCairoColor(gfxContext *aContext, nscolor aRGB, float aOpacity)
 {
-  cairo_set_source_rgba(aCtx,
-                        NS_GET_R(aRGB)/255.0,
-                        NS_GET_G(aRGB)/255.0,
-                        NS_GET_B(aRGB)/255.0,
-                        NS_GET_A(aRGB)/255.0 * aOpacity);
+  aContext->SetColor(gfxRGBA(NS_GET_R(aRGB)/255.0,
+                             NS_GET_G(aRGB)/255.0,
+                             NS_GET_B(aRGB)/255.0,
+                             NS_GET_A(aRGB)/255.0 * aOpacity));
 }
 
 float
@@ -382,47 +381,47 @@ nsSVGGeometryFrame::CleanupCairoFill(cairo_t *aCtx, void *aClosure)
 }
 
 void
-nsSVGGeometryFrame::SetupCairoStrokeGeometry(cairo_t *aCtx)
+nsSVGGeometryFrame::SetupCairoStrokeGeometry(gfxContext *aContext)
 {
-  cairo_set_line_width(aCtx, GetStrokeWidth());
-  
+  aContext->SetLineWidth(GetStrokeWidth());
+
   switch (GetStyleSVG()->mStrokeLinecap) {
   case NS_STYLE_STROKE_LINECAP_BUTT:
-    cairo_set_line_cap(aCtx, CAIRO_LINE_CAP_BUTT);
+    aContext->SetLineCap(gfxContext::LINE_CAP_BUTT);
     break;
   case NS_STYLE_STROKE_LINECAP_ROUND:
-    cairo_set_line_cap(aCtx, CAIRO_LINE_CAP_ROUND);
+    aContext->SetLineCap(gfxContext::LINE_CAP_ROUND);
     break;
   case NS_STYLE_STROKE_LINECAP_SQUARE:
-    cairo_set_line_cap(aCtx, CAIRO_LINE_CAP_SQUARE);
+    aContext->SetLineCap(gfxContext::LINE_CAP_SQUARE);
     break;
   }
-  
-  cairo_set_miter_limit(aCtx, GetStyleSVG()->mStrokeMiterlimit);
-  
+
+  aContext->SetMiterLimit(GetStyleSVG()->mStrokeMiterlimit);
+
   switch (GetStyleSVG()->mStrokeLinejoin) {
   case NS_STYLE_STROKE_LINEJOIN_MITER:
-    cairo_set_line_join(aCtx, CAIRO_LINE_JOIN_MITER);
+    aContext->SetLineJoin(gfxContext::LINE_JOIN_MITER);
     break;
   case NS_STYLE_STROKE_LINEJOIN_ROUND:
-    cairo_set_line_join(aCtx, CAIRO_LINE_JOIN_ROUND);
+    aContext->SetLineJoin(gfxContext::LINE_JOIN_ROUND);
     break;
   case NS_STYLE_STROKE_LINEJOIN_BEVEL:
-    cairo_set_line_join(aCtx, CAIRO_LINE_JOIN_BEVEL);
+    aContext->SetLineJoin(gfxContext::LINE_JOIN_BEVEL);
     break;
   }
 }
 
 void
-nsSVGGeometryFrame::SetupCairoStrokeHitGeometry(cairo_t *aCtx)
+nsSVGGeometryFrame::SetupCairoStrokeHitGeometry(gfxContext *aContext)
 {
-  SetupCairoStrokeGeometry(aCtx);
+  SetupCairoStrokeGeometry(aContext);
 
-  double *dashArray;
+  gfxFloat *dashArray;
   PRUint32 count;
   GetStrokeDashArray(&dashArray, &count);
   if (count > 0) {
-    cairo_set_dash(aCtx, dashArray, count, GetStrokeDashoffset());
+    aContext->SetDash(dashArray, count, GetStrokeDashoffset());
     delete [] dashArray;
   }
 }

@@ -74,7 +74,7 @@ public:
                                     nsSVGGeometryFrame *aSource,
                                     float aOpacity,
                                     void **aClosure);
-  virtual void CleanupPaintServer(cairo_t *aCtx, void *aClosure);
+  virtual void CleanupPaintServer(gfxContext *aContext, void *aClosure);
 
   // nsISupports interface:
   NS_IMETHOD QueryInterface(const nsIID& aIID, void** aInstancePtr);

@@ -235,6 +235,9 @@
         // then start dragging it
         evbox.parentColumn.startSweepingToModifyEvent(evbox, evbox.mOccurrence, whichside, event.screenX, event.screenY);
       ]]></handler>
+      <handler event="click" button="0"><![CDATA[
+        event.stopPropagation();
+      ]]></handler>
     </handlers>
   </binding>
 
@@ -1294,6 +1297,10 @@
         }
       ]]></handler>
 
+      <handler event="click" button="0"><![CDATA[
+        this.calendarView.setSelectedItems(0, []);
+      ]]></handler>
+
       <!-- mouse down handler, in empty event column regions.  Starts sweeping out a new
          - event.
         -->
@@ -1436,6 +1443,9 @@
       ]]></handler>
       <handler event="mousedown"><![CDATA[
         this.calendarView.selectedDay = this.mDate;
+      ]]></handler>
+      <handler event="click" button="0"><![CDATA[
+        this.calendarView.setSelectedItems(0, []);
       ]]></handler>
     </handlers>
   </binding>
@@ -2641,6 +2651,19 @@
               } else {
                   column.deleteEvent(aEvent);
               }
+          }
+
+          // See whether the item we are deleting was selected.  If it was, then
+          // fire the appropriate event so our watchers can update
+          var found = false;
+          for (var i = 0; i < this.mSelectedItems.length; i++) {
+              if (this.mSelectedItems[i].hasSameIds(aEvent)) {
+                  this.mSelectedItems.splice(i, 1);
+                  found = true;
+              }
+          }
+          if (found) {
+              this.fireEvent("itemselect", this.mSelectedItems);
           }
         ]]></body>
       </method>

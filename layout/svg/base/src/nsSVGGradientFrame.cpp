@@ -46,6 +46,7 @@
 #include "nsSVGGradientElement.h"
 #include "nsSVGGeometryFrame.h"
 #include "nsSVGGradientFrame.h"
+#include "gfxContext.h"
 
 //----------------------------------------------------------------------
 // Implementation
@@ -387,14 +388,14 @@ nsSVGGradientFrame::SetupPaintServer(nsISVGRendererCanvas *aCanvas,
                                       opacity * aOpacity);
   }
 
-  cairo_set_source(aCtx, gradient);
+  cairo_set_source(aContext->GetCairo(), gradient);
 
   *aClosure = gradient;
   return NS_OK;
 }
 
 void
-nsSVGGradientFrame::CleanupPaintServer(cairo_t *aCtx, void *aClosure)
+nsSVGGradientFrame::CleanupPaintServer(gfxContext *aContext, void *aClosure)
 {
   cairo_pattern_t *gradient = NS_STATIC_CAST(cairo_pattern_t*, aClosure);
   cairo_pattern_destroy(gradient);
