@@ -180,16 +180,6 @@ NS_IMETHODIMP nsAccessibilityService::OnStateChange(nsIWebProgress *aWebProgress
   nsCOMPtr<nsIDOMNode> domDocRootNode(do_QueryInterface(domDoc));
   NS_ENSURE_TRUE(domDocRootNode, NS_ERROR_FAILURE);
 
-  nsCOMPtr<nsIDocShellTreeItem> docShellTreeItem =
-    nsAccessNode::GetDocShellTreeItemFor(domDocRootNode);
-  NS_ASSERTION(docShellTreeItem, "No doc shell tree item for loading document");
-  NS_ENSURE_TRUE(docShellTreeItem, NS_ERROR_FAILURE);
-  PRInt32 contentType;
-  docShellTreeItem->GetItemType(&contentType);
-  if (contentType != nsIDocShellTreeItem::typeContent) {
-    return NS_OK; // Not interested in chrome loading, just content
-  }
-
   // Get the accessible for the new document.
   // If it not created yet this will create it & cache it, as well as 
   // set up event listeners so that MSAA/ATK toolkit and internal 
@@ -900,42 +890,6 @@ nsAccessibilityService::CreateHTMLBRAccessible(nsISupports *aFrame, nsIAccessibl
     return NS_ERROR_OUT_OF_MEMORY;
 
   NS_ADDREF(*_retval);
-  return NS_OK;
-}
-
-NS_IMETHODIMP 
-nsAccessibilityService::CreateXULSelectListAccessible(nsIDOMNode *aNode, nsIAccessible **_retval)
-{
-#ifdef MOZ_XUL
-  nsCOMPtr<nsIWeakReference> weakShell;
-  GetShellFromNode(aNode, getter_AddRefs(weakShell));
-
-  *_retval = new nsXULSelectListAccessible(aNode, weakShell);
-  if (! *_retval) 
-    return NS_ERROR_OUT_OF_MEMORY;
-
-  NS_ADDREF(*_retval);
-#else
-  *_retval = nsnull;
-#endif // MOZ_XUL
-  return NS_OK;
-}
-
-NS_IMETHODIMP 
-nsAccessibilityService::CreateXULSelectOptionAccessible(nsIDOMNode *aNode, nsIAccessible **_retval)
-{
-#ifdef MOZ_XUL
-  nsCOMPtr<nsIWeakReference> weakShell;
-  GetShellFromNode(aNode, getter_AddRefs(weakShell));
-
-  *_retval = new nsXULSelectOptionAccessible(aNode, weakShell);
-  if (! *_retval) 
-    return NS_ERROR_OUT_OF_MEMORY;
-
-  NS_ADDREF(*_retval);
-#else
-  *_retval = nsnull;
-#endif // MOZ_XUL
   return NS_OK;
 }
 

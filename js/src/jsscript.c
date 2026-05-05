@@ -1474,7 +1474,8 @@ js_GetSrcNoteCached(JSContext *cx, JSScript *script, jsbytecode *pc)
                 ++nsrcnotes;
         }
         if (!JS_DHashTableInit(&JS_GSN_CACHE(cx).table, JS_DHashGetStubOps(),
-                               NULL, sizeof(GSNCacheEntry), nsrcnotes)) {
+                               NULL, sizeof(GSNCacheEntry),
+                               JS_DHASH_DEFAULT_CAPACITY(nsrcnotes))) {
             JS_GSN_CACHE(cx).table.ops = NULL;
         } else {
             pc = script->code;
@@ -1518,7 +1519,7 @@ js_PCToLineNumber(JSContext *cx, JSScript *script, jsbytecode *pc)
     if (js_CodeSpec[*pc].format & JOF_ATOMBASE)
         pc += js_CodeSpec[*pc].length;
     if (*pc == JSOP_DEFFUN) {
-        atom = js_GetAtomFromBytecode(cx, script, pc, 0);
+        atom = js_GetAtomFromBytecode(script, pc, 0);
         fun = (JSFunction *) JS_GetPrivate(cx, ATOM_TO_OBJECT(atom));
         JS_ASSERT(FUN_INTERPRETED(fun));
         return fun->u.i.script->lineno;

@@ -573,8 +573,16 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
     // popup and the accessibility toolkit event can't be fired.
     nsCOMPtr<nsIDOMXULPopupElement> popup(do_QueryInterface(aTargetNode));
     if (popup) {
-      return FireDelayedToolkitEvent(nsIAccessibleEvent::EVENT_MENUPOPUPSTART,
-                                    aTargetNode, nsnull);
+      PRInt32 event = nsIAccessibleEvent::EVENT_MENUPOPUPSTART;
+      nsCOMPtr<nsIContent> content(do_QueryInterface(aTargetNode));
+      if (content->NodeInfo()->Equals(nsAccessibilityAtoms::tooltip, kNameSpaceID_XUL)) {
+        // There is a single <xul:tooltip> node which Mozilla moves around.
+        // The accessible for it stays the same no matter where it moves. 
+        // AT's expect to get an EVENT_SHOW for the tooltip. 
+        // In event callback the tooltip's accessible will be ready.
+        event = nsIAccessibleEvent::EVENT_SHOW;
+      }
+      return FireDelayedToolkitEvent(event, aTargetNode, nsnull);
     }
   }
 
@@ -912,3 +920,25 @@ NS_IMETHODIMP nsRootAccessible::GetAccessibleRelated(PRUint32 aRelationType,
   return NS_OK;
 }
 
+NS_IMETHODIMP nsRootAccessible::FireDocLoadEvents(PRUint32 aEventType)
+{
+  if (!mDocument || !mWeakShell) {
+    return NS_OK;  // Document has been shut down
+  }
+
+  nsCOMPtr<nsIDocShellTreeItem> docShellTreeItem =
+    nsAccessNode::GetDocShellTreeItemFor(mDOMNode);
+  NS_ASSERTION(docShellTreeItem, "No doc shell tree item for document");
+  NS_ENSURE_TRUE(docShellTreeItem, NS_ERROR_FAILURE);
+  PRInt32 contentType;
+  docShellTreeItem->GetItemType(&contentType);
+  if (contentType == nsIDocShellTreeItem::typeContent) {
+    return nsDocAccessibleWrap::FireDocLoadEvents(aEventType); // Content might need to fire event
+  }
+
+  // Root chrome: don't fire event
+  mIsContentLoaded = (aEventType == nsIAccessibleEvent::EVENT_DOCUMENT_LOAD_COMPLETE ||
+                      aEventType == nsIAccessibleEvent::EVENT_DOCUMENT_LOAD_STOPPED);
+
+  return NS_OK;
+}
