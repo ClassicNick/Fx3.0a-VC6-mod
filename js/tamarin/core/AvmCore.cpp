@@ -112,11 +112,10 @@ namespace avmplus
 		#endif
 
 		#ifdef AVMPLUS_INTERP
-		// turbo flag only available if interpreter is there
 		#ifdef AVMPLUS_64BIT // turbo disabled by default since MIR not working yet
 		turbo = false;
 		#else
-		turbo = true;
+ 		turbo = true;
 		#endif
 		#endif
 
@@ -1568,7 +1567,7 @@ return the result of the comparison ToPrimitive(x) == y.
 #endif
 
 	ExceptionHandler* AvmCore::beginCatch(ExceptionFrame *ef,
-		MethodInfo *info, int pc, Exception *exception)
+		MethodInfo *info, sintptr pc, Exception *exception)
 	{
 		ef->beginCatch();
 		ExceptionHandler* handler = findExceptionHandler(info,pc,exception);
@@ -1577,7 +1576,7 @@ return the result of the comparison ToPrimitive(x) == y.
 	}
 
 	ExceptionHandler* AvmCore::findExceptionHandler(MethodInfo *info,
-												    int pc,
+												    sintptr pc,
 												    Exception *exception)
 	{
 		ExceptionHandler* handler = findExceptionHandlerNoRethrow(info, pc, exception);
@@ -1590,7 +1589,7 @@ return the result of the comparison ToPrimitive(x) == y.
 	}
 
 	ExceptionHandler* AvmCore::findExceptionHandlerNoRethrow(MethodInfo *info,
-															 int pc,
+															 sintptr pc,
 															 Exception *exception)
 	{
 		// If this exception is an EXIT_EXCEPTION, it cannot

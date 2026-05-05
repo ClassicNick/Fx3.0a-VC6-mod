@@ -1883,56 +1883,52 @@ nsFrame::HandlePress(nsPresContext* aPresContext,
     return frameselection->HandleTableSelection(parentContent, contentOffset, target, me);
   }
 
-  PRBool supportsDelay = frameselection->GetDelayCaretOverExistingSelection();
   frameselection->SetDelayedCaretData(0);
 
-  if (supportsDelay)
+  // Check if any part of this frame is selected, and if the
+  // user clicked inside the selected region. If so, we delay
+  // starting a new selection since the user may be trying to
+  // drag the selected region to some other app.
+
+  SelectionDetails *details = 0;
+  PRBool isSelected = ((GetStateBits() & NS_FRAME_SELECTED_CONTENT) == NS_FRAME_SELECTED_CONTENT);
+
+  if (isSelected)
   {
-    // Check if any part of this frame is selected, and if the
-    // user clicked inside the selected region. If so, we delay
-    // starting a new selection since the user may be trying to
-    // drag the selected region to some other app.
+    details = frameselection->LookUpSelection(offsets.content, 0,
+        offsets.EndOffset(), PR_FALSE);
 
-    SelectionDetails *details = 0;
-    PRBool isSelected = ((GetStateBits() & NS_FRAME_SELECTED_CONTENT) == NS_FRAME_SELECTED_CONTENT);
+    //
+    // If there are any details, check to see if the user clicked
+    // within any selected region of the frame.
+    //
 
-    if (isSelected)
+    if (details)
     {
-      details = frameselection->LookUpSelection(offsets.content, 0,
-                                                offsets.EndOffset(), PR_FALSE);
+      SelectionDetails *curDetail = details;
 
-      //
-      // If there are any details, check to see if the user clicked
-      // within any selected region of the frame.
-      //
-
-      if (details)
+      while (curDetail)
       {
-        SelectionDetails *curDetail = details;
-
-        while (curDetail)
+        //
+        // If the user clicked inside a selection, then just
+        // return without doing anything. We will handle placing
+        // the caret later on when the mouse is released. We ignore
+        // the spellcheck selection.
+        //
+        if (curDetail->mType != nsISelectionController::SELECTION_SPELLCHECK &&
+            curDetail->mStart <= offsets.StartOffset() &&
+            offsets.EndOffset() <= curDetail->mEnd)
         {
-          //
-          // If the user clicked inside a selection, then just
-          // return without doing anything. We will handle placing
-          // the caret later on when the mouse is released. We ignore
-          // the spellcheck selection.
-          //
-          if (curDetail->mType != nsISelectionController::SELECTION_SPELLCHECK &&
-              curDetail->mStart <= offsets.StartOffset() &&
-              offsets.EndOffset() <= curDetail->mEnd)
-          {
-            delete details;
-            frameselection->SetMouseDownState(PR_FALSE);
-            frameselection->SetDelayedCaretData(me);
-            return NS_OK;
-          }
-
-          curDetail = curDetail->mNext;
+          delete details;
+          frameselection->SetMouseDownState(PR_FALSE);
+          frameselection->SetDelayedCaretData(me);
+          return NS_OK;
         }
 
-        delete details;
+        curDetail = curDetail->mNext;
       }
+
+      delete details;
     }
   }
 
@@ -2275,9 +2271,7 @@ NS_IMETHODIMP nsFrame::HandleRelease(nsPresContext* aPresContext,
 
   if (!selectionOff) {
     frameselection = GetFrameSelection();
-    if (nsEventStatus_eConsumeNoDefault != *aEventStatus &&
-        frameselection &&
-        frameselection->GetDelayCaretOverExistingSelection()) {
+    if (nsEventStatus_eConsumeNoDefault != *aEventStatus && frameselection) {
       // Check if the frameselection recorded the mouse going down.
       // If not, the user must have clicked in a part of the selection.
       // Place the caret before continuing!
@@ -2922,7 +2916,10 @@ nsIFrame::InlinePrefWidthData::Break(nsIRenderingContext *aRenderingContext)
 }
 
 static void
-AddCoord(const nsStyleCoord& aStyle, nscoord* aCoord, float* aPercent)
+AddCoord(const nsStyleCoord& aStyle,
+         nsIRenderingContext* aRenderingContext,
+         nsIFrame* aFrame,
+         nscoord* aCoord, float* aPercent)
 {
   switch (aStyle.GetUnit()) {
     case eStyleUnit_Coord:
@@ -2931,27 +2928,34 @@ AddCoord(const nsStyleCoord& aStyle, nscoord* aCoord, float* aPercent)
     case eStyleUnit_Percent:
       *aPercent += aStyle.GetPercentValue();
       break;
+    case eStyleUnit_Chars: {
+      SetFontFromStyle(aRenderingContext, aFrame->GetStyleContext());
+      nscoord fontWidth;
+      aRenderingContext->GetWidth('M', fontWidth);
+      *aCoord += aStyle.GetIntValue() * fontWidth;
+      break;
+    }
     default:
       break;
   }
 }
 
 /* virtual */ nsIFrame::IntrinsicWidthOffsetData
-nsFrame::IntrinsicWidthOffsets()
+nsFrame::IntrinsicWidthOffsets(nsIRenderingContext* aRenderingContext)
 {
   IntrinsicWidthOffsetData result;
   nsStyleCoord tmp;
 
   const nsStyleMargin *styleMargin = GetStyleMargin();
-  AddCoord(styleMargin->mMargin.GetLeft(tmp),
+  AddCoord(styleMargin->mMargin.GetLeft(tmp), aRenderingContext, this,
            &result.hMargin, &result.hPctMargin);
-  AddCoord(styleMargin->mMargin.GetRight(tmp),
+  AddCoord(styleMargin->mMargin.GetRight(tmp), aRenderingContext, this,
            &result.hMargin, &result.hPctMargin);
 
   const nsStylePadding *stylePadding = GetStylePadding();
-  AddCoord(stylePadding->mPadding.GetLeft(tmp),
+  AddCoord(stylePadding->mPadding.GetLeft(tmp), aRenderingContext, this,
            &result.hPadding, &result.hPctPadding);
-  AddCoord(stylePadding->mPadding.GetRight(tmp),
+  AddCoord(stylePadding->mPadding.GetRight(tmp), aRenderingContext, this,
            &result.hPadding, &result.hPctPadding);
 
   const nsStyleBorder *styleBorder = GetStyleBorder();
@@ -2993,22 +2997,25 @@ nsFrame::ComputeSize(nsIRenderingContext *aRenderingContext,
   // Compute width
 
   if (stylePos->mWidth.GetUnit() != eStyleUnit_Auto) {
-    result.width = nsLayoutUtils::ComputeHorizontalValue(aRenderingContext,
-                     this, aCBSize.width, stylePos->mWidth) -
-                   boxSizingAdjust.width;
+    result.width =
+      nsLayoutUtils::ComputeWidthDependentValue(aRenderingContext, this,
+        aCBSize.width, stylePos->mWidth) -
+      boxSizingAdjust.width;
   }
 
   if (stylePos->mMaxWidth.GetUnit() != eStyleUnit_Null) {
-    nscoord maxWidth = nsLayoutUtils::ComputeHorizontalValue(aRenderingContext,
-                         this, aCBSize.width, stylePos->mMaxWidth) -
-                       boxSizingAdjust.width;
+    nscoord maxWidth =
+      nsLayoutUtils::ComputeWidthDependentValue(aRenderingContext, this,
+        aCBSize.width, stylePos->mMaxWidth) -
+      boxSizingAdjust.width;
     if (maxWidth < result.width)
       result.width = maxWidth;
   }
 
-  nscoord minWidth = nsLayoutUtils::ComputeHorizontalValue(aRenderingContext,
-                       this, aCBSize.width, stylePos->mMinWidth) -
-                     boxSizingAdjust.width;
+  nscoord minWidth =
+    nsLayoutUtils::ComputeWidthDependentValue(aRenderingContext, this,
+      aCBSize.width, stylePos->mMinWidth) -
+    boxSizingAdjust.width;
   if (minWidth > result.width)
     result.width = minWidth;
 
@@ -3018,24 +3025,27 @@ nsFrame::ComputeSize(nsIRenderingContext *aRenderingContext,
   // Compute height
 
   if (!IsAutoHeight(stylePos->mHeight, aCBSize.height)) {
-    result.height = nsLayoutUtils::ComputeVerticalValue(aRenderingContext,
-                      this, aCBSize.height, stylePos->mHeight) -
-                    boxSizingAdjust.height;
+    result.height =
+      nsLayoutUtils::ComputeHeightDependentValue(aRenderingContext, this,
+        aCBSize.height, stylePos->mHeight) -
+      boxSizingAdjust.height;
   }
 
   if (result.height != NS_UNCONSTRAINEDSIZE) {
     if (!IsAutoHeight(stylePos->mMaxHeight, aCBSize.height)) {
-      nscoord maxHeight = nsLayoutUtils::ComputeVerticalValue(aRenderingContext,
-                            this, aCBSize.height, stylePos->mMaxHeight) -
-                          boxSizingAdjust.height;
+      nscoord maxHeight =
+        nsLayoutUtils::ComputeHeightDependentValue(aRenderingContext, this,
+          aCBSize.height, stylePos->mMaxHeight) -
+        boxSizingAdjust.height;
       if (maxHeight < result.height)
         result.height = maxHeight;
     }
 
     if (!IsAutoHeight(stylePos->mMinHeight, aCBSize.height)) {
-      nscoord minHeight = nsLayoutUtils::ComputeVerticalValue(aRenderingContext,
-                            this, aCBSize.height, stylePos->mMinHeight) -
-                          boxSizingAdjust.height;
+      nscoord minHeight =
+        nsLayoutUtils::ComputeHeightDependentValue(aRenderingContext, this,
+          aCBSize.height, stylePos->mMinHeight) -
+        boxSizingAdjust.height;
       if (minHeight > result.height)
         result.height = minHeight;
     }

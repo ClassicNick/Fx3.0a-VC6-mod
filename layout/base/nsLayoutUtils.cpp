@@ -1101,7 +1101,27 @@ static nscoord AddPercents(nsLayoutUtils::IntrinsicWidthType aType,
   }
   return result;
 }
- 
+
+static PRBool GetAbsoluteCoord(const nsStyleCoord& aStyle,
+                               nsIRenderingContext* aRenderingContext,
+                               nsIFrame* aFrame,
+                               nscoord& aResult)
+{
+  nsStyleUnit unit = aStyle.GetUnit();
+  if (eStyleUnit_Coord == unit) {
+    aResult = aStyle.GetCoordValue();
+    return PR_TRUE;
+  }
+  if (eStyleUnit_Chars == unit) {
+    SetFontFromStyle(aRenderingContext, aFrame->GetStyleContext());
+    nscoord fontWidth;
+    aRenderingContext->GetWidth('M', fontWidth);
+    aResult = aStyle.GetIntValue() * fontWidth;
+    return PR_TRUE;
+  }
+  return PR_FALSE;
+}
+
 #undef  DEBUG_INTRINSIC_WIDTH
 
 #ifdef DEBUG_INTRINSIC_WIDTH
@@ -1123,7 +1143,8 @@ nsLayoutUtils::IntrinsicForContainer(nsIRenderingContext *aRenderingContext,
          aType == MIN_WIDTH ? "min" : "pref");
 #endif
 
-  nsIFrame::IntrinsicWidthOffsetData offsets = aFrame->IntrinsicWidthOffsets();
+  nsIFrame::IntrinsicWidthOffsetData offsets =
+    aFrame->IntrinsicWidthOffsets(aRenderingContext);
 
   const nsStylePosition *stylePos = aFrame->GetStylePosition();
   const PRUint8 boxSizing = stylePos->mBoxSizing;
@@ -1211,32 +1232,29 @@ nsLayoutUtils::IntrinsicForContainer(nsIRenderingContext *aRenderingContext,
   result += coordOutsideWidth;
   pctTotal += pctOutsideWidth;
 
-  result = AddPercents(aType, result, pctTotal);
-
-  switch (styleWidth.GetUnit()) {
-    case eStyleUnit_Coord:
-      result = AddPercents(aType,
-                           styleWidth.GetCoordValue() + coordOutsideWidth,
-                           pctOutsideWidth);
-      break;
-    case eStyleUnit_Percent:
-      if (aType == MIN_WIDTH && aFrame->IsFrameOfType(nsIFrame::eReplaced)) {
-        // A percentage width on replaced elements means they can shrink to 0.
-        result = 0; // let |min| handle padding/border/margin
-      }
-      break;
+  nscoord w;
+  if (GetAbsoluteCoord(styleWidth, aRenderingContext, aFrame, w)) {
+    result = AddPercents(aType, w + coordOutsideWidth, pctOutsideWidth);
+  }
+  else if (aType == MIN_WIDTH && eStyleUnit_Percent == styleWidth.GetUnit() &&
+           aFrame->IsFrameOfType(nsIFrame::eReplaced)) {
+    // A percentage width on replaced elements means they can shrink to 0.
+    result = 0; // let |min| handle padding/border/margin
+  }
+  else {
+    result = AddPercents(aType, result, pctTotal);
   }
 
-  if (styleMaxWidth.GetUnit() == eStyleUnit_Coord) {
-    nscoord maxw = AddPercents(aType,
-      styleMaxWidth.GetCoordValue() + coordOutsideWidth, pctOutsideWidth);
+  nscoord maxw;
+  if (GetAbsoluteCoord(styleMaxWidth, aRenderingContext, aFrame, maxw)) {
+    maxw = AddPercents(aType, maxw + coordOutsideWidth, pctOutsideWidth);
     if (result > maxw)
       result = maxw;
   }
 
-  if (styleMinWidth.GetUnit() == eStyleUnit_Coord) {
-    nscoord minw = AddPercents(aType,
-      styleMinWidth.GetCoordValue() + coordOutsideWidth, pctOutsideWidth);
+  nscoord minw;
+  if (GetAbsoluteCoord(styleMinWidth, aRenderingContext, aFrame, minw)) {
+    minw = AddPercents(aType, minw + coordOutsideWidth, pctOutsideWidth);
     if (result < minw)
       result = minw;
   }
@@ -1256,43 +1274,42 @@ nsLayoutUtils::IntrinsicForContainer(nsIRenderingContext *aRenderingContext,
 }
 
 /* static */ nscoord
-nsLayoutUtils::ComputeHorizontalValue(nsIRenderingContext* aRenderingContext,
-                                      nsIFrame* aFrame,
-                                      nscoord aContainingBlockWidth,
-                                      const nsStyleCoord& aCoord)
+nsLayoutUtils::ComputeWidthDependentValue(
+                 nsIRenderingContext* aRenderingContext,
+                 nsIFrame*            aFrame,
+                 nscoord              aContainingBlockWidth,
+                 const nsStyleCoord&  aCoord)
 {
   NS_PRECONDITION(aFrame, "non-null frame expected");
   NS_PRECONDITION(aRenderingContext, "non-null rendering context expected");
   NS_PRECONDITION(aContainingBlockWidth != NS_UNCONSTRAINEDSIZE,
                   "unconstrained widths no longer supported");
 
-  nscoord result = 0;
-  nsStyleUnit unit = aCoord.GetUnit();
-  if (eStyleUnit_Percent == unit) {
-    result = NSToCoordFloor(aContainingBlockWidth * aCoord.GetPercentValue());
-  } else if (eStyleUnit_Coord == unit) {
-    result = aCoord.GetCoordValue();
+  nscoord result;
+  if (GetAbsoluteCoord(aCoord, aRenderingContext, aFrame, result)) {
+    return result;
   }
-  else if (eStyleUnit_Chars == unit) {
-    SetFontFromStyle(aRenderingContext, aFrame->GetStyleContext());
-    nscoord fontWidth;
-    aRenderingContext->GetWidth('M', fontWidth);
-    result = aCoord.GetIntValue() * fontWidth;
+  if (eStyleUnit_Percent == aCoord.GetUnit()) {
+    return NSToCoordFloor(aContainingBlockWidth * aCoord.GetPercentValue());
   }
-  return result;
+  return 0;
 }
 
 /* static */ nscoord
-nsLayoutUtils::ComputeVerticalValue(nsIRenderingContext* aRenderingContext,
-                                    nsIFrame* aFrame,
-                                    nscoord aContainingBlockHeight,
-                                    const nsStyleCoord& aCoord)
+nsLayoutUtils::ComputeHeightDependentValue(
+                 nsIRenderingContext* aRenderingContext,
+                 nsIFrame*            aFrame,
+                 nscoord              aContainingBlockHeight,
+                 const nsStyleCoord&  aCoord)
 {
   NS_PRECONDITION(aFrame, "non-null frame expected");
   NS_PRECONDITION(aRenderingContext, "non-null rendering context expected");
-  nscoord result = 0;
-  nsStyleUnit unit = aCoord.GetUnit();
-  if (eStyleUnit_Percent == unit) {
+
+  nscoord result;
+  if (GetAbsoluteCoord(aCoord, aRenderingContext, aFrame, result)) {
+    return result;
+  }
+  if (eStyleUnit_Percent == aCoord.GetUnit()) {
     // XXXldb Some callers explicitly check aContainingBlockHeight
     // against NS_AUTOHEIGHT *and* unit against eStyleUnit_Percent
     // before calling this function, so this assertion probably needs to
@@ -1304,13 +1321,10 @@ nsLayoutUtils::ComputeVerticalValue(nsIRenderingContext* aRenderingContext,
                     "unexpected 'containing block height'");
 
     if (NS_AUTOHEIGHT != aContainingBlockHeight) {
-      result =
-        NSToCoordFloor(aContainingBlockHeight * aCoord.GetPercentValue());
+      return NSToCoordFloor(aContainingBlockHeight * aCoord.GetPercentValue());
     }
-  } else if (eStyleUnit_Coord == unit) {
-    result = aCoord.GetCoordValue();
   }
-  return result;
+  return 0;
 }
 
 inline PRBool
@@ -1354,7 +1368,7 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
   nscoord width, minWidth, maxWidth, height, minHeight, maxHeight;
 
   if (!isAutoWidth) {
-    width = nsLayoutUtils::ComputeHorizontalValue(aRenderingContext,
+    width = nsLayoutUtils::ComputeWidthDependentValue(aRenderingContext,
               aFrame, aCBSize.width, stylePos->mWidth) -
             boxSizingAdjust.width;
     if (width < 0)
@@ -1362,7 +1376,7 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
   }
 
   if (stylePos->mMaxWidth.GetUnit() != eStyleUnit_Null) {
-    maxWidth = nsLayoutUtils::ComputeHorizontalValue(aRenderingContext,
+    maxWidth = nsLayoutUtils::ComputeWidthDependentValue(aRenderingContext,
                  aFrame, aCBSize.width, stylePos->mMaxWidth) -
                boxSizingAdjust.width;
     if (maxWidth < 0)
@@ -1371,14 +1385,14 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
     maxWidth = nscoord_MAX;
   }
 
-  minWidth = nsLayoutUtils::ComputeHorizontalValue(aRenderingContext,
+  minWidth = nsLayoutUtils::ComputeWidthDependentValue(aRenderingContext,
                aFrame, aCBSize.width, stylePos->mMinWidth) -
              boxSizingAdjust.width;
   if (minWidth < 0)
     minWidth = 0;
 
   if (!isAutoHeight) {
-    height = nsLayoutUtils::ComputeVerticalValue(aRenderingContext,
+    height = nsLayoutUtils::ComputeHeightDependentValue(aRenderingContext,
                aFrame, aCBSize.height, stylePos->mHeight) -
              boxSizingAdjust.height;
     if (height < 0)
@@ -1386,7 +1400,7 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
   }
 
   if (!IsAutoHeight(stylePos->mMaxHeight, aCBSize.height)) {
-    maxHeight = nsLayoutUtils::ComputeVerticalValue(aRenderingContext,
+    maxHeight = nsLayoutUtils::ComputeHeightDependentValue(aRenderingContext,
                   aFrame, aCBSize.height, stylePos->mMaxHeight) -
                 boxSizingAdjust.height;
     if (maxHeight < 0)
@@ -1396,7 +1410,7 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
   }
 
   if (!IsAutoHeight(stylePos->mMinHeight, aCBSize.height)) {
-    minHeight = nsLayoutUtils::ComputeVerticalValue(aRenderingContext,
+    minHeight = nsLayoutUtils::ComputeHeightDependentValue(aRenderingContext,
                   aFrame, aCBSize.height, stylePos->mMinHeight) -
                 boxSizingAdjust.height;
     if (minHeight < 0)

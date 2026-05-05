@@ -133,7 +133,8 @@ public:
 
   virtual nscoord GetMinWidth(nsIRenderingContext *aRenderingContext);
   virtual nscoord GetPrefWidth(nsIRenderingContext *aRenderingContext);
-  virtual IntrinsicWidthOffsetData IntrinsicWidthOffsets();
+  virtual IntrinsicWidthOffsetData
+    IntrinsicWidthOffsets(nsIRenderingContext* aRenderingContext);
 
   NS_IMETHOD Reflow(nsPresContext*      aPresContext,
                     nsHTMLReflowMetrics& aDesiredSize,
@@ -177,18 +178,6 @@ public:
 
   /** return the mapped cell's row index (starting at 0 for the first row) */
   virtual nsresult GetRowIndex(PRInt32 &aRowIndex) const;
-
-  /** return the previous cell having the same column index as current cell
-    * returns null if no cell is present (but nsresult is still NS_OK)
-    * (When used within layout, you can QI aCellLayout to get an nsIFrame*)
-    */
-  NS_IMETHOD GetPreviousCellInColumn(nsITableCellLayout **aCellLayout);
-
-  /** return the next cell having the same column index
-    * returns null if no cell is present (but nsresult is still NS_OK)
-    * (When used within layout, you can QI aCellLayout to get an nsIFrame*)
-    */
-  NS_IMETHOD GetNextCellInColumn(nsITableCellLayout **aCellLayout);
 
   /**
    * return the cell's specified col span. this is what was specified in the

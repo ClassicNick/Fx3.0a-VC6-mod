@@ -266,7 +266,8 @@ public:
   // border to the results of these functions.
   virtual nscoord GetMinWidth(nsIRenderingContext *aRenderingContext);
   virtual nscoord GetPrefWidth(nsIRenderingContext *aRenderingContext);
-  virtual IntrinsicWidthOffsetData IntrinsicWidthOffsets();
+  virtual IntrinsicWidthOffsetData
+    IntrinsicWidthOffsets(nsIRenderingContext* aRenderingContext);
 
   virtual nsSize ComputeSize(nsIRenderingContext *aRenderingContext,
                              nsSize aCBSize, nscoord aAvailableWidth,
@@ -471,14 +472,6 @@ public:
                          PRInt32               aColIndex,
                          PRBool                aRemoveFromCache,
                          PRBool                aRemoveFromCellMap);
-
-  nsTableCellFrame* GetCellInfoAt(PRInt32            aRowX, 
-                                  PRInt32            aColX, 
-                                  PRBool*            aOriginates = nsnull, 
-                                  PRInt32*           aColSpan = nsnull)
-  {
-    return GetCellMap()->GetCellInfoAt(aRowX, aColX, aOriginates, aColSpan);
-  }
 
   PRInt32 GetNumCellsOriginatingInCol(PRInt32 aColIndex) const;
   PRInt32 GetNumCellsOriginatingInRow(PRInt32 aRowIndex) const;
@@ -694,12 +687,6 @@ public: /* ----- Cell Map public methods ----- */
   // return the last col index which isn't of type eColAnonymousCell
   PRInt32 GetIndexOfLastRealCol();
 
-  /** return the cell frame at aRowIndex, aColIndex.
-    * returns nsnull if the cell frame has not yet been allocated, 
-    * or if aRowIndex or aColIndex is out of range
-    */
-  nsTableCellFrame * GetCellFrameAt(PRInt32 aRowIndex, PRInt32 aColIndex);
-
   /** returns PR_TRUE if table-layout:auto  */
   virtual PRBool IsAutoLayout();
 
@@ -749,7 +736,7 @@ protected:
     PRUint32 mNeedToCollapse:1;    // rows, cols that have visibility:collapse need to be collapsed
     PRUint32 mHasZeroColSpans:1;
     PRUint32 mNeedColSpanExpansion:1;
-    PRBool mResizedColumns:1;          // have we resized columns since last reflow?
+    PRUint32 mResizedColumns:1;        // have we resized columns since last reflow?
   } mBits;
 
   nsTableCellMap*         mCellMap;            // maintains the relationships between rows, cols, and cells
