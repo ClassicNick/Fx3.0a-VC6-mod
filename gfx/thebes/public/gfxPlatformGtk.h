@@ -43,15 +43,7 @@
 
 #include "gfxPlatform.h"
 
-#include "nsTArray.h"
-#include "nsDataHashtable.h"
-
-class gfxFontNameList : public nsTArray<nsString>
-{
-public:
-    THEBES_INLINE_DECL_REFCOUNTING(gfxFontList)
-    PRBool Exists(nsAString& aName);
-};
+class gfxFontconfigUtils;
 
 class THEBES_API gfxPlatformGtk : public gfxPlatform {
 public:
@@ -89,24 +81,10 @@ public:
     }
 
 protected:
-    PRInt32 IsExistingFont(const nsACString& aFontName);
-    nsresult GetResolvedFonts(const nsACString& aName,
-                              gfxFontNameList* aResult);
-
-    nsresult GetFontListInternal(nsCStringArray& aListOfFonts,
-                                 const nsACString *aLangGroup = nsnull);
-    nsresult UpdateFontListInternal(PRBool aForce = PR_FALSE);
-
-    nsCStringArray mFonts;
-    nsCStringArray mNonExistingFonts;
-    nsCStringArray mAliasForSingleFont;
-    nsCStringArray mAliasForMultiFonts;
-
-    nsDataHashtable<nsCStringHashKey, nsRefPtr<gfxFontNameList> > mAliasTable;
-
     static void InitDPI();
 
     static PRInt32 sDPI;
+    static gfxFontconfigUtils *sFontconfigUtils;
 };
 
 #endif /* GFX_PLATFORM_GTK_H */
