@@ -2108,7 +2108,8 @@ nsXULElement::Blur()
 
     // Set focus
     nsCOMPtr<nsPresContext> context = shell->GetPresContext();
-    RemoveFocus(context);
+    if (ShouldBlur(this))
+      RemoveFocus(context);
 
     return NS_OK;
 }
@@ -2182,7 +2183,6 @@ nsXULElement::DoCommand()
 }
 
 // nsIFocusableContent interface and helpers
-
 void
 nsXULElement::SetFocus(nsPresContext* aPresContext)
 {
@@ -2196,6 +2196,13 @@ nsXULElement::SetFocus(nsPresContext* aPresContext)
 void
 nsXULElement::RemoveFocus(nsPresContext* aPresContext)
 {
+  if (!aPresContext) 
+    return;
+  
+  if (IsInDoc()) {
+    aPresContext->EventStateManager()->SetContentState(nsnull,
+                                                       NS_EVENT_STATE_FOCUS);
+  }
 }
 
 nsIContent *

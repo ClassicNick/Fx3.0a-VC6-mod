@@ -1150,11 +1150,7 @@ const nsSize
 nsGenericHTMLElement::GetClientAreaSize(nsIFrame *aFrame)
 {
   nsRect rect = aFrame->GetRect();
-
-  const nsStyleBorder* border = aFrame->GetStyleBorder();
-
-  nsMargin border_size;
-  border->CalcBorderFor(aFrame, border_size);
+  nsMargin border_size = aFrame->GetUsedBorder();
 
   rect.Deflate(border_size);
 
@@ -2679,7 +2675,7 @@ nsGenericHTMLElement::MapBackgroundInto(const nsMappedAttributes* aAttributes,
     // background
     const nsAttrValue* value = aAttributes->GetAttr(nsHTMLAtoms::background);
     if (value && value->Type() == nsAttrValue::eString) {
-      nsAutoString spec(value->GetStringValue());
+      const nsString& spec = value->GetStringValue();
       if (!spec.IsEmpty()) {
         // Resolve url to an absolute url
         // XXX this breaks if the HTML element has an xml:base
@@ -2692,15 +2688,18 @@ nsGenericHTMLElement::MapBackgroundInto(const nsMappedAttributes* aAttributes,
         nsresult rv = nsContentUtils::NewURIWithDocumentCharset(
             getter_AddRefs(uri), spec, doc, doc->GetBaseURI());
         if (NS_SUCCEEDED(rv)) {
-          nsCSSValue::Image *img =
-            new nsCSSValue::Image(uri, spec.get(), doc->GetDocumentURI(),
-                                  doc, PR_TRUE);
-          if (img) {
-            if (img->mString) {
+          // Note that this should generally succeed here, due to the way
+          // |spec| is created.  Maybe we should just add an nsStringBuffer
+          // accessor on nsAttrValue?
+          nsStringBuffer* buffer = nsCSSValue::BufferFromString(spec);
+          if (NS_LIKELY(buffer != 0)) {
+            nsCSSValue::Image *img =
+              new nsCSSValue::Image(uri, buffer, doc->GetDocumentURI(),
+                                    doc, PR_TRUE);
+            buffer->Release();
+            if (NS_LIKELY(img != 0)) {
               aData->mColorData->mBackImage.SetImageValue(img);
             }
-            else
-              delete img;
           }
         }
       }
@@ -3502,7 +3501,7 @@ nsGenericHTMLElement::SetElementFocus(PRBool aDoFocus)
 nsresult
 nsGenericHTMLElement::Blur()
 {
-  if (ShouldFocus(this)) {
+  if (ShouldBlur(this)) {
     SetElementFocus(PR_FALSE);
   }
 

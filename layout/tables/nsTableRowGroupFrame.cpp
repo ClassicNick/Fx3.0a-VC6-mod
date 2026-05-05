@@ -372,7 +372,8 @@ nsTableRowGroupFrame::ReflowChildren(nsPresContext*        aPresContext,
   PRBool isPaginated = aPresContext->IsPaginated();
 
   PRBool haveRow = PR_FALSE;
-  PRBool reflowAllKids = aReflowState.reflowState.ShouldReflowAllKids();
+  PRBool reflowAllKids = aReflowState.reflowState.ShouldReflowAllKids() ||
+                         tableFrame->IsGeometryDirty();
   PRBool needToCalcRowHeights = reflowAllKids;
 
   for (nsIFrame* kidFrame = mFrames.FirstChild(); kidFrame;
@@ -1349,6 +1350,7 @@ nsTableRowGroupFrame::AppendFrames(nsIAtom*        aListName,
       AddStateBits(NS_FRAME_HAS_DIRTY_CHILDREN);
       GetPresContext()->PresShell()->FrameNeedsReflow(this,
                                                     nsIPresShell::eTreeChange);
+      tableFrame->SetGeometryDirty();
     }
   }
 
@@ -1398,6 +1400,7 @@ nsTableRowGroupFrame::InsertFrames(nsIAtom*        aListName,
     AddStateBits(NS_FRAME_HAS_DIRTY_CHILDREN);
     GetPresContext()->PresShell()->FrameNeedsReflow(this,
                                                     nsIPresShell::eTreeChange);
+    tableFrame->SetGeometryDirty();
   }
   return NS_OK;
 }
@@ -1419,11 +1422,30 @@ nsTableRowGroupFrame::RemoveFrame(nsIAtom*        aListName,
       AddStateBits(NS_FRAME_HAS_DIRTY_CHILDREN);
       GetPresContext()->PresShell()->FrameNeedsReflow(this,
                                                     nsIPresShell::eTreeChange);
+      tableFrame->SetGeometryDirty();
     }
   }
   mFrames.DestroyFrame(aOldFrame);
 
   return NS_OK;
+}
+
+/* virtual */ nsMargin
+nsTableRowGroupFrame::GetUsedMargin() const
+{
+  return nsMargin(0,0,0,0);
+}
+
+/* virtual */ nsMargin
+nsTableRowGroupFrame::GetUsedBorder() const
+{
+  return nsMargin(0,0,0,0);
+}
+
+/* virtual */ nsMargin
+nsTableRowGroupFrame::GetUsedPadding() const
+{
+  return nsMargin(0,0,0,0);
 }
 
 nscoord 

@@ -45,6 +45,10 @@ include $(DEPTH)/config/autoconf.mk
 
 MODULE		= test_necko
 
+DIRS            = \
+                  httpserver \
+                  $(NULL)
+
 REQUIRES	= xpcom \
 		  string \
 		  necko \

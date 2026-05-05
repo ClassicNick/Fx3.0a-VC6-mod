@@ -100,10 +100,10 @@ struct nsMargin;
 typedef class nsIFrame nsIBox;
 
 // IID for the nsIFrame interface 
-// {7e8dfd8c-3892-411e-81d6-8cb645169aa1}
+// 49d3ddd7-dc10-46f1-8554-98cefb2544a4
 #define NS_IFRAME_IID \
-{ 0x7e8dfd8c, 0x3892, 0x411e, \
- { 0x81, 0xd6, 0x8c, 0xb6, 0x45, 0x16, 0x9a, 0xa1 } }
+{ 0x49d3ddd7, 0xdc10, 0x46f1, \
+  { 0x85, 0x54, 0x98, 0xce, 0xfb, 0x25, 0x44, 0xa4 } }
 
 /**
  * Indication of how the frame can be split. This is used when doing runaround
@@ -622,10 +622,6 @@ public:
   #include "nsStyleStructList.h"
   #undef STYLE_STRUCT
 
-  // Utility function: more convenient than 2 calls to GetStyleData to get border and padding
-  
-  NS_IMETHOD  CalcBorderPadding(nsMargin& aBorderPadding) const = 0;
-
   /**
    * These methods are to access any additional style contexts that
    * the frame may be holding. These are contexts that are children
@@ -668,6 +664,38 @@ public:
   nsPoint GetPositionIgnoringScrolling() {
     return mParent ? mParent->GetPositionOfChildIgnoringScrolling(this)
       : GetPosition();
+  }
+
+  /**
+   * Return the distance between the border edge of the frame and the
+   * margin edge of the frame.  Can only be called after Reflow for the
+   * frame has at least *started*.
+   *
+   * This doesn't include any margin collapsing that may have occurred.
+   */
+  virtual nsMargin GetUsedMargin() const;
+
+  /**
+   * Return the distance between the border edge of the frame (which is
+   * its rect) and the padding edge of the frame.  Can only be called
+   * after Reflow for the frame has at least *started*.
+   *
+   * Note that this differs from GetStyleBorder()->GetBorder() in that
+   * this describes region of the frame's box, and
+   * GetStyleBorder()->GetBorder() describes a border.  They differ only
+   * for tables, particularly border-collapse tables.
+   */
+  virtual nsMargin GetUsedBorder() const;
+
+  /**
+   * Return the distance between the padding edge of the frame and the
+   * content edge of the frame.  Can only be called after Reflow for the
+   * frame has at least *started*.
+   */
+  virtual nsMargin GetUsedPadding() const;
+
+  nsMargin GetUsedBorderAndPadding() const {
+    return GetUsedBorder() + GetUsedPadding();
   }
 
   /**
