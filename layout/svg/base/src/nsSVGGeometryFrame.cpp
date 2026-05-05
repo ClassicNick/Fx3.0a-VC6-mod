@@ -332,6 +332,15 @@ SetupCairoColor(cairo_t *aCtx, nscolor aRGB, float aOpacity)
                         aOpacity);
 }
 
+float
+nsSVGGeometryFrame::MaybeOptimizeOpacity(float aOpacity)
+{
+  if (nsSVGUtils::CanOptimizeOpacity(this)) {
+    aOpacity *= GetStyleDisplay()->mOpacity;
+  }
+  return aOpacity;
+}
+
 nsresult
 nsSVGGeometryFrame::SetupCairoFill(nsISVGRendererCanvas *aCanvas,
                                    cairo_t *aCtx,
@@ -344,9 +353,12 @@ nsSVGGeometryFrame::SetupCairoFill(nsISVGRendererCanvas *aCanvas,
   else
     cairo_set_fill_rule(aCtx, CAIRO_FILL_RULE_WINDING);
 
+  float opacity = MaybeOptimizeOpacity(GetStyleSVG()->mFillOpacity);
+
   if (GetStateBits() & NS_STATE_SVG_FILL_PSERVER) {
     nsSVGPaintServerFrame *ps = NS_STATIC_CAST(nsSVGPaintServerFrame*,
                                                GetProperty(nsGkAtoms::fill));
+<<<<<<< HEAD
     return ps->SetupPaintServer(aCanvas, aCtx, this,
                                 GetStyleSVG()->mFillOpacity,
                                 aClosure);
@@ -355,10 +367,16 @@ nsSVGGeometryFrame::SetupCairoFill(nsISVGRendererCanvas *aCanvas,
     SetupCairoColor(aCtx,
                     sInvalidPaintColour,
                     GetStyleSVG()->mFillOpacity);
+=======
+    return ps->SetupPaintServer(ctx, this, opacity, aClosure);
+  } else if (GetStyleSVG()->mFill.mType == eStyleSVGPaintType_Server) {
+    // should have a paint server but something has gone wrong configuring it.
+    SetupCairoColor(ctx, sInvalidPaintColour, opacity);
+>>>>>>> a8731a312
   } else
     SetupCairoColor(aCtx,
                     GetStyleSVG()->mFill.mPaint.mColor,
-                    GetStyleSVG()->mFillOpacity);
+                    opacity);
 
   return NS_OK;
 }
@@ -426,16 +444,22 @@ nsSVGGeometryFrame::SetupCairoStroke(nsISVGRendererCanvas *aCanvas,
 {
   SetupCairoStrokeHitGeometry(aCtx);
 
+  float opacity = MaybeOptimizeOpacity(GetStyleSVG()->mStrokeOpacity);
+
   if (GetStateBits() & NS_STATE_SVG_STROKE_PSERVER) {
     nsSVGPaintServerFrame *ps = NS_STATIC_CAST(nsSVGPaintServerFrame*,
                                                GetProperty(nsGkAtoms::stroke));
+<<<<<<< HEAD
     return ps->SetupPaintServer(aCanvas, aCtx, this,
                                 GetStyleSVG()->mStrokeOpacity,
                                 aClosure);
+=======
+    return ps->SetupPaintServer(aCtx, this, opacity, aClosure);
+>>>>>>> a8731a312
   } else
     SetupCairoColor(aCtx,
                     GetStyleSVG()->mStroke.mPaint.mColor,
-                    GetStyleSVG()->mStrokeOpacity);
+                    opacity);
 
   return NS_OK;
 }

@@ -625,6 +625,8 @@ nsSVGUtils::PaintChildWithEffects(nsISVGRendererCanvas *aCanvas,
     return;
 
   float opacity = aFrame->GetStyleDisplay()->mOpacity;
+  if (opacity == 0.0f)
+    return;
 
   /* Properties are added lazily and may have been removed by a restyle,
      so make sure all applicable ones are set again. */
@@ -656,6 +658,9 @@ nsSVGUtils::PaintChildWithEffects(nsISVGRendererCanvas *aCanvas,
    *
    * + Merge opacity and masking if both used together.
    */
+
+  if (opacity != 1.0 && nsSVGUtils::CanOptimizeOpacity(aFrame))
+    opacity = 1.0;
 
   cairo_t *ctx = nsnull;
 
@@ -991,3 +996,18 @@ nsSVGUtils::UserToDeviceBBox(cairo_t *ctx,
   }
 }
 
+PRBool
+nsSVGUtils::CanOptimizeOpacity(nsIFrame *aFrame)
+{
+  if (!(aFrame->GetStateBits() & NS_STATE_SVG_FILTERED)) {
+    nsIAtom *type = aFrame->GetType();
+    if (type == nsGkAtoms::svgImageFrame)
+      return PR_TRUE;
+    if (type == nsGkAtoms::svgPathGeometryFrame) {
+      nsSVGGeometryFrame *geom = NS_STATIC_CAST(nsSVGGeometryFrame*, aFrame);
+      if (!(geom->HasFill() && geom->HasStroke()))
+        return PR_TRUE;
+    }
+  }
+  return PR_FALSE;
+}

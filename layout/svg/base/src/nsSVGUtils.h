@@ -276,6 +276,14 @@ public:
                    double *xmin, double *ymin,
                    double *xmax, double *ymax);
 
+  /* Using group opacity instead of fill or stroke opacity on a
+   * geometry object seems to be a common authoring mistake.  If we're
+   * not applying filters and not both stroking and filling, we can
+   * generate the same result without going through the overhead of a
+   * push/pop group. */
+  static PRBool
+  CanOptimizeOpacity(nsIFrame *aFrame);
+
 private:
   /* Cairo computational (nil) surface */
   static cairo_surface_t *mCairoComputationalSurface;

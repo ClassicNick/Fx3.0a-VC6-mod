@@ -65,10 +65,10 @@ use constant REQUIRED_ENTRY_FIELDS => qw(
     version
 
     assigned_to
-    platform
+    rep_platform
     op_sys
     priority
-    severity
+    bug_severity
     bug_file_loc
 );
 
@@ -88,6 +88,8 @@ use constant REQUIRED_PROCESS_FIELDS => qw(
     bug_file_loc
     component
     short_desc
+    reporter_accessible
+    cclist_accessible
 );
 
 # $input_email is a global so that it can be used in die_handler.
@@ -175,10 +177,10 @@ sub post_bug {
 
     debug_print('Posting a new bug...');
 
-    $fields{'platform'} ||= Bugzilla->params->{'defaultplatform'};
+    $fields{'rep_platform'} ||= Bugzilla->params->{'defaultplatform'};
     $fields{'op_sys'}   ||= Bugzilla->params->{'defaultopsys'};
     $fields{'priority'} ||= Bugzilla->params->{'defaultpriority'};
-    $fields{'severity'} ||= Bugzilla->params->{'defaultseverity'};
+    $fields{'bug_severity'} ||= Bugzilla->params->{'defaultseverity'};
 
     foreach my $field (REQUIRED_ENTRY_FIELDS) {
         $fields{$field} ||= '';
