@@ -693,6 +693,15 @@ nsHTMLScrollFrame::GetPadding(nsMargin& aMargin)
 }
 
 NS_IMETHODIMP
+nsHTMLScrollFrame::IsCollapsed(nsBoxLayoutState& aBoxLayoutState,
+                                PRBool& aCollapsed)
+{
+  // We're never collapsed in the box sense.
+  aCollapsed = PR_FALSE;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 nsHTMLScrollFrame::Reflow(nsPresContext*           aPresContext,
                           nsHTMLReflowMetrics&     aDesiredSize,
                           const nsHTMLReflowState& aReflowState,
@@ -740,19 +749,21 @@ nsHTMLScrollFrame::Reflow(nsPresContext*           aPresContext,
   PlaceScrollArea(state);
   mInner.ScrollToRestoredPosition();
 
-  if (!mInner.mSupppressScrollbarUpdate) {
-    PRBool didHaveHScrollbar = mInner.mHasHorizontalScrollbar;
-    PRBool didHaveVScrollbar = mInner.mHasVerticalScrollbar;
-    mInner.mHasHorizontalScrollbar = state.mShowHScrollbar;
-    mInner.mHasVerticalScrollbar = state.mShowVScrollbar;
-    nsRect newScrollAreaBounds = mInner.mScrollableView->View()->GetBounds();
-    nsRect newScrolledAreaBounds = mInner.mScrolledFrame->GetView()->GetBounds();
-    if (reflowHScrollbar || reflowVScrollbar || reflowScrollCorner ||
-        (GetStateBits() & NS_FRAME_IS_DIRTY) ||
-        didHaveHScrollbar != state.mShowHScrollbar ||
-        didHaveVScrollbar != state.mShowVScrollbar ||
-        oldScrollAreaBounds != newScrollAreaBounds ||
-        oldScrolledAreaBounds != newScrolledAreaBounds) {
+  PRBool didHaveHScrollbar = mInner.mHasHorizontalScrollbar;
+  PRBool didHaveVScrollbar = mInner.mHasVerticalScrollbar;
+  mInner.mHasHorizontalScrollbar = state.mShowHScrollbar;
+  mInner.mHasVerticalScrollbar = state.mShowVScrollbar;
+  nsRect newScrollAreaBounds = mInner.mScrollableView->View()->GetBounds();
+  nsRect newScrolledAreaBounds = mInner.mScrolledFrame->GetView()->GetBounds();
+  if (mInner.mSkippedScrollbarLayout ||
+      reflowHScrollbar || reflowVScrollbar || reflowScrollCorner ||
+      (GetStateBits() & NS_FRAME_IS_DIRTY) ||
+      didHaveHScrollbar != state.mShowHScrollbar ||
+      didHaveVScrollbar != state.mShowVScrollbar ||
+      oldScrollAreaBounds != newScrollAreaBounds ||
+      oldScrolledAreaBounds != newScrolledAreaBounds) {
+    if (!mInner.mSupppressScrollbarUpdate) {
+      mInner.mSkippedScrollbarLayout = PR_FALSE;
       mInner.SetScrollbarVisibility(mInner.mHScrollbarBox, state.mShowHScrollbar);
       mInner.SetScrollbarVisibility(mInner.mVScrollbarBox, state.mShowVScrollbar);
       // place and reflow scrollbars
@@ -761,6 +772,8 @@ nsHTMLScrollFrame::Reflow(nsPresContext*           aPresContext,
                state.mInsideBorderSize);
       mInner.LayoutScrollbars(state.mBoxState, insideBorderArea,
                               oldScrollAreaBounds, state.mScrollPortRect);
+    } else {
+      mInner.mSkippedScrollbarLayout = PR_TRUE;
     }
   }
 
@@ -1243,6 +1256,7 @@ nsGfxScrollFrameInner::nsGfxScrollFrameInner(nsContainerFrame* aOuter,
     mIsRoot(aIsRoot),
     mIsXUL(aIsXUL),
     mSupppressScrollbarUpdate(PR_FALSE),
+    mSkippedScrollbarLayout(PR_FALSE),
     mDidLoadHistoryVScrollbarHint(PR_FALSE),
     mHistoryVScrollbarHint(PR_FALSE),
     mHadNonInitialReflow(PR_FALSE),

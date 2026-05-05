@@ -44,6 +44,7 @@
 pref("startup.homepage_override_url","chrome://navigator-region/locale/region.properties");
 
 pref("browser.chromeURL","chrome://navigator/content/navigator.xul");
+pref("browser.hiddenWindowChromeURL", "chrome://navigator/content/hiddenWindow.xul");
 
 pref("general.startup.browser",             true);
 pref("general.startup.mail",                false);
@@ -200,6 +201,7 @@ pref("spellchecker.dictionaries.download.url", "chrome://branding/locale/brand.p
 pref("layout.spellcheckDefault", 1);
 
 pref("app.releaseNotesURL", "chrome://branding/locale/brand.properties");
+pref("app.vendorURL", "chrome://branding/locale/brand.properties");
 
 pref("extensions.getMoreLocalesURL", "chrome://branding/locale/brand.properties");
 

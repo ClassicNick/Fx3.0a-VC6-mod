@@ -37,67 +37,6 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-/**
- * A BookmarkAllTabs command for the BrowserController in browser.js
- */
-function BookmarkAllTabsCommand() {
-}
-BookmarkAllTabsCommand.prototype = {
-  /**
-   * true if the command is enabled, false otherwise.
-   */
-  get enabled() {
-    return getBrowser().tabContainer.childNodes.length > 1;
-  },
-  
-  /**
-   * Performs the command (bookmarking all tabs).
-   */
-  execute: function BATC_execute() {
-    var tabURIs = this._getUniqueTabInfo(getBrowser());
-    PlacesUtils.showAddMultiBookmarkUI(tabURIs);
-  },
-
-  /**
-   * This function returns a list of nsIURI objects characterizing the
-   * tabs currently open in the given browser.  The URIs will appear in the
-   * list in the order in which their corresponding tabs appeared.  However,
-   * only the first instance of each URI will be returned.
-   *
-   * @param   tabBrowser
-   *          the tabBrowser to get the contents of
-   * @returns a list of nsIURI objects representing unique locations open
-   */
-  _getUniqueTabInfo: function BATC__getUniqueTabInfo(tabBrowser) {
-    var tabList = [];
-    var seenURIs = [];
-
-    const activeBrowser = tabBrowser.selectedBrowser;
-    const browsers = tabBrowser.browsers;
-    for (var i = 0; i < browsers.length; ++i) {
-      var webNav = browsers[i].webNavigation;
-       var uri = webNav.currentURI;
-
-       // skip redundant entries
-       if (uri.spec in seenURIs)
-         continue;
-
-       // add to the set of seen URIs
-       seenURIs[uri.spec] = true;
-
-       tabList.push(uri);
-    }
-    return tabList;
-  }
-};
-BookmarkAllTabsCommand.NAME = "Browser:BookmarkAllTabs";
-
-// Tell the BrowserController about this command.
-BrowserController.commands[BookmarkAllTabsCommand.NAME] = 
-  new BookmarkAllTabsCommand();
-BrowserController.events[BrowserController.EVENT_TABCHANGE] = 
-  [BookmarkAllTabsCommand.NAME];
-
 var PlacesCommandHook = {
 
   /**
@@ -173,12 +112,42 @@ var PlacesCommandHook = {
     var selectedBrowser = getBrowser().selectedBrowser;
     PlacesUtils.showAddBookmarkUI(selectedBrowser.currentURI);
   },
-  
+
+  /**
+   * This function returns a list of nsIURI objects characterizing the
+   * tabs currently open in the browser.  The URIs will appear in the
+   * list in the order in which their corresponding tabs appeared.  However,
+   * only the first instance of each URI will be returned.
+   *
+   * @returns a list of nsIURI objects representing unique locations open
+   */
+  _getUniqueTabInfo: function BATC__getUniqueTabInfo() {
+    var tabList = [];
+    var seenURIs = [];
+
+    var browsers = getBrowser().browsers;
+    for (var i = 0; i < browsers.length; ++i) {
+      var webNav = browsers[i].webNavigation;
+      var uri = webNav.currentURI;
+
+      // skip redundant entries
+      if (uri.spec in seenURIs)
+        continue;
+
+      // add to the set of seen URIs
+      seenURIs[uri.spec] = true;
+      tabList.push(uri);
+    }
+    return tabList;
+  },
+
   /**
    * Adds a folder with bookmarks to all of the currently open tabs in this 
    * window.
    */
   bookmarkCurrentPages: function PCH_bookmarkCurrentPages() {
+    var tabURIs = this._getUniqueTabInfo();
+    PlacesUtils.showAddMultiBookmarkUI(tabURIs);
   },
 
   /**
@@ -373,7 +342,7 @@ var BookmarksEventHandler = {
    *        DOMEvent for the command
    */
   onCommand: function BM_onCommand(aEvent) {
-    // If this is the special "Open in Tabs" menuitem,
+    // If this is the special "Open All in Tabs" menuitem,
     // load all the menuitems in tabs.
 
     var target = aEvent.originalTarget;
@@ -390,8 +359,8 @@ var BookmarksEventHandler = {
 
   /**
    * Handler for popupshowing event for an item in bookmarks toolbar or menu.
-   * If the item isn't the main bookmarks menu, add an "Open in Tabs" menuitem
-   * to the bottom of the popup.
+   * If the item isn't the main bookmarks menu, add an "Open All in Tabs"
+   * menuitem to the bottom of the popup.
    * @param event 
    *        DOMEvent for popupshowing
    */
@@ -399,7 +368,7 @@ var BookmarksEventHandler = {
     var target = event.target;
 
     if (target.localName == "menupopup" && target.id != "bookmarksMenuPopup") {
-      // Show "Open in Tabs" menuitem if there are at least
+      // Show "Open All in Tabs" menuitem if there are at least
       // two menuitems with places result nodes, and "Open (Feed Name)"
       // if it's a livemark with a siteURI.
       var numNodes = 0;

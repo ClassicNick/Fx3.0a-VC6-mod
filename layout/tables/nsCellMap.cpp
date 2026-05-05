@@ -261,17 +261,40 @@ void nsTableCellMap::RemoveGroupCellMap(nsTableRowGroupFrame* aGroup)
   }
 }
 
-nsCellMap* 
-nsTableCellMap::GetMapFor(nsTableRowGroupFrame& aRowGroup)
+static nsCellMap*
+FindMapFor(const nsTableRowGroupFrame* aRowGroup,
+           nsCellMap* aStart,
+           const nsCellMap* aEnd)
 {
-  NS_ASSERTION(!aRowGroup.GetPrevInFlow(), "GetMapFor called with continuation");
-  for (nsCellMap* map = mFirstMap; map; map = map->GetNextSibling()) {
-    if (&aRowGroup == map->GetRowGroup()) {
+  for (nsCellMap* map = aStart; map != aEnd; map = map->GetNextSibling()) {
+    if (aRowGroup == map->GetRowGroup()) {
       return map;
     }
   }
+
+  return nsnull;
+}
+
+nsCellMap* 
+nsTableCellMap::GetMapFor(const nsTableRowGroupFrame* aRowGroup,
+                          nsCellMap* aStartHint) const
+{
+  NS_PRECONDITION(aRowGroup, "Must have a rowgroup");
+  NS_ASSERTION(!aRowGroup->GetPrevInFlow(), "GetMapFor called with continuation");
+  if (aStartHint) {
+    nsCellMap* map = FindMapFor(aRowGroup, aStartHint, nsnull);
+    if (map) {
+      return map;
+    }
+  }
+
+  nsCellMap* map = FindMapFor(aRowGroup, mFirstMap, aStartHint);
+  if (map) {
+    return map;
+  }
+  
   // if aRowGroup is a repeated header or footer find the header or footer it was repeated from
-  if (aRowGroup.IsRepeatable()) {
+  if (aRowGroup->IsRepeatable()) {
     nsTableFrame* fifTable = NS_STATIC_CAST(nsTableFrame*, mTableFrame.GetFirstInFlow());
 
     nsAutoVoidArray rowGroups;
@@ -280,16 +303,12 @@ nsTableCellMap::GetMapFor(nsTableRowGroupFrame& aRowGroup)
     // find the original header/footer 
     fifTable->OrderRowGroups(rowGroups, numRowGroups, &thead, &tfoot);
 
-    const nsStyleDisplay* display = aRowGroup.GetStyleDisplay();
+    const nsStyleDisplay* display = aRowGroup->GetStyleDisplay();
     nsTableRowGroupFrame* rgOrig = 
       (NS_STYLE_DISPLAY_TABLE_HEADER_GROUP == display->mDisplay) ? thead : tfoot; 
     // find the row group cell map using the original header/footer
-    if (rgOrig) {
-      for (nsCellMap* map = mFirstMap; map; map = map->GetNextSibling()) {
-        if (rgOrig == map->GetRowGroup()) {
-          return map;
-        }
-      }
+    if (rgOrig && rgOrig != aRowGroup) {
+      return GetMapFor(rgOrig, aStartHint);
     }
   }
 
@@ -310,11 +329,13 @@ nsTableCellMap::Synchronize(nsTableFrame* aTableFrame)
     return;
   }
 
+  // Scope |map| outside the loop so we can use it as a hint.
+  nsCellMap* map = nsnull;
   for (PRUint32 rgX = 0; rgX < numRowGroups; rgX++) {
     nsTableRowGroupFrame* rgFrame =
       nsTableFrame::GetRowGroupFrame((nsIFrame*)orderedRowGroups.ElementAt(rgX));
     if (rgFrame) {
-      nsCellMap* map = GetMapFor(*rgFrame);
+      map = GetMapFor(rgFrame, map);
       if (map) {
         if (!maps.AppendElement(map)) {
           delete map;
@@ -2678,4 +2699,91 @@ CellData* nsCellMap::AllocCellData(nsTableCellFrame* aOrigCell)
     new (data) CellData(aOrigCell);
   }
   return data;
+}
+
+void
+nsCellMapColumnIterator::AdvanceRowGroup()
+{
+  mCurMap = mCurMap->GetNextSibling();
+
+  /* mCurMap could now be null, if we just handled the last originating cell.
+     Future calls will end up with mFoundCells == mOrigCells, but for this
+     one mFoundCells was definitely not big enough if we got here... */
+  mCurMapRowCount = mCurMap ? mCurMap->GetRowCount() : 0;
+
+  // Set mRow to 0, since cells can't span across table row groups.
+  mRow = 0;
+}
+
+void
+nsCellMapColumnIterator::IncrementRow(PRInt32 aIncrement)
+{
+  NS_PRECONDITION(aIncrement >= 0, "Bogus increment");
+  NS_PRECONDITION(mCurMap, "Bogus mOrigCells?");
+  if (aIncrement == 0) {
+    // This will span to the end of the row group
+    AdvanceRowGroup();
+  }
+  else {
+    mRow += aIncrement;
+    if (mRow >= mCurMapRowCount) {
+      AdvanceRowGroup();
+    }
+  }
+}
+
+nsTableCellFrame*
+nsCellMapColumnIterator::GetNextFrame(PRInt32* aRow, PRInt32* aColSpan)
+{
+  // Fast-path for the case when we don't have anything left in the column and
+  // we know it.
+  if (mFoundCells == mOrigCells) {
+    *aRow = 0;
+    *aColSpan = 1;
+    return nsnull;
+  }
+
+  while (1) {
+    NS_ASSERTION(mRow < mCurMapRowCount, "Bogus mOrigCells?");
+    // Safe to just get the row (which is faster than calling GetDataAt(), but
+    // there may not be that many cells in it, so have to use SafeElementAt for
+    // the mCol.
+    const nsCellMap::CellDataArray& row = mCurMap->mRows[mRow];
+    CellData* cellData = row.SafeElementAt(mCol);
+    if (!cellData || cellData->IsDead()) {
+      // Could hit this if there are fewer cells in this row than others, for
+      // example.
+      IncrementRow(1);
+      continue;
+    }
+
+    if (cellData->IsColSpan()) {
+      // Look up the originating data for this cell, advance by its rowspan.
+      CellData* origData = row[mCol - cellData->GetColSpanOffset()];
+      NS_ASSERTION(origData && origData->IsOrig() && origData->GetCellFrame(),
+                   "Must have usable originating data here");
+      IncrementRow(origData->GetCellFrame()->GetRowSpan());
+      continue;
+    }
+
+    NS_ASSERTION(cellData->IsOrig(),
+                 "Must have originating cellData by this point.  "
+                 "See comment on mRow in header.");
+
+    nsTableCellFrame* cellFrame = cellData->GetCellFrame();
+    NS_ASSERTION(cellFrame, "Orig data without cellframe?");
+    
+    *aRow = mRow;
+    PRBool ignoredZeroSpan;
+    *aColSpan = mCurMap->GetEffectiveColSpan(*mMap, mRow, mCol, ignoredZeroSpan);
+
+    IncrementRow(cellFrame->GetRowSpan());
+
+    ++mFoundCells;
+
+    return cellFrame;
+  }
+
+  NS_NOTREACHED("Can't get here");
+  return nsnull;
 }

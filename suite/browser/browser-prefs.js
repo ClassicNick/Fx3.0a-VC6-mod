@@ -45,6 +45,7 @@ pref("startup.homepage_override_url","chrome://navigator-region/locale/region.pr
 pref("general.skins.selectedSkin", "classic/1.0");
 
 pref("browser.chromeURL","chrome://navigator/content/navigator.xul");
+pref("browser.hiddenWindowChromeURL", "chrome://navigator/content/hiddenWindow.xul");
 
 pref("general.startup.browser",             true);
 pref("general.startup.mail",                false);
@@ -204,6 +205,7 @@ pref("layout.spellcheckDefault", 1);
 pref("accessibility.typeaheadfind.flashBar", 0);
 
 pref("app.releaseNotesURL", "chrome://branding/locale/brand.properties");
+pref("app.vendorURL", "chrome://branding/locale/brand.properties");
 
 // App-specific update preferences
 
