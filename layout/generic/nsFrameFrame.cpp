@@ -66,7 +66,7 @@
 #include "nsIViewManager.h"
 #include "nsWidgetsCID.h"
 #include "nsViewsCID.h"
-#include "nsLayoutAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsIScrollableView.h"
 #include "nsStyleCoord.h"
 #include "nsStyleContext.h"

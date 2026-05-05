@@ -42,7 +42,7 @@
 #include "nsCSSAnonBoxes.h"
 #include "nsFrame.h"
 #include "nsIContent.h"
-#include "nsLayoutAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
 #include "nsIDeviceContext.h"
@@ -325,6 +325,10 @@ nsHTMLReflowState::InitResizeFlags(nsPresContext* aPresContext)
   // become fixed, but an entire descendant chain of percentage heights
   // to become fixed.
   if ((mStylePosition->mHeight.GetUnit() == eStyleUnit_Percent ||
+       mStylePosition->mMinHeight.GetUnit() == eStyleUnit_Percent ||
+       mStylePosition->mMaxHeight.GetUnit() == eStyleUnit_Percent ||
+       mStylePosition->mOffset.GetTopUnit() == eStyleUnit_Percent ||
+       mStylePosition->mOffset.GetBottomUnit() == eStyleUnit_Percent ||
        frame->IsBoxFrame()) &&
       mCBReflowState) {
     const nsHTMLReflowState *rs = this;
@@ -403,6 +407,7 @@ nsHTMLReflowState::InitFrameType()
       break;
 
     case NS_STYLE_DISPLAY_INLINE:
+    case NS_STYLE_DISPLAY_INLINE_BLOCK:
     case NS_STYLE_DISPLAY_MARKER:
     case NS_STYLE_DISPLAY_INLINE_TABLE:
     case NS_STYLE_DISPLAY_INLINE_BOX:
@@ -1635,12 +1640,7 @@ nsHTMLReflowState::InitConstraints(nsPresContext* aPresContext,
                               aContainingBlockHeight);
     } else {
       PRBool isBlock =
-        NS_CSS_FRAME_TYPE_BLOCK == NS_FRAME_GET_TYPE(mFrameType) &&
-        // Hack to work around the fact that we have some tables that
-        // _should_ be inline-table but aren't
-        (frame->GetType() != nsGkAtoms::tableOuterFrame ||
-         !parentReflowState ||
-         NS_CSS_FRAME_TYPE_BLOCK == NS_FRAME_GET_TYPE(parentReflowState->mFrameType));
+        NS_CSS_FRAME_TYPE_BLOCK == NS_FRAME_GET_TYPE(mFrameType);
       nsSize size =
         frame->ComputeSize(rendContext,
                            nsSize(aContainingBlockWidth,

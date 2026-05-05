@@ -75,7 +75,6 @@
 static const PRUint32 kMinBidiIndicatorPixels = 2;
 
 #ifdef IBMBIDI
-#include "nsLayoutAtoms.h"
 #include "nsIBidiKeyboard.h"
 #include "nsContentUtils.h"
 #endif //IBMBIDI

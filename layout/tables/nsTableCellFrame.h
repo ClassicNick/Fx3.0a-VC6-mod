@@ -43,7 +43,7 @@
 #include "nsTableRowFrame.h"  // need to actually include this here to inline GetRowIndex
 #include "nsStyleContext.h"
 #include "nsIPercentHeightObserver.h"
-#include "nsLayoutAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsLayoutUtils.h"
 
 class nsTableFrame;
@@ -148,12 +148,13 @@ public:
    */
   virtual nsIAtom* GetType() const;
 
+  virtual PRBool IsContainingBlock() const;
+
 #ifdef DEBUG
   NS_IMETHOD GetFrameName(nsAString& aResult) const;
 #endif
 
-  void VerticallyAlignChild(const nsHTMLReflowState& aReflowState,
-                            nscoord                  aMaxAscent);
+  void VerticallyAlignChild(nscoord aMaxAscent);
 
   PRBool HasVerticalAlignBaseline();
 

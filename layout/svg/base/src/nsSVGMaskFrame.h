@@ -61,7 +61,7 @@ class nsSVGMaskFrame : public nsSVGMaskFrameBase
   /**
    * Get the "type" of the frame
    *
-   * @see nsLayoutAtoms::svgMaskFrame
+   * @see nsGkAtoms::svgMaskFrame
    */
   virtual nsIAtom* GetType() const;
 

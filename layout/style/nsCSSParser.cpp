@@ -67,7 +67,6 @@
 #include "nsCOMArray.h"
 #include "nsColor.h"
 #include "nsStyleConsts.h"
-#include "nsLayoutAtoms.h"
 #include "nsCSSPseudoClasses.h"
 #include "nsCSSPseudoElements.h"
 #include "nsCSSAnonBoxes.h"
@@ -4613,7 +4612,6 @@ PRBool CSSParserImpl::ParseSingleValueProperty(nsresult& aErrorCode,
 					case NS_STYLE_DISPLAY_MARKER:        // bug 2055
 					case NS_STYLE_DISPLAY_RUN_IN:		 // bug 2056
 					case NS_STYLE_DISPLAY_COMPACT:       // bug 14983
-					case NS_STYLE_DISPLAY_INLINE_TABLE:  // bug 18218
 						return PR_FALSE;
 				}
 			}

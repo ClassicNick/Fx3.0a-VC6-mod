@@ -101,7 +101,6 @@
 #ifndef MOZ_CAIRO_GFX
 #include "nsISelectionImageService.h"
 #endif
-#include "nsXULAtoms.h"
 #include "nsLayoutCID.h"
 #include "nsILanguageAtomService.h"
 #include "nsStyleSheetService.h"

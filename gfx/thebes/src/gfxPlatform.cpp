@@ -46,6 +46,8 @@
 #include "gfxPlatformGtk.h"
 #elif defined(XP_BEOS)
 #include "gfxBeOSPlatform.h"
+#elif defined(XP_OS2)
+#include "gfxOS2Platform.h"
 #endif
 
 #include "gfxContext.h"
@@ -73,6 +75,8 @@ gfxPlatform::GetPlatform()
         gPlatform = new gfxPlatformGtk;
 #elif defined(XP_BEOS)
         gPlatform = new gfxBeOSPlatform;
+#elif defined(XP_OS2)
+        gPlatform = new gfxOS2Platform;
 #endif
     }
 

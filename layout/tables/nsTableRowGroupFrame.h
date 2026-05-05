@@ -148,7 +148,7 @@ public:
   /**
    * Get the "type" of the frame
    *
-   * @see nsLayoutAtoms::tableRowGroupFrame
+   * @see nsGkAtoms::tableRowGroupFrame
    */
   virtual nsIAtom* GetType() const;
 
@@ -322,8 +322,7 @@ protected:
                            nsHTMLReflowMetrics&     aDesiredSize,
                            const nsHTMLReflowState& aReflowState);
 
-  void DidResizeRows(const nsHTMLReflowState& aReflowState,
-                     nsHTMLReflowMetrics&     aDesiredSize);
+  void DidResizeRows(nsHTMLReflowMetrics& aDesiredSize);
 
   void SlideChild(nsRowGroupReflowState& aReflowState,
                   nsIFrame*              aKidFrame);

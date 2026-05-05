@@ -49,7 +49,7 @@
 #include "nsIContent.h"
 #include "nsGenericHTMLElement.h"
 #include "nsHTMLParts.h"
-#include "nsLayoutAtoms.h"
+#include "nsGkAtoms.h"
 #include "nsIView.h"
 #include "nsIPresShell.h"
 #include "nsCOMPtr.h"
@@ -514,14 +514,13 @@ nsTableCellFrame::GetSelfOverflow(nsRect& aOverflowArea)
 
 // Align the cell's child frame within the cell
 
-void nsTableCellFrame::VerticallyAlignChild(const nsHTMLReflowState& aReflowState,
-                                            nscoord                  aMaxAscent)
+void nsTableCellFrame::VerticallyAlignChild(nscoord aMaxAscent)
 {
   const nsStyleTextReset* textStyle = GetStyleTextReset();
   /* It's the 'border-collapse' on the table that matters */
   nsPresContext* presContext = GetPresContext();
   GET_PIXELS_TO_TWIPS(presContext, p2t);
-  nsMargin borderPadding = nsTableFrame::GetBorderPadding(aReflowState, p2t, this);
+  nsMargin borderPadding = GetUsedBorderAndPadding();
   
   nscoord topInset = borderPadding.top;
   nscoord bottomInset = borderPadding.bottom;
@@ -962,6 +961,12 @@ nsIAtom*
 nsTableCellFrame::GetType() const
 {
   return nsGkAtoms::tableCellFrame;
+}
+
+/* virtual */ PRBool
+nsTableCellFrame::IsContainingBlock() const
+{
+  return PR_TRUE;
 }
 
 #ifdef DEBUG

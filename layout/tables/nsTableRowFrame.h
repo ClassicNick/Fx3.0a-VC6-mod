@@ -111,12 +111,12 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus);
 
-  void DidResize(const nsHTMLReflowState& aReflowState);
+  void DidResize();
 
   /**
    * Get the "type" of the frame
    *
-   * @see nsLayoutAtoms::tableRowFrame
+   * @see nsGkAtoms::tableRowFrame
    */
   virtual nsIAtom* GetType() const;
 

@@ -1,4 +1,5 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim:set ts=2 sw=2 sts=2 et: */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -12,18 +13,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is XPCOM unit tests.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Jeff Walden <jwalden+code@mit.edu>.
+ * Portions created by the Initial Developer are Copyright (C) 2007
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,16 +36,27 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-/* atom list */
+const Cc = Components.classes;
+const Ci = Components.interfaces;
+const Cr = Components.results;
 
-#ifndef nsLayoutAtoms_h___
-#define nsLayoutAtoms_h___
-
-#include "nsGkAtoms.h"
-
-static inline PRBool IS_TABLE_CELL(nsIAtom* frameType) {
-  return nsGkAtoms::tableCellFrame == frameType ||
-    nsGkAtoms::bcTableCellFrame == frameType;
+function run_test()
+{
+  test_not_initialized();
 }
 
-#endif /* nsLayoutAtoms_h___ */
+function test_not_initialized()
+{
+  var p = Cc["@mozilla.org/pipe;1"]
+            .createInstance(Ci.nsIPipe);
+  try
+  {
+    var dummy = p.outputStream;
+    throw Cr.NS_ERROR_FAILURE;
+  }
+  catch (e)
+  {
+    if (e.result != Cr.NS_ERROR_NOT_INITIALIZED)
+      do_throw("using a pipe before initializing it should throw NS_ERROR_NOT_INITIALIZED");
+  }
+}

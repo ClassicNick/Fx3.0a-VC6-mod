@@ -272,7 +272,7 @@ NSString* const kPreviousSessionTerminatedNormallyKey = @"PreviousSessionTermina
   if ([self previousSessionTerminatedNormally]) {
     shouldRestoreWindowState = [prefManager getBooleanPref:"camino.remember_window_state" withSuccess:NULL];
   }
-  else {
+  else if ([prefManager getBooleanPref:"browser.sessionstore.resume_from_crash" withSuccess:NULL]) {
     NSAlert* restoreAfterCrashAlert = [[[NSAlert alloc] init] autorelease];
     [restoreAfterCrashAlert addButtonWithTitle:NSLocalizedString(@"RestoreAfterCrashActionButton", nil)];
     [restoreAfterCrashAlert addButtonWithTitle:NSLocalizedString(@"RestoreAfterCrashCancelButton", nil)];
@@ -920,6 +920,9 @@ NSString* const kPreviousSessionTerminatedNormallyKey = @"PreviousSessionTermina
     }
     [openWindows release];
 
+    // clear the saved session in case we crash
+    [[SessionManager sharedInstance] clearSavedState];
+
     // remove cache
     nsCOMPtr<nsICacheService> cacheServ (do_GetService("@mozilla.org/network/cache-service;1"));
     if (cacheServ)
@@ -1521,6 +1524,13 @@ NSString* const kPreviousSessionTerminatedNormallyKey = @"PreviousSessionTermina
     [self loadApplicationPage:pageToLoad];
 }
 
+- (IBAction)keyboardShortcutsLink:(id)aSender
+{
+  NSString* pageToLoad = NSLocalizedStringFromTable(@"KeyboardShortcutsPageDefault", @"WebsiteDefaults", nil);
+  if (![pageToLoad isEqualToString:@"KeyboardShortcutsPageDefault"])
+    [self loadApplicationPage:pageToLoad];
+}
+
 - (IBAction)infoLink:(id)aSender
 {
   NSString* pageToLoad = NSLocalizedStringFromTable(@"InfoPageDefault", @"WebsiteDefaults", nil);
@@ -1531,27 +1541,6 @@ NSString* const kPreviousSessionTerminatedNormallyKey = @"PreviousSessionTermina
 - (IBAction)aboutPlugins:(id)aSender
 {
   [self loadApplicationPage:@"about:plugins"];
-}
-
-- (IBAction)releaseNoteLink:(id)aSender
-{
-  NSString* pageToLoad = NSLocalizedStringFromTable(@"ReleaseNotesDefault", @"WebsiteDefaults", nil);
-  if (![pageToLoad isEqualToString:@"ReleaseNotesDefault"])
-    [self loadApplicationPage:pageToLoad];
-}
-
-- (IBAction)tipsTricksLink:(id)aSender
-{
-  NSString* pageToLoad = NSLocalizedStringFromTable(@"TipsTricksPageDefault", @"WebsiteDefaults", nil);
-  if (![pageToLoad isEqualToString:@"TipsTricksPageDefault"])
-    [self loadApplicationPage:pageToLoad];
-}
-
-- (IBAction)searchCustomizeLink:(id)aSender
-{
-  NSString* pageToLoad = NSLocalizedStringFromTable(@"SearchCustomPageDefault", @"WebsiteDefaults", nil);
-  if (![pageToLoad isEqualToString:@"SearchCustomPageDefault"])
-    [self loadApplicationPage:pageToLoad];
 }
 
 #pragma mark -

@@ -2567,6 +2567,20 @@ nsPluginHostImpl::GetInst()
   return sInst;
 }
 
+// static
+const char *
+nsPluginHostImpl::GetPluginName(nsIPluginInstance *aPluginInstance)
+{
+  nsActivePlugin *plugin =
+    gActivePluginList ? gActivePluginList->find(aPluginInstance) : nsnull;
+
+  if (plugin && plugin->mPluginTag) {
+    return plugin->mPluginTag->mName;
+  }
+
+  return nsnull;
+}
+
 
 ////////////////////////////////////////////////////////////////////////
 NS_IMETHODIMP nsPluginHostImpl::GetValue(nsPluginManagerVariable aVariable, void *aValue)
@@ -6700,7 +6714,7 @@ nsresult nsPluginHostImpl::AddPrefObserver()
 
 ////////////////////////////////////////////////////////////////////////////////////
 nsresult nsPluginStreamListenerPeer::ServeStreamAsFile(nsIRequest *request,
-                                                        nsISupports* aContext)
+                                                       nsISupports* aContext)
 {
   if (!mInstance)
     return NS_ERROR_FAILURE;
