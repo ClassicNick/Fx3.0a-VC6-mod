@@ -5269,8 +5269,8 @@ nsGlobalWindow::Atob(const nsAString& aAsciiBase64String,
   }
 
   PRInt32 resultLen = dataLen;
-  if (base64[dataLen - 1] == '=') {
-    if (base64[dataLen - 2] == '=') {
+  if (!base64.IsEmpty() && base64[dataLen - 1] == '=') {
+    if (base64.Length() > 1 && base64[dataLen - 2] == '=') {
       resultLen = dataLen - 2;
     } else {
       resultLen = dataLen - 1;
@@ -6187,6 +6187,28 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
     aCalleePrincipal->GetURI(getter_AddRefs(currentCodebase));
   }
 
+  // Note: it's very important that this be an nsXPIDLCString, since we want
+  // .get() on it to return nsnull until we write stuff to it.  The window
+  // watcher expects a null URL string if there is no URL to load.
+  nsXPIDLCString url;
+  nsresult rv = NS_OK;
+
+  // It's important to do this security check before determining whether this
+  // window opening should be blocked, to ensure that we don't FireAbuseEvents
+  // for a window opening that wouldn't have succeeded in the first place.
+  if (!aUrl.IsEmpty()) {
+    AppendUTF16toUTF8(aUrl, url);
+
+    /* Check whether the URI is allowed, but not for dialogs --
+       see bug 56851. The security of this function depends on
+       window.openDialog being inaccessible from web scripts */
+    if (url.get() && !aDialog)
+      rv = SecurityCheckURL(url.get());
+  }
+
+  if (NS_FAILED(rv))
+    return rv;
+
   // These next two variables are only accessed when checkForPopup is true
   PopupControlState abuseLevel;
   OpenAllowValue allowReason;
@@ -6212,25 +6234,6 @@ nsGlobalWindow::OpenInternal(const nsAString& aUrl, const nsAString& aName,
       return aDoJSFixups ? NS_OK : NS_ERROR_FAILURE;
     }
   }    
-
-  // Note: it's very important that this be an nsXPIDLCString, since we want
-  // .get() on it to return nsnull until we write stuff to it.  The window
-  // watcher expects a null URL string if there is no URL to load.
-  nsXPIDLCString url;
-  nsresult rv = NS_OK;
-
-  if (!aUrl.IsEmpty()) {
-    AppendUTF16toUTF8(aUrl, url);
-
-    /* Check whether the URI is allowed, but not for dialogs --
-       see bug 56851. The security of this function depends on
-       window.openDialog being inaccessible from web scripts */
-    if (url.get() && !aDialog)
-      rv = SecurityCheckURL(url.get());
-  }
-
-  if (NS_FAILED(rv))
-    return rv;
 
   nsCOMPtr<nsIDOMWindow> domReturn;
 
