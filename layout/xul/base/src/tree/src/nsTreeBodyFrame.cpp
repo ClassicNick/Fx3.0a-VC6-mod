@@ -788,13 +788,13 @@ nsTreeBodyFrame::ScrollParts nsTreeBodyFrame::GetScrollParts()
     // dumb! We should know where these frames are.
     FindScrollParts(treeFrame, &result);
     if (result.mHScrollbar) {
-      result.mHScrollbar->SetScrollbarMediator(this);
+      result.mHScrollbar->SetScrollbarMediatorContent(GetContent());
       nsIFrame* f;
       CallQueryInterface(result.mHScrollbar, &f);
       result.mHScrollbarContent = f->GetContent();
     }
     if (result.mVScrollbar) {
-      result.mVScrollbar->SetScrollbarMediator(this);
+      result.mVScrollbar->SetScrollbarMediatorContent(GetContent());
       nsIFrame* f;
       CallQueryInterface(result.mVScrollbar, &f);
       result.mVScrollbarContent = f->GetContent();
@@ -1657,8 +1657,8 @@ nsTreeBodyFrame::MarkDirtyIfSelect()
     // XXX optimize this more
 
     mStringWidth = -1;
-    nsBoxLayoutState state(GetPresContext());
-    MarkDirty(state);
+    AddStateBits(NS_FRAME_IS_DIRTY);
+    GetPresContext()->PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange);
   }
 }
 
@@ -2637,8 +2637,9 @@ nsTreeBodyFrame::PaintTreeBody(nsIRenderingContext& aRenderingContext,
 
   if (oldPageCount != mPageLength || mHorzWidth != CalcHorzWidth(GetScrollParts())) {
     // Schedule a ResizeReflow that will update our info properly.
-    nsBoxLayoutState state(GetPresContext());
-    MarkDirty(state);
+    AddStateBits(NS_FRAME_IS_DIRTY);
+    GetPresContext()->PresShell()->
+      FrameNeedsReflow(this, nsIPresShell::eResize);
   }
   #ifdef DEBUG
   PRInt32 rowCount = mRowCount;
