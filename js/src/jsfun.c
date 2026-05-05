@@ -256,7 +256,7 @@ js_GetArgsObject(JSContext *cx, JSStackFrame *fp)
     /* Link the new object to fp so it can get actual argument values. */
     argsobj = js_NewObject(cx, &js_ArgumentsClass, NULL, NULL);
     if (!argsobj || !JS_SetPrivate(cx, argsobj, fp)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
 
@@ -605,7 +605,7 @@ js_GetCallObject(JSContext *cx, JSStackFrame *fp, JSObject *parent)
     /* Create the call object and link it to its stack frame. */
     callobj = js_NewObject(cx, &js_CallClass, NULL, parent);
     if (!callobj || !JS_SetPrivate(cx, callobj, fp)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
     fp->callobj = callobj;
@@ -1129,7 +1129,7 @@ fun_resolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
                  * root until then to protect pval in case it is figuratively
                  * up in the air, with no strong refs protecting it.
                  */
-                cx->newborn[GCX_OBJECT] = JSVAL_TO_GCTHING(pval);
+                cx->weakRoots.newborn[GCX_OBJECT] = JSVAL_TO_GCTHING(pval);
                 parentProto = JSVAL_TO_OBJECT(pval);
             }
         }
@@ -1160,7 +1160,7 @@ fun_resolve(JSContext *cx, JSObject *obj, jsval id, uintN flags,
          */
         if (!js_SetClassPrototype(cx, obj, proto,
                                   JSPROP_ENUMERATE | JSPROP_PERMANENT)) {
-            cx->newborn[GCX_OBJECT] = NULL;
+            cx->weakRoots.newborn[GCX_OBJECT] = NULL;
             return JS_FALSE;
         }
         *objp = obj;
@@ -1417,7 +1417,6 @@ static JSBool
 fun_hasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
 {
     jsval pval;
-    JSString *str;
 
     if (!OBJ_GET_PROPERTY(cx, obj,
                           ATOM_TO_JSID(cx->runtime->atomState
@@ -1431,11 +1430,8 @@ fun_hasInstance(JSContext *cx, JSObject *obj, jsval v, JSBool *bp)
          * Throw a runtime error if instanceof is called on a function that
          * has a non-object as its .prototype value.
          */
-        str = js_DecompileValueGenerator(cx, -1, OBJECT_TO_JSVAL(obj), NULL);
-        if (str) {
-            JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                                 JSMSG_BAD_PROTOTYPE, JS_GetStringBytes(str));
-        }
+        js_ReportValueError(cx, JSMSG_BAD_PROTOTYPE,
+                            -1, OBJECT_TO_JSVAL(obj), NULL);
         return JS_FALSE;
     }
 
@@ -2101,7 +2097,7 @@ js_InitFunctionClass(JSContext *cx, JSObject *obj)
     return proto;
 
 bad:
-    cx->newborn[GCX_OBJECT] = NULL;
+    cx->weakRoots.newborn[GCX_OBJECT] = NULL;
     return NULL;
 }
 
@@ -2144,7 +2140,7 @@ js_NewFunction(JSContext *cx, JSObject *funobj, JSNative native, uintN nargs,
 
     /*
      * Allocate fun after allocating funobj so slot allocation in js_NewObject
-     * does not wipe out fun from cx->newborn[GCX_PRIVATE].
+     * does not wipe out fun from newborn[GCX_PRIVATE].
      */
     fun = (JSFunction *) js_NewGCThing(cx, GCX_PRIVATE, sizeof(JSFunction));
     if (!fun)
@@ -2162,7 +2158,7 @@ js_NewFunction(JSContext *cx, JSObject *funobj, JSNative native, uintN nargs,
 
     /* Link fun to funobj and vice versa. */
     if (!js_LinkFunctionObject(cx, fun, funobj)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         fun = NULL;
     }
 
@@ -2183,7 +2179,7 @@ js_CloneFunctionObject(JSContext *cx, JSObject *funobj, JSObject *parent)
         return NULL;
     fun = (JSFunction *) JS_GetPrivate(cx, funobj);
     if (!js_LinkFunctionObject(cx, fun, newfunobj)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
     return newfunobj;
@@ -2297,37 +2293,31 @@ void
 js_ReportIsNotFunction(JSContext *cx, jsval *vp, uintN flags)
 {
     JSStackFrame *fp;
-    JSString *str;
-    JSTempValueRooter tvr;
-    const char *bytes, *source;
+    uintN error;
+    const char *name, *source;
 
     for (fp = cx->fp; fp && !fp->spbase; fp = fp->down)
         continue;
-    str = js_DecompileValueGenerator(cx,
-                                     (fp && fp->spbase <= vp && vp < fp->sp)
-                                     ? vp - fp->sp
-                                     : (flags & JSV2F_SEARCH_STACK)
-                                     ? JSDVG_SEARCH_STACK
-                                     : JSDVG_IGNORE_STACK,
-                                     *vp,
-                                     NULL);
-    if (str) {
-        JS_PUSH_TEMP_ROOT_STRING(cx, str, &tvr);
-        bytes = JS_GetStringBytes(str);
-        if (flags & JSV2F_ITERATOR) {
-            source = js_ValueToPrintableSource(cx, *vp);
-            if (source) {
-                JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                                     JSMSG_BAD_ITERATOR,
-                                     bytes, js_iterator_str, source);
-            }
-        } else {
-            JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                                 (uintN)((flags & JSV2F_CONSTRUCT)
-                                         ? JSMSG_NOT_CONSTRUCTOR
-                                         : JSMSG_NOT_FUNCTION),
-                                 bytes);
-        }
-        JS_POP_TEMP_ROOT(cx, &tvr);
+    name = NULL;
+    source = NULL;
+    if (flags & JSV2F_ITERATOR) {
+        error = JSMSG_BAD_ITERATOR;
+        name = js_iterator_str;
+        source = js_ValueToPrintableSource(cx, *vp);
+        if (!source)
+            return;
+    } else if (flags & JSV2F_CONSTRUCT) {
+        error = JSMSG_NOT_CONSTRUCTOR;
+    } else {
+        error = JSMSG_NOT_FUNCTION;
     }
+
+    js_ReportValueError3(cx, error,
+                         (fp && fp->spbase <= vp && vp < fp->sp)
+                         ? vp - fp->sp
+                         : (flags & JSV2F_SEARCH_STACK)
+                         ? JSDVG_SEARCH_STACK
+                         : JSDVG_IGNORE_STACK,
+                         *vp, NULL,
+                         name, source);
 }

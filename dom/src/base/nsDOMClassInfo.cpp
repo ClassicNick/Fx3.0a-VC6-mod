@@ -2981,7 +2981,6 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(SVGPathSegList, nsIDOMSVGPathSegList)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPathSegList)
-    DOM_CLASSINFO_MAP_ENTRY(nsIDOMSVGPathSeg)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(SVGPathSegMovetoAbs, nsIDOMSVGPathSegMovetoAbs)
@@ -9069,7 +9068,12 @@ nsHTMLPluginObjElementSH::GetPluginJSObject(JSContext *cx, JSObject *obj,
   nsresult rv = sXPConnect->WrapNative(cx, ::JS_GetParent(cx, obj),
                                        scriptable_peer,
                                        scriptableIID, getter_AddRefs(holder));
-  NS_ENSURE_SUCCESS(rv, rv);
+  // Wrapping a plugin object can fail if the plugins XPT file can't
+  // be found (i.e. is incorrectly installed). Return NS_OK in such a
+  // case to avoid having this generate exceptions in JS and to let
+  // the script still access the DOM node, even if the underlying
+  // plugin won't be scriptable.
+  NS_ENSURE_SUCCESS(rv, NS_OK);
 
   // QI holder to nsIXPConnectWrappedNative so that we can reliably
   // access it's prototype

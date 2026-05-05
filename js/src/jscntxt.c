@@ -646,8 +646,8 @@ js_LeaveLocalRootScopeWithResult(JSContext *cx, jsval rval)
 
     /*
      * Pop the scope, restoring lrs->scopeMark.  If rval is a GC-thing, push
-     * it on the caller's scope, or store it in cx->lastInternalResult if we
-     * are leaving the outermost scope.  We don't need to allocate a new lrc
+     * it on the caller's scope, or store it in lastInternalResult if we are
+     * leaving the outermost scope.  We don't need to allocate a new lrc
      * because we can overwrite the old mark's slot with rval.
      */
     lrc = lrs->topChunk;
@@ -655,7 +655,7 @@ js_LeaveLocalRootScopeWithResult(JSContext *cx, jsval rval)
     lrs->scopeMark = (uint32) JSVAL_TO_INT(lrc->roots[m]);
     if (JSVAL_IS_GCTHING(rval) && !JSVAL_IS_NULL(rval)) {
         if (mark == 0) {
-            cx->lastInternalResult = rval;
+            cx->weakRoots.lastInternalResult = rval;
         } else {
             /*
              * Increment m to avoid the "else if (m == 0)" case below.  If
@@ -1203,6 +1203,26 @@ void
 js_ReportIsNotDefined(JSContext *cx, const char *name)
 {
     JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_NOT_DEFINED, name);
+}
+
+JSBool
+js_ReportValueErrorFlags(JSContext *cx, uintN flags, const uintN errorNumber,
+                         intN spindex, jsval v, JSString *fallback,
+                         const char *arg1, const char *arg2)
+{
+    char *bytes;
+    JSBool ok;
+
+    JS_ASSERT(js_ErrorFormatString[errorNumber].argCount >= 1);
+    JS_ASSERT(js_ErrorFormatString[errorNumber].argCount <= 3);
+    bytes = js_DecompileValueGenerator(cx, spindex, v, fallback);
+    if (!bytes)
+        return JS_FALSE;
+
+    ok = JS_ReportErrorFlagsAndNumber(cx, flags, js_GetErrorMessage,
+                                      NULL, errorNumber, bytes, arg1, arg2);
+    JS_free(cx, bytes);
+    return ok;
 }
 
 #if defined DEBUG && defined XP_UNIX

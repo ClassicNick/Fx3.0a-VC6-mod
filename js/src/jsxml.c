@@ -337,7 +337,7 @@ js_GetXMLNamespaceObject(JSContext *cx, JSXMLNamespace *ns)
     }
     obj = js_NewObject(cx, &js_NamespaceClass.base, NULL, NULL);
     if (!obj || !JS_SetPrivate(cx, obj, ns)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
     ns->object = obj;
@@ -606,7 +606,7 @@ js_GetXMLQNameObject(JSContext *cx, JSXMLQName *qn)
     }
     obj = js_NewObject(cx, &js_QNameClass.base, NULL, NULL);
     if (!obj || !JS_SetPrivate(cx, obj, qn)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
     qn->object = obj;
@@ -631,7 +631,7 @@ js_GetAttributeNameObject(JSContext *cx, JSXMLQName *qn)
 
     obj = js_NewObject(cx, &js_AttributeNameClass, NULL, NULL);
     if (!obj || !JS_SetPrivate(cx, obj, qn)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
 
@@ -2138,12 +2138,8 @@ ToXML(JSContext *cx, jsval v)
     return obj;
 
 bad:
-    str = js_DecompileValueGenerator(cx, JSDVG_IGNORE_STACK, v, NULL);
-    if (str) {
-        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                             JSMSG_BAD_XML_CONVERSION,
-                             JS_GetStringBytes(str));
-    }
+    js_ReportValueError(cx, JSMSG_BAD_XML_CONVERSION,
+                        JSDVG_IGNORE_STACK, v, NULL);
     return NULL;
 }
 
@@ -2224,12 +2220,8 @@ ToXMLList(JSContext *cx, jsval v)
     return listobj;
 
 bad:
-    str = js_DecompileValueGenerator(cx, JSDVG_IGNORE_STACK, v, NULL);
-    if (str) {
-        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                             JSMSG_BAD_XMLLIST_CONVERSION,
-                             JS_GetStringBytes(str));
-    }
+    js_ReportValueError(cx, JSMSG_BAD_XMLLIST_CONVERSION,
+                        JSDVG_IGNORE_STACK, v, NULL);
     return NULL;
 }
 
@@ -3073,12 +3065,8 @@ ToAttributeName(JSContext *cx, jsval v)
         uri = prefix = cx->runtime->emptyString;
     } else {
         if (JSVAL_IS_PRIMITIVE(v)) {
-            name = js_DecompileValueGenerator(cx, JSDVG_IGNORE_STACK, v, NULL);
-            if (name) {
-                JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                                     JSMSG_BAD_XML_ATTR_NAME,
-                                     JS_GetStringBytes(name));
-            }
+            js_ReportValueError(cx, JSMSG_BAD_XML_ATTR_NAME,
+                                JSDVG_IGNORE_STACK, v, NULL);
             return NULL;
         }
 
@@ -3116,6 +3104,12 @@ ToAttributeName(JSContext *cx, jsval v)
     return qn;
 }
 
+static void
+ReportBadXMLName(JSContext *cx, jsval id)
+{
+    js_ReportValueError(cx, JSMSG_BAD_XML_NAME, JSDVG_IGNORE_STACK, id, NULL);
+}
+
 static JSXMLQName *
 ToXMLName(JSContext *cx, jsval v, jsid *funidp)
 {
@@ -3130,9 +3124,7 @@ ToXMLName(JSContext *cx, jsval v, jsid *funidp)
         name = JSVAL_TO_STRING(v);
     } else {
         if (JSVAL_IS_PRIMITIVE(v)) {
-            name = js_DecompileValueGenerator(cx, JSDVG_IGNORE_STACK, v, NULL);
-            if (name)
-                goto bad;
+            ReportBadXMLName(cx, v);
             return NULL;
         }
 
@@ -3453,19 +3445,6 @@ out:
     if (!ok)
         return NULL;
     return copy;
-}
-
-static void
-ReportBadXMLName(JSContext *cx, jsval id)
-{
-    JSString *name;
-
-    name = js_DecompileValueGenerator(cx, JSDVG_IGNORE_STACK, id, NULL);
-    if (name) {
-        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                             JSMSG_BAD_XML_NAME,
-                             JS_GetStringBytes(name));
-    }
 }
 
 /* ECMA-357 9.1.1.4 XML [[DeleteByIndex]]. */
@@ -5455,8 +5434,8 @@ xml_getMethod(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
          * value of roots[FUNCTION] since getMethod callers have a bad habit
          * of passing a pointer to unrooted local value as vp.
          */
-        cx->newborn[GCX_OBJECT] = (JSGCThing *)obj;
-        cx->lastInternalResult = roots[FUN_ROOT];
+        cx->weakRoots.newborn[GCX_OBJECT] = (JSGCThing *)obj;
+        cx->weakRoots.lastInternalResult = roots[FUN_ROOT];
     }
     JS_POP_TEMP_ROOT(cx, &tvr);
     return obj;
@@ -7650,7 +7629,7 @@ NewXMLObject(JSContext *cx, JSXML *xml)
 
     obj = js_NewObject(cx, &js_XMLClass, NULL, NULL);
     if (!obj || !JS_SetPrivate(cx, obj, xml)) {
-        cx->newborn[GCX_OBJECT] = NULL;
+        cx->weakRoots.newborn[GCX_OBJECT] = NULL;
         return NULL;
     }
     METER(xml_stats.xmlobj);
@@ -8079,7 +8058,7 @@ js_GetAnyName(JSContext *cx, jsval *vp)
 
                 obj = js_NewObject(cx, &js_AnyNameClass, NULL, NULL);
                 if (!obj || !JS_SetPrivate(cx, obj, qn)) {
-                    cx->newborn[GCX_OBJECT] = NULL;
+                    cx->weakRoots.newborn[GCX_OBJECT] = NULL;
                     ok = JS_FALSE;
                     break;
                 }
