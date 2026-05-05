@@ -326,12 +326,12 @@ nsSVGPathGeometryFrame::GetFrameForPointSVG(float x, float y, nsIFrame** hit)
     fillRule = GetStyleSVG()->mFillRule;
 
   if (fillRule == NS_STYLE_FILL_RULE_EVENODD)
-    cairo_set_fill_rule(ctx, CAIRO_FILL_RULE_EVEN_ODD);
+    context.SetFillRule(gfxContext::FILL_RULE_EVEN_ODD);
   else
-    cairo_set_fill_rule(ctx, CAIRO_FILL_RULE_WINDING);
+    context.SetFillRule(gfxContext::FILL_RULE_WINDING);
 
   if (mask & HITTEST_MASK_FILL)
-    isHit = cairo_in_fill(ctx, xx, yy);
+    isHit = context.PointInFill(devicePoint);
   if (!isHit && (mask & HITTEST_MASK_STROKE)) {
     SetupCairoStrokeHitGeometry(ctx);
     isHit = cairo_in_stroke(ctx, xx, yy);
@@ -406,7 +406,7 @@ nsSVGPathGeometryFrame::UpdateCoveredRegion()
   cairo_t *ctx = cairo_create(nsSVGUtils::GetCairoComputationalSurface());
   GeneratePath(ctx, nsnull);
 
-  double xmin, ymin, xmax, ymax;
+  gfxRect extent;
 
   if (HasStroke()) {
     SetupCairoStrokeGeometry(ctx);
@@ -416,10 +416,11 @@ nsSVGPathGeometryFrame::UpdateCoveredRegion()
       mRect = nsSVGUtils::ToBoundingPixelRect(xmin, ymin, xmax, ymax);
     }
   } else {
-    cairo_identity_matrix(ctx);
-    cairo_fill_extents(ctx, &xmin, &ymin, &xmax, &ymax);
-    if (!IsDegeneratePath(xmin, ymin, xmax, ymax))
-      mRect = nsSVGUtils::ToBoundingPixelRect(xmin, ymin, xmax, ymax);
+    context.IdentityMatrix();
+    extent = context.GetUserFillExtent();
+    if (!IsDegeneratePath(extent)) {
+      mRect = nsSVGUtils::ToBoundingPixelRect(extent);
+    }
   }
 
   cairo_destroy(ctx);
@@ -491,12 +492,11 @@ nsSVGPathGeometryFrame::GetBBox(nsIDOMSVGRect **_retval)
   GeneratePath(ctx, nsnull);
   cairo_identity_matrix(ctx);
 
-  cairo_fill_extents(ctx, &xmin, &ymin, &xmax, &ymax);
+  gfxRect extent = context.GetUserFillExtent();
 
-  if (IsDegeneratePath(xmin, ymin, xmax, ymax)) {
-    /* cairo_stroke_extents doesn't work with stroke width zero, fudge */
-    cairo_set_line_width(ctx, 0.0001);
-    cairo_stroke_extents(ctx, &xmin, &ymin, &xmax, &ymax);
+  if (IsDegeneratePath(extent)) {
+    context.SetLineWidth(0);
+    extent = context.GetUserStrokeExtent();
   }
 
   cairo_destroy(ctx);
@@ -597,7 +597,7 @@ nsSVGPathGeometryFrame::Render(nsISVGRendererCanvas *aCanvas)
   aCanvas->GetRenderMode(&renderMode);
 
   /* save/pop the state so we don't screw up the xform */
-  cairo_save(ctx);
+  gfx->Save();
 
   GeneratePath(ctx, cairoCanvas);
 
@@ -605,9 +605,9 @@ nsSVGPathGeometryFrame::Render(nsISVGRendererCanvas *aCanvas)
     cairo_restore(ctx);
 
     if (GetClipRule() == NS_STYLE_FILL_RULE_EVENODD)
-      cairo_set_fill_rule(ctx, CAIRO_FILL_RULE_EVEN_ODD);
+      gfx->SetFillRule(gfxContext::FILL_RULE_EVEN_ODD);
     else
-      cairo_set_fill_rule(ctx, CAIRO_FILL_RULE_WINDING);
+      gfx->SetFillRule(gfxContext::FILL_RULE_WINDING);
 
     if (renderMode == nsISVGRendererCanvas::SVG_RENDER_MODE_CLIP_MASK) {
       cairo_set_antialias(ctx, CAIRO_ANTIALIAS_NONE);
@@ -621,10 +621,10 @@ nsSVGPathGeometryFrame::Render(nsISVGRendererCanvas *aCanvas)
   switch (GetStyleSVG()->mShapeRendering) {
   case NS_STYLE_SHAPE_RENDERING_OPTIMIZESPEED:
   case NS_STYLE_SHAPE_RENDERING_CRISPEDGES:
-    cairo_set_antialias(ctx, CAIRO_ANTIALIAS_NONE);
+    gfx->SetAntialiasMode(gfxContext::MODE_ALIASED);
     break;
   default:
-    cairo_set_antialias(ctx, CAIRO_ANTIALIAS_DEFAULT);
+    gfx->SetAntialiasMode(gfxContext::MODE_COVERAGE);
     break;
   }
 
@@ -639,9 +639,9 @@ nsSVGPathGeometryFrame::Render(nsISVGRendererCanvas *aCanvas)
     CleanupCairoStroke(ctx, closure);
   }
 
-  cairo_new_path(ctx);
+  gfx->NewPath();
 
-  cairo_restore(ctx);
+  gfx->Restore();
 }
 
 void
@@ -656,14 +656,14 @@ nsSVGPathGeometryFrame::GeneratePath(cairo_t *ctx, nsISVGCairoCanvas* aCanvas)
     aCanvas->AdjustMatrixForInitialTransform(&matrix);
   }
 
-  if (nsSVGUtils::IsSingular(&matrix)) {
-    cairo_identity_matrix(ctx);
-    cairo_new_path(ctx);
+  if (matrix.IsSingular()) {
+    aContext->IdentityMatrix();
+    aContext->NewPath();
     return;
   }
   cairo_set_matrix(ctx, &matrix);
 
-  cairo_new_path(ctx);
+  aContext->NewPath();
   NS_STATIC_CAST(nsSVGPathGeometryElement*, mContent)->ConstructPath(ctx);
 }
 

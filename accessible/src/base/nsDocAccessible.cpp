@@ -107,6 +107,17 @@ nsDocAccessible::nsDocAccessible(nsIDOMNode *aDOMNode, nsIWeakReference* aShell)
 
   // XXX aaronl should we use an algorithm for the initial cache size?
   mAccessNodeCache.Init(kDefaultCacheSize);
+
+  nsCOMPtr<nsIDocShellTreeItem> docShellTreeItem =                              
+    GetDocShellTreeItemFor(mDOMNode);
+  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(docShellTreeItem);
+  if (docShell) {
+    PRUint32 busyFlags;
+    docShell->GetBusyFlags(&busyFlags);
+    if (busyFlags == nsIDocShell::BUSY_FLAGS_NONE) {
+      mIsContentLoaded = PR_TRUE;                                               
+    }
+  }
 }
 
 //-----------------------------------------------------
@@ -716,7 +727,7 @@ NS_IMETHODIMP nsDocAccessible::FireDocLoadEvents(PRUint32 aEventType)
       mDocLoadTimer->InitWithFuncCallback(DocLoadCallback, this, 0,
                                           nsITimer::TYPE_ONE_SHOT);
     }
-    //fire EVENT_STATE_CHANGE to clear STATE_BUSY
+    // Finished loading: fire EVENT_STATE_CHANGE to clear STATE_BUSY
     StateChange stateData;
     stateData.state = STATE_BUSY;
     stateData.enable = PR_FALSE;
@@ -733,7 +744,11 @@ NS_IMETHODIMP nsDocAccessible::FireDocLoadEvents(PRUint32 aEventType)
       return NS_OK; 
     }
 
-    FireToolkitEvent(nsIAccessibleEvent::EVENT_STATE_CHANGE, this, nsnull);
+    // Loading document: fire EVENT_STATE_CHANGE to set STATE_BUSY
+    StateChange stateData;
+    stateData.state = STATE_BUSY;
+    stateData.enable = PR_TRUE;
+    FireToolkitEvent(nsIAccessibleEvent::EVENT_STATE_CHANGE, this, &stateData);
   }
 
   FireToolkitEvent(aEventType, this, nsnull);
@@ -1082,6 +1097,18 @@ NS_IMETHODIMP nsDocAccessible::FlushPendingEvents()
         NS_ASSERTION(docAccessible, "No doc accessible for doc load event");
         if (docAccessible) {
           docAccessible->FireDocLoadEvents(nsIAccessibleEvent::EVENT_DOCUMENT_LOAD_COMPLETE);
+        }
+      }
+      else if (eventType == nsIAccessibleEvent::EVENT_ATK_TEXT_CARET_MOVE) {
+        nsCOMPtr<nsIAccessibleText> accessibleText = do_QueryInterface(accessible);
+        PRInt32 caretOffset;
+        if (accessibleText && NS_SUCCEEDED(accessibleText->GetCaretOffset(&caretOffset))) {
+          FireToolkitEvent(nsIAccessibleEvent::EVENT_ATK_TEXT_CARET_MOVE, accessible, &caretOffset);
+          PRInt32 selectionCount;
+          accessibleText->GetSelectionCount(&selectionCount);
+          if (selectionCount) {  // There's a selection so fire selection change as well
+           FireToolkitEvent(nsIAccessibleEvent::EVENT_ATK_TEXT_SELECTION_CHANGE, accessible, nsnull);
+          }
         }
       }
       else {

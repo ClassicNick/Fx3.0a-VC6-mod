@@ -641,9 +641,9 @@ BEGIN {
                 return;
             }
             open(BATCH, "<", "$::bonsai_dir/data/$bonsai_tree/batch-$::BatchID.pl")
-                or print "can't open batch-$::BatchID.pl<br>";
+                or warn "Cannot open $::bonsai_dir/data/$bonsai_tree/batch-$::BatchID.pl";
             while (<BATCH>) { 
-                if (/^\$TreeOpen = '(\d+)';/) {
+                if (/^\$::TreeOpen = '(\d+)';/) {
                     $treestate{$tree} = $1;
                     last;
                 }
@@ -1062,10 +1062,11 @@ sub do_quickparse($) {
     my @requestedtreelist = split /,/, $tree;
     foreach my $tt (@requestedtreelist) {
         next unless grep {$tt eq $_} @treelist;
+        tb_load_treedata($tt);
         if (&is_tree_state_available($tt)) {
             my $state = &is_tree_open($tt) ? 'open' : 'closed';
             print "State|$tt|" . 
-                $::global_treedata->{$form_ref->{tree}}->{bonsai_tree} .
+                $::global_treedata->{$tt}->{bonsai_tree} .
                 "|$state\n";
         }
         my (%build, %times);
