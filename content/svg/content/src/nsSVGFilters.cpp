@@ -2727,11 +2727,11 @@ private:
 #undef RAND_Q
 #undef RAND_R
 
-  const static int sBSize = 0x100;
-  const static int sBM = 0xff;
-  const static int sPerlinN = 0x1000;
-  const static int sNP = 12;			/* 2^PerlinN */
-  const static int sNM = 0xfff;
+  enum { sBSize = 0x100 };
+  enum { sBM = 0xff };
+  enum { sPerlinN = 0x1000 };
+  enum { sNP = 12 };			/* 2^PerlinN */
+  enum { sNM = 0xfff } ;
 
   PRInt32 mLatticeSelector[sBSize + sBSize + 2];
   double mGradient[4][sBSize + sBSize + 2][2];
