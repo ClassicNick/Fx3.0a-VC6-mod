@@ -47,6 +47,7 @@
 #include "nsComponentManagerUtils.h"
 #include "nsNativeCharsetUtils.h"
 #include "nsWidgetAtoms.h"
+#include "nsWindowAPI.h"
 #include <objbase.h>
 #include <initguid.h>
 
@@ -762,10 +763,10 @@ NS_METHOD nsToolkit::Init(PRThread *aThread)
     if (nsMsgFilterHook == NULL) {
       #if defined (_MSC_VER) && _MSC_VER <= 1100
       nsMsgFilterHook = SetWindowsHookEx(WH_CALLWNDPROC, ((int (_stdcall*)(void))DetectWindowMove), 
-                                                NULL, GetCurrentThreadId());
+                                         NULL, GetCurrentThreadId());
 	#else
 	  nsMsgFilterHook = SetWindowsHookEx(WH_CALLWNDPROC, DetectWindowMove, 
-                                                NULL, GetCurrentThreadId());
+                                         NULL, GetCurrentThreadId());
 	#endif
     }
 #endif
@@ -784,7 +785,7 @@ PRBool nsToolkit::UserIsMovingWindow(void)
 //
 //-------------------------------------------------------------------------
 LRESULT CALLBACK nsToolkit::WindowProc(HWND hWnd, UINT msg, WPARAM wParam, 
-                                            LPARAM lParam)
+                                       LPARAM lParam)
 {
     switch (msg) {
         case WM_CALLMETHOD:
@@ -888,10 +889,10 @@ PRBool nsToolkit::InitVersionInfo()
     ::ZeroMemory(&osversion, sizeof(OSVERSIONINFO));
     osversion.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
 	#else
-	OSVERSIONINFOEX osversion;
+	OSVERSIONINFO osversion;
     
     ::ZeroMemory(&osversion, sizeof(OSVERSIONINFOEX));
-    osversion.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+    osversion.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
 	#endif
 
     if (!(osVersionInfoEx = GetVersionEx((OSVERSIONINFO *)&osversion))) {

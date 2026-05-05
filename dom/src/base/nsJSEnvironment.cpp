@@ -82,8 +82,8 @@
 #include "nsContentUtils.h"
 #include "jscntxt.h"
 #include "nsEventDispatcher.h"
-#include "nsIDOMGCParticipant.h"
 #include "nsIContent.h"
+#include "nsCycleCollector.h"
 
 // For locale aware string methods
 #include "plstr.h"
@@ -3125,7 +3125,9 @@ nsJSContext::Notify(nsITimer *timer)
 {
   NS_ASSERTION(mContext, "No context in nsJSContext::Notify()!");
 
-  ::JS_GC(mContext);
+  // nsCycleCollector_collect() will run a ::JS_GC indirectly,
+  // so we do not explicitly call ::JS_GC here. 
+  nsCycleCollector_collect();
 
   sReadyForGC = PR_TRUE;
 
@@ -3173,14 +3175,6 @@ DOMGCCallback(JSContext *cx, JSGCStatus status)
 
   if (status == JSGC_BEGIN && !NS_IsMainThread())
     return JS_FALSE;
-
-  // XPCJSRuntime::GCCallback does marking from the JSGC_MARK_END callback.
-  // we need to call EndGCMark *after* marking is finished.
-  // XXX This relies on our callback being registered after
-  // XPCJSRuntime's, although if they were registered the other way
-  // around the ordering there would be correct.
-  if (status == JSGC_MARK_END)
-    nsDOMClassInfo::EndGCMark();
 
   return result;
 }

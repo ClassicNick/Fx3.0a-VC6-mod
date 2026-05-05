@@ -41,16 +41,15 @@
 #define nsPIWindowRoot_h__
 
 #include "nsISupports.h"
-#include "nsIDOMGCParticipant.h"
 
 class nsIFocusController;
 
-// a22236a5-db06-4653-94b6-c4b6068e053c
+// c18dee5a-dcf9-4391-a20c-581e769d095e
 #define NS_IWINDOWROOT_IID \
-{ 0xa22236a5, 0xdb06, 0x4653, \
-  { 0x94, 0xb6, 0xc4, 0xb6, 0x06, 0x8e, 0x05, 0x3c } }
+{ 0xc18dee5a, 0xdcf9, 0x4391, \
+  { 0xa2, 0x0c, 0x58, 0x1e, 0x76, 0x9d, 0x09, 0x5e } }
 
-class nsPIWindowRoot : public nsIDOMGCParticipant {
+class nsPIWindowRoot : public nsISupports {
 public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_IWINDOWROOT_IID)
 

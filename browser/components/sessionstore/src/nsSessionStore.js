@@ -68,34 +68,11 @@ const PRIVACY_NONE = 0;
 const PRIVACY_ENCRYPTED = 1;
 const PRIVACY_FULL = 2;
 
-/* :::::::: Pref Defaults :::::::::::::::::::: */
-
-// whether the service is enabled
-const DEFAULT_ENABLED = true;
-
-// minimal interval between two save operations (in milliseconds)
-const DEFAULT_INTERVAL = 10000;
-
-// maximum number of closed tabs remembered (per window)
-const DEFAULT_MAX_TABS_UNDO = 10;
-
-// maximal amount of POSTDATA to be stored (in bytes, -1 = all of it)
-const DEFAULT_POSTDATA = 0;
-
-// on which sites to save text data, POSTDATA and cookies
-// (0 = everywhere, 1 = unencrypted sites, 2 = nowhere)
-const DEFAULT_PRIVACY_LEVEL = PRIVACY_ENCRYPTED;
-
-// resume the current session at startup just this once
-const DEFAULT_RESUME_SESSION_ONCE = false;
-
-// resume the current session at startup if it had previously crashed
-const DEFAULT_RESUME_FROM_CRASH = true;
-
 // global notifications observed
 const OBSERVING = [
   "domwindowopened", "domwindowclosed",
   "quit-application-requested", "quit-application-granted",
+  "quit-application-roughly", // XXXzeniko work-around for bug 333907
   "quit-application", "browser:purge-session-history"
 ];
 
@@ -146,7 +123,10 @@ SessionStoreService.prototype = {
   _loadState: STATE_STOPPED,
 
   // minimal interval between two save operations (in milliseconds)
-  _interval: DEFAULT_INTERVAL,
+  _interval: 1000,
+
+  // when crash recovery is disabled, session data is not written to disk
+  _resume_from_crash: true,
 
   // time in milliseconds (Date.now()) when the session was last written to file
   _lastSaveTime: 0, 
@@ -182,7 +162,7 @@ SessionStoreService.prototype = {
     this._prefBranch.QueryInterface(Ci.nsIPrefBranch2);
 
     // if the service is disabled, do not init 
-    if (!this._getPref("sessionstore.enabled", DEFAULT_ENABLED))
+    if (!this._prefBranch.getBoolPref("sessionstore.enabled"))
       return;
 
     var observerService = Cc["@mozilla.org/observer-service;1"].
@@ -193,8 +173,12 @@ SessionStoreService.prototype = {
     }, this);
     
     // get interval from prefs - used often, so caching/observing instead of fetching on-demand
-    this._interval = this._getPref("sessionstore.interval", DEFAULT_INTERVAL);
+    this._interval = this._prefBranch.getIntPref("sessionstore.interval");
     this._prefBranch.addObserver("sessionstore.interval", this, true);
+    
+    // get crash recovery state from prefs and allow for proper reaction to state changes
+    this._resume_from_crash = this._prefBranch.getBoolPref("sessionstore.resume_from_crash");
+    this._prefBranch.addObserver("sessionstore.resume_from_crash", this, true);
     
     // observe prefs changes so we can modify stored data to match
     this._prefBranch.addObserver("sessionstore.max_tabs_undo", this, true);
@@ -243,6 +227,10 @@ SessionStoreService.prototype = {
       catch (ex) { } // nothing else we can do here
     }
 
+    // remove the session data files if crash recovery is disabled
+    if (!this._resume_from_crash)
+      this._clearDisk();
+    
     // As this is called at delayedStartup, restoration must be initiated here
     this.onLoad(aWindow);
   },
@@ -295,6 +283,7 @@ SessionStoreService.prototype = {
       this._loadState = STATE_QUITTING;
       break;
     case "quit-application":
+    case "quit-application-roughly":
       if (aData == "restart")
         this._prefBranch.setBoolPref("sessionstore.resume_session_once", true);
       this._loadState = STATE_QUITTING; // just to be sure
@@ -325,17 +314,27 @@ SessionStoreService.prototype = {
       case "sessionstore.max_tabs_undo":
         var ix;
         for (ix in this._windows) {
-          this._windows[ix]._closedTabs.splice(this._getPref("sessionstore.max_tabs_undo", DEFAULT_MAX_TABS_UNDO));
+          this._windows[ix]._closedTabs.splice(this._prefBranch.getIntPref("sessionstore.max_tabs_undo"));
         }
         break;
       case "sessionstore.interval":
-        this._interval = this._getPref("sessionstore.interval", this._interval);
+        this._interval = this._prefBranch.getIntPref("sessionstore.interval");
         // reset timer and save
         if (this._saveTimer) {
           this._saveTimer.cancel();
           this._saveTimer = null;
         }
         this.saveStateDelayed(null, -1);
+        break;
+      case "sessionstore.resume_from_crash":
+        this._resume_from_crash = this._getPref("sessionstore.resume_from_crash", this._resume_from_crash);
+        // either create the file with crash recovery information or remove it
+        // (when _loadState is not STATE_RUNNING, that file is used for session resuming instead)
+        if (this._resume_from_crash)
+          this.saveState(true);
+        else if (this._loadState == STATE_RUNNING)
+          this._clearDisk();
+        break;
       }
       break;
     case "timer-callback": // timer call back for delayed saving
@@ -540,8 +539,9 @@ SessionStoreService.prototype = {
    *        TabPanel reference
    */
   onTabClose: function sss_onTabClose(aWindow, aTab) {
+    var maxTabsUndo = this._prefBranch.getIntPref("sessionstore.max_tabs_undo");
     // don't update our internal state if we don't have to
-    if (this._getPref("sessionstore.max_tabs_undo", DEFAULT_MAX_TABS_UNDO) == 0) {
+    if (maxTabsUndo == 0) {
       return;
     }
     
@@ -557,7 +557,6 @@ SessionStoreService.prototype = {
         title: aTab.getAttribute("label"),
         pos: aTab._tPos
       });
-      var maxTabsUndo = this._getPref("sessionstore.max_tabs_undo", DEFAULT_MAX_TABS_UNDO);
       var length = this._windows[aWindow.__SSi]._closedTabs.length;
       if (length > maxTabsUndo)
         this._windows[aWindow.__SSi]._closedTabs.splice(maxTabsUndo, length - maxTabsUndo);
@@ -849,7 +848,7 @@ SessionStoreService.prototype = {
     entry.scroll = x.value + "," + y.value;
     
     try {
-      var prefPostdata = this._getPref("sessionstore.postdata", DEFAULT_POSTDATA);
+      var prefPostdata = this._prefBranch.getIntPref("sessionstore.postdata");
       if (prefPostdata && aEntry.postData && this._checkPrivacyLevel(aEntry.URI.schemeIs("https"))) {
         aEntry.postData.QueryInterface(Ci.nsISeekableStream).
                         seek(Ci.nsISeekableStream.NS_SEEK_SET, 0);
@@ -1658,14 +1657,14 @@ SessionStoreService.prototype = {
    *        Milliseconds to delay
    */
   saveStateDelayed: function sss_saveStateDelayed(aWindow, aDelay) {
-    // interval until the next disk operation is allowed
-    var minimalDelay = this._lastSaveTime + this._interval - Date.now();
-
     if (aWindow) {
       this._dirtyWindows[aWindow.__SSi] = true;
     }
 
-    if (!this._saveTimer) {
+    if (!this._saveTimer && this._resume_from_crash) {
+      // interval until the next disk operation is allowed
+      var minimalDelay = this._lastSaveTime + this._interval - Date.now();
+      
       // if we have to wait, set a timer, otherwise saveState directly
       aDelay = Math.max(minimalDelay, aDelay || 2000);
       if (aDelay > 0) {
@@ -1684,6 +1683,10 @@ SessionStoreService.prototype = {
    *        Bool update all windows 
    */
   saveState: function sss_saveState(aUpdateAll) {
+    // if crash recovery is disabled, only save session resuming information
+    if (!this._resume_from_crash && this._loadState == STATE_RUNNING)
+      return;
+    
     this._dirty = aUpdateAll;
     var oState = this._getCurrentState();
     oState.session = { state: ((this._loadState == STATE_RUNNING) ? STATE_RUNNING_STR : STATE_STOPPED_STR) };
@@ -1754,7 +1757,8 @@ SessionStoreService.prototype = {
     //XXXzeniko shouldn't it be possible to set the window's dimensions here (as feature)?
     var window = Cc["@mozilla.org/embedcomp/window-watcher;1"].
                  getService(Ci.nsIWindowWatcher).
-                 openWindow(null, this._getPref("chromeURL", null), "_blank", "chrome,dialog=no,all", argString);
+                 openWindow(null, this._prefBranch.getCharPref("chromeURL"), "_blank",
+                            "chrome,dialog=no,all", argString);
     
     window.__SS_state = aState;
     var _this = this;
@@ -1770,8 +1774,8 @@ SessionStoreService.prototype = {
    * @returns bool
    */
   _doResumeSession: function sss_doResumeSession() {
-    return this._getPref("startup.page", 1) == 3 ||
-      this._getPref("sessionstore.resume_session_once", DEFAULT_RESUME_SESSION_ONCE);
+    return this._prefBranch.getIntPref("startup.page") == 3 ||
+      this._prefBranch.getBoolPref("sessionstore.resume_session_once");
   },
 
   /**
@@ -1798,7 +1802,7 @@ SessionStoreService.prototype = {
    * @returns bool
    */
   _checkPrivacyLevel: function sss_checkPrivacyLevel(aIsHTTPS) {
-    return this._getPref("sessionstore.privacy_level", DEFAULT_PRIVACY_LEVEL) < (aIsHTTPS ? PRIVACY_ENCRYPTED : PRIVACY_FULL);
+    return this._prefBranch.getIntPref("sessionstore.privacy_level") < (aIsHTTPS ? PRIVACY_ENCRYPTED : PRIVACY_FULL);
   },
 
   /**
@@ -1952,31 +1956,6 @@ SessionStoreService.prototype = {
   },
 
 /* ........ Storage API .............. */
-
-  /**
-   * basic pref reader
-   * @param aName
-   * @param aDefault
-   * @param aUseRootBranch
-   */
-  _getPref: function sss_getPref(aName, aDefault) {
-    var pb = this._prefBranch;
-    try {
-      switch (pb.getPrefType(aName)) {
-      case pb.PREF_STRING:
-        return pb.getCharPref(aName);
-      case pb.PREF_BOOL:
-        return pb.getBoolPref(aName);
-      case pb.PREF_INT:
-        return pb.getIntPref(aName);
-      default:
-        return aDefault;
-      }
-    }
-    catch(ex) {
-      return aDefault;
-    }
-  },
 
   /**
    * write file to disk

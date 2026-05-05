@@ -1982,6 +1982,13 @@ JS_SetGCCallbackRT(JSRuntime *rt, JSGCCallback cb)
     return oldcb;
 }
 
+JS_PUBLIC_API(void)
+JS_SetGCThingCallback(JSContext *cx, JSGCThingCallback cb, void *closure)
+{
+    cx->runtime->gcThingCallback = cb;
+    cx->runtime->gcThingCallbackClosure = closure;
+}
+
 JS_PUBLIC_API(JSBool)
 JS_IsAboutToBeFinalized(JSContext *cx, void *thing)
 {
@@ -3334,16 +3341,13 @@ prop_iter_mark(JSContext *cx, JSObject *obj, void *arg)
         /* Native case: just mark the next property to visit. */
         sprop = (JSScopeProperty *) JSVAL_TO_PRIVATE(v);
         if (sprop)
-            MARK_SCOPE_PROPERTY(sprop);
+            MARK_SCOPE_PROPERTY(cx, sprop);
     } else {
         /* Non-native case: mark each id in the JSIdArray private. */
         ida = (JSIdArray *) JSVAL_TO_PRIVATE(v);
         for (i = 0, n = ida->length; i < n; i++) {
             id = ida->vector[i];
-            if (JSID_IS_ATOM(id))
-                GC_MARK_ATOM(cx, JSID_TO_ATOM(id));
-            else if (JSID_IS_OBJECT(id))
-                GC_MARK(cx, JSID_TO_OBJECT(id), "id");
+            MARK_ID(cx, id);
         }
     }
     return 0;

@@ -2103,9 +2103,13 @@ MarkGCThingChildren(JSContext *cx, void *thing, uint8 *flagp,
             if (!JSVAL_IS_GCTHING(v) || v == JSVAL_NULL)
                 continue;
             next_thing = JSVAL_TO_GCTHING(v);
+            next_flagp = js_GetGCThingFlags(next_thing);
+            if (rt->gcThingCallback) {
+                rt->gcThingCallback(next_thing, *next_flagp, 
+                                    rt->gcThingCallbackClosure);
+            }
             if (next_thing == thing)
                 continue;
-            next_flagp = js_GetGCThingFlags(next_thing);
             if (*next_flagp & GCF_MARK)
                 continue;
             JS_ASSERT(*next_flagp != GCF_FINAL);
@@ -2158,6 +2162,10 @@ MarkGCThingChildren(JSContext *cx, void *thing, uint8 *flagp,
             break;
         thing = JSSTRDEP_BASE(str);
         flagp = js_GetGCThingFlags(thing);
+        if (rt->gcThingCallback) {
+            rt->gcThingCallback(thing, *flagp, 
+                                rt->gcThingCallbackClosure);
+        }
         if (*flagp & GCF_MARK)
             break;
 #ifdef GC_MARK_DEBUG
@@ -2468,6 +2476,12 @@ js_MarkGCThing(JSContext *cx, void *thing)
 
     flagp = js_GetGCThingFlags(thing);
     JS_ASSERT(*flagp != GCF_FINAL);
+
+    if (cx->runtime->gcThingCallback) {
+        cx->runtime->gcThingCallback(thing, *flagp, 
+                                     cx->runtime->gcThingCallbackClosure);
+    }
+
     if (*flagp & GCF_MARK)
         return;
     *flagp |= GCF_MARK;
@@ -2943,14 +2957,20 @@ restart:
             js_MarkLocalRoots(cx, acx->localRootStack);
 
         for (tvr = acx->tempValueRooters; tvr; tvr = tvr->down) {
-            if (tvr->count == -1) {
+            switch (tvr->count) {
+              case JSTVU_SINGLE:
                 if (JSVAL_IS_GCTHING(tvr->u.value)) {
                     GC_MARK(cx, JSVAL_TO_GCTHING(tvr->u.value),
                             "tvr->u.value");
                 }
-            } else if (tvr->count == -2) {
+                break;
+              case JSTVU_MARKER:
                 tvr->u.marker(cx, tvr);
-            } else {
+                break;
+              case JSTVU_SPROP:
+                MARK_SCOPE_PROPERTY(cx, tvr->u.sprop);
+                break;
+              default:
                 JS_ASSERT(tvr->count >= 0);
                 GC_MARK_JSVALS(cx, tvr->count, tvr->u.array, "tvr->u.array");
             }
