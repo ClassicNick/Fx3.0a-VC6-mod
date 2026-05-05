@@ -2203,9 +2203,14 @@ nsCSSFrameConstructor::CreateGeneratedContentFrame(nsFrameConstructorState& aSta
     nsIFrame*     containerFrame;
     nsFrameItems  childFrames;
 
-    if (NS_STYLE_DISPLAY_BLOCK ==
-        pseudoStyleContext->GetStyleDisplay()->mDisplay) {
-      containerFrame = NS_NewBlockFrame(mPresShell, pseudoStyleContext);
+    const PRUint8 disp = pseudoStyleContext->GetStyleDisplay()->mDisplay;
+    if (disp == NS_STYLE_DISPLAY_BLOCK ||
+        disp == NS_STYLE_DISPLAY_INLINE_BLOCK) {
+      PRUint32 flags = 0;
+      if (disp == NS_STYLE_DISPLAY_INLINE_BLOCK) {
+        flags = NS_BLOCK_SPACE_MGR | NS_BLOCK_MARGIN_ROOT;
+      }
+      containerFrame = NS_NewBlockFrame(mPresShell, pseudoStyleContext, flags);
     } else {
       containerFrame = NS_NewInlineFrame(mPresShell, pseudoStyleContext);
     }        
@@ -7205,7 +7210,8 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
       newFrame = NS_NewSVGInnerSVGFrame(mPresShell, aContent, aStyleContext);
     }
   }
-  else if (aTag == nsGkAtoms::g) {
+  else if (aTag == nsGkAtoms::g ||
+           aTag == nsGkAtoms::svgSwitch) {
     newFrame = NS_NewSVGGFrame(mPresShell, aContent, aStyleContext);
   }
   else if (aTag == nsGkAtoms::polygon ||
@@ -7294,6 +7300,7 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     // information, so create the simplest possible frame.
     newFrame = NS_NewSVGLeafFrame(mPresShell, aStyleContext);
   }
+
   
   if (newFrame == nsnull) {
     // Either we have an unknown tag, or construction of a frame
@@ -8566,7 +8573,8 @@ nsCSSFrameConstructor::ContentAppended(nsIContent*     aContainer,
   if (haveFirstLineStyle) {
     // It's possible that some of the new frames go into a
     // first-line frame. Look at them and see...
-    AppendFirstLineFrames(state, aContainer, parentFrame, frameItems); 
+    AppendFirstLineFrames(state, containingBlock->GetContent(),
+                          containingBlock, frameItems); 
   }
 
   nsresult result = NS_OK;
@@ -9154,7 +9162,8 @@ nsCSSFrameConstructor::ContentInserted(nsIContent*            aContainer,
     // frame. Look at it and see...
     if (isAppend) {
       // Use append logic when appending
-      AppendFirstLineFrames(state, aContainer, parentFrame, frameItems); 
+      AppendFirstLineFrames(state, containingBlock->GetContent(),
+                            containingBlock, frameItems); 
     }
     else {
       // Use more complicated insert logic when inserting
@@ -11336,8 +11345,8 @@ ReparentFrame(nsFrameManager* aFrameManager,
 nsresult
 nsCSSFrameConstructor::WrapFramesInFirstLineFrame(
   nsFrameConstructorState& aState,
-  nsIContent*              aContent,
-  nsIFrame*                aFrame,
+  nsIContent*              aBlockContent,
+  nsIFrame*                aBlockFrame,
   nsFrameItems&            aFrameItems)
 {
   nsresult rv = NS_OK;
@@ -11363,15 +11372,16 @@ nsCSSFrameConstructor::WrapFramesInFirstLineFrame(
   }
 
   // Create line frame
-  nsStyleContext* parentStyle = aFrame->GetStyleContext();
-  nsRefPtr<nsStyleContext> firstLineStyle = GetFirstLineStyle(aContent,
+  nsStyleContext* parentStyle = aBlockFrame->GetStyleContext();
+  nsRefPtr<nsStyleContext> firstLineStyle = GetFirstLineStyle(aBlockContent,
                                                               parentStyle);
 
   nsIFrame* lineFrame = NS_NewFirstLineFrame(mPresShell, firstLineStyle);
 
   if (lineFrame) {
     // Initialize the line frame
-    rv = InitAndRestoreFrame(aState, aContent, aFrame, nsnull, lineFrame);
+    rv = InitAndRestoreFrame(aState, aBlockContent, aBlockFrame, nsnull,
+                             lineFrame);
 
     // Mangle the list of frames we are giving to the block: first
     // chop the list in two after lastInlineFrame
@@ -11414,7 +11424,7 @@ nsCSSFrameConstructor::WrapFramesInFirstLineFrame(
 nsresult
 nsCSSFrameConstructor::AppendFirstLineFrames(
   nsFrameConstructorState& aState,
-  nsIContent*              aContent,
+  nsIContent*              aBlockContent,
   nsIFrame*                aBlockFrame,
   nsFrameItems&            aFrameItems)
 {
@@ -11422,7 +11432,7 @@ nsCSSFrameConstructor::AppendFirstLineFrames(
   // created because it doesn't currently have any children.
   nsIFrame* blockKid = aBlockFrame->GetFirstChild(nsnull);
   if (!blockKid) {
-    return WrapFramesInFirstLineFrame(aState, aContent,
+    return WrapFramesInFirstLineFrame(aState, aBlockContent,
                                       aBlockFrame, aFrameItems);
   }
 
@@ -11496,6 +11506,9 @@ nsCSSFrameConstructor::InsertFirstLineFrames(
   nsFrameItems&            aFrameItems)
 {
   nsresult rv = NS_OK;
+  // XXXbz If you make this method actually do something, check to make sure
+  // that the caller is passing what you expect.  In particular, which content
+  // is aContent?
 #if 0
   nsIFrame* parentFrame = *aParentFrame;
   nsIFrame* newFrame = aFrameItems.childList;

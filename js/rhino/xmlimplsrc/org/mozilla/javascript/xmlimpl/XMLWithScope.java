@@ -79,7 +79,7 @@ final class XMLWithScope extends NativeWith
         }
         // Always return the outer-most type of XML lValue of
         // XML to left of dotQuery.
-        _xmlList = new XMLList(lib);
+        _xmlList = lib.newXMLList();
     }
 
     protected Object updateDotQuery(boolean value)

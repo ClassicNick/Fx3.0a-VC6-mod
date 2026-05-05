@@ -1192,6 +1192,15 @@ tabpanels.plain {
 	background-color: #fff !important;
 }
 
+/* ::::: Help menu items ::::: */
+#helpMenu[phishLevel="safe"] #menu_HelpPopup_reportPhishingErrortoolmenu {
+  display: none;
+}
+
+#helpMenu[phishLevel="warn"] #menu_HelpPopup_reportPhishingtoolmenu {
+  display: none;
+}
+
 %ifdef MOZ_PLACES_BOOKMARKS
 #places-bookmark {
   list-style-image: url("chrome://browser/skin/places/bookmarksToolbar.png");
@@ -1204,10 +1213,6 @@ tabpanels.plain {
 
 #places-subscribe[disabled="true"] {
   opacity: 0.3;
-}
-
-#bookmarksBarShowPlaces {
-  list-style-image: url("chrome://browser/skin/places/placesIcon.png");
 }
 
 /* Personal toolbar */

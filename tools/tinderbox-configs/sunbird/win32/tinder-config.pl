@@ -55,7 +55,7 @@ $UseTimeStamp      = 0;      # Use the CVS 'pull-by-timestamp' option, or not
 #$TestOnly          = 0;      # Only run tests, don't pull/build
 #$BuildEmbed        = 0;      # After building seamonkey, go build embed app.
 #$SkipMozilla       = 0;      # Use to debug post-mozilla.pl scripts.
-#$BuildLocales      = 1;      # Do l10n packaging?
+$BuildLocales      = 1;      # Do l10n packaging?
 
 # Tests
 $CleanProfile             = 1;
@@ -176,9 +176,9 @@ $BuildNameExtra = 'Sb-Nightly';
 # Configure only, don't build.
 #$ConfigureOnly = 0;
 %WGetFiles = (
-	      "http://stage.mozilla.org/pub/mozilla.org/calendar/sunbird/nightly/latest-trunk/sunbird-0.3.en-US.win32.zip" =>
+	      "http://stage.mozilla.org/pub/mozilla.org/calendar/sunbird/nightly/latest-trunk/sunbird-0.3.1.en-US.win32.zip" =>
 	      "/cygdrive/d/builds/tinderbox/Sunbird-Trunk/WINNT_5.2_Depend/sunbird.zip",
-	      "http://stage.mozilla.org/pub/mozilla.org/calendar/sunbird/nightly/latest-trunk/sunbird-0.3.en-US.win32.installer.exe" =>
+	      "http://stage.mozilla.org/pub/mozilla.org/calendar/sunbird/nightly/latest-trunk/sunbird-0.3.1.en-US.win32.installer.exe" =>
 	      "/cygdrive/d/builds/tinderbox/Sunbird-Trunk/WINNT_5.2_Depend/sunbird-installer.exe"
 	      );
 
@@ -198,6 +198,13 @@ $BuildTree  = 'Sunbird';
 #- tree other than $BuildTree-ab-CD, define the tree here. -ab-CD will be
 #- appended for you.
 $LocaleTree = 'Mozilla-l10n';
+
+#- By default, locale builds delete the wget-ed en-US build from the local
+#- stage directory before rsyncing the freshly baked l10n builds up to the
+#- FTP server.  This prevents the rsync from accidentally overwriting the
+#- already existing en-US build on the FTP server.  This behaviour is most
+#- useful when building en-US and the other locales on different machines.
+$DeleteEnUsOnLocalesUpload = 0;
 
 #$BuildName = '';
 $BuildTag = 'SUNBIRD_0_3_BRANCH';

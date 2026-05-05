@@ -248,8 +248,6 @@ protected:
   nsRefPtr<nsGenericHTMLElement> mFrameset;
   nsGenericHTMLElement* mHead;
 
-  PRPackedBool mInTitle;
-
   nsString mTitleString;
   nsRefPtr<nsGenericHTMLElement> mCurrentForm;
 
@@ -268,6 +266,15 @@ protected:
   // attributes once already.
   PRPackedBool mHaveSeenHead;
 
+  // Boolean indicating whether we've notified insertion of our root content
+  // yet.  We want to make sure to only do this once.
+  PRPackedBool mNotifiedRootInsertion;
+
+  PRUint8 mScriptEnabled : 1;
+  PRUint8 mFramesEnabled : 1;
+  PRUint8 mFormOnStack : 1;
+  PRUint8 unused : 5;  // bits available if someone needs one
+
   nsCOMPtr<nsIObserverEntry> mObservers;
 
   nsINodeInfo* mNodeInfoCache[NS_HTML_TAG_MAX + 1];
@@ -275,8 +282,6 @@ protected:
   nsresult FlushTags();
 
   void StartLayout();
-
-  void TryToScrollToRef();
 
   /**
    * AddBaseTagInfo adds the "current" base URI and target to the content node
@@ -1595,7 +1600,7 @@ HTMLContentSink::~HTMLContentSink()
 
   delete mHeadContext;
 
-  for (i = 0; i < NS_ARRAY_LENGTH(mNodeInfoCache); ++i) {
+  for (i = 0; PRUint32(i) < NS_ARRAY_LENGTH(mNodeInfoCache); ++i) {
     NS_IF_RELEASE(mNodeInfoCache[i]);
   }
 }
@@ -1840,14 +1845,7 @@ HTMLContentSink::DidBuildModel(void)
     }
   }
 
-  if (mDocShell) {
-    PRUint32 LoadType = 0;
-    mDocShell->GetLoadType(&LoadType);
-
-    if (ScrollToRef(!(LoadType & nsIDocShell::LOAD_CMD_HISTORY))) {
-      mScrolledToRefAlready = PR_TRUE;
-    }
-  }
+  ScrollToRef();
 
   nsScriptLoader *loader = mDocument->GetScriptLoader();
   if (loader) {
@@ -2817,22 +2815,6 @@ HTMLContentSink::StartLayout()
   mHTMLDocument->SetIsFrameset(mFrameset != nsnull);
 
   nsContentSink::StartLayout(mFrameset != nsnull);
-}
-
-void
-HTMLContentSink::TryToScrollToRef()
-{
-  if (mRef.IsEmpty()) {
-    return;
-  }
-
-  if (mScrolledToRefAlready) {
-    return;
-  }
-
-  if (ScrollToRef(PR_TRUE)) {
-    mScrolledToRefAlready = PR_TRUE;
-  }
 }
 
 void

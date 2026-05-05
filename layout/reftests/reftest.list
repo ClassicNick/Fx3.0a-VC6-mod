@@ -16,8 +16,8 @@
 == bugs/9458-zorder-1.html bugs/9458-zorder-ref.html
 == bugs/9458-zorder-2.html bugs/9458-zorder-ref.html
 == bugs/9458-zorder-3.html bugs/9458-zorder-ref-inline.html
-== bugs/9458-zorder-4.html bugs/9458-zorder-ref-inline.html
-== bugs/9458-zorder-5.html bugs/9458-zorder-ref-inline.html
+== bugs/9458-zorder-4.html bugs/9458-zorder-ref-inline-block.html
+== bugs/9458-zorder-5.html bugs/9458-zorder-ref-inline-block.html
 == bugs/18217-basic-1.html bugs/18217-basic-1-ref.html
 == bugs/18217-basic-2a.html bugs/18217-basic-2-ref.html
 == bugs/18217-basic-2b.html bugs/18217-basic-2-ref.html
@@ -31,10 +31,18 @@
 == bugs/18217-zorder-1.html bugs/18217-zorder-ref.html
 == bugs/18217-zorder-2.html bugs/18217-zorder-ref.html
 == bugs/18217-zorder-3.html bugs/18217-zorder-ref-inline.html
-== bugs/18217-zorder-4.html bugs/18217-zorder-ref-inline.html
-== bugs/18217-zorder-5.html bugs/18217-zorder-ref-inline.html
+== bugs/18217-zorder-4.html bugs/18217-zorder-ref-inline-table.html
+== bugs/18217-zorder-5.html bugs/18217-zorder-ref-inline-table.html
+== bugs/28811-1a.html bugs/28811-1-ref.html
+== bugs/28811-1b.html bugs/28811-1-ref.html
+== bugs/28811-2a.html bugs/28811-2-ref.html
+== bugs/28811-2b.html bugs/28811-2-ref.html
 == bugs/142233-1.html bugs/142233-1-ref.html
-== bugs/328829-1.xhtml bugs/328829-1-ref.xhtml
+== bugs/163504-1a.html bugs/163504-1-ref.html
+== bugs/163504-1b.html bugs/163504-1-ref.html
+== bugs/163504-2a.html bugs/163504-2-ref.html
+== bugs/163504-2b.html bugs/163504-2-ref.html
+# == bugs/328829-1.xhtml bugs/328829-1-ref.xhtml # bug 369046 (intermittent)
 == bugs/328829-2.xhtml bugs/328829-2-ref.xhtml
 == bugs/339289-1.html bugs/339289-1-ref.html
 == bugs/347912-1.html bugs/347912-1-ref.html
@@ -74,6 +82,12 @@ f== bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
 == bugs/273681-1.html bugs/273681-1-ref.html
 == bugs/335628-1.html bugs/335628-1-ref.html
 != bugs/335628-2.xul bugs/335628-2-ref.xul
+== bugs/367247-s-visible.html bugs/367247-s-hidden.html
+== bugs/367247-s-hidden.html bugs/367247-s-auto.html
+!= bugs/367247-s-auto.html bugs/367247-s-scroll.html
+!= bugs/367247-l-visible.html bugs/367247-l-hidden.html
+!= bugs/367247-l-hidden.html bugs/367247-l-scroll.html
+== bugs/367247-l-scroll.html bugs/367247-l-auto.html
 == bugs/367332-1a.html bugs/367332-1-ref.html
 == bugs/367332-1b.html bugs/367332-1-ref.html
 == bugs/367332-1c.html bugs/367332-1-ref.html
@@ -101,6 +115,71 @@ f== bugs/368020-1.html bugs/368020-1-ref.html # bug 368079
 f== bugs/368020-3.html bugs/368020-3-ref.html # bug 368085
 f== bugs/368020-4.html bugs/368020-4-ref.html # bug 368085
 == bugs/368020-5.html bugs/368020-5-ref.html
+== bugs/368622-1.html bugs/368622-1-ref.html
+== bugs/368622-1.html bugs/368622-1-ref.html
+== bugs/40596-1a.html bugs/40596-1-ref.html
+!= bugs/40596-1b.html bugs/40596-1-ref.html
+== bugs/40596-1c.html bugs/40596-1-ref.html
+!= bugs/40596-1d.html bugs/40596-1-ref.html
+== bugs/40596-1e.html bugs/40596-1-ref.html
+!= bugs/40596-1f.html bugs/40596-1-ref.html
+== bugs/40596-1g.html bugs/40596-1-ref.html
+!= bugs/40596-1h.html bugs/40596-1-ref.html
+== bugs/40596-1i.html bugs/40596-1-ref.html
+!= bugs/40596-1j.html bugs/40596-1-ref.html
+
+
+# object/
+== object/no-attrs.html object/no-attrs-ref.html
+== object/404-data.html object/404-data-ref.html
+== object/404-data-with-type.html object/404-data-with-type-ref.html
+== object/page-as-data.html object/page-as-data-ref.html
+== object/page-as-data-with-type.html object/page-as-data-with-type-ref.html
+== object/connection-refused.html object/connection-refused-ref.html
+== object/image.html object/image-ref.html
+== object/image-with-type.html object/image-with-type-ref.html
+== object/image-no-useful-extension-typesniff.html object/image-no-useful-extension-typesniff-ref.html
+== object/image-no-useful-extension-with-type.html object/image-no-useful-extension-with-type-ref.html
+#
+# XXX missing tests 011-015 from http://biesi.damowmow.com/object/ here; need
+#     a controllable HTTP server (or preferably one run on the test machine)
+#     to add them
+#
+== object/malformed-should-fallback.html object/malformed-should-fallback-ref.html
+== object/malformed-with-type.html object/malformed-with-type-ref.html
+#
+# XXX missing tests 018-021 from http://biesi.damowmow.com/object/ here; need
+#     a controllable HTTP server (or preferably one run on the test machine)
+#     to add them
+#
+== object/unknown-type.html object/unknown-type-ref.html
+== object/malformed-xml.html object/malformed-xml-ref.html
+== object/malformed-xml-with-type.html object/malformed-xml-with-type-ref.html
+#
+# XXX missing tests 025-28 from http://biesi.damowmow.com/object/ here; would
+#     need to require Flash on the test machine to run them
+#
+# XXX need to support <img src="foo.svg"> for these to pass
+f== object/svg.html object/svg-ref.html
+f== object/svg-with-type.html object/svg-with-type-ref.html
+#
+# XXX missing test 031 from http://biesi.damowmow.com/object/ here; need to
+#     first support the standby attribute on objects, then need to figure out
+#     how to reproduce the setup needed for that test such that reftest will
+#     handle it correctly, since a still-loading image probably delays the
+#     snapshot reftest takes
+#
+# XXX missing test 032 from http://biesi.damowmow.com/object/ here; would
+#     need to require Java on test machine to run it
+#
+# XXX missing test 033 from http://biesi.damowmow.com/object/ here; not sure
+#     how nullplugin testing should work
+#
+#
+# XXX missing test 034 from http://biesi.damowmow.com/object/ here; would
+#     need to require Flash on the test machine to run them
+#
+== object/malformed-uri.html object/malformed-uri-ref.html
 
 # table-dom/
 == table-dom/appendCells1.html table-dom/appendCells1-ref.html

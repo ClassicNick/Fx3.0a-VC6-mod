@@ -11,7 +11,7 @@ use Cwd;
 
 use base qw(Exporter);
 
-our @EXPORT_OK = qw(RunShellCommand MkdirWithPath HashFile);
+our @EXPORT_OK = qw(RunShellCommand MkdirWithPath HashFile DownloadFile Email);
 
 my $DEFAULT_EXEC_TIMEOUT = 600;
 my $EXEC_IO_READINCR = 1000;
@@ -235,7 +235,15 @@ sub MkdirWithPath {
 
     my $dirToCreate = $args{'dir'};
     my $printProgress = $args{'printProgress'};
-    my $dirMask = $args{'dirMask'};
+    my $dirMask = undef;
+
+    # Renamed this argument, since "mask" makes more sense; it takes
+    # precedence over the older argument name.
+    if (exists($args{'mask'})) {
+        $dirMask = $args{'mask'};
+    } elsif (exists($args{'dirMask'})) {
+        $dirMask = $args{'dirMask'};
+    }
 
     die "ASSERT: MkdirWithPath() needs an arg" if not defined($dirToCreate);
 
@@ -252,7 +260,7 @@ sub HashFile {
    die "ASSERT: null file to hash\n" if (not defined($args{'file'}));
 
    my $fileToHash = $args{'file'};
-   my $hashFunction = $args{'type'} || 'md5';
+   my $hashFunction = lc($args{'type'}) || 'md5';
    my $dumpOutput = $args{'output'} || 0;
    my $ignoreErrors = $args{'ignoreErrors'} || 0;
 
@@ -269,11 +277,12 @@ sub HashFile {
 
    # We use openssl because that's pretty much guaranteed to be on all the
    # platforms we want; md5sum and sha1sum aren't.
-   my $rv = RunShellCommand(command => "openssl dgst -$hashFunction " .
-                                       "\"$fileToHash\"",
+   my $rv = RunShellCommand(command => 'openssl',
+                            args => ['dgst', "-$hashFunction",
+                                            $fileToHash, ],
                             output => $dumpOutput);
    
-   if ($rv->{'exitValue'} != 0) {
+   if ($rv->{'timedOut'} || $rv->{'exitValue'} != 0) {
       if ($ignoreErrors) {
          return '';      
       } else {
@@ -288,6 +297,86 @@ sub HashFile {
    # Removes everything up to and including the "= "
    $hashValue =~ s/^.+\s+(\w+)$/$1/;
    return $hashValue;
+}
+
+sub Email {
+    my %args = @_;
+
+    my $from = $args{'from'};
+    my $to = $args{'to'};
+    my $ccList = $args{'cc'} ? $args{'cc'} : '';
+    my $subject = $args{'subject'};
+    my $message = $args{'message'};
+
+    if (not defined($from)) {
+        die("ASSERT: MozBuild::Utils::Email(): from is required");
+    } elsif (not defined($to)) {
+        die("ASSERT: MozBuild::Utils::Email(): to is required");
+    } elsif (not defined($subject)) {
+        die("ASSERT: MozBuild::Utils::Email(): subject is required");
+    } elsif (not defined($message)) {
+        die("ASSERT: MozBuild::Utils::Email(): subject is required");
+    }    
+
+    if (defined($ccList) and ref($ccList) ne 'ARRAY') {
+        die "ASSERT: MozBuild::Utils::Email(): ccList is not an array ref\n"
+    }
+
+    my $sendmailBinary = '/usr/lib/sendmail';
+    my $blatBinary = 'c:\moztools\blat.exe';
+
+    if (-f $sendmailBinary) {
+        open(SENDMAIL, "|$sendmailBinary -oi -t")
+          or die "Can’t fork for sendmail: $!\n";
+    } elsif(-f $blatBinary) {
+        open(SENDMAIL, "|$blatBinary")
+          or die "Can’t fork for blat: $!\n";
+    } else {
+        die("ASSERT: cannot find $sendmailBinary or $blatBinary");
+    }
+
+    print SENDMAIL "From: $from\n";
+    print SENDMAIL "To: $to\n";
+    foreach my $cc (@{$ccList}) {
+        print SENDMAIL "CC: $cc\n";
+    }
+    print SENDMAIL "Subject: $subject\n\n";
+    print SENDMAIL "$message";
+    close(SENDMAIL) or warn "sendmail didn’t close nicely: $!";
+
+}
+
+sub DownloadFile {
+    my %args = @_;
+
+    my $sourceUrl = $args{'url'};
+
+    die "ASSERT: DownloadFile() Invalid Source URL: $sourceUrl\n" 
+     if (not(defined($sourceUrl)) || $sourceUrl !~ m|^http://|);
+
+    my @wgetArgs = ();
+    
+    if (defined($args{'dest'})) {
+        push(@wgetArgs, ('-O', $args{'dest'}));
+    }
+   
+    if (defined($args{'user'})) {
+        push(@wgetArgs, ('--http-user', $args{'user'}));
+    }
+
+    if (defined($args{'password'})) {
+        push(@wgetArgs, ('--http-password', $args{'password'}));
+    }
+
+    push(@wgetArgs, ('--progress=dot:mega', $sourceUrl));
+
+    my $rv = RunShellCommand(command => 'wget',
+                             args => \@wgetArgs);
+
+    if ($rv->{'timedOut'} || $rv->{'exitValue'} != 0) {
+        die "DownloadFile(): FAILED: $rv->{'exitValue'}," . 
+         " output: $rv->{'output'}\n";
+    }
 }
 
 1;

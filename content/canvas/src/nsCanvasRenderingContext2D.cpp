@@ -92,6 +92,9 @@
 #include "nsIPresShell.h"
 #include "nsIDOMWindow.h"
 #include "nsPIDOMWindow.h"
+#include "nsIDocShell.h"
+#include "nsIDocShellTreeItem.h"
+#include "nsIDocShellTreeNode.h"
 #include "nsIXPConnect.h"
 #include "jsapi.h"
 #include "jsnum.h"
@@ -1205,6 +1208,30 @@ nsCanvasRenderingContext2D::Translate(float x, float y)
         return NS_ERROR_DOM_SYNTAX_ERR;
 
     cairo_translate (mCairo, x, y);
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsCanvasRenderingContext2D::Transform(float m11, float m12, float m21, float m22, float dx, float dy)
+{
+    if (!FloatValidate(m11,m12,m21,m22,dx,dy))
+        return NS_ERROR_DOM_SYNTAX_ERR;
+
+    cairo_matrix_t mat;
+    cairo_matrix_init (&mat, m11, m12, m21, m22, dx, dy);
+    cairo_transform (mCairo, &mat);
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsCanvasRenderingContext2D::SetTransform(float m11, float m12, float m21, float m22, float dx, float dy)
+{
+    if (!FloatValidate(m11,m12,m21,m22,dx,dy))
+        return NS_ERROR_DOM_SYNTAX_ERR;
+
+    cairo_matrix_t mat;
+    cairo_matrix_init (&mat, m11, m12, m21, m22, dx, dy);
+    cairo_set_matrix (mCairo, &mat);
     return NS_OK;
 }
 
@@ -2501,6 +2528,37 @@ CheckSaneSubrectSize (PRInt32 x, PRInt32 y, PRInt32 w, PRInt32 h, PRInt32 realWi
     return PR_TRUE;
 }
 
+static void
+FlushLayoutForTree(nsIDOMWindow* aWindow)
+{
+    // Note that because FlushPendingNotifications flushes parents, this
+    // is O(N^2) in docshell tree depth.  However, the docshell tree is
+    // usually pretty shallow.
+
+    nsCOMPtr<nsIDOMDocument> domDoc;
+    aWindow->GetDocument(getter_AddRefs(domDoc));
+    nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
+    if (doc) {
+        doc->FlushPendingNotifications(Flush_Layout);
+    }
+
+    nsCOMPtr<nsPIDOMWindow> piWin = do_QueryInterface(aWindow);
+    nsCOMPtr<nsIDocShellTreeNode> node =
+        do_QueryInterface(piWin->GetDocShell());
+    if (node) {
+        PRInt32 i = 0, i_end;
+        node->GetChildCount(&i_end);
+        for (; i < i_end; ++i) {
+            nsCOMPtr<nsIDocShellTreeItem> item;
+            node->GetChildAt(i, getter_AddRefs(item));
+            nsCOMPtr<nsIDOMWindow> win = do_GetInterface(item);
+            if (win) {
+                FlushLayoutForTree(win);
+            }
+        }
+    }
+}
+
 NS_IMETHODIMP
 nsCanvasRenderingContext2D::DrawWindow(nsIDOMWindow* aWindow, PRInt32 aX, PRInt32 aY,
                                        PRInt32 aW, PRInt32 aH, 
@@ -2526,14 +2584,7 @@ nsCanvasRenderingContext2D::DrawWindow(nsIDOMWindow* aWindow, PRInt32 aX, PRInt3
     }
     
     // Flush layout updates
-    nsCOMPtr<nsIDOMDocument> domDoc;
-    aWindow->GetDocument(getter_AddRefs(domDoc));
-    if (domDoc) {
-        nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
-        if (doc) {
-            doc->FlushPendingNotifications(Flush_Layout);
-        }
-    }
+    FlushLayoutForTree(aWindow);
 
     nsCOMPtr<nsPresContext> presContext;
 #ifdef MOZILLA_1_8_BRANCH
@@ -2600,6 +2651,7 @@ nsCanvasRenderingContext2D::DrawWindow(nsIDOMWindow* aWindow, PRInt32 aX, PRInt3
 
     nsIFrame* rootFrame = presShell->FrameManager()->GetRootFrame();
     if (rootFrame) {
+        // XXX This shadows the other |r|, above.
         nsRect r(aX, aY, aW, aH);
         r.ScaleRoundOut(presContext->PixelsToTwips());
 

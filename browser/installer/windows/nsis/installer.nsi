@@ -313,6 +313,10 @@ Section "-Application" Section1
   ${DeleteFile} "$INSTDIR\install_wizard.log"
   ${DeleteFile} "$INSTDIR\install_status.log"
 
+  RmDir /r "$INSTDIR\updates"
+  ${DeleteFile} "$INSTDIR\updates.xml"
+  ${DeleteFile} "$INSTDIR\active-update.xml"
+
   SetDetailsPrint textonly
   DetailPrint $(STATUS_INSTALL_APP)
   SetDetailsPrint none
@@ -441,9 +445,7 @@ Section "-Application" Section1
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal}\${AppVersion} (${AB_CD})\Uninstall"
   ${WriteRegDWORD2} $TmpVal "$0" "Create Start Menu Shortcut" $AddStartMenuSC 0
 
-  ${FixFileKeys}
-
-  ${FixProtocolKeys}
+  ${FixClassKeys}
 
   ; The following keys should only be set if we can write to HKLM
   ${If} $TmpVal == "HKLM"

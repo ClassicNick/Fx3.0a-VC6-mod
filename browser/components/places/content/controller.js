@@ -257,13 +257,17 @@ PlacesController.prototype = {
              this._canInsert() &&
              this._view.peerDropTypes.indexOf(TYPE_X_MOZ_PLACE_SEPARATOR) != -1;
     case "placesCmd_show:info":
-      var selectedNode = this._view.selectedNode;
-      if (this._view.hasSingleSelection &&
-          !PlacesUtils.nodeIsLivemarkContainer(selectedNode.parent) &&
-          !this._selectionOverlapsSystemArea()) {
-        if (PlacesUtils.nodeIsBookmark(selectedNode) ||
-            PlacesUtils.nodeIsFolder(selectedNode))
+      if (this._view.hasSingleSelection) {
+        var selectedNode = this._view.selectedNode;
+        if (PlacesUtils.nodeIsBookmark(selectedNode))
           return true;
+        if (PlacesUtils.nodeIsFolder(selectedNode)) {
+          if (!this._selectionOverlapsSystemArea()) {
+            var parent = selectedNode.parent;
+            if (!parent || !PlacesUtils.nodeIsLivemarkContainer(parent))
+              return true;
+          }
+        }
       }
       return false;
 #endif
@@ -767,7 +771,7 @@ PlacesController.prototype = {
         for (var j = 0; j < names.length; ++j)
           nodeData[names[i]] = true;
       }
-      else if (nodeType = Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY) {
+      else if (nodeType == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY) {
         // Various queries might live in the left-hand side of the organizer
         // window. If this one happens to have collected all the livemark feeds,
         // allow its context menu to contain "Reload All Livemarks". That will 

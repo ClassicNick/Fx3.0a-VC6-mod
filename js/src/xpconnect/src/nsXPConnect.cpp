@@ -450,9 +450,11 @@ nsXPConnect::BeginCycleCollection()
 
     mObjRefcounts->Clear();
     XPCCallContext cx(NATIVE_CALLER);
-    JS_SetGCThingCallback(cx, XPCMarkNotification, mObjRefcounts);
-    JS_GC(cx);
-    JS_SetGCThingCallback(cx, nsnull, nsnull);
+    if (cx.IsValid()) {
+        JS_SetGCThingCallback(cx, XPCMarkNotification, mObjRefcounts);
+        JS_GC(cx);
+        JS_SetGCThingCallback(cx, nsnull, nsnull);
+    }
 
     return NS_OK;
 }
@@ -600,6 +602,9 @@ nsXPConnect::InitClasses(JSContext * aJSContext, JSObject * aGlobalJSObj)
     if (!XPCNativeWrapper::AttachNewConstructorObject(ccx, aGlobalJSObj))
         return UnexpectedFailure(NS_ERROR_FAILURE);
 
+    if (!XPC_SJOW_AttachNewConstructorObject(ccx, aGlobalJSObj))
+        return UnexpectedFailure(NS_ERROR_FAILURE);
+
     return NS_OK;
 }
 
@@ -709,6 +714,9 @@ nsXPConnect::InitClassesWithNewWrappedGlobal(JSContext * aJSContext,
         return UnexpectedFailure(NS_ERROR_FAILURE);
 
     if (!XPCNativeWrapper::AttachNewConstructorObject(ccx, globalJSObj))
+        return UnexpectedFailure(NS_ERROR_FAILURE);
+
+    if (!XPC_SJOW_AttachNewConstructorObject(ccx, globalJSObj))
         return UnexpectedFailure(NS_ERROR_FAILURE);
 
     NS_ADDREF(*_retval = holder);

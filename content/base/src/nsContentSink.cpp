@@ -247,9 +247,17 @@ NS_IMPL_ISUPPORTS3(nsContentSink,
                    nsIScriptLoaderObserver)
 
 nsContentSink::nsContentSink()
-  : mLayoutStarted(PR_FALSE),
-    mInMonolithicContainer(0)
 {
+  // We have a zeroing operator new
+  NS_ASSERTION(mLayoutStarted == PR_FALSE, "What?");
+  NS_ASSERTION(mDynamicLowerValue == PR_FALSE, "What?");
+  NS_ASSERTION(mParsing == PR_FALSE, "What?");
+  NS_ASSERTION(mLastSampledUserEventTime == 0, "What?");
+  NS_ASSERTION(mDeflectedCount == 0, "What?");
+  NS_ASSERTION(mDroppedTimer == PR_FALSE, "What?");
+  NS_ASSERTION(mInMonolithicContainer == 0, "What?");
+  NS_ASSERTION(mInNotification == 0, "What?");
+
 #ifdef NS_DEBUG
   if (!gContentSinkLogModuleInfo) {
     gContentSinkLogModuleInfo = PR_NewLogModule("nscontentsink");
@@ -279,6 +287,12 @@ nsContentSink::Init(nsIDocument* aDoc,
   mDocumentURI = aURI;
   mDocumentBaseURI = aURI;
   mDocShell = do_QueryInterface(aContainer);
+  if (mDocShell) {
+    PRUint32 loadType = 0;
+    mDocShell->GetLoadType(&loadType);
+    mChangeScrollPosWhenScrollingToRef =
+      ((loadType & nsIDocShell::LOAD_CMD_HISTORY) == 0);
+  }
 
   // use this to avoid a circular reference sink->document->scriptloader->sink
   nsCOMPtr<nsIScriptLoaderObserver> proxy =
@@ -367,7 +381,7 @@ nsContentSink::ScriptAvailable(nsresult aResult,
   // using the DOM during loading, or if the script was inline and thus
   // never blocked.
   NS_ASSERTION(mScriptElements.IndexOf(aElement) == count - 1 ||
-               mScriptElements.IndexOf(aElement) == -1,
+               mScriptElements.IndexOf(aElement) == PRUint32(-1),
                "script found at unexpected position");
 
   // Check if this is the element we were waiting for
@@ -878,18 +892,18 @@ nsContentSink::PrefetchHref(const nsAString &aHref, PRBool aExplicit)
 }
 
 
-PRBool
-nsContentSink::ScrollToRef(PRBool aReallyScroll)
+void
+nsContentSink::ScrollToRef()
 {
   if (mRef.IsEmpty()) {
-    return PR_FALSE;
+    return;
   }
 
   PRBool didScroll = PR_FALSE;
 
   char* tmpstr = ToNewCString(mRef);
   if (!tmpstr) {
-    return PR_FALSE;
+    return;
   }
 
   nsUnescape(tmpstr);
@@ -909,7 +923,7 @@ nsContentSink::ScrollToRef(PRBool aReallyScroll)
       // Check an empty string which might be caused by the UTF-8 conversion
       if (!ref.IsEmpty()) {
         // Note that GoToAnchor will handle flushing layout as needed.
-        rv = shell->GoToAnchor(ref, aReallyScroll);
+        rv = shell->GoToAnchor(ref, mChangeScrollPosWhenScrollingToRef);
       } else {
         rv = NS_ERROR_FAILURE;
       }
@@ -923,15 +937,13 @@ nsContentSink::ScrollToRef(PRBool aReallyScroll)
         rv = nsContentUtils::ConvertStringFromCharset(docCharset, unescapedRef, ref);
 
         if (NS_SUCCEEDED(rv) && !ref.IsEmpty())
-          rv = shell->GoToAnchor(ref, aReallyScroll);
+          rv = shell->GoToAnchor(ref, mChangeScrollPosWhenScrollingToRef);
       }
       if (NS_SUCCEEDED(rv)) {
-        didScroll = PR_TRUE;
+        mScrolledToRefAlready = PR_TRUE;
       }
     }
   }
-
-  return didScroll;
 }
 
 nsresult
@@ -1025,6 +1037,20 @@ nsContentSink::StartLayout(PRBool aIsFrameset)
 }
 
 void
+nsContentSink::TryToScrollToRef()
+{
+  if (mRef.IsEmpty()) {
+    return;
+  }
+
+  if (mScrolledToRefAlready) {
+    return;
+  }
+
+  ScrollToRef();
+}
+
+void
 nsContentSink::NotifyAppend(nsIContent* aContainer, PRUint32 aStartIndex)
 {
   if (aContainer->GetCurrentDoc() != mDocument) {
@@ -1113,7 +1139,7 @@ nsContentSink::IsTimeToNotify()
   return PR_FALSE;
 }
 
-NS_IMETHODIMP
+nsresult
 nsContentSink::WillInterruptImpl()
 {
   nsresult result = NS_OK;
@@ -1174,7 +1200,7 @@ nsContentSink::WillInterruptImpl()
   return result;
 }
 
-NS_IMETHODIMP
+nsresult
 nsContentSink::WillResumeImpl()
 {
   SINK_TRACE(gContentSinkLogModuleInfo, SINK_TRACE_CALLS,
@@ -1185,7 +1211,7 @@ nsContentSink::WillResumeImpl()
   return NS_OK;
 }
 
-NS_IMETHODIMP
+nsresult
 nsContentSink::DidProcessATokenImpl()
 {
   if (!mCanInterruptParser) {
@@ -1354,7 +1380,7 @@ nsContentSink::EndUpdate(nsIDocument *aDocument, nsUpdateType aUpdateType)
   }
 }
 
-NS_IMETHODIMP
+void
 nsContentSink::DidBuildModelImpl(void)
 {
   if (mDocument && mDocument->GetDocumentTitle().IsVoid()) {
@@ -1370,10 +1396,9 @@ nsContentSink::DidBuildModelImpl(void)
     mNotificationTimer->Cancel();
     mNotificationTimer = 0;
   }	
-  return NS_OK;
 }
 
-NS_IMETHODIMP
+void
 nsContentSink::DropParserAndPerfHint(void)
 {
   // Ref. Bug 49115
@@ -1400,11 +1425,9 @@ nsContentSink::DropParserAndPerfHint(void)
     // was already removed by a DummyParserRequest::Cancel
     RemoveDummyParserRequest();
   }
-
-  return NS_OK;
 }
 
-NS_IMETHODIMP
+nsresult
 nsContentSink::WillProcessTokensImpl(void)
 {
   if (mCanInterruptParser) {
@@ -1414,7 +1437,7 @@ nsContentSink::WillProcessTokensImpl(void)
   return NS_OK;
 }
 
-NS_IMETHODIMP
+void
 nsContentSink::WillBuildModelImpl()
 {
   if (mCanInterruptParser) {
@@ -1433,7 +1456,6 @@ nsContentSink::WillBuildModelImpl()
   }
 
   mScrolledToRefAlready = PR_FALSE;
-  return NS_OK;
 }
 
 // If the content sink can interrupt the parser (@see mCanInteruptParsing)

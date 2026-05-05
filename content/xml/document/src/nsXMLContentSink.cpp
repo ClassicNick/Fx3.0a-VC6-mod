@@ -139,17 +139,8 @@ NS_NewXMLContentSink(nsIXMLContentSink** aResult,
 }
 
 nsXMLContentSink::nsXMLContentSink()
-  : mDocElement(nsnull),
-    mText(nsnull),
-    mTextLength(0),
-    mTextSize(0),
-    mNotifyLevel(0),
-    mConstrainSize(PR_TRUE),
-    mInTitle(PR_FALSE),
+  : mConstrainSize(PR_TRUE),
     mPrettyPrintXML(PR_TRUE),
-    mPrettyPrintHasSpecialRoot(PR_FALSE),
-    mPrettyPrintHasFactoredElements(PR_FALSE),
-    mHasProcessedBase(PR_FALSE),
     mAllowAutoXLinks(PR_TRUE)
 {
 }
@@ -356,16 +347,7 @@ nsXMLContentSink::DidBuildModel()
 
     StartLayout();
 
-#if 0 /* Disable until this works for XML */
-    //  Scroll to Anchor only if the document was *not* loaded through history means. 
-    if (mDocShell) {
-      PRUint32 documentLoadType = 0;
-      mDocShell->GetLoadType(&documentLoadType);
-      ScrollToRef(!(documentLoadType & nsIDocShell::LOAD_CMD_HISTORY));
-    }
-#else
-    ScrollToRef(PR_TRUE);
-#endif
+    ScrollToRef();
 
     mDocument->RemoveObserver(this);
 
@@ -446,14 +428,7 @@ nsXMLContentSink::OnTransformDone(nsresult aResult,
   // Start the layout process
   StartLayout();
 
-#if 0 /* Disable until this works for XML */
-  //  Scroll to Anchor only if the document was *not* loaded through history means. 
-  PRUint32 documentLoadType = 0;
-  docShell->GetLoadType(&documentLoadType);
-  ScrollToRef(!(documentLoadType & nsIDocShell::LOAD_CMD_HISTORY));
-#else
-  ScrollToRef(PR_TRUE);
-#endif
+  ScrollToRef();
 
   originalDocument->EndLoad();
 

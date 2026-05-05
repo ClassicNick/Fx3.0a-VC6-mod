@@ -127,14 +127,14 @@ class nsContentSink : public nsICSSLoaderObserver,
 
   nsresult ProcessMETATag(nsIContent* aContent);
 
-  // nsIContentSink impl
-  NS_IMETHOD WillInterruptImpl(void);
-  NS_IMETHOD WillResumeImpl(void);
-  NS_IMETHOD DidProcessATokenImpl(void);
-  NS_IMETHOD WillBuildModelImpl(void);
-  NS_IMETHOD DidBuildModelImpl(void);
-  NS_IMETHOD DropParserAndPerfHint(void);
-  NS_IMETHOD WillProcessTokensImpl(void);
+  // nsIContentSink implementation helpers
+  NS_HIDDEN_(nsresult) WillInterruptImpl(void);
+  NS_HIDDEN_(nsresult) WillResumeImpl(void);
+  NS_HIDDEN_(nsresult) DidProcessATokenImpl(void);
+  NS_HIDDEN_(void) WillBuildModelImpl(void);
+  NS_HIDDEN_(void) DidBuildModelImpl(void);
+  NS_HIDDEN_(void) DropParserAndPerfHint(void);
+  NS_HIDDEN_(nsresult) WillProcessTokensImpl(void);
 
   void NotifyAppend(nsIContent* aContent, PRUint32 aStartIndex);
 
@@ -169,7 +169,7 @@ protected:
 
   void PrefetchHref(const nsAString &aHref, PRBool aExplicit);
 
-  PRBool ScrollToRef(PRBool aReallyScroll);
+  void ScrollToRef();
   nsresult RefreshIfEnabled(nsIViewManager* vm);
   void StartLayout(PRBool aIsFrameset);
 
@@ -202,13 +202,18 @@ protected:
 
   virtual nsresult FlushTags() = 0;
 
-  virtual void TryToScrollToRef()
-  {
-  }
+  void TryToScrollToRef();
 
   // CanInterrupt parsing related routines
   nsresult AddDummyParserRequest(void);
   nsresult RemoveDummyParserRequest(void);
+
+private:
+  // People shouldn't be allocating this class directly.  All subclasses should
+  // be allocated using a zeroing operator new.
+  void* operator new(size_t sz) CPP_THROW_NEW;  // Not to be implemented
+
+protected:
 
   nsCOMPtr<nsIDocument>         mDocument;
   nsCOMPtr<nsIParser>           mParser;
@@ -234,20 +239,24 @@ protected:
   // Timer used for notification
   nsCOMPtr<nsITimer> mNotificationTimer;
 
+  // The number of tokens that have been processed while in the low
+  // frequency parser interrupt mode without falling through to the
+  // logic which decides whether to switch to the high frequency
+  // parser interrupt mode.
+  PRUint8 mDeflectedCount;
+
   // Do we notify based on time?
   PRPackedBool mNotifyOnTimer;
 
   PRPackedBool mLayoutStarted;
-  PRPackedBool mScrolledToRefAlready;
-
-  PRUint8 mScriptEnabled : 1;
-  PRUint8 mFramesEnabled : 1;
+  PRUint8 mScrolledToRefAlready : 1;
   PRUint8 mCanInterruptParser : 1;
   PRUint8 mDynamicLowerValue : 1;
-  PRUint8 mFormOnStack : 1;
   PRUint8 mParsing : 1;
   PRUint8 mDroppedTimer : 1;
-
+  PRUint8 mInTitle : 1;
+  PRUint8 mChangeScrollPosWhenScrollingToRef : 1;
+  
   // -- Can interrupt parsing members --
   PRUint32 mDelayTimerStart;
 
@@ -262,16 +271,6 @@ protected:
   // Last mouse event or keyboard event time sampled by the content
   // sink
   PRUint32 mLastSampledUserEventTime;
-
-  // The number of tokens that have been processed while in the low
-  // frequency parser interrupt mode without falling through to the
-  // logic which decides whether to switch to the high frequency
-  // parser interrupt mode.
-  PRUint8 mDeflectedCount;
-
-  // Boolean indicating whether we've notified insertion of our root content
-  // yet.  We want to make sure to only do this once.
-  PRPackedBool mNotifiedRootInsertion;
 
   PRInt32 mInMonolithicContainer;
 

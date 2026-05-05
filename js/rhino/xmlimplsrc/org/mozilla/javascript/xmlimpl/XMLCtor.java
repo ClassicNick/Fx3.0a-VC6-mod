@@ -46,12 +46,14 @@ class XMLCtor extends IdFunctionObject
 
     private static final Object XMLCTOR_TAG = new Object();
 
-    private XMLLibImpl lib;
+	private XmlProcessor options;
+//    private XMLLibImpl lib;
 
     XMLCtor(XML xml, Object tag, int id, int arity)
     {
         super(xml, tag, id, arity);
-        this.lib = xml.lib;
+//        this.lib = xml.lib;
+		this.options = xml.getProcessor();
         activatePrototypeMap(MAX_FUNCTION_ID);
     }
 
@@ -162,40 +164,39 @@ class XMLCtor extends IdFunctionObject
     {
         switch (id - super.getMaxInstanceId()) {
           case Id_ignoreComments:
-            return ScriptRuntime.wrapBoolean(lib.ignoreComments);
+            return ScriptRuntime.wrapBoolean(options.isIgnoreComments());
           case Id_ignoreProcessingInstructions:
-            return ScriptRuntime.wrapBoolean(lib.ignoreProcessingInstructions);
+            return ScriptRuntime.wrapBoolean(options.isIgnoreProcessingInstructions());
           case Id_ignoreWhitespace:
-            return ScriptRuntime.wrapBoolean(lib.ignoreWhitespace);
+            return ScriptRuntime.wrapBoolean(options.isIgnoreWhitespace());
           case Id_prettyIndent:
-            return ScriptRuntime.wrapInt(lib.prettyIndent);
+            return ScriptRuntime.wrapInt(options.getPrettyIndent());
           case Id_prettyPrinting:
-            return ScriptRuntime.wrapBoolean(lib.prettyPrinting);
+            return ScriptRuntime.wrapBoolean(options.isPrettyPrinting());
         }
         return super.getInstanceIdValue(id);
     }
 
-    protected void setInstanceIdValue(int id, Object value)
-    {
-        switch (id - super.getMaxInstanceId()) {
-          case Id_ignoreComments:
-            lib.ignoreComments = ScriptRuntime.toBoolean(value);
-            return;
-          case Id_ignoreProcessingInstructions:
-            lib.ignoreProcessingInstructions = ScriptRuntime.toBoolean(value);
-            return;
-          case Id_ignoreWhitespace:
-            lib.ignoreWhitespace = ScriptRuntime.toBoolean(value);
-            return;
-          case Id_prettyIndent:
-            lib.prettyIndent = ScriptRuntime.toInt32(value);
-            return;
-          case Id_prettyPrinting:
-            lib.prettyPrinting = ScriptRuntime.toBoolean(value);
-            return;
-        }
-        super.setInstanceIdValue(id, value);
-    }
+	protected void setInstanceIdValue(int id, Object value) {
+		switch (id - super.getMaxInstanceId()) {
+			case Id_ignoreComments:
+				options.setIgnoreComments(ScriptRuntime.toBoolean(value));
+				return;
+			case Id_ignoreProcessingInstructions:
+				options.setIgnoreProcessingInstructions(ScriptRuntime.toBoolean(value));
+				return;
+			case Id_ignoreWhitespace:
+				options.setIgnoreWhitespace(ScriptRuntime.toBoolean(value));
+				return;
+			case Id_prettyIndent:
+				options.setPrettyIndent(ScriptRuntime.toInt32(value));
+				return;
+			case Id_prettyPrinting:
+				options.setPrettyPrinting(ScriptRuntime.toBoolean(value));
+				return;
+		}
+		super.setInstanceIdValue(id, value);
+	}
 
 // #string_id_map#
     private static final int
@@ -242,7 +243,7 @@ class XMLCtor extends IdFunctionObject
         int id = f.methodId();
         switch (id) {
           case Id_defaultSettings: {
-            lib.defaultSettings();
+            options.setDefault();
             Scriptable obj = cx.newObject(scope);
             writeSetting(obj);
             return obj;
@@ -257,7 +258,7 @@ class XMLCtor extends IdFunctionObject
                 || args[0] == null
                 || args[0] == Undefined.instance)
             {
-                lib.defaultSettings();
+                options.setDefault();
             } else if (args[0] instanceof Scriptable) {
                 readSettings((Scriptable)args[0]);
             }

@@ -24,7 +24,7 @@ use Config;         # for $Config{sig_name} and $Config{sig_num}
 use File::Find ();
 use File::Copy;
 
-$::UtilsVersion = '$Revision: 1.345 $ ';
+$::UtilsVersion = '$Revision: 1.350 $ ';
 
 package TinderUtils;
 
@@ -1214,7 +1214,8 @@ sub BuildIt {
             if ($Settings::RunMozillaTests) {
               $build_status = run_all_tests($full_binary_name,
                                             $full_embed_binary_name,
-                                            $build_dir);
+                                            $build_dir,
+                                            $objdir);
             } else {
               print_log "Skipping Mozilla tests.\n";
               $build_status = 'success';
@@ -1892,7 +1893,7 @@ sub print_logfile {
 # Run all tests.  Had to pass in both binary and embed_binary.
 #
 sub run_all_tests {
-    my ($binary, $embed_binary, $build_dir) = @_;
+    my ($binary, $embed_binary, $build_dir, $objdir) = @_;
 
     my $binary_basename       = File::Basename::basename($binary);
     my $binary_dir            = File::Basename::dirname($binary);
@@ -2049,8 +2050,8 @@ sub run_all_tests {
             set_pref($pref_file, 'dom.disable_window_flip', 'false');
             set_pref($pref_file, 'dom.disable_window_move_resize', 'false');
 
-            # Suppress firefox's popup blocking
             if ($Settings::BinaryName =~ /^firefox/) {
+                # Suppress firefox's popup blocking
                 set_pref($pref_file, 'privacy.popups.firstTime', 'false');
                 set_pref($pref_file, 'dom.disable_open_during_load', 'false');
 
@@ -2066,6 +2067,11 @@ sub run_all_tests {
 
                 # Suppress session restore dialog
                 set_pref($pref_file, 'browser.sessionstore.resume_from_crash', 'false');
+            }
+            elsif ($Settings::BinaryName =~ /^seamonkey/) {
+                # Suppress seamonkey's popup blocking
+                set_pref($pref_file, 'privacy.popups.first_popup', 'false');
+                set_pref($pref_file, 'dom.disable_open_during_load', 'false');
             }
 
             # Suppress security warnings for QA test.
@@ -2139,7 +2145,8 @@ sub run_all_tests {
     if ($Settings::BloatTest and $test_result eq 'success') {
       my $app_args;
       if($Settings::BinaryName eq "TestGtkEmbed" ||
-         $Settings::BinaryName =~ /^firefox/) {
+         $Settings::BinaryName =~ /^firefox/ ||
+         $Settings::BinaryName =~ /^seamonkey/) {
         $app_args = ["resource:///res/bloatcycle.html"];
       } else {
         $app_args = ["-f", "bloaturls.txt"];
@@ -2244,7 +2251,6 @@ sub run_all_tests {
       # so careful?  I'm afraid of things like bug 112767, and I assume this
       # had been done for a reason.  -mm
       unless ($Settings::BinaryName eq "TestGtkEmbed" ||
-              ($Settings::BinaryName =~ /^firefox/ && $Settings::MozProfileName eq 'default') ||
               $Settings::BinaryName eq 'Camino') {
         push(@$app_args, "-P", $Settings::MozProfileName);
       }
@@ -2280,8 +2286,7 @@ sub run_all_tests {
     # DHTML performance test.
     if ($Settings::DHTMLPerformanceTest and $test_result eq 'success') {
       my @app_args;
-      if($Settings::BinaryName eq "TestGtkEmbed" ||
-         ($Settings::BinaryName =~ /^firefox/ && $Settings::MozProfileName eq 'default')) {
+      if($Settings::BinaryName eq "TestGtkEmbed"){
         @app_args = [$binary];        
       } elsif($Settings::BinaryName eq 'Camino') {
         @app_args = [$binary, '-url'];
@@ -2403,7 +2408,7 @@ sub run_all_tests {
     # run TUnit
     if ($Settings::RunUnitTests and $test_result eq 'success') {
       $test_result = RunUnitTests("RunUnitTests",
-                                  $build_dir, "mozilla",
+                                  $build_dir, $objdir,
                                   ["make", "-k", "check"]);
     }
 
@@ -3133,7 +3138,7 @@ sub BloatTest {
     $ENV{XPCOM_MEM_BLOAT_LOG} = 1; # Turn on ref counting to track leaks.
 
     # Build up binary command, look for profile.
-    my @args = ($binary_basename);
+    my @args = ($binary);
     unless (($Settings::MozProfileName eq "") or 
             ($Settings::BinaryName eq "TestGtkEmbed")) {
         @args = (@args, "-P", $Settings::MozProfileName);
@@ -3232,11 +3237,11 @@ sub BloatTest {
 #
 
 sub RunUnitTests {
-  my ($test_name, $build_dir, $binary_dir, $args) = @_;
+  my ($test_name, $build_dir, $objdir, $args) = @_;
   my $test_result;
   my $binary_log = "$build_dir/$test_name.log";
 
-  my $unit_test_result = FileBasedTest($test_name, $build_dir, $binary_dir,
+  my $unit_test_result = FileBasedTest($test_name, $build_dir, $objdir,
                                       [@$args],
                                       $Settings::RunUnitTestsTimeout,
                                       "FAIL", 0, 1);
@@ -3246,6 +3251,7 @@ sub RunUnitTests {
     return 'testfailed';
   }
 
+  print_log "TinderboxPrint:TUnit:[OK]\n";
   return 'success';
 }
 
@@ -3397,12 +3403,13 @@ sub BloatTest2 {
 
     my @args;
     if($Settings::BinaryName eq "TestGtkEmbed" ||
-       $Settings::BinaryName =~ /^firefox/) {
-      @args = ($binary_basename, "-P", $Settings::MozProfileName,
+       $Settings::BinaryName =~ /^firefox/ ||
+       $Settings::BinaryName =~ /^seamonkey/) {
+      @args = ($binary, "-P", $Settings::MozProfileName,
                "resource:///res/bloatcycle.html",
                "--trace-malloc", $malloc_log);
     } else {
-      @args = ($binary_basename, "-P", $Settings::MozProfileName,
+      @args = ($binary, "-P", $Settings::MozProfileName,
                "-f", "bloaturls.txt",
                "--trace-malloc", $malloc_log);
     }

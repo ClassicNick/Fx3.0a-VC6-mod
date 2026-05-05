@@ -126,12 +126,6 @@ nsContextMenu.prototype = {
   },
 
   initNavigationItems: function() {
-    var webNavigation = this.browser.webNavigation;
-    document.getElementById("context-back")
-            .disabled = !webNavigation.canGoBack;
-    document.getElementById("context-forward")
-            .disabled = !webNavigation.canGoForward;
-
     var shouldShow = !(this.isContentSelected || this.onLink || this.onImage ||
                        this.onTextInput);
     this.showItem("context-back", shouldShow);
@@ -200,7 +194,7 @@ nsContextMenu.prototype = {
     this.showItem("context-viewbgimage", shouldShow);
     this.showItem("context-sep-viewbgimage", shouldShow);
     document.getElementById("context-viewbgimage")
-            .disabled = !this.hasBGImage;*
+            .disabled = !this.hasBGImage;
   },
 
   initMiscItems: function() {
@@ -866,23 +860,6 @@ nsContextMenu.prototype = {
     clipboard.copyString(addresses);
   },
 
-  addBookmarkForFrame: function() {
-    var doc = this.target.ownerDocument;
-    var uri = doc.location.href;
-#ifndef MOZ_PLACES_BOOKMARKS
-    var title = doc.title;
-    var description = BookmarksUtils.getDescriptionFromDocument(doc);
-    if (!title)
-      title = uri;
-    BookmarksUtils.addBookmark(uri, title, doc.charset, description);
-#else
-    var ioService = Components.classes["@mozilla.org/network/io-service;1"].
-                    getService(Components.interfaces.nsIIOService);
-    var linkURI = ioService.newURI(uri, null, null);
-    PlacesController.showAddBookmarkUI(linkURI);
-#endif
-  },
-
   // Open Metadata window for node
   showMetadata: function () {
     window.openDialog("chrome://browser/content/metaData.xul",
@@ -1113,9 +1090,38 @@ nsContextMenu.prototype = {
     openUILinkIn(uri, where);
   },
 
-  bookmarkThisPage: function() {
+#ifdef MOZ_PLACES_BOOKMARKS
+  bookmarkThisPage: function CM_bookmarkThisPage() {
+    PlacesCommandHook.bookmarkPage(this.browser);
+  },
+
+  bookmarkLink: function CM_bookmarkLink() {
+    PlacesCommandHook.bookmarkLink(this.linkURL, this.linkText());
+  },
+
+  addBookmarkForFrame: function CM_addBookmarkForFrame() {
+    var uri = this.target.ownerDocument.documentURIObject;
+    PlacesUtils.showAddBookmarkUI(uri);
+  },
+#else
+  bookmarkThisPage: function CM_bookmarkThisPage() {
     addBookmarkAs(this.browser);
   },
+
+  bookmarkLink: function CM_bookmarkLink() {
+    BookmarksUtils.addBookmark(this.linkURL, this.linkText());
+  },
+
+  addBookmarkForFrame: function CM_addBookmarkForFrame() {
+    var doc = this.target.ownerDocument;
+    var uri = doc.location.href;
+    var title = doc.title;
+    var description = BookmarksUtils.getDescriptionFromDocument(doc);
+    if (!title)
+      title = uri;
+    BookmarksUtils.addBookmark(uri, title, doc.charset, description);
+  },
+#endif
 
   savePageAs: function() {
     saveDocument(this.browser.contentDocument);

@@ -22,6 +22,7 @@
  * Contributor(s):
  *   Vidur Apparao <vidur@netscape.com> (original author)
  *   Johnny Stenback <jst@netscape.com>
+ *   Robert Sayre <sayrer@gmail.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -42,8 +43,7 @@
 interface nsIBoxObject;
 interface nsIDOMLocation;
 
-
-[scriptable, uuid(d9434314-b772-49d8-af0d-54126de63430)]
+[scriptable, uuid(6b395644-9a2a-4200-8247-bf2d07b8e1ea)]
 interface nsIDOMNSDocument : nsISupports
 {
   readonly attribute DOMString      characterSet;
@@ -62,4 +62,12 @@ interface nsIDOMNSDocument : nsISupports
   boolean      hasFocus();
 
   readonly attribute nsIDOMElement  activeElement;
+
+  /*
+   * Retrieve elements matching all classes listed in a
+   * space-separated string.
+   *
+   * See <http://whatwg.org/specs/web-apps/current-work/>
+   */
+  nsIDOMNodeList getElementsByClassName(in DOMString classes);
 };
