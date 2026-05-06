@@ -72,10 +72,9 @@ static NS_DEFINE_CID(kRegionCID, NS_REGION_CID);
 
 //////////////////////////////////////////////////////////////////////
 
-// XXXTodo: rename FORM_TWIPS to FROM_APPUNITS
-#define FROM_TWIPS(_x)  ((gfxFloat)((_x)/(mP2A)))
-#define FROM_TWIPS_INT(_x)  (NSToIntRound((gfxFloat)((_x)/(mP2A))))
-#define TO_TWIPS(_x)    ((nscoord)((_x)*(mP2A)))
+#define FROM_TWIPS(_x)  ((gfxFloat)((_x)/(mP2T)))
+#define FROM_TWIPS_INT(_x)  (NSToIntRound((gfxFloat)((_x)/(mP2T))))
+#define TO_TWIPS(_x)    ((nscoord)((_x)*(mP2T)))
 #define GFX_RECT_FROM_TWIPS_RECT(_r)   (gfxRect(FROM_TWIPS((_r).x), FROM_TWIPS((_r).y), FROM_TWIPS((_r).width), FROM_TWIPS((_r).height)))
 
 //////////////////////////////////////////////////////////////////////
@@ -174,7 +173,8 @@ nsThebesRenderingContext::CommonInit(void)
 
     mThebes->SetLineWidth(1.0);
 
-    mP2A = mDeviceContext->AppUnitsPerDevPixel();
+    mT2P = mDeviceContext->AppUnitsToDevUnits();
+    mP2T = mDeviceContext->DevUnitsToAppUnits();
 
     return NS_OK;
 }
@@ -673,7 +673,7 @@ nsThebesRenderingContext::FillRect(const nsRect& aRect)
     gfxRect r(GFX_RECT_FROM_TWIPS_RECT(aRect));
 
     /* Clamp coordinates to work around a design bug in cairo */
-    nscoord bigval = (nscoord)(CAIRO_COORD_MAX*mP2A);
+    nscoord bigval = (nscoord)(CAIRO_COORD_MAX*mP2T);
     if (aRect.width > bigval ||
         aRect.height > bigval ||
         aRect.x < -bigval ||
@@ -993,11 +993,11 @@ nsThebesRenderingContext::DrawImage(imgIContainer *aImage,
     // twSrcRect is always in appunits (twips),
     // and has nothing to do with the current transform (it's a region
     // of the image)
-    double p2a = nsIDeviceContext::AppUnitsPerCSSPixel();
-    nsIntRect pxSr(NSAppUnitsToIntPixels(twSrcRect.x, p2a),
-                   NSAppUnitsToIntPixels(twSrcRect.y, p2a),
-                   NSAppUnitsToIntPixels(twSrcRect.width, p2a),
-                   NSAppUnitsToIntPixels(twSrcRect.height, p2a));
+    nsIntRect pxSr;
+    pxSr.x = NSToIntRound(FROM_TWIPS(twSrcRect.x));
+    pxSr.y = NSToIntRound(FROM_TWIPS(twSrcRect.y));
+    pxSr.width = NSToIntRound(FROM_TWIPS(twSrcRect.width));
+    pxSr.height = NSToIntRound(FROM_TWIPS(twSrcRect.height));
 
     // the dest rect is affected by the current transform; that'll be
     // handled by Image::Draw(), when we actually set up the rectangle.
@@ -1112,7 +1112,7 @@ nsThebesRenderingContext::DrawTile(imgIContainer *aImage,
         phase.y -= imgFrameRect.y;
     }
 
-    return thebesImage->ThebesDrawTile (mThebes, mDeviceContext, phase,
+    return thebesImage->ThebesDrawTile (mThebes, phase,
                                         GFX_RECT_FROM_TWIPS_RECT(*twTargetRect),
                                         xPadding, yPadding);
 }

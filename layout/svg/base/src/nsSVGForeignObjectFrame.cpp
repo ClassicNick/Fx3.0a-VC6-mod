@@ -279,8 +279,9 @@ nsSVGForeignObjectFrame::TransformPointFromOuterPx(float aX, float aY, nsPoint* 
     return rv;
    
   nsSVGUtils::TransformPoint(inverse, &aX, &aY);
-  *aOut = nsPoint(nsPresContext::CSSPixelsToAppUnits(aX),
-                  nsPresContext::CSSPixelsToAppUnits(aY));
+  float twipsPerPx = GetTwipsPerPx();
+  *aOut = nsPoint(NSToCoordRound(aX*twipsPerPx),
+                  NSToCoordRound(aY*twipsPerPx));
   return NS_OK;
 }
  
@@ -303,10 +304,9 @@ nsSVGForeignObjectFrame::GetFrameForPointSVG(float x, float y, nsIFrame** hit)
 nsPoint
 nsSVGForeignObjectFrame::TransformPointFromOuter(nsPoint aPt)
 {
+  float pxPerTwips = GetPxPerTwips();
   nsPoint pt(NS_UNCONSTRAINEDSIZE, NS_UNCONSTRAINEDSIZE);
-  TransformPointFromOuterPx(nsPresContext::AppUnitsToFloatCSSPixels(aPt.x),
-                            nsPresContext::AppUnitsToFloatCSSPixels(aPt.y),
-                            &pt);
+  TransformPointFromOuterPx(aPt.x*pxPerTwips, aPt.y*pxPerTwips, &pt);
   return pt;
 }
 
@@ -521,7 +521,9 @@ nsSVGForeignObjectFrame::DoReflow()
   presShell->CreateRenderingContext(this,getter_AddRefs(renderingContext));
   if (!renderingContext)
     return;
-
+  
+  float twipsPerPx = GetTwipsPerPx();
+  
   nsSVGForeignObjectElement *fO = NS_STATIC_CAST(nsSVGForeignObjectElement*,
                                                  mContent);
 
@@ -530,8 +532,8 @@ nsSVGForeignObjectFrame::DoReflow()
   float height =
     fO->mLengthAttributes[nsSVGForeignObjectElement::HEIGHT].GetAnimValue(fO);
 
-  nsSize size(nsPresContext::CSSPixelsToAppUnits(width),
-              nsPresContext::CSSPixelsToAppUnits(height));
+  nsSize size(NSFloatPixelsToTwips(width, twipsPerPx),
+              NSFloatPixelsToTwips(height, twipsPerPx));
 
   mInReflow = PR_TRUE;
 
@@ -586,7 +588,7 @@ nsSVGForeignObjectFrame::FlushDirtyRegion() {
   
   nsCOMPtr<nsIDOMSVGMatrix> tm = GetTMIncludingOffset();
   nsRect r = mDirtyRegion.GetBounds();
-  r.ScaleRoundOut(1.0f / nsPresContext::AppUnitsPerCSSPixel());
+  r.ScaleRoundOut(GetPxPerTwips());
   float x = r.x, y = r.y, w = r.width, h = r.height;
   TransformRect(&x, &y, &w, &h, tm);
   r = nsSVGUtils::ToBoundingPixelRect(x, y, x+w, y+h);
@@ -602,4 +604,19 @@ nsSVGForeignObjectFrame::InvalidateInternal(const nsRect& aDamageRect,
 {
   mDirtyRegion.Or(mDirtyRegion, aDamageRect + nsPoint(aX, aY));
   FlushDirtyRegion();
+}
+
+float nsSVGForeignObjectFrame::GetPxPerTwips()
+{
+  float val = GetTwipsPerPx();
+  
+  NS_ASSERTION(val!=0.0f, "invalid px/twips");  
+  if (val == 0.0) val = 1e-20f;
+  
+  return 1.0f/val;
+}
+
+float nsSVGForeignObjectFrame::GetTwipsPerPx()
+{
+  return GetPresContext()->ScaledPixelsToTwips();
 }

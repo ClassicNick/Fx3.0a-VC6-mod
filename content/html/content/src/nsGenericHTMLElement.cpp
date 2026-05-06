@@ -717,12 +717,16 @@ nsGenericHTMLElement::GetOffsetRect(nsRect& aRect, nsIContent** aOffsetParent)
 
   // XXX We should really consider subtracting out padding for
   // content-box sizing, but we should see what IE does....
+  
+  // Get the scale from that Presentation Context
+  float scale;
+  scale = context->TwipsToPixels();
 
   // Convert to pixels using that scale
-  aRect.x = nsPresContext::AppUnitsToIntCSSPixels(origin.x);
-  aRect.y = nsPresContext::AppUnitsToIntCSSPixels(origin.y);
-  aRect.width = nsPresContext::AppUnitsToIntCSSPixels(rcFrame.width);
-  aRect.height = nsPresContext::AppUnitsToIntCSSPixels(rcFrame.height);
+  aRect.x = NSTwipsToIntPixels(origin.x, scale);
+  aRect.y = NSTwipsToIntPixels(origin.y, scale);
+  aRect.width = NSTwipsToIntPixels(rcFrame.width, scale);
+  aRect.height = NSTwipsToIntPixels(rcFrame.height, scale);
 }
 
 nsresult
@@ -882,9 +886,12 @@ nsGenericHTMLElement::SetInnerHTML(const nsAString& aInnerHTML)
 
 void
 nsGenericHTMLElement::GetScrollInfo(nsIScrollableView **aScrollableView,
+                                    float *aP2T, float *aT2P,
                                     nsIFrame **aFrame)
 {
   *aScrollableView = nsnull;
+  *aP2T = 0.0f;
+  *aT2P = 0.0f;
 
   nsIDocument *document = GetCurrentDoc();
   if (!document) {
@@ -902,6 +909,12 @@ nsGenericHTMLElement::GetScrollInfo(nsIScrollableView **aScrollableView,
     return;
   }
 
+  // Get the presentation context
+  nsPresContext *presContext = presShell->GetPresContext();
+  if (!presContext) {
+    return;
+  }
+
   // Get the primary frame for this element
   nsIFrame *frame = presShell->GetPrimaryFrameFor(this);
   if (!frame) {
@@ -911,6 +924,9 @@ nsGenericHTMLElement::GetScrollInfo(nsIScrollableView **aScrollableView,
   if (aFrame) {
     *aFrame = frame;
   }
+
+  *aP2T = presContext->PixelsToTwips();
+  *aT2P = presContext->TwipsToPixels();
 
   // Get the scrollable frame
   nsIScrollableFrame *scrollFrame = nsnull;
@@ -967,14 +983,15 @@ nsGenericHTMLElement::GetScrollTop(PRInt32* aScrollTop)
 
   nsIScrollableView *view = nsnull;
   nsresult rv = NS_OK;
+  float p2t, t2p;
 
-  GetScrollInfo(&view);
+  GetScrollInfo(&view, &p2t, &t2p);
 
   if (view) {
     nscoord xPos, yPos;
     rv = view->GetScrollPosition(xPos, yPos);
 
-    *aScrollTop = nsPresContext::AppUnitsToIntCSSPixels(yPos);
+    *aScrollTop = NSTwipsToIntPixels(yPos, t2p);
   }
 
   return rv;
@@ -985,8 +1002,9 @@ nsGenericHTMLElement::SetScrollTop(PRInt32 aScrollTop)
 {
   nsIScrollableView *view = nsnull;
   nsresult rv = NS_OK;
+  float p2t, t2p;
 
-  GetScrollInfo(&view);
+  GetScrollInfo(&view, &p2t, &t2p);
 
   if (view) {
     nscoord xPos, yPos;
@@ -994,7 +1012,7 @@ nsGenericHTMLElement::SetScrollTop(PRInt32 aScrollTop)
     rv = view->GetScrollPosition(xPos, yPos);
 
     if (NS_SUCCEEDED(rv)) {
-      rv = view->ScrollTo(xPos, nsPresContext::CSSPixelsToAppUnits(aScrollTop),
+      rv = view->ScrollTo(xPos, NSIntPixelsToTwips(aScrollTop, p2t),
                           NS_VMREFRESH_IMMEDIATE);
     }
   }
@@ -1010,14 +1028,15 @@ nsGenericHTMLElement::GetScrollLeft(PRInt32* aScrollLeft)
 
   nsIScrollableView *view = nsnull;
   nsresult rv = NS_OK;
+  float p2t, t2p;
 
-  GetScrollInfo(&view);
+  GetScrollInfo(&view, &p2t, &t2p);
 
   if (view) {
     nscoord xPos, yPos;
     rv = view->GetScrollPosition(xPos, yPos);
 
-    *aScrollLeft = nsPresContext::AppUnitsToIntCSSPixels(xPos);
+    *aScrollLeft = NSTwipsToIntPixels(xPos, t2p);
   }
 
   return rv;
@@ -1028,15 +1047,16 @@ nsGenericHTMLElement::SetScrollLeft(PRInt32 aScrollLeft)
 {
   nsIScrollableView *view = nsnull;
   nsresult rv = NS_OK;
+  float p2t, t2p;
 
-  GetScrollInfo(&view);
+  GetScrollInfo(&view, &p2t, &t2p);
 
   if (view) {
     nscoord xPos, yPos;
     rv = view->GetScrollPosition(xPos, yPos);
 
     if (NS_SUCCEEDED(rv)) {
-      rv = view->ScrollTo(nsPresContext::CSSPixelsToAppUnits(aScrollLeft),
+      rv = view->ScrollTo(NSIntPixelsToTwips(aScrollLeft, p2t),
                           yPos, NS_VMREFRESH_IMMEDIATE);
     }
   }
@@ -1052,8 +1072,9 @@ nsGenericHTMLElement::GetScrollHeight(PRInt32* aScrollHeight)
 
   nsIScrollableView *scrollView = nsnull;
   nsresult rv = NS_OK;
+  float p2t, t2p;
 
-  GetScrollInfo(&scrollView);
+  GetScrollInfo(&scrollView, &p2t, &t2p);
 
   if (!scrollView) {
     return GetOffsetHeight(aScrollHeight);
@@ -1063,7 +1084,7 @@ nsGenericHTMLElement::GetScrollHeight(PRInt32* aScrollHeight)
   nscoord xMax, yMax;
   rv = scrollView->GetContainerSize(&xMax, &yMax);
 
-  *aScrollHeight = nsPresContext::AppUnitsToIntCSSPixels(yMax);
+  *aScrollHeight = NSTwipsToIntPixels(yMax, t2p);
 
   return rv;
 }
@@ -1076,8 +1097,9 @@ nsGenericHTMLElement::GetScrollWidth(PRInt32* aScrollWidth)
 
   nsIScrollableView *scrollView = nsnull;
   nsresult rv = NS_OK;
+  float p2t, t2p;
 
-  GetScrollInfo(&scrollView);
+  GetScrollInfo(&scrollView, &p2t, &t2p);
 
   if (!scrollView) {
     return GetOffsetWidth(aScrollWidth);
@@ -1086,7 +1108,7 @@ nsGenericHTMLElement::GetScrollWidth(PRInt32* aScrollWidth)
   nscoord xMax, yMax;
   rv = scrollView->GetContainerSize(&xMax, &yMax);
 
-  *aScrollWidth = nsPresContext::AppUnitsToIntCSSPixels(xMax);
+  *aScrollWidth = NSTwipsToIntPixels(xMax, t2p);
 
   return rv;
 }
@@ -1105,21 +1127,22 @@ nsGenericHTMLElement::GetClientHeight(PRInt32* aClientHeight)
   *aClientHeight = 0;
 
   nsIScrollableView *scrollView = nsnull;
+  float p2t, t2p;
   nsIFrame *frame = nsnull;
 
-  GetScrollInfo(&scrollView, &frame);
+  GetScrollInfo(&scrollView, &p2t, &t2p, &frame);
 
   if (scrollView) {
     nsRect r = scrollView->View()->GetBounds();
 
-    *aClientHeight = nsPresContext::AppUnitsToIntCSSPixels(r.height);
+    *aClientHeight = NSTwipsToIntPixels(r.height, t2p);
   } else if (frame &&
              (frame->GetStyleDisplay()->mDisplay != NS_STYLE_DISPLAY_INLINE ||
               (frame->IsFrameOfType(nsIFrame::eReplaced)))) {
     // Special case code to make clientHeight work even when there isn't
     // a scroll view, see bug 180552 and bug 227567.
 
-    *aClientHeight = nsPresContext::AppUnitsToIntCSSPixels(GetClientAreaSize(frame).height);
+    *aClientHeight = NSTwipsToIntPixels(GetClientAreaSize(frame).height, t2p);
   }
 
   return NS_OK;
@@ -1132,21 +1155,22 @@ nsGenericHTMLElement::GetClientWidth(PRInt32* aClientWidth)
   *aClientWidth = 0;
 
   nsIScrollableView *scrollView = nsnull;
+  float p2t, t2p;
   nsIFrame *frame = nsnull;
 
-  GetScrollInfo(&scrollView, &frame);
+  GetScrollInfo(&scrollView, &p2t, &t2p, &frame);
 
   if (scrollView) {
     nsRect r = scrollView->View()->GetBounds();
 
-    *aClientWidth = nsPresContext::AppUnitsToIntCSSPixels(r.width);
+    *aClientWidth = NSTwipsToIntPixels(r.width, t2p);
   } else if (frame &&
              (frame->GetStyleDisplay()->mDisplay != NS_STYLE_DISPLAY_INLINE ||
               (frame->IsFrameOfType(nsIFrame::eReplaced)))) {
     // Special case code to make clientWidth work even when there isn't
     // a scroll view, see bug 180552 and bug 227567.
 
-    *aClientWidth = nsPresContext::AppUnitsToIntCSSPixels(GetClientAreaSize(frame).width);
+    *aClientWidth = NSTwipsToIntPixels(GetClientAreaSize(frame).width, t2p);
   }
 
   return NS_OK;

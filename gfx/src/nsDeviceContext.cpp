@@ -55,9 +55,13 @@ NS_IMPL_ISUPPORTS3(DeviceContextImpl, nsIDeviceContext, nsIObserver, nsISupports
 
 DeviceContextImpl::DeviceContextImpl()
 {
-  mAppUnitsPerDevPixel = -1;
-  mAppUnitsPerInch = -1;
+
+  mDevUnitsToAppUnits = 1.0f;
+  mAppUnitsToDevUnits = 1.0f;
+  mTwipsToPixels = 1.0f;
+  mPixelsToTwips = 1.0f;
   mFontCache = nsnull;
+  mCPixelScale = 1.0f;
   mWidget = nsnull;
   mFontAliasTable = nsnull;
 
@@ -124,6 +128,18 @@ void DeviceContextImpl::CommonInit(void)
   nsCOMPtr<nsIObserverService> obs(do_GetService("@mozilla.org/observer-service;1"));
   if (obs)
     obs->AddObserver(this, "memory-pressure", PR_TRUE);
+}
+
+NS_IMETHODIMP DeviceContextImpl::GetCanonicalPixelScale(float &aScale) const
+{
+  aScale = mCPixelScale;
+  return NS_OK;
+}
+
+NS_IMETHODIMP DeviceContextImpl::SetCanonicalPixelScale(float aScale)
+{
+  mCPixelScale = aScale;
+  return NS_OK;
 }
 
 NS_IMETHODIMP DeviceContextImpl::CreateRenderingContext(nsIView *aView, nsIRenderingContext *&aContext)

@@ -100,6 +100,9 @@ public:
   NS_IMETHOD  CreateRenderingContext(nsIDrawingSurface* aSurface, nsIRenderingContext *&aContext);
   NS_IMETHOD  CreateRenderingContextInstance(nsIRenderingContext *&aContext);
 
+  NS_IMETHOD  GetCanonicalPixelScale(float &aScale) const;
+  NS_IMETHOD  SetCanonicalPixelScale(float aScale);
+
   NS_IMETHOD  GetMetricsFor(const nsFont& aFont, nsIAtom* aLangGroup,
                             nsIFontMetrics*& aMetrics);
   NS_IMETHOD  GetMetricsFor(const nsFont& aFont, nsIFontMetrics*& aMetrics);
@@ -149,6 +152,7 @@ protected:
   nsFontCache       *mFontCache;
   nsCOMPtr<nsIAtom> mLocaleLangGroup; // XXX temp fix for performance bug - erik
   nsHashtable*      mFontAliasTable;
+  float             mCPixelScale;
 
 #ifdef NS_PRINT_PREVIEW
   nsCOMPtr<nsIDeviceContext> mAltDC;

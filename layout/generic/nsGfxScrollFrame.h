@@ -178,6 +178,7 @@ public:
   nsIFrame* mScrolledFrame;
   nsIBox* mScrollCornerBox;
   nsContainerFrame* mOuter;
+  nscoord mOnePixel;
 
   nsRect mRestoreRect;
   nsPoint mLastPos;

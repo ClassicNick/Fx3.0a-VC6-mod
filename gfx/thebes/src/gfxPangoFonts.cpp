@@ -851,7 +851,7 @@ gfxPangoTextRun::ComputeLigatureData(PRUint32 aPartOffset, PropertyProvider *aPr
         } while (!charGlyphs[ligStart].IsClusterStart());
     }
     result.mStartOffset = ligStart;
-    result.mLigatureWidth = ComputeClusterAdvance(ligStart)*mAppUnitsPerDevUnit;
+    result.mLigatureWidth = ComputeClusterAdvance(ligStart)*mPixelsToAppUnits;
     result.mPartClusterIndex = PR_UINT32_MAX;
 
     PRUint32 charIndex = ligStart;
@@ -927,7 +927,7 @@ gfxPangoTextRun::GetAdjustedSpacing(PRUint32 aStart, PRUint32 aEnd,
                 if (i > aStart) {
                     aSpacing[i - 1 - aStart].mAfter -= clusterWidth;
                 }
-                clusterWidth = glyphData->GetSimpleAdvance()*mAppUnitsPerDevUnit;
+                clusterWidth = glyphData->GetSimpleAdvance()*mPixelsToAppUnits;
             } else if (glyphData->IsComplexCluster()) {
                 NS_ASSERTION(mDetailedGlyphs, "No details but we have a complex cluster...");
                 if (i > aStart) {
@@ -941,7 +941,7 @@ gfxPangoTextRun::GetAdjustedSpacing(PRUint32 aStart, PRUint32 aEnd,
                         break;
                     ++details;
                 }
-                clusterWidth *= mAppUnitsPerDevUnit;
+                clusterWidth *= mPixelsToAppUnits;
             }
         }
         aSpacing[aEnd - 1 - aStart].mAfter -= clusterWidth;
@@ -969,7 +969,7 @@ gfxPangoTextRun::ProcessCairoGlyphsWithSpacing(CairoGlyphProcessorCallback aCB, 
     if (aStart >= aEnd)
         return;
 
-    double appUnitsToPixels = 1/mAppUnitsPerDevUnit;
+    double appUnitsToPixels = 1/mPixelsToAppUnits;
     CompressedGlyph *charGlyphs = mCharacterGlyphs;
     double direction = GetDirection();
 
@@ -1127,7 +1127,7 @@ gfxPangoTextRun::DrawPartialLigature(gfxContext *aCtx, PRUint32 aOffset,
     if (!mCharacterGlyphs[aOffset].IsClusterStart() || !aDirtyRect)
         return;
 
-    gfxFloat appUnitsToPixels = 1.0/mAppUnitsPerDevUnit;
+    gfxFloat appUnitsToPixels = 1.0/mPixelsToAppUnits;
 
     // Draw partial ligature. We hack this by clipping the ligature.
     LigatureData data = ComputeLigatureData(aOffset, aProvider);
@@ -1149,7 +1149,7 @@ gfxPangoTextRun::DrawPartialLigature(gfxContext *aCtx, PRUint32 aOffset,
             left = PR_MAX(left, aPt->x);
         }
         widthBeforeCluster = clusterWidth*data.mPartClusterIndex +
-            data.mBeforeSpacing*appUnitsToPixels;
+            data.mBeforeSpacing/mPixelsToAppUnits;
     } else {
         // We're drawing the start of the ligature, so our cluster includes any
         // before-spacing.
@@ -1165,7 +1165,7 @@ gfxPangoTextRun::DrawPartialLigature(gfxContext *aCtx, PRUint32 aOffset,
         }
         afterSpace = 0;
     } else {
-        afterSpace = data.mAfterSpacing*appUnitsToPixels;
+        afterSpace = data.mAfterSpacing/mPixelsToAppUnits;
     }
 
     aCtx->Save();
@@ -1186,7 +1186,7 @@ gfxPangoTextRun::Draw(gfxContext *aContext, gfxPoint aPt,
 {
     NS_ASSERTION(aStart + aLength <= mCharacterCount, "Substring out of range");
 
-    gfxFloat appUnitsToPixels = 1/mAppUnitsPerDevUnit;
+    gfxFloat appUnitsToPixels = 1/mPixelsToAppUnits;
     CompressedGlyph *charGlyphs = mCharacterGlyphs;
     gfxFloat direction = GetDirection();
 
@@ -1224,7 +1224,7 @@ gfxPangoTextRun::Draw(gfxContext *aContext, gfxPoint aPt,
     }
 
     if (aAdvanceWidth) {
-        *aAdvanceWidth = (pt.x - startX)*direction*mAppUnitsPerDevUnit;
+        *aAdvanceWidth = (pt.x - startX)*direction*mPixelsToAppUnits;
     }
 }
 
@@ -1235,7 +1235,7 @@ gfxPangoTextRun::DrawToPath(gfxContext *aContext, gfxPoint aPt,
 {
     NS_ASSERTION(aStart + aLength <= mCharacterCount, "Substring out of range");
 
-    gfxFloat appUnitsToPixels = 1/mAppUnitsPerDevUnit;
+    gfxFloat appUnitsToPixels = 1/mPixelsToAppUnits;
     CompressedGlyph *charGlyphs = mCharacterGlyphs;
     gfxFloat direction = GetDirection();
 
@@ -1263,7 +1263,7 @@ gfxPangoTextRun::DrawToPath(gfxContext *aContext, gfxPoint aPt,
     }
 
     if (aAdvanceWidth) {
-        *aAdvanceWidth = (pt.x - startX)*direction*mAppUnitsPerDevUnit;
+        *aAdvanceWidth = (pt.x - startX)*direction*mPixelsToAppUnits;
     }
 }
 
@@ -1303,7 +1303,7 @@ gfxPangoTextRun::AccumulatePangoMetricsForRun(PangoFont *aPangoFont, PRUint32 aS
 
     nsAutoTArray<PropertyProvider::Spacing,200> spacingBuffer;
     PRBool haveSpacing = GetAdjustedSpacingArray(aStart, aEnd, aProvider, &spacingBuffer);
-    gfxFloat appUnitsToPango = gfxFloat(PANGO_SCALE)/mAppUnitsPerDevUnit;
+    gfxFloat appUnitsToPango = gfxFloat(PANGO_SCALE)/mPixelsToAppUnits;
 
     // We start by assuming every character is a cluster and subtract off
     // characters where that's not true
@@ -1376,8 +1376,7 @@ gfxPangoTextRun::AccumulatePangoMetricsForRun(PangoFont *aPangoFont, PRUint32 aS
     glyphs.glyphs = glyphBuffer.Elements();
     glyphs.log_clusters = nsnull;
     glyphs.space = glyphBuffer.Length();
-    Metrics metrics = GetPangoMetrics(&glyphs, aPangoFont, mAppUnitsPerDevUnit,
-                                      clusterCount);
+    Metrics metrics = GetPangoMetrics(&glyphs, aPangoFont, mPixelsToAppUnits, clusterCount);
 
     if (IsRightToLeft()) {
         metrics.CombineWith(*aMetrics);
@@ -1564,7 +1563,7 @@ gfxPangoTextRun::BreakAndMeasureText(PRUint32 aStart, PRUint32 aMaxLength,
         PRBool lineBreakHere = mCharacterGlyphs[i].CanBreakBefore() &&
             (!aSuppressInitialBreak || i > aStart);
         if (lineBreakHere || (haveHyphenation && hyphenBuffer[i - bufferStart])) {
-            gfxFloat advance = gfxFloat(pixelAdvance)*mAppUnitsPerDevUnit + floatAdvanceUnits;
+            gfxFloat advance = gfxFloat(pixelAdvance)*mPixelsToAppUnits + floatAdvanceUnits;
             gfxFloat hyphenatedAdvance = advance;
             PRBool hyphenation = !lineBreakHere;
             if (hyphenation) {
@@ -1595,7 +1594,7 @@ gfxPangoTextRun::BreakAndMeasureText(PRUint32 aStart, PRUint32 aMaxLength,
                 NS_ASSERTION(mDetailedGlyphs, "No details but we have a complex cluster...");
                 DetailedGlyph *details = mDetailedGlyphs[i];
                 for (;;) {
-                    floatAdvanceUnits += details->mAdvance*mAppUnitsPerDevUnit;
+                    floatAdvanceUnits += details->mAdvance*mPixelsToAppUnits;
                     if (details->mIsLastGlyph)
                         break;
                     ++details;
@@ -1611,7 +1610,7 @@ gfxPangoTextRun::BreakAndMeasureText(PRUint32 aStart, PRUint32 aMaxLength,
     }
 
     if (!aborted) {
-        gfxFloat advance = gfxFloat(pixelAdvance)*mAppUnitsPerDevUnit + floatAdvanceUnits;
+        gfxFloat advance = gfxFloat(pixelAdvance)*mPixelsToAppUnits + floatAdvanceUnits;
         width += advance;
     }
 
@@ -1692,7 +1691,7 @@ gfxPangoTextRun::GetAdvanceWidth(PRUint32 aStart, PRUint32 aLength,
             NS_ASSERTION(mDetailedGlyphs, "No details but we have a complex cluster...");
             DetailedGlyph *details = mDetailedGlyphs[i];
             for (;;) {
-                result += details->mAdvance*mAppUnitsPerDevUnit;
+                result += details->mAdvance*mPixelsToAppUnits;
                 if (details->mIsLastGlyph)
                     break;
                 ++details;
@@ -1700,7 +1699,7 @@ gfxPangoTextRun::GetAdvanceWidth(PRUint32 aStart, PRUint32 aLength,
         }
     }
 
-    return result + gfxFloat(pixelAdvance)*mAppUnitsPerDevUnit;
+    return result + gfxFloat(pixelAdvance)*mPixelsToAppUnits;
 }
 
 #define IS_MISSING_GLYPH(g) (((g) & 0x10000000) || (g) == 0x0FFFFFFF)
@@ -1808,14 +1807,14 @@ gfxPangoTextRun::MeasureTextSpecialString(SpecialString aString,
         return Metrics();
 
     PangoFont *pangoFont = mFontGroup->GetFontAt(0)->GetPangoFont();
-    return GetPangoMetrics(data->mGlyphs, pangoFont, mAppUnitsPerDevUnit, 1);
+    return GetPangoMetrics(data->mGlyphs, pangoFont, mPixelsToAppUnits, 1);
 }
 
 void
 gfxPangoTextRun::DrawSpecialString(gfxContext *aContext, gfxPoint aPt,
                                    SpecialString aString)
 {
-    gfxFloat appUnitsToPixels = 1.0/mAppUnitsPerDevUnit;
+    gfxFloat appUnitsToPixels = 1/mPixelsToAppUnits;
     gfxPoint pt(NSToCoordRound(aPt.x*appUnitsToPixels),
                 NSToCoordRound(aPt.y*appUnitsToPixels));
     const gfxPangoFontGroup::SpecialStringData *data = GetSpecialStringData(aString, mFontGroup);
@@ -1865,32 +1864,32 @@ gfxPangoTextRun::DrawSpecialString(gfxContext *aContext, gfxPoint aPt,
 gfxFloat
 gfxPangoTextRun::GetAdvanceWidthSpecialString(SpecialString aString)
 {
-    return GetSpecialStringData(aString, mFontGroup)->mAdvance*mAppUnitsPerDevUnit;
+    return GetSpecialStringData(aString, mFontGroup)->mAdvance*mPixelsToAppUnits;
 }
 
 gfxFont::Metrics
 gfxPangoTextRun::GetDecorationMetrics()
 {
     gfxFont::Metrics metrics = mFontGroup->GetFontAt(0)->GetMetrics();
-    metrics.xHeight *= mAppUnitsPerDevUnit;
-    metrics.superscriptOffset *= mAppUnitsPerDevUnit;
-    metrics.subscriptOffset *= mAppUnitsPerDevUnit;
-    metrics.strikeoutSize *= mAppUnitsPerDevUnit;
-    metrics.strikeoutOffset *= mAppUnitsPerDevUnit;
-    metrics.underlineSize *= mAppUnitsPerDevUnit;
-    metrics.underlineOffset *= mAppUnitsPerDevUnit;
-    metrics.height *= mAppUnitsPerDevUnit;
-    metrics.internalLeading *= mAppUnitsPerDevUnit;
-    metrics.externalLeading *= mAppUnitsPerDevUnit;
-    metrics.emHeight *= mAppUnitsPerDevUnit;
-    metrics.emAscent *= mAppUnitsPerDevUnit;
-    metrics.emDescent *= mAppUnitsPerDevUnit;
-    metrics.maxHeight *= mAppUnitsPerDevUnit;
-    metrics.maxAscent *= mAppUnitsPerDevUnit;
-    metrics.maxDescent *= mAppUnitsPerDevUnit;
-    metrics.maxAdvance *= mAppUnitsPerDevUnit;
-    metrics.aveCharWidth *= mAppUnitsPerDevUnit;
-    metrics.spaceWidth *= mAppUnitsPerDevUnit;
+    metrics.xHeight *= mPixelsToAppUnits;
+    metrics.superscriptOffset *= mPixelsToAppUnits;
+    metrics.subscriptOffset *= mPixelsToAppUnits;
+    metrics.strikeoutSize *= mPixelsToAppUnits;
+    metrics.strikeoutOffset *= mPixelsToAppUnits;
+    metrics.underlineSize *= mPixelsToAppUnits;
+    metrics.underlineOffset *= mPixelsToAppUnits;
+    metrics.height *= mPixelsToAppUnits;
+    metrics.internalLeading *= mPixelsToAppUnits;
+    metrics.externalLeading *= mPixelsToAppUnits;
+    metrics.emHeight *= mPixelsToAppUnits;
+    metrics.emAscent *= mPixelsToAppUnits;
+    metrics.emDescent *= mPixelsToAppUnits;
+    metrics.maxHeight *= mPixelsToAppUnits;
+    metrics.maxAscent *= mPixelsToAppUnits;
+    metrics.maxDescent *= mPixelsToAppUnits;
+    metrics.maxAdvance *= mPixelsToAppUnits;
+    metrics.aveCharWidth *= mPixelsToAppUnits;
+    metrics.spaceWidth *= mPixelsToAppUnits;
     return metrics;
 }
 

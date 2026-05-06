@@ -481,6 +481,8 @@ public: // NOT in nsIViewManager, so private to the view module
   void PostPendingUpdate() { RootViewManager()->mHasPendingUpdates = PR_TRUE; }
 private:
   nsIDeviceContext  *mContext;
+  float             mTwipsToPixels;
+  float             mPixelsToTwips;
   nsIViewObserver   *mObserver;
   nsView            *mKeyGrabber;
   nsIScrollableView *mRootScrollable;

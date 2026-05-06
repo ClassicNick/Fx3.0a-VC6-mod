@@ -1353,8 +1353,11 @@ nsXULDocument::GetPixelDimensions(nsIPresShell* aShell, PRInt32* aWidth,
             size = frame->GetSize();
         }
 
-        *aWidth = nsPresContext::AppUnitsToIntCSSPixels(size.width);
-        *aHeight = nsPresContext::AppUnitsToIntCSSPixels(size.height);
+        // Convert from twips to pixels
+        float scale = aShell->GetPresContext()->TwipsToPixels();
+
+        *aWidth = NSTwipsToIntPixels(size.width, scale);
+        *aHeight = NSTwipsToIntPixels(size.height, scale);
     }
     else {
         *aWidth = 0;

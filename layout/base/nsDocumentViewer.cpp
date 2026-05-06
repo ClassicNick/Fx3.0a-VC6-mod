@@ -686,8 +686,12 @@ DocumentViewerImpl::InitPresentationStuff(PRBool aDoInitialReflow)
   nsRect bounds;
   mWindow->GetBounds(bounds);
 
-  nscoord width = mPresContext->DevPixelsToAppUnits(bounds.width);
-  nscoord height = mPresContext->DevPixelsToAppUnits(bounds.height);
+  float p2t;
+
+  p2t = mPresContext->PixelsToTwips();
+
+  nscoord width = NSIntPixelsToTwips(bounds.width, p2t);
+  nscoord height = NSIntPixelsToTwips(bounds.height, p2t);
 
   mViewManager->DisableRefresh();
   mViewManager->SetWindowDimensions(width, height);
@@ -798,6 +802,7 @@ DocumentViewerImpl::InitInternal(nsIWidget* aParentWidget,
   // Clear PrintPreview Alternate Device
   if (mDeviceContext) {
     mDeviceContext->SetAltDevice(nsnull);
+    mDeviceContext->SetCanonicalPixelScale(1.0);
   }
 #endif
 
@@ -919,8 +924,9 @@ DocumentViewerImpl::DumpContentToPPM(const char* aFileName)
     mViewManager->GetRootView(view);
   }
   nsRect r = view->GetBounds() - view->GetPosition();
+  float p2t = mPresContext->PixelsToTwips();
   // Limit the bitmap size to 5000x5000
-  nscoord twipLimit = mPresContext->DevPixelsToAppUnits(5000);
+  nscoord twipLimit = NSIntPixelsToTwips(5000, p2t);
   if (r.height > twipLimit)
     r.height = twipLimit;
   if (r.width > twipLimit)
@@ -944,8 +950,9 @@ DocumentViewerImpl::DumpContentToPPM(const char* aFileName)
       if (!surface) {
         status = "NOSURFACE";
       } else {
-        PRUint32 width = mPresContext->AppUnitsToDevPixels(view->GetBounds().width);
-        PRUint32 height = mPresContext->AppUnitsToDevPixels(view->GetBounds().height);
+        float t2p = mPresContext->TwipsToPixels();
+        PRUint32 width = NSTwipsToIntPixels(view->GetBounds().width, t2p);
+        PRUint32 height = NSTwipsToIntPixels(view->GetBounds().height, t2p);
 
         PRUint8* data;
         PRInt32 rowLen, rowSpan;
@@ -2311,7 +2318,9 @@ DocumentViewerImpl::MakeWindow(nsIWidget* aParentWidget,
   nsIDeviceContext *dx = mPresContext->DeviceContext();
 
   nsRect tbounds = aBounds;
-  tbounds *= mPresContext->AppUnitsPerDevPixel();
+  float p2t;
+  p2t = mPresContext->PixelsToTwips();
+  tbounds *= p2t;
 
    // Initialize the view manager with an offset. This allows the viewmanager
    // to manage a coordinate space offset from (0,0)
@@ -3141,6 +3150,7 @@ NS_IMETHODIMP DocumentViewerImpl::SizeToContent()
    NS_ENSURE_TRUE(presContext, NS_ERROR_FAILURE);
 
    PRInt32 width, height;
+   float   pixelScale;
 
    // so how big is it?
    nsRect shellArea = presContext->GetVisibleArea();
@@ -3149,8 +3159,9 @@ NS_IMETHODIMP DocumentViewerImpl::SizeToContent()
      // Protect against bogus returns here
      return NS_ERROR_FAILURE;
    }
-   width = presContext->AppUnitsToDevPixels(shellArea.width);
-   height = presContext->AppUnitsToDevPixels(shellArea.height);
+   pixelScale = presContext->TwipsToPixels();
+   width = PRInt32((float)shellArea.width*pixelScale);
+   height = PRInt32((float)shellArea.height*pixelScale);
 
    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
    docShellAsItem->GetTreeOwner(getter_AddRefs(treeOwner));

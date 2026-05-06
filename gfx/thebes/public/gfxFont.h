@@ -243,7 +243,7 @@ public:
         PRUint32     *mInitialBreaks;
         PRUint32      mInitialBreakCount;
         // The ratio to use to convert device pixels to application layout units
-        PRUint32      mAppUnitsPerDevUnit;
+        gfxFloat      mPixelsToUnits;
         // Flags --- see above
         PRUint32      mFlags;
     };
@@ -703,12 +703,11 @@ public:
     void *GetUserData() const { return mUserData; }
     PRUint32 GetFlags() const { return mFlags; }
     const gfxSkipChars& GetSkipChars() const { return mSkipChars; }
-    float GetAppUnitsPerDevUnit() { return mAppUnitsPerDevUnit; }
+    gfxFloat GetPixelsToAppUnits() { return mPixelsToAppUnits; }
 
 protected:
     gfxTextRun(gfxTextRunFactory::Parameters *aParams, PRBool aIs8Bit)
-        : mUserData(aParams->mUserData),
-          mAppUnitsPerDevUnit(aParams->mAppUnitsPerDevUnit),
+        : mUserData(aParams->mUserData), mPixelsToAppUnits(aParams->mPixelsToUnits),
           mFlags(aParams->mFlags)
     {
         mSkipChars.TakeFrom(aParams->mSkipChars);
@@ -719,9 +718,7 @@ protected:
 
     void *       mUserData;
     gfxSkipChars mSkipChars;
-    // This is actually an integer, but we keep it in float form to reduce
-    // the conversions required
-    float        mAppUnitsPerDevUnit;
+    gfxFloat     mPixelsToAppUnits;
     PRUint32     mFlags;
 };
 #endif

@@ -1711,7 +1711,7 @@ void nsCSSRendering::PaintBorder(nsPresContext* aPresContext,
     }
   }
   /* Get our conversion values */
-  nscoord twipsPerPixel = aPresContext->DevPixelsToAppUnits(1);
+  nscoord twipsPerPixel = NSIntPixelsToTwips(1, aPresContext->PixelsToTwips());
 
   static PRUint8 sideOrder[] = { NS_SIDE_BOTTOM, NS_SIDE_LEFT, NS_SIDE_TOP, NS_SIDE_RIGHT };
   nscolor sideColor;
@@ -2072,7 +2072,7 @@ nscoord width, offset;
 
   // Draw all the other sides
 
-  PRInt32 appUnitsPerPixel = aPresContext->DevPixelsToAppUnits(1);
+  nscoord twipsPerPixel = NSIntPixelsToTwips(1, aPresContext->PixelsToTwips());
 
   // default to current color in case it is invert color
   // and the platform does not support that
@@ -2095,25 +2095,25 @@ nscoord width, offset;
              outlineStyle,
              outlineColor,
              bgColor->mBackgroundColor, outside, inside, aSkipSides,
-             appUnitsPerPixel, aGap);
+             twipsPerPixel, aGap);
 
     DrawSide(aRenderingContext, NS_SIDE_LEFT,
              outlineStyle, 
              outlineColor,
              bgColor->mBackgroundColor,outside, inside,aSkipSides,
-             appUnitsPerPixel, aGap);
+             twipsPerPixel, aGap);
 
     DrawSide(aRenderingContext, NS_SIDE_TOP,
              outlineStyle,
              outlineColor,
              bgColor->mBackgroundColor,outside, inside,aSkipSides,
-             appUnitsPerPixel, aGap);
+             twipsPerPixel, aGap);
 
     DrawSide(aRenderingContext, NS_SIDE_RIGHT,
              outlineStyle,
              outlineColor,
              bgColor->mBackgroundColor,outside, inside,aSkipSides,
-             appUnitsPerPixel, aGap);
+             twipsPerPixel, aGap);
 
     if(modeChanged ) {
       aRenderingContext.SetPenMode(nsPenMode_kNone);
@@ -2161,7 +2161,10 @@ void nsCSSRendering::PaintBorderEdges(nsPresContext* aPresContext,
   DrawDashedSegments(aRenderingContext, aBorderArea, aBorderEdges, aSkipSides, aGap);
 
   // Draw all the other sides
-  nscoord appUnitsPerPixel = nsPresContext::AppUnitsPerCSSPixel();
+  nscoord twipsPerPixel;
+  float p2t;
+  p2t = aPresContext->PixelsToTwips();
+  twipsPerPixel = (nscoord) p2t;/* XXX huh!*/
 
   if (0 == (aSkipSides & (1<<NS_SIDE_TOP))) {
     PRInt32 segmentCount = aBorderEdges->mEdges[NS_SIDE_TOP].Count();
@@ -2184,7 +2187,7 @@ void nsCSSRendering::PaintBorderEdges(nsPresContext* aPresContext,
                borderEdge->mColor,
                bgColor->mBackgroundColor,
                inside, outside,aSkipSides,
-               appUnitsPerPixel, aGap);
+               twipsPerPixel, aGap);
     }
   }
   if (0 == (aSkipSides & (1<<NS_SIDE_LEFT))) {
@@ -2206,7 +2209,7 @@ void nsCSSRendering::PaintBorderEdges(nsPresContext* aPresContext,
                borderEdge->mColor,
                bgColor->mBackgroundColor,
                inside, outside, aSkipSides,
-               appUnitsPerPixel, aGap);
+               twipsPerPixel, aGap);
     }
   }
   if (0 == (aSkipSides & (1<<NS_SIDE_BOTTOM))) {
@@ -2231,7 +2234,7 @@ void nsCSSRendering::PaintBorderEdges(nsPresContext* aPresContext,
                borderEdge->mColor,
                bgColor->mBackgroundColor,
                inside, outside,aSkipSides,
-               appUnitsPerPixel, aGap);
+               twipsPerPixel, aGap);
     }
   }
   if (0 == (aSkipSides & (1<<NS_SIDE_RIGHT))) {
@@ -2263,7 +2266,7 @@ void nsCSSRendering::PaintBorderEdges(nsPresContext* aPresContext,
                borderEdge->mColor,
                bgColor->mBackgroundColor,
                inside, outside,aSkipSides,
-               appUnitsPerPixel, aGap);
+               twipsPerPixel, aGap);
     }
   }
 }
@@ -2845,8 +2848,10 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
   image->GetWidth(&imageSize.width);
   image->GetHeight(&imageSize.height);
 
-  imageSize.width = nsPresContext::CSSPixelsToAppUnits(imageSize.width);
-  imageSize.height = nsPresContext::CSSPixelsToAppUnits(imageSize.height);
+  float p2t;
+  p2t = aPresContext->ScaledPixelsToTwips();
+  imageSize.width = NSIntPixelsToTwips(imageSize.width, p2t);
+  imageSize.height = NSIntPixelsToTwips(imageSize.height, p2t);
 
   req = nsnull;
 
@@ -3165,7 +3170,6 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
 
   // Take the intersection again to paint only the required area.
   nsRect absTileRect = tileRect + aBorderArea.TopLeft();
-  
   nsRect drawRect;
   if (drawRect.IntersectRect(absTileRect, dirtyRect)) {
     // Note that due to the way FindTileStart works we're guaranteed
@@ -3295,9 +3299,12 @@ nsCSSRendering::PaintRoundedBackground(nsPresContext* aPresContext,
   nsFloatPoint  thePath[MAXPATHSIZE];
   static nsPoint       polyPath[MAXPOLYPATHSIZE];
   PRInt16       np;
+  nscoord       twipsPerPixel;
+  float         p2t;
 
   // needed for our border thickness
-  nscoord appUnitsPerPixel = nsPresContext::AppUnitsPerCSSPixel();
+  p2t = aPresContext->PixelsToTwips();
+  twipsPerPixel = NSToCoordRound(p2t);
 
   nscolor color = aColor.mBackgroundColor;
   if (!aCanPaintNonWhite) {
@@ -3318,8 +3325,7 @@ nsCSSRendering::PaintRoundedBackground(nsPresContext* aPresContext,
   }
 
   // set the rounded rect up, and let'er rip
-  outerPath.Set(aBgClipArea.x, aBgClipArea.y, aBgClipArea.width,
-                aBgClipArea.height, aTheRadius, appUnitsPerPixel);
+  outerPath.Set(aBgClipArea.x,aBgClipArea.y,aBgClipArea.width,aBgClipArea.height,aTheRadius,twipsPerPixel);
   outerPath.GetRoundedBorders(UL,UR,LL,LR);
 
   // BUILD THE ENTIRE OUTSIDE PATH
@@ -3401,6 +3407,8 @@ nsCSSRendering::PaintRoundedBorder(nsPresContext* aPresContext,
   nsFloatPoint  thePath[MAXPATHSIZE];
   PRInt16       np;
   nsMargin      border;
+  nscoord       twipsPerPixel,qtwips;
+  float         p2t;
 
   NS_ASSERTION((aIsOutline && aOutlineStyle) || (!aIsOutline && aBorderStyle), "null params not allowed");
   if (!aIsOutline) {
@@ -3421,11 +3429,13 @@ nsCSSRendering::PaintRoundedBorder(nsPresContext* aPresContext,
   }
 
   // needed for our border thickness
-  nscoord appUnitsPerPixel = aPresContext->DevPixelsToAppUnits(1);
-  nscoord quarterPixel = appUnitsPerPixel / 4;
+  twipsPerPixel = NSIntPixelsToTwips(1, aPresContext->PixelsToTwips());
 
-  outerPath.Set(aBorderArea.x, aBorderArea.y, aBorderArea.width,
-                aBorderArea.height, aBorderRadius, appUnitsPerPixel);
+  // Base our thickness check on the segment being less than a pixel and 1/2
+  qtwips = twipsPerPixel >> 2;
+  //qtwips = twipsPerPixel;
+
+  outerPath.Set(aBorderArea.x,aBorderArea.y,aBorderArea.width,aBorderArea.height,aBorderRadius,twipsPerPixel);
   outerPath.GetRoundedBorders(UL,UR,LL,LR);
   outerPath.CalcInsetCurves(IUL,IUR,ILL,ILR,border);
 
@@ -3449,8 +3459,7 @@ nsCSSRendering::PaintRoundedBorder(nsPresContext* aPresContext,
     thePath[np++].MoveTo(Icr2.mAnc2.x, Icr2.mAnc2.y);
     thePath[np++].MoveTo(Icr2.mCon.x, Icr2.mCon.y);
     thePath[np++].MoveTo(Icr2.mAnc1.x, Icr2.mAnc1.y);
-    RenderSide(thePath, aRenderingContext, aBorderStyle, aOutlineStyle,
-               aStyleContext, NS_SIDE_TOP, border, quarterPixel, aIsOutline);
+    RenderSide(thePath,aRenderingContext,aBorderStyle,aOutlineStyle,aStyleContext,NS_SIDE_TOP,border,qtwips, aIsOutline);
   }
   // RIGHT  LINE ----------------------------------------------------------------
   LR.MidPointDivide(&cr2,&cr3);
@@ -3470,8 +3479,7 @@ nsCSSRendering::PaintRoundedBorder(nsPresContext* aPresContext,
     thePath[np++].MoveTo(Icr4.mAnc2.x,Icr4.mAnc2.y);
     thePath[np++].MoveTo(Icr4.mCon.x, Icr4.mCon.y);
     thePath[np++].MoveTo(Icr4.mAnc1.x,Icr4.mAnc1.y);
-    RenderSide(thePath, aRenderingContext, aBorderStyle, aOutlineStyle,
-               aStyleContext, NS_SIDE_RIGHT, border, quarterPixel, aIsOutline);
+    RenderSide(thePath,aRenderingContext,aBorderStyle,aOutlineStyle,aStyleContext,NS_SIDE_RIGHT,border,qtwips, aIsOutline);
   }
 
   // bottom line ----------------------------------------------------------------
@@ -3492,8 +3500,7 @@ nsCSSRendering::PaintRoundedBorder(nsPresContext* aPresContext,
     thePath[np++].MoveTo(Icr3.mAnc2.x, Icr3.mAnc2.y);
     thePath[np++].MoveTo(Icr3.mCon.x, Icr3.mCon.y);
     thePath[np++].MoveTo(Icr3.mAnc1.x, Icr3.mAnc1.y);
-    RenderSide(thePath, aRenderingContext, aBorderStyle, aOutlineStyle,
-               aStyleContext, NS_SIDE_BOTTOM, border, quarterPixel, aIsOutline);
+    RenderSide(thePath,aRenderingContext,aBorderStyle,aOutlineStyle,aStyleContext,NS_SIDE_BOTTOM,border,qtwips, aIsOutline);
   }
   // left line ----------------------------------------------------------------
   if(0==border.left)
@@ -3514,8 +3521,7 @@ nsCSSRendering::PaintRoundedBorder(nsPresContext* aPresContext,
   thePath[np++].MoveTo(Icr4.mCon.x, Icr4.mCon.y);
   thePath[np++].MoveTo(Icr4.mAnc1.x, Icr4.mAnc1.y);
 
-  RenderSide(thePath, aRenderingContext, aBorderStyle, aOutlineStyle,
-             aStyleContext, NS_SIDE_LEFT, border, quarterPixel, aIsOutline);
+  RenderSide(thePath,aRenderingContext,aBorderStyle,aOutlineStyle,aStyleContext,NS_SIDE_LEFT,border,qtwips, aIsOutline);
 }
 
 
@@ -4190,7 +4196,7 @@ nsCSSRendering::DrawTableBorderSegment(nsIRenderingContext&     aContext,
   aContext.SetColor (aBorderColor); 
 
   PRBool horizontal = ((NS_SIDE_TOP == aStartBevelSide) || (NS_SIDE_BOTTOM == aStartBevelSide));
-  nscoord twipsPerPixel = NSIntPixelsToAppUnits(1, aPixelsToTwips);
+  nscoord twipsPerPixel = NSIntPixelsToTwips(1, aPixelsToTwips);
   PRBool ridgeGroove = NS_STYLE_BORDER_STYLE_RIDGE;
 
   if ((twipsPerPixel >= aBorder.width) || (twipsPerPixel >= aBorder.height) ||

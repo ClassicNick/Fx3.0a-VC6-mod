@@ -285,6 +285,8 @@ NS_IMETHODIMP nsViewManager::Init(nsIDeviceContext* aContext)
     return NS_ERROR_ALREADY_INITIALIZED;
   }
   mContext = aContext;
+  mTwipsToPixels = mContext->AppUnitsToDevUnits();
+  mPixelsToTwips = mContext->DevUnitsToAppUnits();
 
   mRefreshEnabled = PR_TRUE;
 
@@ -427,17 +429,18 @@ static void ConvertNativeRegionToAppRegion(nsIRegion* aIn, nsRegion* aOut,
   aIn->GetRects(&rects);
   if (!rects)
     return;
-
-  PRInt32 p2a = context->AppUnitsPerDevPixel();
+  
+  float  p2t;
+  p2t = context->DevUnitsToAppUnits();
 
   PRUint32 i;
   for (i = 0; i < rects->mNumRects; i++) {
     const nsRegionRect& inR = rects->mRects[i];
     nsRect outR;
-    outR.x = NSIntPixelsToAppUnits(inR.x, p2a);
-    outR.y = NSIntPixelsToAppUnits(inR.y, p2a);
-    outR.width = NSIntPixelsToAppUnits(inR.width, p2a);
-    outR.height = NSIntPixelsToAppUnits(inR.height, p2a);
+    outR.x = NSToIntRound(inR.x * p2t);
+    outR.y = NSToIntRound(inR.y * p2t);
+    outR.width = NSToIntRound(inR.width * p2t);
+    outR.height = NSToIntRound(inR.height * p2t);
     aOut->Or(*aOut, outR);
   }
 
@@ -557,7 +560,7 @@ void nsViewManager::Refresh(nsView *aView, nsIRenderingContext *aContext,
 
   // damageRect is the clipped damage area bounds, in twips-relative-to-view-origin
   nsRect damageRect = damageRegion.GetBounds();
-  PRInt32 p2a = mContext->AppUnitsPerDevPixel();
+  float t2p = mContext->AppUnitsToDevUnits();
 
 #ifdef MOZ_CAIRO_GFX
   nsRefPtr<gfxContext> ctx =
@@ -565,8 +568,8 @@ void nsViewManager::Refresh(nsView *aView, nsIRenderingContext *aContext,
 
   ctx->Save();
 
-  ctx->Translate(gfxPoint(NSAppUnitsToIntPixels(viewRect.x, p2a),
-                          NSAppUnitsToIntPixels(viewRect.y, p2a)));
+  ctx->Translate(gfxPoint(NSToIntRound(viewRect.x * t2p),
+                          NSToIntRound(viewRect.y * t2p)));
 
   nsRegion opaqueRegion;
   AddCoveringWidgetsToOpaqueRegion(opaqueRegion, mContext, aView);
@@ -821,7 +824,7 @@ void nsViewManager::RenderViews(nsView *aView, nsIRenderingContext& aRC,
   if (translucentWindow) {
     // Get the alpha channel into an array so we can send it to the widget
     nsRect r = aRegion.GetBounds();
-    r *= (1.0f / mContext->AppUnitsPerDevPixel());
+    r *= mTwipsToPixels;
     nsRect bufferRect(0, 0, r.width, r.height);
     PRUint8* alphas = nsnull;
     nsresult rv = mBlender->GetAlphas(bufferRect, buffers->mBlack,
@@ -911,7 +914,7 @@ nsViewManager::CreateBlendingBuffers(nsIRenderingContext *aRC,
   buffers->mOffset = nsPoint(aRect.x, aRect.y);
 
   nsRect offscreenBounds(0, 0, aRect.width, aRect.height);
-  offscreenBounds.ScaleRoundOut(1.0f / mContext->AppUnitsPerDevPixel());
+  offscreenBounds.ScaleRoundOut(mTwipsToPixels);
 
   if (aBorrowContext) {
     buffers->mBlackCX = aRC;
@@ -1312,9 +1315,13 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
 
             if (view == mRootView)
               {
-                PRInt32 p2a = mContext->AppUnitsPerDevPixel();
-                SetWindowDimensions(NSIntPixelsToAppUnits(width, p2a),
-                                    NSIntPixelsToAppUnits(height, p2a));
+                // Convert from pixels to twips
+                float p2t;
+                p2t = mContext->DevUnitsToAppUnits();
+
+                //printf("resize: (pix) %d, %d\n", width, height);
+                SetWindowDimensions(NSIntPixelsToTwips(width, p2t),
+                                    NSIntPixelsToTwips(height, p2t));
                 *aStatus = nsEventStatus_eConsumeNoDefault;
               }
           }
@@ -1420,8 +1427,9 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
           // draw something so we don't get blank areas.
           nsRect damRect;
           region->GetBoundingBox(&damRect.x, &damRect.y, &damRect.width, &damRect.height);
-          PRInt32 p2a = mContext->AppUnitsPerDevPixel();
-          damRect.ScaleRoundOut(float(p2a));
+          float p2t;
+          p2t = mContext->DevUnitsToAppUnits();
+          damRect.ScaleRoundOut(p2t);
           DefaultRefresh(view, event->renderingContext, &damRect);
         
           // Clients like the editor can trigger multiple
@@ -1540,7 +1548,8 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
         }
 
         if (nsnull != view) {
-          PRInt32 p2a = mContext->AppUnitsPerDevPixel();
+          float t2p = mContext->AppUnitsToDevUnits();
+          float p2t = mContext->DevUnitsToAppUnits();
 
           if ((aEvent->message == NS_MOUSE_MOVE &&
                NS_STATIC_CAST(nsMouseEvent*,aEvent)->reason ==
@@ -1551,8 +1560,8 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
             nsPoint rootOffset = baseView->GetDimensions().TopLeft();
             rootOffset += baseView->GetOffsetTo(RootViewManager()->mRootView);
             RootViewManager()->mMouseLocation = aEvent->refPoint +
-                nsPoint(NSAppUnitsToIntPixels(rootOffset.x, p2a),
-                        NSAppUnitsToIntPixels(rootOffset.y, p2a));
+                nsPoint(NSTwipsToIntPixels(rootOffset.x, t2p),
+                        NSTwipsToIntPixels(rootOffset.y, t2p));
 #ifdef DEBUG_MOUSE_LOCATION
             if (aEvent->message == NS_MOUSE_ENTER)
               printf("[vm=%p]got mouse enter for %p\n",
@@ -1601,9 +1610,9 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
 
           nsPoint pt;
           pt.x = baseViewDimensions.x + 
-            NSFloatPixelsToAppUnits(float(aEvent->refPoint.x) + 0.5f, p2a);
+            NSFloatPixelsToTwips(float(aEvent->refPoint.x) + 0.5f, p2t);
           pt.y = baseViewDimensions.y + 
-            NSFloatPixelsToAppUnits(float(aEvent->refPoint.y) + 0.5f, p2a);
+            NSFloatPixelsToTwips(float(aEvent->refPoint.y) + 0.5f, p2t);
           pt += offset;
 
           *aStatus = HandleEvent(view, pt, aEvent, capturedEvent);
@@ -1612,23 +1621,23 @@ NS_IMETHODIMP nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus *aS
           // if the event is an nsTextEvent, we need to map the reply back into platform coordinates
           //
           if (aEvent->message==NS_TEXT_TEXT) {
-            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.x=NSAppUnitsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.x, p2a);
-            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.y=NSAppUnitsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.y, p2a);
-            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.width=NSAppUnitsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.width, p2a);
-            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.height=NSAppUnitsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.height, p2a);
+            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.x=NSTwipsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.x, t2p);
+            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.y=NSTwipsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.y, t2p);
+            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.width=NSTwipsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.width, t2p);
+            ((nsTextEvent*)aEvent)->theReply.mCursorPosition.height=NSTwipsToIntPixels(((nsTextEvent*)aEvent)->theReply.mCursorPosition.height, t2p);
           }
           if((aEvent->message==NS_COMPOSITION_START) ||
              (aEvent->message==NS_COMPOSITION_QUERY)) {
-            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.x=NSAppUnitsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.x, p2a);
-            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.y=NSAppUnitsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.y, p2a);
-            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.width=NSAppUnitsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.width, p2a);
-            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.height=NSAppUnitsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.height, p2a);
+            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.x=NSTwipsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.x,t2p);
+            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.y=NSTwipsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.y,t2p);
+            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.width=NSTwipsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.width,t2p);
+            ((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.height=NSTwipsToIntPixels(((nsCompositionEvent*)aEvent)->theReply.mCursorPosition.height,t2p);
           }
           if(aEvent->message==NS_QUERYCARETRECT) {
-            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.x=NSAppUnitsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.x, p2a);
-            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.y=NSAppUnitsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.y, p2a);
-            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.width=NSAppUnitsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.width, p2a);
-            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.height=NSAppUnitsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.height, p2a);
+            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.x=NSTwipsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.x,t2p);
+            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.y=NSTwipsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.y,t2p);
+            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.width=NSTwipsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.width,t2p);
+            ((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.height=NSTwipsToIntPixels(((nsQueryCaretRectEvent*)aEvent)->theReply.mCaretRect.height,t2p);
           }
         }
     
@@ -2594,7 +2603,9 @@ void nsViewManager::ViewToWidget(nsView *aView, nsView* aWidgetView, nsRect &aRe
   aRect.y -= bounds.y;
   
   // finally, convert to device coordinates.
-  aRect.ScaleRoundOut(1.0f / mContext->AppUnitsPerDevPixel());
+  float t2p;
+  t2p = mContext->AppUnitsToDevUnits();
+  aRect.ScaleRoundOut(t2p);
 }
 
 nsresult nsViewManager::GetVisibleRect(nsRect& aVisibleRect)
@@ -2919,11 +2930,10 @@ nsViewManager::ProcessSynthMouseMoveEvent(PRBool aFromScroll)
   printf("[vm=%p]synthesizing mouse move to (%d,%d)\n",
          this, mMouseLocation.x, mMouseLocation.y);
 #endif
-                                                       
+
   nsPoint pt = mMouseLocation;
-  PRInt32 p2a = mContext->AppUnitsPerDevPixel();
-  pt.x = NSIntPixelsToAppUnits(mMouseLocation.x, p2a);
-  pt.y = NSIntPixelsToAppUnits(mMouseLocation.y, p2a);
+  pt.x = NSToCoordRound(mMouseLocation.x*mPixelsToTwips);
+  pt.y = NSToCoordRound(mMouseLocation.y*mPixelsToTwips);
   // This could be a bit slow (traverses entire view hierarchy)
   // but it's OK to do it once per synthetic mouse event
   nsView* view = FindFloatingViewContaining(mRootView, pt);
@@ -2932,8 +2942,8 @@ nsViewManager::ProcessSynthMouseMoveEvent(PRBool aFromScroll)
     view = mRootView;
   } else {
     offset = view->GetOffsetTo(mRootView);
-    offset.x = NSAppUnitsToIntPixels(offset.x, p2a);
-    offset.y = NSAppUnitsToIntPixels(offset.y, p2a);
+    offset.x = NSToIntRound(offset.x*mTwipsToPixels);
+    offset.y = NSToIntRound(offset.y*mTwipsToPixels);
   }
   nsMouseEvent event(PR_TRUE, NS_MOUSE_MOVE, view->GetWidget(),
                      nsMouseEvent::eSynthesized);

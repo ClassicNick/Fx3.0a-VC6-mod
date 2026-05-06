@@ -721,10 +721,11 @@ nsIFrame::GetUsedBorder() const
     presContext->GetTheme()->GetWidgetBorder(presContext->DeviceContext(),
                                              mutable_this, disp->mAppearance,
                                              &result);
-    result.top = presContext->DevPixelsToAppUnits(result.top);
-    result.right = presContext->DevPixelsToAppUnits(result.right);
-    result.bottom = presContext->DevPixelsToAppUnits(result.bottom);
-    result.left = presContext->DevPixelsToAppUnits(result.left);
+    float p2t = presContext->ScaledPixelsToTwips();
+    result.top = NSIntPixelsToTwips(result.top, p2t);
+    result.right = NSIntPixelsToTwips(result.right, p2t);
+    result.bottom = NSIntPixelsToTwips(result.bottom, p2t);
+    result.left = NSIntPixelsToTwips(result.left, p2t);
     return result;
   }
 
@@ -751,10 +752,11 @@ nsIFrame::GetUsedPadding() const
                                                   mutable_this,
                                                   disp->mAppearance,
                                                   &padding)) {
-      padding.top = presContext->DevPixelsToAppUnits(padding.top);
-      padding.right = presContext->DevPixelsToAppUnits(padding.right);
-      padding.bottom = presContext->DevPixelsToAppUnits(padding.bottom);
-      padding.left = presContext->DevPixelsToAppUnits(padding.left);
+      float p2t = presContext->ScaledPixelsToTwips();
+      padding.top = NSIntPixelsToTwips(padding.top, p2t);
+      padding.right = NSIntPixelsToTwips(padding.right, p2t);
+      padding.bottom = NSIntPixelsToTwips(padding.bottom, p2t);
+      padding.left = NSIntPixelsToTwips(padding.left, p2t);
       return padding;
     }
   }
@@ -957,7 +959,7 @@ void nsDisplaySelectionOverlay::Paint(nsDisplayListBuilder* aBuilder,
 
   nsRect rect(aBuilder->ToReferenceFrame(mFrame), mFrame->GetSize());
   rect.IntersectRect(rect, aDirtyRect);
-  rect.ScaleRoundOut(1.0f / mFrame->GetPresContext()->AppUnitsPerDevPixel());
+  rect.ScaleRoundOut(mFrame->GetPresContext()->TwipsToPixels());
   ctx->Rectangle(gfxRect(rect.x, rect.y, rect.width, rect.height), PR_TRUE);
   ctx->Fill();
 #endif
@@ -3076,18 +3078,19 @@ nsFrame::IntrinsicWidthOffsets(nsIRenderingContext* aRenderingContext)
   const nsStyleDisplay *disp = GetStyleDisplay();
   if (IsThemed(disp)) {
     nsPresContext *presContext = GetPresContext();
+    float p2t = presContext->ScaledPixelsToTwips();
 
     nsMargin border;
     presContext->GetTheme()->GetWidgetBorder(presContext->DeviceContext(),
                                              this, disp->mAppearance,
                                              &border);
-    result.hBorder = presContext->DevPixelsToAppUnits(border.LeftRight());
+    result.hBorder = NSIntPixelsToTwips(border.LeftRight(), p2t);
 
     nsMargin padding;
     if (presContext->GetTheme()->GetWidgetPadding(presContext->DeviceContext(),
                                                   this, disp->mAppearance,
                                                   &padding)) {
-      result.hPadding = presContext->DevPixelsToAppUnits(padding.LeftRight());
+      result.hPadding = NSIntPixelsToTwips(padding.LeftRight(), p2t);
       result.hPctPadding = 0;
     }
   }
@@ -3187,8 +3190,10 @@ nsFrame::ComputeSize(nsIRenderingContext *aRenderingContext,
       GetMinimumWidgetSize(aRenderingContext, this, disp->mAppearance,
                            &size, &canOverride);
 
-    size.width = presContext->DevPixelsToAppUnits(size.width);
-    size.height = presContext->DevPixelsToAppUnits(size.height);
+    // GMWS() returns size in pixels, we need to convert it back to twips
+    float p2t = presContext->ScaledPixelsToTwips();
+    size.width = NSIntPixelsToTwips(size.width, p2t);
+    size.height = NSIntPixelsToTwips(size.height, p2t);
 
     // GMWS() returns border-box; we need content-box
     size.width -= aBorder.width + aPadding.width;
@@ -3520,7 +3525,7 @@ nsIntRect nsIFrame::GetScreenRect() const
     if (widget) {
       nsRect ourRect = mRect;
       ourRect.MoveTo(toViewOffset + toWidgetOffset);
-      ourRect.ScaleRoundOut(1.0f / GetPresContext()->AppUnitsPerDevPixel());
+      ourRect.ScaleRoundOut(GetPresContext()->TwipsToPixels());
       // Is it safe to pass the same rect for both args of WidgetToScreen?
       // It's not clear, so let's not...
       nsIntRect ourPxRect(ourRect.x, ourRect.y, ourRect.width, ourRect.height);
@@ -7124,10 +7129,10 @@ void DR_State::DeleteTreeNode(DR_FrameTreeNode& aNode)
 
 static void
 CheckPixelError(nscoord aSize,
-                PRInt32 aPixelToTwips)
+                float   aPixelToTwips)
 {
   if (NS_UNCONSTRAINEDSIZE != aSize) {
-    if ((aSize % aPixelToTwips) > 0) {
+    if ((aSize % NSToCoordRound(aPixelToTwips)) > 0) {
       printf("VALUE %d is not a whole pixel \n", aSize);
     }
   }
@@ -7181,7 +7186,7 @@ static void DisplayReflowEnterPrint(nsPresContext*          aPresContext,
     else 
       printf("cnt=%d \n", DR_state->mCount);
     if (DR_state->mDisplayPixelErrors) {
-      PRInt32 p2t = aPresContext->AppUnitsPerDevPixel();
+      float p2t = aPresContext->ScaledPixelsToTwips();
       CheckPixelError(aReflowState.availableWidth, p2t);
       CheckPixelError(aReflowState.availableHeight, p2t);
       CheckPixelError(aReflowState.ComputedWidth(), p2t);
@@ -7298,7 +7303,7 @@ void nsFrame::DisplayReflowExit(nsPresContext*      aPresContext,
     }
     printf("\n");
     if (DR_state->mDisplayPixelErrors) {
-      PRInt32 p2t = aPresContext->AppUnitsPerDevPixel();
+      float p2t = aPresContext->ScaledPixelsToTwips();
       CheckPixelError(aMetrics.width, p2t);
       CheckPixelError(aMetrics.height, p2t);
     }

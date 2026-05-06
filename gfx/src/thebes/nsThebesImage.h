@@ -88,7 +88,6 @@ public:
                            PRInt32 aDX, PRInt32 aDY, PRInt32 aDWidth, PRInt32 aDHeight);
 
     nsresult ThebesDrawTile(gfxContext *thebesContext,
-                            nsIDeviceContext* dx,
                             const gfxPoint& aOffset,
                             const gfxRect& aTileRect,
                             const PRInt32 aXPadding,

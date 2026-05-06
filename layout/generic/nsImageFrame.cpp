@@ -315,11 +315,14 @@ nsImageFrame::RecalculateTransform(imgIContainer* aImage)
   PRBool intrinsicSizeChanged = PR_FALSE;
   
   if (aImage) {
+    float p2t;
+    p2t = GetPresContext()->PixelsToTwips();
+
     nsSize imageSizeInPx;
     aImage->GetWidth(&imageSizeInPx.width);
     aImage->GetHeight(&imageSizeInPx.height);
-    nsSize newSize(nsPresContext::CSSPixelsToAppUnits(imageSizeInPx.width),
-                   nsPresContext::CSSPixelsToAppUnits(imageSizeInPx.height));
+    nsSize newSize(NSIntPixelsToTwips(imageSizeInPx.width, p2t),
+                   NSIntPixelsToTwips(imageSizeInPx.height, p2t));
     if (mIntrinsicSize != newSize) {
       intrinsicSizeChanged = PR_TRUE;
       mIntrinsicSize = newSize;
@@ -396,21 +399,23 @@ nsImageFrame::IsPendingLoad(imgIContainer* aContainer) const
 nsRect
 nsImageFrame::SourceRectToDest(const nsRect& aRect)
 {
+  float p2t = GetPresContext()->PixelsToTwips();
+
   // When scaling the image, row N of the source image may (depending on
   // the scaling function) be used to draw any row in the destination image
   // between floor(F * (N-1)) and ceil(F * (N+1)), where F is the
   // floating-point scaling factor.  The same holds true for columns.
   // So, we start by computing that bound without the floor and ceiling.
 
-  nsRect r(nsPresContext::CSSPixelsToAppUnits(aRect.x - 1),
-           nsPresContext::CSSPixelsToAppUnits(aRect.y - 1),
-           nsPresContext::CSSPixelsToAppUnits(aRect.width + 2),
-           nsPresContext::CSSPixelsToAppUnits(aRect.height + 2));
+  nsRect r(NSIntPixelsToTwips(aRect.x - 1, p2t),
+           NSIntPixelsToTwips(aRect.y - 1, p2t),
+           NSIntPixelsToTwips(aRect.width + 2, p2t),
+           NSIntPixelsToTwips(aRect.height + 2, p2t));
 
   mTransform.TransformCoord(&r.x, &r.y, &r.width, &r.height);
 
   // Now, round the edges out to the pixel boundary.
-  int scale = nsPresContext::CSSPixelsToAppUnits(1);
+  int scale = (int) p2t;
   nscoord right = r.x + r.width;
   nscoord bottom = r.y + r.height;
 
@@ -686,6 +691,9 @@ nsImageFrame::EnsureIntrinsicSize(nsPresContext* aPresContext)
     if (currentRequest) {
       currentRequest->GetImage(getter_AddRefs(currentContainer));
     }
+      
+    float p2t;
+    p2t = aPresContext->PixelsToTwips();
 
     if (currentContainer) {
       RecalculateTransform(currentContainer);
@@ -697,8 +705,8 @@ nsImageFrame::EnsureIntrinsicSize(nsPresContext* aPresContext)
       // XXX: we need this in composer, but it is also good for
       // XXX: general quirks mode to always have room for the icon
       if (aPresContext->CompatibilityMode() == eCompatibility_NavQuirks) {
-        mIntrinsicSize.SizeTo(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+(2*(ICON_PADDING+ALT_BORDER_WIDTH))),
-                              nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+(2*(ICON_PADDING+ALT_BORDER_WIDTH))));
+        mIntrinsicSize.SizeTo(NSIntPixelsToTwips(ICON_SIZE+(2*(ICON_PADDING+ALT_BORDER_WIDTH)), p2t),
+                              NSIntPixelsToTwips(ICON_SIZE+(2*(ICON_PADDING+ALT_BORDER_WIDTH)), p2t));
       }
       RecalculateTransform(nsnull);
     }
@@ -714,9 +722,17 @@ nsImageFrame::ComputeSize(nsIRenderingContext *aRenderingContext,
   nsPresContext *presContext = GetPresContext();
   EnsureIntrinsicSize(presContext);
 
+  // convert from normal twips to scaled twips (printing...)
+  float t2st = presContext->TwipsToPixels() *
+    presContext->ScaledPixelsToTwips(); // twips to scaled twips
+  nscoord intrinsicWidth =
+      NSToCoordRound(float(mIntrinsicSize.width) * t2st);
+  nscoord intrinsicHeight =
+      NSToCoordRound(float(mIntrinsicSize.height) * t2st);
+
   return nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
                             aRenderingContext, this,
-                            mIntrinsicSize,
+                            nsSize(intrinsicWidth, intrinsicHeight),
                             aCBSize, aBorder, aPadding);
 }
 
@@ -765,7 +781,10 @@ nsImageFrame::GetMinWidth(nsIRenderingContext *aRenderingContext)
   DISPLAY_MIN_WIDTH(this, result);
   nsPresContext *presContext = GetPresContext();
   EnsureIntrinsicSize(presContext);
-  result = mIntrinsicSize.width;
+  // convert from normal twips to scaled twips (printing...)
+  float t2st = presContext->TwipsToPixels() *
+               presContext->ScaledPixelsToTwips();
+  result = NSToCoordRound(float(mIntrinsicSize.width) * t2st);
   return result;
 }
 
@@ -779,7 +798,9 @@ nsImageFrame::GetPrefWidth(nsIRenderingContext *aRenderingContext)
   nsPresContext *presContext = GetPresContext();
   EnsureIntrinsicSize(presContext);
   // convert from normal twips to scaled twips (printing...)
-  result = mIntrinsicSize.width;
+  float t2st = presContext->TwipsToPixels() *
+               presContext->ScaledPixelsToTwips();
+  result = NSToCoordRound(float(mIntrinsicSize.width) * t2st);
   return result;
 }
 
@@ -856,7 +877,7 @@ nsImageFrame::Reflow(nsPresContext*          aPresContext,
     // split an image frame but not an image control frame
     if (nsGkAtoms::imageFrame == GetType()) {
       // our desired height was greater than 0, so to avoid infinite splitting, use 1 pixel as the min
-      aMetrics.height = PR_MAX(nsPresContext::CSSPixelsToAppUnits(1), aReflowState.availableHeight);
+      aMetrics.height = PR_MAX(NSToCoordRound(aPresContext->ScaledPixelsToTwips()), aReflowState.availableHeight);
       aStatus = NS_FRAME_NOT_COMPLETE;
     }
   }
@@ -1037,12 +1058,14 @@ nsImageFrame::DisplayAltFeedback(nsIRenderingContext& aRenderingContext,
   nsRect  inner = GetInnerArea() + aPt;
 
   // Display a recessed one pixel border
-  nscoord borderEdgeWidth = nsPresContext::CSSPixelsToAppUnits(ALT_BORDER_WIDTH);
+  nscoord borderEdgeWidth;
+  float   p2t = GetPresContext()->ScaledPixelsToTwips();
+  borderEdgeWidth = NSIntPixelsToTwips(ALT_BORDER_WIDTH, p2t);
 
   // if inner area is empty, then make it big enough for at least the icon
   if (inner.IsEmpty()){
-    inner.SizeTo(2*(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH)),
-                 2*(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH)));
+    inner.SizeTo(2*(NSIntPixelsToTwips(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH,p2t)),
+                 2*(NSIntPixelsToTwips(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH,p2t)));
   }
 
   // Make sure we have enough room to actually render the border within
@@ -1058,8 +1081,8 @@ nsImageFrame::DisplayAltFeedback(nsIRenderingContext& aRenderingContext,
 
   // Adjust the inner rect to account for the one pixel recessed border,
   // and a six pixel padding on each edge
-  inner.Deflate(nsPresContext::CSSPixelsToAppUnits(ICON_PADDING+ALT_BORDER_WIDTH), 
-                nsPresContext::CSSPixelsToAppUnits(ICON_PADDING+ALT_BORDER_WIDTH));
+  inner.Deflate(NSIntPixelsToTwips(ICON_PADDING+ALT_BORDER_WIDTH, p2t), 
+                NSIntPixelsToTwips(ICON_PADDING+ALT_BORDER_WIDTH, p2t));
   if (inner.IsEmpty()) {
     return;
   }
@@ -1073,7 +1096,7 @@ nsImageFrame::DisplayAltFeedback(nsIRenderingContext& aRenderingContext,
   // Check if we should display image placeholders
   if (dispIcon) {
     const nsStyleVisibility* vis = GetStyleVisibility();
-    nscoord size = nsPresContext::CSSPixelsToAppUnits(ICON_SIZE);
+    PRInt32 size = NSIntPixelsToTwips(ICON_SIZE, p2t);
 
     PRBool iconUsed = PR_FALSE;
 
@@ -1100,18 +1123,17 @@ nsImageFrame::DisplayAltFeedback(nsIRenderingContext& aRenderingContext,
       nscolor oldColor;
       nscoord iconXPos = (vis->mDirection ==   NS_STYLE_DIRECTION_RTL) ?
                          inner.XMost() - size : inner.x;
-      nscoord twoPX = nsPresContext::CSSPixelsToAppUnits(2);
       aRenderingContext.DrawRect(iconXPos, inner.y,size,size);
       aRenderingContext.GetColor(oldColor);
       aRenderingContext.SetColor(NS_RGB(0xFF,0,0));
-      aRenderingContext.FillEllipse(size/2 + iconXPos, size/2 + inner.y,
-                                    size/2 - twoPX, size/2 - twoPX);
+      aRenderingContext.FillEllipse(NS_STATIC_CAST(int,size/2) + iconXPos,NS_STATIC_CAST(int,size/2) + inner.y,
+                                    NS_STATIC_CAST(int,(size/2)-(2*p2t)),NS_STATIC_CAST(int,(size/2)-(2*p2t)));
       aRenderingContext.SetColor(oldColor);
     }  
 
     // Reduce the inner rect by the width of the icon, and leave an
     // additional ICON_PADDING pixels for padding
-    PRInt32 iconWidth = nsPresContext::CSSPixelsToAppUnits(ICON_SIZE + ICON_PADDING);
+    PRInt32 iconWidth = NSIntPixelsToTwips(ICON_SIZE + ICON_PADDING, p2t);
     if (vis->mDirection != NS_STYLE_DIRECTION_RTL)
       inner.x += iconWidth;
     inner.width -= iconWidth;
@@ -1468,8 +1490,11 @@ nsImageFrame::TranslateEventCoords(const nsPoint& aPoint,
   x -= inner.x;
   y -= inner.y;
 
-  aResult.x = nsPresContext::AppUnitsToIntCSSPixels(x);
-  aResult.y = nsPresContext::AppUnitsToIntCSSPixels(y);
+  // Translate the coordinates from twips to pixels
+  float t2p;
+  t2p = GetPresContext()->TwipsToPixels();
+  aResult.x = NSTwipsToIntPixels(x, t2p);
+  aResult.y = NSTwipsToIntPixels(y, t2p);
 }
 
 PRBool

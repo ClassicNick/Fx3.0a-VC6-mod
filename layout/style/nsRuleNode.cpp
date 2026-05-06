@@ -202,11 +202,12 @@ nscoord CalcLength(const nsCSSValue& aValue,
 {
   NS_ASSERTION(aValue.IsLengthUnit(), "not a length unit");
   if (aValue.IsFixedLengthUnit()) {
-    return aPresContext->TwipsToAppUnits(aValue.GetLengthTwips());
+    return aValue.GetLengthTwips();
   }
   nsCSSUnit unit = aValue.GetUnit();
   if (unit == eCSSUnit_Pixel) {
-    return nsPresContext::CSSPixelsToAppUnits(aValue.GetFloatValue());
+    return NSFloatPixelsToTwips(aValue.GetFloatValue(),
+                                aPresContext->ScaledPixelsToTwips());
   }
   // Common code for all units other than pixels:
   aInherited = PR_TRUE;
@@ -1983,7 +1984,7 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
       case eSystemFont_List:
         // Assumption: system defined font is proportional
         aFont->mSize = nsStyleFont::ZoomText(aPresContext,
-             PR_MAX(defaultVariableFont->size - aPresContext->PointsToAppUnits(2), 0));
+             PR_MAX(defaultVariableFont->size - NSIntPointsToTwips(2), 0));
         break;
     }
 #endif

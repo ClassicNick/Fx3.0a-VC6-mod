@@ -113,7 +113,7 @@ GetContainingBlockFor(nsIFrame* aFrame) {
 }
 
 nsComputedDOMStyle::nsComputedDOMStyle()
-  : mInner(this), mDocumentWeak(nsnull), mFrame(nsnull), mAppUnitsPerInch(0)
+  : mInner(this), mDocumentWeak(nsnull), mFrame(nsnull), mT2P(0.0f)
 {
 }
 
@@ -210,7 +210,7 @@ nsComputedDOMStyle::Init(nsIDOMElement *aElement,
   nsPresContext *presCtx = aPresShell->GetPresContext();
   NS_ENSURE_TRUE(presCtx, NS_ERROR_FAILURE);
 
-  mAppUnitsPerInch = presCtx->AppUnitsPerInch();
+  mT2P = presCtx->TwipsToPixels();
 
   return NS_OK;
 }
@@ -556,7 +556,7 @@ nsComputedDOMStyle::GetColumnWidth(nsIDOMCSSValue** aValue)
 
   switch (column->mColumnWidth.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(column->mColumnWidth.GetCoordValue());
+      val->SetTwips(column->mColumnWidth.GetCoordValue());
       break;
     case eStyleUnit_Auto:
       // XXX fix this. When we actually have a column frame, I think
@@ -565,7 +565,7 @@ nsComputedDOMStyle::GetColumnWidth(nsIDOMCSSValue** aValue)
       break;
     default:
       NS_ERROR("Unexpected column width unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -582,21 +582,21 @@ nsComputedDOMStyle::GetColumnGap(nsIDOMCSSValue** aValue)
 
   switch (column->mColumnGap.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(column->mColumnGap.GetCoordValue());
+      val->SetTwips(column->mColumnGap.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       if (mFrame) {
-        val->SetAppUnits(column->mColumnGap.GetPercentValue()*mFrame->GetSize().width);
+        val->SetTwips(column->mColumnGap.GetPercentValue()*mFrame->GetSize().width);
       } else {
         val->SetPercent(column->mColumnGap.GetPercentValue());
       }
       break;
     case eStyleUnit_Normal:
-      val->SetAppUnits(GetStyleFont()->mFont.size);
+      val->SetTwips(GetStyleFont()->mFont.size);
       break;
     default:
       NS_ERROR("Unexpected column gap unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -737,7 +737,7 @@ nsComputedDOMStyle::GetFontSize(nsIDOMCSSValue** aValue)
 
   // Note: GetStyleFont()->mSize is the 'computed size';
   // GetStyleFont()->mFont.size is the 'actual size'
-  val->SetAppUnits(GetStyleFont()->mSize);
+  val->SetTwips(GetStyleFont()->mSize);
 
   return CallQueryInterface(val, aValue);
 }
@@ -1016,8 +1016,8 @@ nsComputedDOMStyle::GetBorderSpacing(nsIDOMCSSValue** aValue)
 
   const nsStyleTableBorder *border = GetStyleTableBorder();
   // border-spacing will always be a coord
-  xSpacing->SetAppUnits(border->mBorderSpacingX.GetCoordValue());
-  ySpacing->SetAppUnits(border->mBorderSpacingY.GetCoordValue());
+  xSpacing->SetTwips(border->mBorderSpacingX.GetCoordValue());
+  ySpacing->SetTwips(border->mBorderSpacingY.GetCoordValue());
 
   return CallQueryInterface(valueList, aValue);
 }
@@ -1252,7 +1252,7 @@ nsComputedDOMStyle::GetMarkerOffset(nsIDOMCSSValue** aValue)
 
   switch (content->mMarkerOffset.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(content->mMarkerOffset.GetCoordValue());
+      val->SetTwips(content->mMarkerOffset.GetCoordValue());
       break;
     case eStyleUnit_Auto:
       val->SetIdent(nsGkAtoms::_auto);
@@ -1262,7 +1262,7 @@ nsComputedDOMStyle::GetMarkerOffset(nsIDOMCSSValue** aValue)
       break;
     default:
       NS_ERROR("Unexpected marker offset unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -1295,7 +1295,7 @@ nsComputedDOMStyle::GetOutlineWidth(nsIDOMCSSValue** aValue)
   }
   switch (coord.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(coord.GetCoordValue());
+      val->SetTwips(coord.GetCoordValue());
       break;
     case eStyleUnit_Enumerated:
       {
@@ -1307,11 +1307,11 @@ nsComputedDOMStyle::GetOutlineWidth(nsIDOMCSSValue** aValue)
       }
     case eStyleUnit_Chars:
       // XXX we need a frame and a rendering context to calculate this, bug 281972, bug 282126.
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
     default:
       NS_ERROR("Unexpected outline width unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -1352,15 +1352,15 @@ nsComputedDOMStyle::GetOutlineOffset(nsIDOMCSSValue** aValue)
 
   switch (outline->mOutlineOffset.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(outline->mOutlineOffset.GetCoordValue());
+      val->SetTwips(outline->mOutlineOffset.GetCoordValue());
       break;
     case eStyleUnit_Chars:
       // XXX we need a frame and a rendering context to calculate this, bug 281972, bug 282126.
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
     default:
       NS_ERROR("Unexpected outline offset unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -1420,11 +1420,11 @@ nsComputedDOMStyle::GetOutlineRadiusFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
 
   switch (coord.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(coord.GetCoordValue());
+      val->SetTwips(coord.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       if (mFrame) {
-        val->SetAppUnits(coord.GetPercentValue() * mFrame->GetSize().width);
+        val->SetTwips(coord.GetPercentValue() * mFrame->GetSize().width);
       } else {
         val->SetPercent(coord.GetPercentValue());
       }
@@ -1540,10 +1540,10 @@ nsComputedDOMStyle::GetImageRegion(nsIDOMCSSValue** aValue)
       nsDOMCSSRect * domRect = new nsDOMCSSRect(topVal, rightVal,
                                                 bottomVal, leftVal);
       if (domRect) {
-        topVal->SetAppUnits(list->mImageRegion.y);
-        rightVal->SetAppUnits(list->mImageRegion.width + list->mImageRegion.x);
-        bottomVal->SetAppUnits(list->mImageRegion.height + list->mImageRegion.y);
-        leftVal->SetAppUnits(list->mImageRegion.x);
+        topVal->SetTwips(list->mImageRegion.y);
+        rightVal->SetTwips(list->mImageRegion.width + list->mImageRegion.x);
+        bottomVal->SetTwips(list->mImageRegion.height + list->mImageRegion.y);
+        leftVal->SetTwips(list->mImageRegion.x);
         val->SetRect(domRect);
       } else {
         rv = NS_ERROR_OUT_OF_MEMORY;
@@ -1578,7 +1578,7 @@ nsComputedDOMStyle::GetLineHeight(nsIDOMCSSValue** aValue)
   nsresult rv = GetLineHeightCoord(text, lineHeight);
 
   if (NS_SUCCEEDED(rv)) {
-    val->SetAppUnits(lineHeight);
+    val->SetTwips(lineHeight);
   } else {
     switch (text->mLineHeight.GetUnit()) {
       case eStyleUnit_Percent:
@@ -1609,7 +1609,7 @@ nsComputedDOMStyle::GetVerticalAlign(nsIDOMCSSValue** aValue)
 
   switch (text->mVerticalAlign.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(text->mVerticalAlign.GetCoordValue());
+      val->SetTwips(text->mVerticalAlign.GetCoordValue());
       break;
     case eStyleUnit_Enumerated:
       {
@@ -1627,7 +1627,7 @@ nsComputedDOMStyle::GetVerticalAlign(nsIDOMCSSValue** aValue)
         nsresult rv = GetLineHeightCoord(textData, lineHeight);
 
         if (NS_SUCCEEDED(rv)) {
-          val->SetAppUnits(lineHeight * text->mVerticalAlign.GetPercentValue());
+          val->SetTwips(lineHeight * text->mVerticalAlign.GetPercentValue());
         } else {
           val->SetPercent(text->mVerticalAlign.GetPercentValue());
         }
@@ -1721,14 +1721,14 @@ nsComputedDOMStyle::GetTextIndent(nsIDOMCSSValue** aValue)
 
   switch (text->mTextIndent.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(text->mTextIndent.GetCoordValue());
+      val->SetTwips(text->mTextIndent.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       {
         nsIFrame *container = GetContainingBlockFor(mFrame);
         if (container) {
-          val->SetAppUnits(container->GetSize().width *
-                           text->mTextIndent.GetPercentValue());
+          val->SetTwips(container->GetSize().width *
+                        text->mTextIndent.GetPercentValue());
         } else {
           // no containing block
           val->SetPercent(text->mTextIndent.GetPercentValue());
@@ -1736,7 +1736,7 @@ nsComputedDOMStyle::GetTextIndent(nsIDOMCSSValue** aValue)
         break;
       }
     default:
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -1772,7 +1772,7 @@ nsComputedDOMStyle::GetLetterSpacing(nsIDOMCSSValue** aValue)
   const nsStyleText *text = GetStyleText();
 
   if (text->mLetterSpacing.GetUnit() == eStyleUnit_Coord) {
-    val->SetAppUnits(text->mLetterSpacing.GetCoordValue());
+    val->SetTwips(text->mLetterSpacing.GetCoordValue());
   } else {
     val->SetIdent(nsGkAtoms::normal);
   }
@@ -1789,7 +1789,7 @@ nsComputedDOMStyle::GetWordSpacing(nsIDOMCSSValue** aValue)
   const nsStyleText *text = GetStyleText();
 
   if (text->mWordSpacing.GetUnit() == eStyleUnit_Coord) {
-    val->SetAppUnits(text->mWordSpacing.GetCoordValue());
+    val->SetTwips(text->mWordSpacing.GetCoordValue());
   } else {
     val->SetIdent(nsGkAtoms::normal);
   }
@@ -2222,25 +2222,25 @@ nsComputedDOMStyle::GetClip(nsIDOMCSSValue** aValue)
         if (display->mClipFlags & NS_STYLE_CLIP_TOP_AUTO) {
           topVal->SetIdent(nsGkAtoms::_auto);
         } else {
-          topVal->SetAppUnits(display->mClip.y);
+          topVal->SetTwips(display->mClip.y);
         }
         
         if (display->mClipFlags & NS_STYLE_CLIP_RIGHT_AUTO) {
           rightVal->SetIdent(nsGkAtoms::_auto);
         } else {
-          rightVal->SetAppUnits(display->mClip.width + display->mClip.x);
+          rightVal->SetTwips(display->mClip.width + display->mClip.x);
         }
         
         if (display->mClipFlags & NS_STYLE_CLIP_BOTTOM_AUTO) {
           bottomVal->SetIdent(nsGkAtoms::_auto);
         } else {
-          bottomVal->SetAppUnits(display->mClip.height + display->mClip.y);
+          bottomVal->SetTwips(display->mClip.height + display->mClip.y);
         }
         
         if (display->mClipFlags & NS_STYLE_CLIP_LEFT_AUTO) {
           leftVal->SetIdent(nsGkAtoms::_auto);
         } else {
-          leftVal->SetAppUnits(display->mClip.x);
+          leftVal->SetTwips(display->mClip.x);
         }
 
         val->SetRect(domRect);
@@ -2353,13 +2353,13 @@ nsComputedDOMStyle::GetHeight(nsIDOMCSSValue** aValue)
   }
 
   if (calcHeight) {
-    val->SetAppUnits(mFrame->GetContentRect().height);
+    val->SetTwips(mFrame->GetContentRect().height);
   } else {
     // Just return the value in the style context
     const nsStylePosition* positionData = GetStylePosition();
     switch (positionData->mHeight.GetUnit()) {
       case eStyleUnit_Coord:
-        val->SetAppUnits(positionData->mHeight.GetCoordValue());
+        val->SetTwips(positionData->mHeight.GetCoordValue());
         break;
       case eStyleUnit_Percent:
         val->SetPercent(positionData->mHeight.GetPercentValue());
@@ -2369,7 +2369,7 @@ nsComputedDOMStyle::GetHeight(nsIDOMCSSValue** aValue)
         break;
       default:
         NS_ERROR("Unexpected height unit");
-        val->SetAppUnits(0);
+        val->SetTwips(0);
         break;
     }
   }
@@ -2398,13 +2398,13 @@ nsComputedDOMStyle::GetWidth(nsIDOMCSSValue** aValue)
   }
 
   if (calcWidth) {
-    val->SetAppUnits(mFrame->GetContentRect().width);
+    val->SetTwips(mFrame->GetContentRect().width);
   } else {
     // Just return the value in the style context
     const nsStylePosition *positionData = GetStylePosition();
     switch (positionData->mWidth.GetUnit()) {
       case eStyleUnit_Coord:
-        val->SetAppUnits(positionData->mWidth.GetCoordValue());
+        val->SetTwips(positionData->mWidth.GetCoordValue());
         break;
       case eStyleUnit_Percent:
         val->SetPercent(positionData->mWidth.GetPercentValue());
@@ -2414,7 +2414,7 @@ nsComputedDOMStyle::GetWidth(nsIDOMCSSValue** aValue)
         break;
       default:
         NS_ERROR("Unexpected width unit");
-        val->SetAppUnits(0);
+        val->SetTwips(0);
         break;
     }
   }
@@ -2449,8 +2449,8 @@ nsComputedDOMStyle::GetMaxHeight(nsIDOMCSSValue** aValue)
 
   switch (positionData->mMaxHeight.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(PR_MAX(minHeight,
-                              positionData->mMaxHeight.GetCoordValue()));
+      val->SetTwips(PR_MAX(minHeight,
+                           positionData->mMaxHeight.GetCoordValue()));
       break;
     case eStyleUnit_Percent:
       if (!container) {
@@ -2463,8 +2463,8 @@ nsComputedDOMStyle::GetMaxHeight(nsIDOMCSSValue** aValue)
         }
       }
       if (container) {
-        val->SetAppUnits(PR_MAX(minHeight, size.height *
-                                positionData->mMaxHeight.GetPercentValue()));
+        val->SetTwips(PR_MAX(minHeight, size.height *
+                             positionData->mMaxHeight.GetPercentValue()));
       }
 
       break;
@@ -2504,8 +2504,8 @@ nsComputedDOMStyle::GetMaxWidth(nsIDOMCSSValue** aValue)
 
   switch (positionData->mMaxWidth.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(PR_MAX(minWidth,
-                              positionData->mMaxWidth.GetCoordValue()));
+      val->SetTwips(PR_MAX(minWidth,
+                           positionData->mMaxWidth.GetCoordValue()));
       break;
     case eStyleUnit_Percent:
       if (!container) {
@@ -2518,8 +2518,8 @@ nsComputedDOMStyle::GetMaxWidth(nsIDOMCSSValue** aValue)
         }
       }
       if (container) {
-        val->SetAppUnits(PR_MAX(minWidth, size.width *
-                                positionData->mMaxWidth.GetPercentValue()));
+        val->SetTwips(PR_MAX(minWidth, size.width *
+                             positionData->mMaxWidth.GetPercentValue()));
       }
 
       break;
@@ -2545,13 +2545,13 @@ nsComputedDOMStyle::GetMinHeight(nsIDOMCSSValue** aValue)
   nsIFrame *container = nsnull;
   switch (positionData->mMinHeight.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(positionData->mMinHeight.GetCoordValue());
+      val->SetTwips(positionData->mMinHeight.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       container = GetContainingBlockFor(mFrame);
       if (container) {
-        val->SetAppUnits(container->GetSize().height *
-                         positionData->mMinHeight.GetPercentValue());
+        val->SetTwips(container->GetSize().height *
+                      positionData->mMinHeight.GetPercentValue());
       } else {
         // no containing block
         val->SetPercent(positionData->mMinHeight.GetPercentValue());
@@ -2559,7 +2559,7 @@ nsComputedDOMStyle::GetMinHeight(nsIDOMCSSValue** aValue)
 
       break;
     default:
-      val->SetAppUnits(0);
+      val->SetTwips(0);
 
       break;
   }
@@ -2580,20 +2580,20 @@ nsComputedDOMStyle::GetMinWidth(nsIDOMCSSValue** aValue)
   nsIFrame *container = nsnull;
   switch (positionData->mMinWidth.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(positionData->mMinWidth.GetCoordValue());
+      val->SetTwips(positionData->mMinWidth.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       container = GetContainingBlockFor(mFrame);
       if (container) {
-        val->SetAppUnits(container->GetSize().width *
-                         positionData->mMinWidth.GetPercentValue());
+        val->SetTwips(container->GetSize().width *
+                      positionData->mMinWidth.GetPercentValue());
       } else {
         // no containing block
         val->SetPercent(positionData->mMinWidth.GetPercentValue());
       }
       break;
     default:
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -2621,7 +2621,7 @@ nsComputedDOMStyle::GetTop(nsIDOMCSSValue** aValue)
 nsROCSSPrimitiveValue*
 nsComputedDOMStyle::GetROCSSPrimitiveValue()
 {
-  nsROCSSPrimitiveValue *primitiveValue = new nsROCSSPrimitiveValue(mAppUnitsPerInch);
+  nsROCSSPrimitiveValue *primitiveValue = new nsROCSSPrimitiveValue(mT2P);
 
   NS_ASSERTION(primitiveValue != 0, "ran out of memory");
 
@@ -2718,10 +2718,10 @@ nsComputedDOMStyle::GetAbsoluteOffset(PRUint8 aSide, nsIDOMCSSValue** aValue)
         NS_ERROR("Invalid side");
         break;
     }
-    val->SetAppUnits(offset);
+    val->SetTwips(offset);
   } else {
     // XXX no frame.  This property makes no sense
-    val->SetAppUnits(0);
+    val->SetTwips(0);
   }
 
   return CallQueryInterface(val, aValue);
@@ -2752,25 +2752,25 @@ nsComputedDOMStyle::GetRelativeOffset(PRUint8 aSide, nsIDOMCSSValue** aValue)
   nsIFrame* container = nsnull;
   switch(coord.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(sign * coord.GetCoordValue());
+      val->SetTwips(sign * coord.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       container = GetContainingBlockFor(mFrame);
       if (container) {
         nsSize size = container->GetContentRect().Size();
         if (aSide == NS_SIDE_LEFT || aSide == NS_SIDE_RIGHT) {
-          val->SetAppUnits(sign * coord.GetPercentValue() * size.width);
+          val->SetTwips(sign * coord.GetPercentValue() * size.width);
         } else {
-          val->SetAppUnits(sign * coord.GetPercentValue() * size.height);
+          val->SetTwips(sign * coord.GetPercentValue() * size.height);
         }
       } else {
         // XXX no containing block.
-        val->SetAppUnits(0);
+        val->SetTwips(0);
       }
       break;
     default:
       NS_ERROR("Unexpected left/right/top/bottom unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
       break;
   }
 
@@ -2788,7 +2788,7 @@ nsComputedDOMStyle::GetStaticOffset(PRUint8 aSide, nsIDOMCSSValue** aValue)
   GetStylePosition()->mOffset.Get(aSide, coord);
   switch(coord.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(coord.GetCoordValue());
+      val->SetTwips(coord.GetCoordValue());
 
       break;
     case eStyleUnit_Percent:
@@ -2801,7 +2801,7 @@ nsComputedDOMStyle::GetStaticOffset(PRUint8 aSide, nsIDOMCSSValue** aValue)
       break;
     default:
       NS_ERROR("Unexpected left/right/top/bottom unit");
-      val->SetAppUnits(0);
+      val->SetTwips(0);
 
       break;
   }
@@ -2850,14 +2850,14 @@ nsComputedDOMStyle::GetPaddingWidthFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
 
   FlushPendingReflows();
   
-  val->SetAppUnits(0);
+  val->SetTwips(0);
 
   if (!mFrame) {
     nsStyleCoord c;
     GetStylePadding()->mPadding.Get(aSide, c);
     switch (c.GetUnit()) {
       case eStyleUnit_Coord:
-        val->SetAppUnits(c.GetCoordValue());
+        val->SetTwips(c.GetCoordValue());
         break;
       case eStyleUnit_Percent:
         val->SetPercent(c.GetPercentValue());
@@ -2866,7 +2866,7 @@ nsComputedDOMStyle::GetPaddingWidthFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
         break;
     }
   } else {
-    val->SetAppUnits(mFrame->GetUsedPadding().side(aSide));
+    val->SetTwips(mFrame->GetUsedPadding().side(aSide));
   }
 
   return CallQueryInterface(val, aValue);
@@ -2966,11 +2966,11 @@ nsComputedDOMStyle::GetBorderRadiusFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
     
   switch (coord.GetUnit()) {
     case eStyleUnit_Coord:
-      val->SetAppUnits(coord.GetCoordValue());
+      val->SetTwips(coord.GetCoordValue());
       break;
     case eStyleUnit_Percent:
       if (mFrame) {
-        val->SetAppUnits(coord.GetPercentValue() * mFrame->GetSize().width);
+        val->SetTwips(coord.GetPercentValue() * mFrame->GetSize().width);
       } else {
         val->SetPercent(coord.GetPercentValue());
       }
@@ -2997,11 +2997,12 @@ nsComputedDOMStyle::GetBorderWidthFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
     presContext->GetTheme()->GetWidgetBorder(presContext->DeviceContext(),
                                              mFrame, disp->mAppearance,
                                              &result);
-    width = presContext->DevPixelsToAppUnits(result.side(aSide));
+    width = NSIntPixelsToTwips(result.side(aSide),
+                               presContext->ScaledPixelsToTwips());
   } else {
     width = GetStyleBorder()->GetComputedBorderWidth(aSide);
   }
-  val->SetAppUnits(width);
+  val->SetTwips(width);
 
   return CallQueryInterface(val, aValue);
 }
@@ -3043,14 +3044,14 @@ nsComputedDOMStyle::GetMarginWidthFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
 
   FlushPendingReflows();
 
-  val->SetAppUnits(0);
+  val->SetTwips(0);
 
   if (!mFrame) {
     nsStyleCoord c;
     GetStyleMargin()->mMargin.Get(aSide, c);
     switch (c.GetUnit()) {
       case eStyleUnit_Coord:
-        val->SetAppUnits(c.GetCoordValue());
+        val->SetTwips(c.GetCoordValue());
         break;
       case eStyleUnit_Percent:
         val->SetPercent(c.GetPercentValue());
@@ -3062,7 +3063,7 @@ nsComputedDOMStyle::GetMarginWidthFor(PRUint8 aSide, nsIDOMCSSValue** aValue)
         break;
     }
   } else {
-    val->SetAppUnits(mFrame->GetUsedMargin().side(aSide));
+    val->SetTwips(mFrame->GetUsedMargin().side(aSide));
   }
 
   return CallQueryInterface(val, aValue);

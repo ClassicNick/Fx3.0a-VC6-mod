@@ -171,7 +171,7 @@ nsSVGOuterSVGFrame::InitSVG()
 
   // we are an *outer* svg element, so this frame will become the
   // coordinate context for our content element:
-  float mmPerPx = 25.4f / GetPresContext()->AppUnitsToDevPixels(GetPresContext()->AppUnitsPerInch());
+  float mmPerPx = GetTwipsPerPx() / TWIPS_PER_POINT_FLOAT / (72.0f * 0.03937f);
   SetCoordCtxMMPerPx(mmPerPx, mmPerPx);
   
   nsCOMPtr<nsISVGSVGElement> SVGElement = do_QueryInterface(mContent);
@@ -219,6 +219,16 @@ nsSVGOuterSVGFrame::Reflow(nsPresContext*          aPresContext,
                            const nsHTMLReflowState& aReflowState,
                            nsReflowStatus&          aStatus)
 {
+#if defined(DEBUG) && defined(SVG_DEBUG_PRINTING)
+  {
+    printf("nsSVGOuterSVGFrame(%p)::Reflow()[\n",this);
+    float twipsPerScPx = aPresContext->ScaledPixelsToTwips();
+    float twipsPerPx = aPresContext->PixelsToTwips();
+    printf("tw/sc(px)=%f tw/px=%f\n", twipsPerScPx, twipsPerPx);
+    printf("]\n");
+  }
+#endif
+  
   if (!aReflowState.ShouldReflowAllKids()) {
     // We're not the target of the incremental reflow, so just bail.
     // This means that something happened to one of our descendants
@@ -248,21 +258,24 @@ nsSVGOuterSVGFrame::Reflow(nsPresContext*          aPresContext,
   nsCOMPtr<nsISVGSVGElement> SVGElement = do_QueryInterface(mContent);
   NS_ENSURE_TRUE(SVGElement, NS_ERROR_FAILURE);
 
+  float pxPerTwips = GetPxPerTwips();
+  float twipsPerPx = GetTwipsPerPx();
+
   // The width/height attribs given on the <svg>-element might be
   // percentage values of the parent viewport. We will set the parent
   // coordinate context dimensions to the available space.
 
   nsRect maxRect, preferredRect;
   CalculateAvailableSpace(&maxRect, &preferredRect, aPresContext, aReflowState);
-  float preferredWidth = nsPresContext::AppUnitsToFloatCSSPixels(preferredRect.width);
-  float preferredHeight = nsPresContext::AppUnitsToFloatCSSPixels(preferredRect.height);
+  float preferredWidth = preferredRect.width * pxPerTwips;
+  float preferredHeight = preferredRect.height * pxPerTwips;
 
-  SuspendRedraw();
-
+  SuspendRedraw(); 
+  
   nsCOMPtr<nsIDOMSVGRect> r;
   NS_NewSVGRect(getter_AddRefs(r), 0, 0, preferredWidth, preferredHeight);
   SetCoordCtxRect(r);
-
+  
 #ifdef DEBUG
   // some debug stuff:
 //   {
@@ -301,8 +314,8 @@ nsSVGOuterSVGFrame::Reflow(nsPresContext*          aPresContext,
   float height =
     svg->mLengthAttributes[nsSVGSVGElement::HEIGHT].GetAnimValue(this);
 
-  aDesiredSize.width = nsPresContext::CSSPixelsToAppUnits(width);
-  aDesiredSize.height = nsPresContext::CSSPixelsToAppUnits(height);
+  aDesiredSize.width = (int)(width*twipsPerPx);
+  aDesiredSize.height = (int)(height*twipsPerPx);
 
   // XXX add in CSS borders ??
 
@@ -401,8 +414,8 @@ nsSVGOuterSVGFrame::GetFrameForPoint(const nsPoint& aPoint)
   // singly-linked list we have to test each and every SVG element for
   // a hit. What we really want is a double-linked list.
 
-  float x = GetPresContext()->AppUnitsToDevPixels(aPoint.x);
-  float y = GetPresContext()->AppUnitsToDevPixels(aPoint.y);
+  float x = GetPxPerTwips() * aPoint.x;
+  float y = GetPxPerTwips() * aPoint.y;
 
   nsRect thisRect(nsPoint(0,0), GetSize());
   if (!thisRect.Contains(aPoint) || !mRenderer) {
@@ -529,7 +542,7 @@ nsSVGOuterSVGFrame::InvalidateRect(nsRect aRect)
 
   nsIViewManager* vm = view->GetViewManager();
 
-  aRect.ScaleRoundOut(GetPresContext()->AppUnitsPerDevPixel());
+  aRect.ScaleRoundOut(GetTwipsPerPx());
   vm->UpdateView(view, aRect, NS_VMREFRESH_NO_SYNC);
 
   return NS_OK;
@@ -683,6 +696,21 @@ nsSVGOuterSVGFrame::GetCoordContextProvider()
 
 //----------------------------------------------------------------------
 // Implementation helpers
+
+float nsSVGOuterSVGFrame::GetPxPerTwips()
+{
+  float val = GetTwipsPerPx();
+  
+  NS_ASSERTION(val!=0.0f, "invalid px/twips");  
+  if (val == 0.0) val = 1e-20f;
+  
+  return 1.0f/val;
+}
+
+float nsSVGOuterSVGFrame::GetTwipsPerPx()
+{
+  return GetPresContext()->ScaledPixelsToTwips();
+}
 
 void nsSVGOuterSVGFrame::InitiateReflow()
 {

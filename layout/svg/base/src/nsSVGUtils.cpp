@@ -413,7 +413,7 @@ nsSVGUtils::CoordToFloat(nsPresContext *aPresContext, nsIContent *aContent,
     break;
 
   case eStyleUnit_Coord:
-    val = nsPresContext::AppUnitsToFloatCSSPixels(aCoord.GetCoordValue());
+    val = aCoord.GetCoordValue() / aPresContext->ScaledPixelsToTwips();
     break;
 
   case eStyleUnit_Percent: {

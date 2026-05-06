@@ -231,8 +231,10 @@ nsFormControlFrame::GetScreenHeight(nsPresContext* aPresContext,
     context->GetRect ( screen );
   else
     context->GetClientRect(screen);
-
-  aHeight = aPresContext->AppUnitsToDevPixels(screen.height);
+      
+  float devUnits;
+  devUnits = context->DevUnitsToAppUnits();
+  aHeight = NSToIntRound(float(screen.height) / devUnits );
   return NS_OK;
 }
 
@@ -252,6 +254,12 @@ nsFormControlFrame::GetAbsoluteFramePosition(nsPresContext* aPresContext,
   // get a containing view?
   aAbsoluteTwipsRect.x = 0;
   aAbsoluteTwipsRect.y = 0;
+
+  // Get conversions between twips and pixels
+  float t2p;
+  float p2t;
+  t2p = aPresContext->TwipsToPixels();
+  p2t = aPresContext->PixelsToTwips();
 
   // Start with frame's offset from it it's containing view
   nsIView *view = nsnull;
@@ -282,8 +290,8 @@ nsFormControlFrame::GetAbsoluteFramePosition(nsPresContext* aPresContext,
         // XXX a twip version of this would be really nice here!
         widget->WidgetToScreen(zeroRect, absBounds);
           // Convert widget coordinates to twips   
-        aAbsoluteTwipsRect.x += aPresContext->DevPixelsToAppUnits(absBounds.x);
-        aAbsoluteTwipsRect.y += aPresContext->DevPixelsToAppUnits(absBounds.y);   
+        aAbsoluteTwipsRect.x += NSIntPixelsToTwips(absBounds.x, p2t);
+        aAbsoluteTwipsRect.y += NSIntPixelsToTwips(absBounds.y, p2t);   
         break;
       }
 
@@ -293,10 +301,11 @@ nsFormControlFrame::GetAbsoluteFramePosition(nsPresContext* aPresContext,
   
   // convert to pixel coordinates
   if (NS_SUCCEEDED(rv)) {
-    aAbsolutePixelRect.x = aPresContext->AppUnitsToDevPixels(aAbsoluteTwipsRect.x);
-    aAbsolutePixelRect.y = aPresContext->AppUnitsToDevPixels(aAbsoluteTwipsRect.y);
-    aAbsolutePixelRect.width = aPresContext->AppUnitsToDevPixels(aAbsoluteTwipsRect.width);
-    aAbsolutePixelRect.height = aPresContext->AppUnitsToDevPixels(aAbsoluteTwipsRect.height);
+    aAbsolutePixelRect.x = NSTwipsToIntPixels(aAbsoluteTwipsRect.x, t2p);
+    aAbsolutePixelRect.y = NSTwipsToIntPixels(aAbsoluteTwipsRect.y, t2p);
+
+    aAbsolutePixelRect.width = NSTwipsToIntPixels(aAbsoluteTwipsRect.width, t2p);
+    aAbsolutePixelRect.height = NSTwipsToIntPixels(aAbsoluteTwipsRect.height, t2p);
   }
 
   return rv;
