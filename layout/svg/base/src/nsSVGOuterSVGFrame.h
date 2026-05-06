@@ -130,9 +130,6 @@ protected:
   // implementation helpers:
   void InitiateReflow();
 
-  float GetPxPerTwips();
-  float GetTwipsPerPx();
-
   void CalculateAvailableSpace(nsRect *maxRect, nsRect *preferredRect,
                                nsPresContext* aPresContext,
                                const nsHTMLReflowState& aReflowState);

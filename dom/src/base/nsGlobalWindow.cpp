@@ -3073,10 +3073,9 @@ nsGlobalWindow::GetScrollMaxXY(PRInt32* aScrollMaxX, PRInt32* aScrollMaxY)
 
   nsresult rv;
   nsIScrollableView *view = nsnull;      // no addref/release for views
-  float p2t, t2p;
 
   FlushPendingNotifications(Flush_Layout);
-  GetScrollInfo(&view, &p2t, &t2p);
+  GetScrollInfo(&view);
   if (!view)
     return NS_OK;      // bug 230965 changed from NS_ERROR_FAILURE
 
@@ -3088,10 +3087,10 @@ nsGlobalWindow::GetScrollMaxXY(PRInt32* aScrollMaxX, PRInt32* aScrollMaxY)
 
   if (aScrollMaxX)
     *aScrollMaxX = PR_MAX(0,
-      (PRInt32)floor(t2p*(scrolledSize.width - portRect.width)));
+      (PRInt32)floor(nsPresContext::AppUnitsToFloatCSSPixels(scrolledSize.width - portRect.width)));
   if (aScrollMaxY)
     *aScrollMaxY = PR_MAX(0,
-      (PRInt32)floor(t2p*(scrolledSize.height - portRect.height)));
+      (PRInt32)floor(nsPresContext::AppUnitsToFloatCSSPixels(scrolledSize.height - portRect.height)));
 
   return NS_OK;
 }
@@ -3121,7 +3120,6 @@ nsGlobalWindow::GetScrollXY(PRInt32* aScrollX, PRInt32* aScrollY,
 
   nsresult rv;
   nsIScrollableView *view = nsnull;      // no addref/release for views
-  float p2t, t2p;
 
   if (aDoFlush) {
     FlushPendingNotifications(Flush_Layout);
@@ -3129,7 +3127,7 @@ nsGlobalWindow::GetScrollXY(PRInt32* aScrollX, PRInt32* aScrollY,
     EnsureSizeUpToDate();
   }
   
-  GetScrollInfo(&view, &p2t, &t2p);
+  GetScrollInfo(&view);
   if (!view)
     return NS_OK;      // bug 202206 changed from NS_ERROR_FAILURE
 
@@ -3145,9 +3143,9 @@ nsGlobalWindow::GetScrollXY(PRInt32* aScrollX, PRInt32* aScrollY,
   }
   
   if (aScrollX)
-    *aScrollX = NSTwipsToIntPixels(xPos, t2p);
+    *aScrollX = nsPresContext::AppUnitsToIntCSSPixels(xPos);
   if (aScrollY)
-    *aScrollY = NSTwipsToIntPixels(yPos, t2p);
+    *aScrollY = nsPresContext::AppUnitsToIntCSSPixels(yPos);
 
   return NS_OK;
 }
@@ -4054,10 +4052,9 @@ nsGlobalWindow::ScrollTo(PRInt32 aXScroll, PRInt32 aYScroll)
 {
   nsresult result;
   nsIScrollableView *view = nsnull;      // no addref/release for views
-  float p2t, t2p;
 
   FlushPendingNotifications(Flush_Layout);
-  result = GetScrollInfo(&view, &p2t, &t2p);
+  result = GetScrollInfo(&view);
 
   if (view) {
     // Here we calculate what the max pixel value is that we can
@@ -4065,7 +4062,7 @@ nsGlobalWindow::ScrollTo(PRInt32 aXScroll, PRInt32 aYScroll)
     // twips conversion factor, and substracting 4, the 4 comes from
     // experimenting with this value, anything less makes the view
     // code not scroll correctly, I have no idea why. -- jst
-    const PRInt32 maxpx = (PRInt32)((float)0x7fffffff / p2t) - 4;
+    const PRInt32 maxpx = nsPresContext::AppUnitsToIntCSSPixels(0x7fffffff) - 4;
 
     if (aXScroll > maxpx) {
       aXScroll = maxpx;
@@ -4075,8 +4072,8 @@ nsGlobalWindow::ScrollTo(PRInt32 aXScroll, PRInt32 aYScroll)
       aYScroll = maxpx;
     }
 
-    result = view->ScrollTo(NSIntPixelsToTwips(aXScroll, p2t),
-                            NSIntPixelsToTwips(aYScroll, p2t),
+    result = view->ScrollTo(nsPresContext::CSSPixelsToAppUnits(aXScroll),
+                            nsPresContext::CSSPixelsToAppUnits(aYScroll),
                             NS_VMREFRESH_IMMEDIATE);
   }
 
@@ -4088,17 +4085,16 @@ nsGlobalWindow::ScrollBy(PRInt32 aXScrollDif, PRInt32 aYScrollDif)
 {
   nsresult result;
   nsIScrollableView *view = nsnull;      // no addref/release for views
-  float p2t, t2p;
 
   FlushPendingNotifications(Flush_Layout);
-  result = GetScrollInfo(&view, &p2t, &t2p);
+  result = GetScrollInfo(&view);
 
   if (view) {
     nscoord xPos, yPos;
     result = view->GetScrollPosition(xPos, yPos);
     if (NS_SUCCEEDED(result)) {
-      result = ScrollTo(NSTwipsToIntPixels(xPos, t2p) + aXScrollDif,
-                        NSTwipsToIntPixels(yPos, t2p) + aYScrollDif);
+      result = ScrollTo(nsPresContext::AppUnitsToIntCSSPixels(xPos) + aXScrollDif,
+                        nsPresContext::AppUnitsToIntCSSPixels(yPos) + aYScrollDif);
     }
   }
 
@@ -4110,10 +4106,9 @@ nsGlobalWindow::ScrollByLines(PRInt32 numLines)
 {
   nsresult result;
   nsIScrollableView *view = nsnull;   // no addref/release for views
-  float p2t, t2p;
 
   FlushPendingNotifications(Flush_Layout);
-  result = GetScrollInfo(&view, &p2t, &t2p);
+  result = GetScrollInfo(&view);
   if (view) {
     result = view->ScrollByLines(0, numLines);
   }
@@ -4126,10 +4121,9 @@ nsGlobalWindow::ScrollByPages(PRInt32 numPages)
 {
   nsresult result;
   nsIScrollableView *view = nsnull;   // no addref/release for views
-  float p2t, t2p;
 
   FlushPendingNotifications(Flush_Layout);
-  result = GetScrollInfo(&view, &p2t, &t2p);
+  result = GetScrollInfo(&view);
   if (view) {
     result = view->ScrollByPages(0, numPages);
   }
@@ -7131,15 +7125,12 @@ nsGlobalWindow::GetWebBrowserChrome(nsIWebBrowserChrome **aBrowserChrome)
 }
 
 nsresult
-nsGlobalWindow::GetScrollInfo(nsIScrollableView **aScrollableView, float *aP2T,
-                              float *aT2P)
+nsGlobalWindow::GetScrollInfo(nsIScrollableView **aScrollableView)
 {
-  FORWARD_TO_OUTER(GetScrollInfo, (aScrollableView, aP2T, aT2P),
+  FORWARD_TO_OUTER(GetScrollInfo, (aScrollableView),
                    NS_ERROR_NOT_INITIALIZED);
 
   *aScrollableView = nsnull;
-  *aP2T = 0.0f;
-  *aT2P = 0.0f;
 
   if (!mDocShell) {
     return NS_OK;
@@ -7148,9 +7139,6 @@ nsGlobalWindow::GetScrollInfo(nsIScrollableView **aScrollableView, float *aP2T,
   nsCOMPtr<nsPresContext> presContext;
   mDocShell->GetPresContext(getter_AddRefs(presContext));
   if (presContext) {
-    *aP2T = presContext->PixelsToTwips();
-    *aT2P = presContext->TwipsToPixels();
-
     nsIViewManager* vm = presContext->GetViewManager();
     if (vm)
       return vm->GetRootScrollableView(aScrollableView);
