@@ -61,7 +61,8 @@ protected:
 
   PRBool    GetMailAccountKey(HKEY* aResult);
   void      SetRegKey(const char* aKeyName, const char* aValueName, 
-                      const char* aValue, PRBool aHKLMOnly);
+                      const char* aValue, PRBool aReplaceExisting,
+                      PRBool aForAllUsers);
 
 private:
   PRBool    mCheckedThisSession;
