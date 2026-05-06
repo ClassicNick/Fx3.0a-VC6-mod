@@ -89,7 +89,9 @@ No test cases
 [% END %]
 found.</b>
 </p>
-
+[% IF table.list_count > 0 && Param('allow-test-deletion') %]
+<p style="float: right;"><input type="submit" name="action" value="Delete Selected"></p>
+[% END %]
 [% IF dotweak AND table.list_count %]
 <h3>Update Selected Test Cases</h3>
 
@@ -177,9 +179,8 @@ found.</b>
     <td><input name="tester" value="--Do Not Change--" /></td>
   </tr>
   <tr>
-    <th colspan="3">Add selected cases to the following runs 
-                (comma-separated list of ids):</th>
-    <td><input name="addruns" value="[% addrun FILTER none %]" /></td>
+    <th colspan="3">Add selected cases to the following runs (only CONFIRMED cases will be added):</th>
+    <td><input name="addruns" value="[% addrun FILTER html %]" />(comma-separated list of ids)</td>
   </tr>
   <tr>
     <th colspan="3">Clone selected cases to the following plans 
@@ -205,12 +206,12 @@ found.</b>
 
 [% IF table.list_count >0 %]
 <div id="buglist_actions">
-	<div class="links">
-		<span class="label">Export:</span>
-		<a href="tr_list_cases.cgi?[% urlquerypart FILTER remove('&viewall=.') FILTER html %]&amp;ctype=csv&amp;viewall=1"><image src="testopia/img/csv.png" class="image"></a>
-		<img src="https://secure-www.novell.com/img/link_divbar.gif" width="1" height="20" alt="line" class="bar">
-		<a href="tr_list_cases.cgi?[% urlquerypart FILTER remove('&viewall=.') FILTER html %]&amp;ctype=xml&amp;viewall=1"><image src="testopia/img/xml.png" class="image"></a>
-	</div>
+    <div class="links">
+        <span class="label">Export:</span>
+        <a href="tr_list_cases.cgi?[% urlquerypart FILTER remove('&viewall=.') FILTER html %]&amp;ctype=csv&amp;viewall=1"><img src="testopia/img/csv.png" class="image"></a>
+        <img src="https://secure-www.novell.com/img/link_divbar.gif" width="1" height="20" alt="line" class="bar">
+        <a href="tr_list_cases.cgi?[% urlquerypart FILTER remove('&viewall=.') FILTER html %]&amp;ctype=xml&amp;viewall=1"><img src="testopia/img/xml.png" class="image"></a>
+    </div>
 </div>
 
 [% END %]

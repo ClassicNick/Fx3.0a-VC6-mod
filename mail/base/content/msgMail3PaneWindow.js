@@ -887,18 +887,20 @@ function delayedOnLoadMessenger()
     gStartMsgKey = (window.arguments.length > 1) ? window.arguments[1]: nsMsgKey_None;
     gSearchEmailAddress = (window.arguments.length > 2) ? window.arguments[2] : null;
   }
-  
+
 #ifdef HAVE_SHELL_SERVICE
   var nsIShellService = Components.interfaces.nsIShellService;
   var shellService;
+  var defaultAccount;
   try {
     shellService = Components.classes["@mozilla.org/mail/shell-service;1"].getService(nsIShellService);
+    defaultAccount = accountManager.defaultAccount;
   } catch (ex) {}
   
   // show the default client dialog only if we have at least one account, 
   // if we should check for the default client, 
   // and we aren't already the default for all of our recognized types (mail, news, rss)
-  if (shellService && accountManager.defaultAccount && shellService.shouldCheckDefaultClient 
+  if (shellService && defaultAccount && shellService.shouldCheckDefaultClient 
       && !shellService.isDefaultClient(true, nsIShellService.MAIL | nsIShellService.NEWS | nsIShellService.RSS))
     window.openDialog("chrome://messenger/content/defaultClientDialog.xul", "DefaultClient", 
                       "modal,centerscreen,chrome,resizable=no");
@@ -1005,11 +1007,10 @@ function loadStartFolder(initialUri)
             defaultServer.rootFolder == defaultServer.rootMsgFolder)
           defaultServer.PerformBiff(msgWindow);        
 
-        SelectFolder(startFolder.URI);        
+        SelectFolder(startFolder.URI);
     }
     catch(ex)
     {
-
       if (initialUri)
       {
         messenger.loadURL(window, initialUri);
@@ -1019,12 +1020,12 @@ function loadStartFolder(initialUri)
       dump(ex);
       dump('Exception in LoadStartFolder caused by no default account.  We know about this\n');
     }
-    
+
     // if gLoadStartFolder is true, then we must have just created a POP3 account
     // and we aren't supposed to initially download mail. (Bug #270743)
     if (gLoadStartFolder)
       MsgGetMessagesForAllServers(defaultServer);
-    
+
     // if appropriate, send unsent messages. This may end up prompting the user
     if (MailOfflineMgr.isOnline() && MailOfflineMgr.shouldSendUnsentMessages())
       SendUnsentMessages();
@@ -1033,13 +1034,14 @@ function loadStartFolder(initialUri)
 function AddToSession()
 {
   try {
-   var mailSession = Components.classes[mailSessionContractID].getService(Components.interfaces.nsIMsgMailSession);
-   var nsIFolderListener = Components.interfaces.nsIFolderListener;
-   var notifyFlags = nsIFolderListener.intPropertyChanged | nsIFolderListener.event;
-   mailSession.AddFolderListener(folderListener, notifyFlags);
- } catch (ex) {
-     dump("Error adding to session\n");
-   }
+    var mailSession = Components.classes[mailSessionContractID]
+                                .getService(Components.interfaces.nsIMsgMailSession);
+    var nsIFolderListener = Components.interfaces.nsIFolderListener;
+    var notifyFlags = nsIFolderListener.intPropertyChanged | nsIFolderListener.event;
+    mailSession.AddFolderListener(folderListener, notifyFlags);
+  } catch (ex) {
+    dump("Error adding to session\n");
+  }
 }
 
 function InitPanes()
@@ -1769,7 +1771,10 @@ function MigrateJunkMailSettings()
   {
     // get the default account, check to see if we have values for our 
     // globally migrated prefs.
-    var defaultAccount = accountManager.defaultAccount;
+    var defaultAccount;
+    try {
+      defaultAccount = accountManager.defaultAccount;
+    } catch (ex) {}
     if (defaultAccount && defaultAccount.incomingServer)
     {
       // we only care about

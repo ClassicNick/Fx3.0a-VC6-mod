@@ -22,6 +22,7 @@
 <form id="filter" method="GET" action="[% table.url_loc %]">
   <input type="hidden" name="plan_id" value="[% plan.id FILTER none %]" />
   <input type="hidden" name="addrun" value="[% addrun FILTER none %]" />
+  <input type="hidden" name="case_status" value="DISABLED" />
   <table>
     <tr class="bz_row_header">
       <th>Category</th>
@@ -33,7 +34,7 @@
       <td>
       [% PROCESS select sel = { name  => 'category',
                     accesskey => 't', 
-                    list      => plan.get_product_categories,
+                    list      => plan.product.categories,
                     elements  => 5,
                     mult      => 1 } %]   
       </td>
@@ -47,7 +48,7 @@
       <td style="padding-right: 30px;">
       [% PROCESS select sel = { name  => 'component',
                     accesskey => 'm', 
-                    list      => plan.get_product_components
+                    list      => plan.product.components
                     elements  => 5,
                     mult      => 1 } %]
       </td>      

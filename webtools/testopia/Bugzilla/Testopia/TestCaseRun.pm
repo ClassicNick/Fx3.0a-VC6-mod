@@ -355,32 +355,6 @@ sub set_as_current {
     $dbh->bz_unlock_tables();
 }
 
-=head2 set_build
-
-Sets the build on a case-run
-
-=cut
-
-sub set_build {
-    my $self = shift;
-    my ($build_id) = @_;
-    $self->_update_fields({'build_id' => $build_id});
-    $self->{'build_id'} = $build_id;
-}
-
-=head2 set_environment
-
-Sets the environment on a case-run
-
-=cut
-
-sub set_environment {
-    my $self = shift;
-    my ($env_id) = @_;
-    $self->_update_fields({'environment_id' => $env_id});
-    $self->{'environment_id'} = $env_id;
-}
-
 =head2 set_status
 
 Sets the status on a case-run and updates the close_date and testedby 
@@ -421,6 +395,17 @@ sub set_status {
     $self->append_note($note);
     $self->{'case_run_status_id'} = $status_id;
     $self->{'status'} = undef;
+}
+
+sub set_sortkey {
+    my $self = shift;
+    my ($sortkey) = @_;
+    my $dbh = Bugzilla->dbh;
+    
+    $dbh->do("UPDATE test_case_runs SET sortkey = ?
+              WHERE case_id = ? AND run_id = ?",
+              undef, ($sortkey, $self->case_id, $self->run_id));
+    
 }
 
 =head2 set_assignee
@@ -476,9 +461,9 @@ sub lookup_status_by_name {
     
     my ($value) = $dbh->selectrow_array(
             "SELECT case_run_status_id
-			 FROM test_case_run_status
-			 WHERE name = ?",
-			 undef, $name);
+             FROM test_case_run_status
+             WHERE name = ?",
+             undef, $name);
     return $value;
 }
 
@@ -685,7 +670,9 @@ sub obliterate {
     my $dbh = Bugzilla->dbh;
     
     $dbh->do("DELETE FROM test_case_bugs WHERE case_run_id IN (" . 
-              join(",", @{$self->get_case_run_list}) . ")", undef, $self->id);
+              join(",", @{$self->get_case_run_list}) . ")", undef, $self->id)
+                  if $self->get_case_run_list;
+                  
     $dbh->do("DELETE FROM test_case_runs WHERE case_id = ? AND run_id = ?", 
               undef, ($self->case_id, $self->run_id));
     return 1;

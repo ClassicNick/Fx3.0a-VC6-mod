@@ -1,4 +1,4 @@
-#
+# -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 # ***** BEGIN LICENSE BLOCK *****
 # Version: MPL 1.1/GPL 2.0/LGPL 2.1
 #
@@ -14,16 +14,16 @@
 #
 # The Original Code is mozilla.org code.
 #
-# The Initial Developer of the Original Code is
-# Netscape Communications Corporation.
-# Portions created by the Initial Developer are Copyright (C) 1998
+# The Initial Developer of the Original Code is Mozilla Corporation.
+# Portions created by the Initial Developer are Copyright (C) 2007
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
+#   Dan Mills <thunder@mozilla.com> (Original Author)
 #
 # Alternatively, the contents of this file may be used under the terms of
-# either of the GNU General Public License Version 2 or later (the "GPL"),
-# or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+# either the GNU General Public License Version 2 or later (the "GPL"), or
+# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
 # in which case the provisions of the GPL or the LGPL are applicable instead
 # of those above. If you wish to allow use of your version of this file only
 # under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,32 +35,15 @@
 #
 # ***** END LICENSE BLOCK *****
 
-DEPTH		= ../../..
-topsrcdir	= @top_srcdir@
-srcdir		= @srcdir@
-VPATH		= @srcdir@
+function init() {
+  document.getElementById('search-box').focus();
+}
 
-include $(DEPTH)/config/autoconf.mk
-
-DIRS		= sampleimages
-
-EXPORT_RESOURCE_SAMPLES = \
-		$(srcdir)/colorpicker.xul \
-		$(srcdir)/dexparamdialog.xul \
-		$(srcdir)/dexparamdialog.html \
-		$(srcdir)/dexopenchrome.xul \
-		$(srcdir)/hidetoolicon.xul \
-		$(srcdir)/hidetoolicon.css \
-		$(srcdir)/tab.xul \
-		$(srcdir)/widgets.xul \
-		$(srcdir)/xpmenu.xul \
-		$(NULL)
-
-include $(topsrcdir)/config/rules.mk
-
-libs:: 
-	$(INSTALL) $(EXPORT_RESOURCE_SAMPLES) $(DIST)/bin/res/samples
-
-install:: 
-	$(SYSINSTALL) $(IFLAGS1) $(EXPORT_RESOURCE_SAMPLES) $(DESTDIR)$(mozappdir)/res/samples
+function searchBookmarks(aSearchString) {
+  var tree = document.getElementById('bookmarks-view');
+  if (!aSearchString)
+    tree.place = tree.place;
+  else
+    tree.applyFilter(aSearchString, true);
+}
 

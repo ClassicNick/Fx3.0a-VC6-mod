@@ -231,7 +231,7 @@
 [% PROCESS testopia/case/table.html.tmpl
    table = case_table %]
   <a href="tr_new_case.cgi?plan_id=[% plan.id FILTER none %]">Create a New Test Case</a>
-  <a href="tr_list_cases.cgi?plan_id=[% plan.id FILTER none %]">List Cases</a>
+  &nbsp|&nbsp;<a href="tr_list_cases.cgi?plan_id=[% plan.id FILTER none %]">List Cases</a>
 </div>
 
 [%##### Test Runs #####%]
@@ -244,7 +244,7 @@
 [% PROCESS testopia/run/table.html.tmpl
    table = run_table %]
   <a href="tr_new_run.cgi?plan_id=[% plan.id FILTER none %]&case_status_id=2&viewall=0">Create a New Test Run</a>
-  <a href="tr_list_runs.cgi?plan_id=[% plan.id FILTER none %]">List Runs</a>
+  &nbsp|&nbsp;<a href="tr_list_runs.cgi?plan_id=[% plan.id FILTER none %]">List Runs</a>
 </div>
 [%##### Attachments #####%]
 <br><br>
@@ -283,14 +283,14 @@
 
 [% IF case_table.list_count >0 %]
 <div id="buglist_actions">
-	<div class="links">
-[% IF case_table.list_count >0 %]
-		<span class="label">Export Test Cases:</span>
-		<a href="tr_show_plan.cgi?&amp;plan_id=[% plan.id FILTER none %]&amp;export=testcases&amp;ctype=csv&amp;viewall=1"><image src="testopia/img/csv.png" class="image"></a>
-		|
-		<a href="tr_show_plan.cgi?&amp;plan_id=[% plan.id FILTER none %]&amp;export=testcases&amp;ctype=xml&amp;viewall=1"><image src="testopia/img/xml.png" class="image"></a>
-[% END %]
-	</div>
+  <div class="links">
+  [% IF case_table.list_count >0 %]
+    <span class="label">Export Test Cases:</span>
+    <a href="tr_show_plan.cgi?&amp;plan_id=[% plan.id FILTER none %]&amp;export=testcases&amp;ctype=csv&amp;viewall=1"><img src="testopia/img/csv.png" class="image"></a>
+     |
+    <a href="tr_show_plan.cgi?&amp;plan_id=[% plan.id FILTER none %]&amp;export=testcases&amp;ctype=xml&amp;viewall=1"><img src="testopia/img/xml.png" class="image"></a>
+  [% END %]
+  </div>
 </div>
 [% END %]
 

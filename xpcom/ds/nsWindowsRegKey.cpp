@@ -39,7 +39,6 @@
 #include <windows.h>
 #include <stdlib.h>
 #include "nsWindowsRegKey.h"
-#include "nsNativeCharsetUtils.h"
 #include "nsString.h"
 #include "nsCOMPtr.h"
 
@@ -48,18 +47,6 @@
 #ifndef REG_QWORD
 # define REG_QWORD 11
 #endif
-
-//-----------------------------------------------------------------------------
-
-// This class simplifies conversion from unicode to native charset somewhat.
-class PromiseNativeString : public nsCAutoString
-{
-public:
-  PromiseNativeString(const nsAString &input)
-  {
-    NS_CopyUnicodeToNative(input, *this);
-  }
-};
 
 //-----------------------------------------------------------------------------
 

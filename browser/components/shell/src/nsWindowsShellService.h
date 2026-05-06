@@ -63,6 +63,8 @@ protected:
   void      SetRegKey(const char* aKeyName, const char* aValueName, 
                       const char* aValue, PRBool aReplaceExisting,
                       PRBool aForAllUsers);
+  DWORD     DeleteRegKey(HKEY baseKey, const char *keyName);
+  DWORD     DeleteRegKeyDefaultValue(HKEY baseKey, const char *keyName);
 
 private:
   PRBool    mCheckedThisSession;

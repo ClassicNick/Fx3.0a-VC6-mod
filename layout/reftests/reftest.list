@@ -1,3 +1,7 @@
+# If you mark a test as failing or random, you MUST file a bug report in
+# bugzilla and note the bug number as a comment on the line with the
+# failing test.
+
 # verify the tests work
 == data:text/html,<body> about:blank
 == data:text/plain, about:blank
@@ -42,14 +46,14 @@
 == bugs/163504-1b.html bugs/163504-1-ref.html
 == bugs/163504-2a.html bugs/163504-2-ref.html
 == bugs/163504-2b.html bugs/163504-2-ref.html
-# == bugs/328829-1.xhtml bugs/328829-1-ref.xhtml # bug 369046 (intermittent)
+random == bugs/328829-1.xhtml bugs/328829-1-ref.xhtml # bug 369046 (intermittent)
 == bugs/328829-2.xhtml bugs/328829-2-ref.xhtml
 == bugs/339289-1.html bugs/339289-1-ref.html
 == bugs/347912-1.html bugs/347912-1-ref.html
 == bugs/351641-1a.html bugs/351641-1-ref.html
 == bugs/351641-1b.html bugs/351641-1-ref.html
 == bugs/351641-2a.html bugs/351641-2-ref.html
-f== bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
+fails == bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
 == bugs/362594-1a.html bugs/362594-1-quirks-ref.html
 == bugs/362594-1b.html bugs/362594-1-quirks-ref.html
 == bugs/362594-1c.html bugs/362594-1-standards-ref.html
@@ -68,7 +72,7 @@ f== bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
 != bugs/315620-1b.html bugs/315620-1-ref.html
 == bugs/315620-2a.xhtml bugs/315620-2-ref.xhtml
 != bugs/315620-2b.xhtml bugs/315620-2-ref.xhtml
-#== bugs/363329-1.html bugs/363329-1-ref.html # may fail randomly (bug 366865)
+random == bugs/363329-1.html bugs/363329-1-ref.html # bug 366865
 == bugs/363329-2.html bugs/363329-2-ref.html
 == bugs/363637-1.html bugs/363637-1-ref.html
 == bugs/364079-1.html bugs/364079-1-ref.html
@@ -84,7 +88,7 @@ f== bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
 != bugs/335628-2.xul bugs/335628-2-ref.xul
 == bugs/367247-s-visible.html bugs/367247-s-hidden.html
 == bugs/367247-s-hidden.html bugs/367247-s-auto.html
-!= bugs/367247-s-auto.html bugs/367247-s-scroll.html
+fails-if(MOZ_WIDGET_TOOLKIT=="cocoa") != bugs/367247-s-auto.html bugs/367247-s-scroll.html # bug 369293
 != bugs/367247-l-visible.html bugs/367247-l-hidden.html
 != bugs/367247-l-hidden.html bugs/367247-l-scroll.html
 == bugs/367247-l-scroll.html bugs/367247-l-auto.html
@@ -110,10 +114,10 @@ f== bugs/351641-2b.html bugs/351641-2-ref.html # bug 358433 (2006-10-19)
 == bugs/367612-1e.html bugs/367612-1-ref.html
 == bugs/367612-1f.html bugs/367612-1-ref.html
 != bugs/367612-1g.html bugs/367612-1-ref.html
-f== bugs/368020-1.html bugs/368020-1-ref.html # bug 368079
-#== bugs/368020-2.html bugs/368020-2-ref.html # bug 368157 (X11 only?)
-f== bugs/368020-3.html bugs/368020-3-ref.html # bug 368085
-f== bugs/368020-4.html bugs/368020-4-ref.html # bug 368085
+fails == bugs/368020-1.html bugs/368020-1-ref.html # bug 368079
+fails-if(MOZ_WIDGET_TOOLKIT=="gtk2") == bugs/368020-2.html bugs/368020-2-ref.html # bug 368157
+fails == bugs/368020-3.html bugs/368020-3-ref.html # bug 368085
+fails == bugs/368020-4.html bugs/368020-4-ref.html # bug 368085
 == bugs/368020-5.html bugs/368020-5-ref.html
 == bugs/368622-1.html bugs/368622-1-ref.html
 == bugs/368622-1.html bugs/368622-1-ref.html
@@ -163,8 +167,8 @@ f== bugs/368020-4.html bugs/368020-4-ref.html # bug 368085
 #     need to require Flash on the test machine to run them
 #
 # XXX need to support <img src="foo.svg"> for these to pass
-f== object/svg.html object/svg-ref.html
-f== object/svg-with-type.html object/svg-with-type-ref.html
+fails == object/svg.html object/svg-ref.html
+fails == object/svg-with-type.html object/svg-with-type-ref.html
 #
 # XXX missing test 031 from http://biesi.damowmow.com/object/ here; need to
 #     first support the standby attribute on objects, then need to figure out
