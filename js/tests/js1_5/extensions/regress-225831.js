@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -36,44 +37,16 @@
  * ***** END LICENSE BLOCK *****
  *
  *
- * Date:    24 Nov 2003
- * SUMMARY: Testing for recursion check in js_EmitTree
+ * Date:    15 Nov 2003
+ * SUMMARY: Stressing the byte code generator
  *
- * See http://bugzilla.mozilla.org/show_bug.cgi?id=226507
- * Igor's comments:
- *
- * "For example, with N in the test  set to 35, I got on my RedHat
- * Linux 10 box a segmentation fault from js after setting the stack limit
- * to 100K. When I set the stack limit to 20K I still got the segmentation fault.
- * Only after -s was changed to 15K, too-deep recursion was detected:
- *
-
-  ~/w/js/x> ulimit -s
-  100
-  ~/w/js/x> js  fintest.js
-  Segmentation fault
-  ~/w/js/x> js -S $((20*1024)) fintest.js
-  Segmentation fault
-  ~/w/js/x> js -S $((15*1024)) fintest.js
-  fintest.js:19: InternalError: too much recursion
-
- *
- * After playing with numbers it seems that while processing try/finally the
- * recursion in js_Emit takes 10 times more space the corresponding recursion
- * in the parser."
- *
- *
- * Note the use of the new -S option to the JS shell to limit stack size.
- * See http://bugzilla.mozilla.org/show_bug.cgi?id=225061. This in turn
- * can be passed to the JS shell by the test driver's -o option, as in:
- *
- * perl jsDriver.pl -e smdebug -fTEST.html -o "-S 100" -l js1_5/Regress
+ * See http://bugzilla.mozilla.org/show_bug.cgi?id=225831
  *
  */
 //-----------------------------------------------------------------------------
 var UBound = 0;
-var bug = 226507;
-var summary = 'Testing for recursion check in js_EmitTree';
+var bug = 225831;
+var summary = 'Stressing the byte code generator';
 var status = '';
 var statusitems = [];
 var actual = '';
@@ -82,52 +55,103 @@ var expect= '';
 var expectedvalues = [];
 
 
-/*
- * With stack limit 100K on Linux debug build even N=30 already can cause
- * stack overflow; use 35 to trigger it for sure.
- */
-var N = 350;
+function f() { return {x: 0}; }
 
-var counter = 0;
-function f()
-{
-  ++counter;
-}
-
-
-/*
- * Example: if N were 3, this is what |source|
- * would end up looking like:
- *
- *     try { f(); } finally {
- *     try { f(); } finally {
- *     try { f(); } finally {
- *     f(1,1,1,1);
- *     }}}
- *
- */
-var source = "".concat(
-	repeat_str("try { f(); } finally {\n", N),
-	"f(",
-	repeat_str("1,", N),
-	"1);\n",
-	repeat_str("}", N));
-
-// Repeat it for additional stress testing
-source += source;
-
-/*
- * In Rhino, eval() always uses interpreted mode.
- * To use compiled mode, use Script.exec() instead.
- */
-var script = Script(source);
-script();
+var N = 300;
+var a = new Array(N + 1);
+a[N] = 10;
+a[0] = 100;
 
 
 status = inSection(1);
-actual = counter;
-expect = (N + 1) * 2;
+
+// build string of the form ++(a[++f().x + ++f().x + ... + ++f().x]) which
+// gives ++a[N]
+var str = "".concat("++(a[", repeat_str("++f().x + ", (N - 1)), "++f().x])");
+
+// Use Script constructor instead of simple eval to test Rhino optimizer mode
+// because in Rhino, eval always uses interpreted mode.
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  var script = new Script(str);
+  script();
+
+  actual = a[N];
+  expect = 11;
+}
 addThis();
+
+status = inSection(2);
+
+
+// build string of the form (a[f().x-- + f().x-- + ... + f().x--])--
+// which should give (a[0])--
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  str = "".concat("(a[", repeat_str("f().x-- + ", (N - 1)), "f().x--])--");
+  script = new Script(str);
+  script();
+
+  actual = a[0];
+  expect = 99;
+}
+addThis();
+
+
+status = inSection(3);
+
+// build string of the form [[1], [1], ..., [1]]
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  str = "".concat("[", repeat_str("[1], ", (N - 1)), "[1]]");
+  script = new Script(str);
+  script();
+
+  actual = uneval(script());
+  expect = str;
+}
+addThis();
+
+
+status = inSection(4);
+
+// build string of the form ({1:{a:1}, 2:{a:1}, ... N:{a:1}})
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  str = function() {
+    var arr = new Array(N+1);
+    arr[0] = "({";
+    for (var i = 1; i < N; ++i) {
+      arr[i] = i+":{a:1}, ";
+    }
+    arr[N] = N+":{a:1}})";
+    return "".concat.apply("", arr);
+  }();
+
+  script = new Script(str);
+  script();
+
+  actual = uneval(script());
+  expect = str;
+}
+addThis();
+
 
 
 

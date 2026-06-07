@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -14,12 +15,11 @@
  * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corp.
- * Portions created by the Initial Developer are Copyright (C) 2003
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   igor@fastmail.fm, pschwartau@netscape.com
+ * Contributor(s): Jesse Ruderman
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -33,102 +33,34 @@
  * the provisions above, a recipient may use your version of this file under
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
- * ***** END LICENSE BLOCK *****
- *
- *
- * Date:    29 Sep 2003
- * SUMMARY: Testing __parent__ and __proto__ of Script object
- *
- * See http://bugzilla.mozilla.org/show_bug.cgi?id=220584
- */
+ * ***** END LICENSE BLOCK ***** */
 //-----------------------------------------------------------------------------
-var UBound = 0;
-var bug = 220584;
-var summary = 'Testing __parent__ and __proto__ of Script object';
-var status = '';
-var statusitems = [];
-var actual = '';
-var actualvalues = [];
-var expect= '';
-var expectedvalues = [];
-var s;
-
-
-// invoke |Script| as a function
-s = Script('1;');
-
-status = inSection(1);
-actual = s instanceof Object;
-expect = true;
-addThis();
-
-status = inSection(2);
-actual = (s.__parent__ == undefined) || (s.__parent__ == null);
-expect = false;
-addThis();
-
-status = inSection(3);
-actual = (s.__proto__ == undefined) || (s.__proto__ == null);
-expect = false;
-addThis();
-
-status = inSection(4);
-actual = (s + '').length > 0;
-expect = true;
-addThis();
-
-
-// invoke |Script| as a constructor
-s = new Script('1;');
-
-status = inSection(5);
-actual = s instanceof Object;
-expect = true;
-addThis();
-
-status = inSection(6);
-actual = (s.__parent__ == undefined) || (s.__parent__ == null);
-expect = false;
-addThis();
-
-status = inSection(7);
-actual = (s.__proto__ == undefined) || (s.__proto__ == null);
-expect = false;
-addThis();
-
-status = inSection(8);
-actual = (s + '').length > 0;
-expect = true;
-addThis();
-
-
+var bug = 352797;
+var summary = 'Assertion: OBJ_GET_CLASS(cx, obj) == &js_BlockClass';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
 
 //-----------------------------------------------------------------------------
 test();
 //-----------------------------------------------------------------------------
 
-
-
-function addThis()
-{
-  statusitems[UBound] = status;
-  actualvalues[UBound] = actual;
-  expectedvalues[UBound] = expect;
-  UBound++;
-}
-
-
 function test()
 {
-  enterFunc('test');
-  printBugNumber(bug);
-  printStatus(summary);
-
-  for (var i=0; i<UBound; i++)
+  enterFunc ('test');
+  printBugNumber (bug);
+  printStatus (summary);
+  
+  if (typeof Script == 'undefined')
   {
-    reportCompare(expectedvalues[i], actualvalues[i], statusitems[i]);
+    print('Test skipped. Script not defined.');
   }
+  else
+  {
+    (function(){let x = 'fafafa'.replace(/a/g, new Script(''))})();
+  }
+
+  reportCompare(expect, actual, summary);
 
   exitFunc ('test');
 }

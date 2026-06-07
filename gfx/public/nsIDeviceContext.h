@@ -52,7 +52,6 @@ class nsIDeviceContextSpec;
 class nsIAtom;
 
 struct nsFont;
-struct nsColor;
 
 //a cross platform way of specifying a native device context
 typedef void * nsNativeDeviceContext;
@@ -222,6 +221,13 @@ public:
    * @return error status
    */
   NS_IMETHOD  Init(nsNativeWidget aWidget) = 0;
+
+  /**
+   * Initialize the device context from a device context spec
+   * @param aDevSpec the specification of the printng device (platform-specific)
+   * @return error status
+   */
+  NS_IMETHOD  InitForPrinting(nsIDeviceContextSpec* aDevSpec) = 0;
 
   /**
    * Create a rendering context and initialize it from an nsIView
@@ -457,19 +463,6 @@ public:
   NS_IMETHOD GetClientRect(nsRect &aRect) = 0;
 
   /**
-   * Returns a new nsIDeviceContext suitable for the device context
-   * specification passed in.
-   * @param aDevice a device context specification. this is a platform
-   *        specific structure that only a platform specific device
-   *        context can interpret.
-   * @param aContext out parameter for new device context. nsnull on
-   *        failure to create new device context.
-   * @return error status
-   */
-  NS_IMETHOD GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
-                                 nsIDeviceContext *&aContext) = 0;
-
-  /**
    * This is enables the DeviceContext to anything it needs to do for Printing
    * before Reflow and BeginDocument is where work can be done after reflow.
    * @param aTitle - itle of Document
@@ -558,6 +551,13 @@ public:
    * Gtk native theme stuff.
    */
   NS_IMETHOD ClearCachedSystemFonts() = 0;
+
+  /**
+   * Check to see if the DPI has changed
+   * @return whether there was actually a change in the DPI
+   *         (whether AppUnitsPerDevPixel() or AppUnitsPerInch() changed)
+  */
+  virtual PRBool CheckDPIChange() = 0;
 
 protected:
   float mTwipsToPixels;

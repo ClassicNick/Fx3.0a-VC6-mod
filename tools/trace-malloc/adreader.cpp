@@ -18,7 +18,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   L. David Baron <dbaron@fas.harvard.edu> (original author)
+ *   L. David Baron <dbaron@dbaron.org> (original author)
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -80,12 +80,14 @@ ADLog::Read(const char* aFileName)
             return false;
         }
 
-        char *data = (char*)malloc(((datasize+3)/4)*4);
+        size_t data_mem_size = ((datasize + sizeof(unsigned long) - 1) /
+                               sizeof(unsigned long)) * sizeof(unsigned long);
+        char *data = (char*)malloc(data_mem_size);
 
-        for (char *cur_data = data,
-                  *cur_data_end = data + ((datasize+3)/4)*4;
-             cur_data != cur_data_end; cur_data += 4) {
-            res = fscanf(in, " %x\n", (unsigned int*)cur_data);
+        for (unsigned long *cur_data = (unsigned long*) data,
+                       *cur_data_end = (unsigned long*) ((char*)data + data_mem_size);
+             cur_data != cur_data_end; ++cur_data) {
+            res = fscanf(in, " %lX\n", cur_data);
             if (res != 1) {
                 return false;
             }

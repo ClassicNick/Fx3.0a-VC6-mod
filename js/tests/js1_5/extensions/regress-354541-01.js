@@ -41,42 +41,26 @@ var summary = 'Regression to standard class constructors in case labels';
 var actual = '';
 var expect = '';
 
-//-----------------------------------------------------------------------------
-test();
-//-----------------------------------------------------------------------------
 
-function test()
+printBugNumber (bug);
+printStatus (summary + ': top level');
+
+String.prototype.trim = function() { print('hallo'); };
+
+const S = String;
+const Sp = String.prototype;
+
+expect = 'No Error';
+actual = 'No Error';
+
+if (typeof Script == 'undefined')
 {
-  enterFunc ('test');
-  printBugNumber (bug);
-  printStatus (summary + ': in function');
-
-  String.prototype.trim = function() { return 'hallo'; };
-
-  const S = String;
-  const Sp = String.prototype;
-
-  expect = 'hallo';
-  var expectStringInvariant = true;
-  var actualStringInvariant;
-  var expectStringPrototypeInvariant = true;
-  var actualStringPrototypeInvariant;
-
-  s = Script('var tmp = function(o) { switch(o) { case String: case 1: return ""; } }; actualStringInvariant = (String === S); actualStringPrototypeInvariant = (String.prototype === Sp); actual = "".trim();');
-  try
-  {
-    s();
-  }
-  catch(ex)
-  {
-    actual = ex + '';
-  }
-  
-  reportCompare(expect, actual, 'trim() returned');
-  reportCompare(expectStringInvariant, actualStringInvariant, 'String invariant');
-  reportCompare(expectStringPrototypeInvariant, 
-                actualStringPrototypeInvariant,
-                'String.prototype invariant');
-
-  exitFunc ('test');
+  print('Test skipped. Script not defined.');
 }
+else
+{
+  var s = Script('var tmp = function(o) { switch(o) { case String: case 1: return ""; } }; print(String === S); print(String.prototype === Sp); "".trim();');
+  s();
+}
+  
+reportCompare(expect, actual, summary);

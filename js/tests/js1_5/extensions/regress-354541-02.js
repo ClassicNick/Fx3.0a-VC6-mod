@@ -19,7 +19,8 @@
  * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): Jesse Ruderman
+ * Contributor(s): Reto Laemmler
+ *                 Brendan Eich
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,10 +36,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 //-----------------------------------------------------------------------------
-var bug = 352797;
-var summary = 'Assertion: OBJ_GET_CLASS(cx, obj) == &js_BlockClass';
-var actual = 'No Crash';
-var expect = 'No Crash';
+var bug = 354541;
+var summary = 'Regression to standard class constructors in case labels';
+var actual = '';
+var expect = '';
 
 
 //-----------------------------------------------------------------------------
@@ -49,9 +50,24 @@ function test()
 {
   enterFunc ('test');
   printBugNumber (bug);
-  printStatus (summary);
-  
-  (function(){let x = 'fafafa'.replace(/a/g, new Script(''))})();
+  printStatus (summary + ': in function');
+
+  String.prototype.trim = function() { print('hallo'); };
+
+  const S = String;
+  const Sp = String.prototype;
+
+  expect = 'No Error';
+  actual = 'No Error';
+  if (typeof Script == 'undefined')
+  {
+    print('Test skipped. Script not defined.');
+  }
+  else
+  {
+    var s = Script('var tmp = function(o) { switch(o) { case String: case 1: return ""; } }; print(String === S); print(String.prototype === Sp); "".trim();');
+    s();
+  }
 
   reportCompare(expect, actual, summary);
 

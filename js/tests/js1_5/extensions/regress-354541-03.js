@@ -19,7 +19,8 @@
  * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): shutdown
+ * Contributor(s): Reto Laemmler
+ *                 Brendan Eich
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,33 +36,51 @@
  *
  * ***** END LICENSE BLOCK ***** */
 //-----------------------------------------------------------------------------
-var bug = 355982;
-var summary = 'Script("") should not fail';
+var bug = 354541;
+var summary = 'Regression to standard class constructors in case labels';
 var actual = '';
 var expect = '';
 
 
-//-----------------------------------------------------------------------------
-test();
-//-----------------------------------------------------------------------------
+printBugNumber (bug);
+printStatus (summary + ': top level');
 
-function test()
+String.prototype.trim = function() { print('hallo'); };
+
+String.prototype.trim = function() { return 'hallo'; };
+
+const S = String;
+const Sp = String.prototype;
+
+expect = 'hallo';
+var expectStringInvariant = true
+var actualStringInvariant;
+var expectStringPrototypeInvariant = true;
+var actualStringPrototypeInvariant;
+
+if (typeof Script == 'undefined')
 {
-  enterFunc ('test');
-  printBugNumber (bug);
-  printStatus (summary);
-  
-  expect = 'No Error';
-  actual = 'No Error';
+  print('Test skipped. Script not defined.');
+  var actualStringInvariant = true;
+  var actualStringPrototypeInvariant = true;
+}
+else
+{
+  var s = Script('var tmp = function(o) { switch(o) { case String: case 1: return ""; } }; actualStringInvariant = (String === S); actualStringPrototypeInvariant = (String.prototype === Sp); actual = "".trim();');
   try
   {
-    Script('');
+    s();
   }
   catch(ex)
   {
     actual = ex + '';
   }
-  reportCompare(expect, actual, summary);
-
-  exitFunc ('test');
 }
+  
+reportCompare(expect, actual, 'trim() returned');
+reportCompare(expectStringInvariant, actualStringInvariant, 
+              'String invariant');
+reportCompare(expectStringPrototypeInvariant, 
+              actualStringPrototypeInvariant,
+              'String.prototype invariant');
+

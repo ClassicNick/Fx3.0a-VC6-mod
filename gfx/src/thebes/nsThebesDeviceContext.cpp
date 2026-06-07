@@ -131,39 +131,41 @@ nsThebesDeviceContext::nsThebesDeviceContext()
 
 nsThebesDeviceContext::~nsThebesDeviceContext()
 {
-    nsresult rv;
-    nsCOMPtr<nsIPref> prefs = do_GetService(NS_PREF_CONTRACTID, &rv);
-    if (NS_SUCCEEDED(rv)) {
-        prefs->UnregisterCallback("layout.css.dpi",
-                                  prefChanged, (void *)this);
-    }
 }
 
 nsresult
-nsThebesDeviceContext::SetDPI(PRInt32 aPrefDPI)
+nsThebesDeviceContext::SetDPI()
 {
     PRInt32 OSVal;
     PRBool do_round = PR_TRUE; // XXX bogus -- only caller for which it's false is a round number
 
     PRInt32 dpi = 96;
 
+    // Set prefVal the value of the preference
+    // "layout.css.dpi"
+    // or -1 if we can't get it.
+    // If it's negative, we pretend it's not set.
+    // If it's 0, it means force use of the operating system's logical
+    // resolution.
+    // If it's positive, we use it as the logical resolution
+    nsresult rv;
+    PRInt32 prefDPI;
+    nsCOMPtr<nsIPref> prefs(do_GetService(NS_PREF_CONTRACTID, &rv));
+    if (NS_SUCCEEDED(rv) && prefs) {
+        rv = prefs->GetIntPref("layout.css.dpi", &prefDPI);
+        if (NS_FAILED(rv)) {
+            prefDPI = -1;
+        }
+    }
+
 #if defined(MOZ_ENABLE_GTK2)
     float screenWidthIn = float(::gdk_screen_width_mm()) / 25.4f;
     OSVal = NSToCoordRound(float(::gdk_screen_width()) / screenWidthIn);
 
-    if (aPrefDPI > 0) {
-        // If there's a valid pref value for the logical resolution,
-        // use it.
-        dpi = aPrefDPI;
-    } else if ((aPrefDPI == 0) || (OSVal > 96)) {
-        // Either if the pref is 0 (force use of OS value) or the OS
-        // value is bigger than 96, use the OS value.
+    if (prefDPI == 0) // Force the use of the OS dpi
         dpi = OSVal;
-    } else {
-        // if we couldn't get the pref or it's negative, and the OS
-        // value is under 96ppi, then use 96.
-        dpi = 96;
-    }
+    else  // Otherwise, the minimum dpi is 96dpi
+        dpi = PR_MAX(OSVal, 96);
 
     if (mPrinter) {
         // cairo printing doesn't really have the
@@ -189,6 +191,8 @@ nsThebesDeviceContext::SetDPI(PRInt32 aPrefDPI)
 
 #elif defined(XP_MACOSX)
 
+    // XXX Need to get the screen DPI instead of defaulting to 96dpi
+
     if (mPrinter) {
         dpi = 72;
         do_round = PR_FALSE;
@@ -212,28 +216,7 @@ nsThebesDeviceContext::Init(nsNativeWidget aWidget)
 {
     mWidget = aWidget;
 
-    PRInt32 prefVal = -1;
-
-    // Set prefVal the value of the preference
-    // "layout.css.dpi"
-    // or -1 if we can't get it.
-    // If it's negative, we pretend it's not set.
-    // If it's 0, it means force use of the operating system's logical
-    // resolution.
-    // If it's positive, we use it as the logical resolution
-    nsresult res;
-
-    nsCOMPtr<nsIPref> prefs(do_GetService(NS_PREF_CONTRACTID, &res));
-    if (NS_SUCCEEDED(res) && prefs) {
-        res = prefs->GetIntPref("layout.css.dpi", &prefVal);
-        if (NS_FAILED(res)) {
-            prefVal = -1;
-        }
-        prefs->RegisterCallback("layout.css.dpi", prefChanged,
-                                (void *)this);
-    }
-
-    SetDPI(prefVal);
+    SetDPI();
 
 
 #ifdef MOZ_ENABLE_GTK2
@@ -454,8 +437,8 @@ nsThebesDeviceContext::GetRect(nsRect &aRect)
         // we have a printer device
         aRect.x = 0;
         aRect.y = 0;
-        aRect.width = NSToIntRound(mWidth);
-        aRect.height = NSToIntRound(mHeight);
+        aRect.width = mWidth;
+        aRect.height = mHeight;
     } else
         ComputeFullAreaUsingScreen ( &aRect );
 
@@ -469,8 +452,8 @@ nsThebesDeviceContext::GetClientRect(nsRect &aRect)
         // we have a printer device
         aRect.x = 0;
         aRect.y = 0;
-        aRect.width = NSToIntRound(mWidth);
-        aRect.height = NSToIntRound(mHeight);
+        aRect.width = mWidth;
+        aRect.height = mHeight;
     }
     else
         ComputeClientRectUsingScreen(&aRect);
@@ -487,31 +470,20 @@ nsThebesDeviceContext::PrepareNativeWidget(nsIWidget* aWidget, void** aOut)
 
 
 /*
- * below methods are for printing and are not implemented
+ * below methods are for printing
  */
 NS_IMETHODIMP
-nsThebesDeviceContext::GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
-                                           nsIDeviceContext *&aContext)
+nsThebesDeviceContext::InitForPrinting(nsIDeviceContextSpec *aDevice)
 {
-    nsThebesDeviceContext *newDevCon = new nsThebesDeviceContext();
+    NS_ENSURE_ARG_POINTER(aDevice);
 
-    if (newDevCon) {
-        // this will ref count it
-        nsresult rv = newDevCon->QueryInterface(NS_GET_IID(nsIDeviceContext), (void**)&aContext);
-        NS_ASSERTION(NS_SUCCEEDED(rv), "This has to support nsIDeviceContext");
-    } else {
-        return NS_ERROR_OUT_OF_MEMORY;
-    }
-    
-    NS_ADDREF(aDevice);
+    NS_ADDREF(mDeviceContextSpec = aDevice);
 
-    newDevCon->mDeviceContextSpec = aDevice;
+    mPrinter = PR_TRUE;
 
-    newDevCon->mPrinter = PR_TRUE;
+    aDevice->GetSurfaceForPrinter(getter_AddRefs(mPrintingSurface));
 
-    aDevice->GetSurfaceForPrinter(getter_AddRefs(newDevCon->mPrintingSurface));
-
-    newDevCon->Init(nsnull);
+    Init(nsnull);
 
     float newscale = newDevCon->TwipsToDevUnits();
     float origscale = this->TwipsToDevUnits();
@@ -627,24 +599,6 @@ nsThebesDeviceContext::SetUseAltDC(PRUint8 aValue, PRBool aOn)
 }
 
 /** End printing methods **/
-
-int
-nsThebesDeviceContext::prefChanged(const char *aPref, void *aClosure)
-{
-    nsThebesDeviceContext *context = (nsThebesDeviceContext*)aClosure;
-    nsresult rv;
-  
-    if (nsCRT::strcmp(aPref, "layout.css.dpi") == 0) {
-        PRInt32 dpi;
-        nsCOMPtr<nsIPref> prefs(do_GetService(NS_PREF_CONTRACTID, &rv));
-        rv = prefs->GetIntPref(aPref, &dpi);
-        if (NS_SUCCEEDED(rv))
-            context->SetDPI(dpi);
-    }
-
-    return 0;
-}
-
 
 void
 nsThebesDeviceContext::ComputeClientRectUsingScreen(nsRect* outRect)
@@ -768,3 +722,12 @@ nsThebesDeviceContext::CalcPrintingSize()
     }
 }
 
+PRBool nsThebesDeviceContext::CheckDPIChange() {
+    PRInt32 oldDevPixels = mAppUnitsPerDevPixel;
+    PRInt32 oldInches = mAppUnitsPerInch;
+
+    SetDPI();
+
+    return oldDevPixels != mAppUnitsPerDevPixel ||
+           oldInches != mAppUnitsPerInch;
+}

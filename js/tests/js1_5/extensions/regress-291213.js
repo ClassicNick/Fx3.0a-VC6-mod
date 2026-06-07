@@ -19,8 +19,7 @@
  * Portions created by the Initial Developer are Copyright (C) 2005
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): Aleksey Chernoraenko <archer@meta-comm.com>
- *                 Bob Clary <bob@bclary.com>
+ * Contributor(s): David Baron <dbaron@mozillafoundation.org>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -36,37 +35,45 @@
  *
  * ***** END LICENSE BLOCK ***** */
 //-----------------------------------------------------------------------------
-var bug = 237461;
-var summary = 'don\'t crash with nested function collides with var';
-var actual = 'Crash';
+var bug = 291213;
+var summary = 'Do not crash in args_resolve enumerating |arguments|';
+var actual = 'No Crash';
 var expect = 'No Crash';
 
-printBugNumber (bug);
-printStatus (summary);
+var scriptCode = "var result = \"\" + arguments; " +
+  "for (i in arguments) " +
+  "result += \"\\\n  \" + i + \" \" + arguments[i]; result;";
+var scripts = {};
 
-function g()
+if (typeof Script == 'undefined')
 {
-  var core = {};
-  core.js = {};
-  core.js.init = function()
-    {
-      var loader = null;
-        
-      function loader() {}
-    };
-  return core;
+  print('Test skipped. Script not defined.');
 }
+else
+{
+  scripts["A"] = new Script(scriptCode);
 
-var s = new Script(""+g.toString());
-try
-{
-  var frozen = s.freeze(); // crash.
-  printStatus("len:" + frozen.length);
-}
-catch(e)
-{
-}
-  
-actual = 'No Crash';
+  scripts["B"] = (function() {
+                    return new Script(scriptCode);
+                  })();
 
+  scripts["C"] = (function() {
+                    function x() { "a"; }
+                    return new Script(scriptCode);
+                  })();
+
+// any Object (window, document, new Array(), ...)
+  var anyObj = new Object();
+  scripts["D"] = (function() {
+                    function x() { anyObj; }
+                    return new Script(scriptCode);
+                  })();
+
+  var result;
+  for (var i in scripts) {
+    try { result = scripts[i].exec(); }
+    catch (e) { result = e; }
+    printStatus(i + ") " + result);
+  }
+}
 reportCompare(expect, actual, summary);

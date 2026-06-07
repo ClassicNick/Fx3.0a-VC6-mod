@@ -1125,6 +1125,23 @@ nsSVGSVGElement::IsAttributeMapped(const nsIAtom* name) const
     nsSVGSVGElementBase::IsAttributeMapped(name);
 }
 
+nsresult
+nsSVGSVGElement::UnsetAttr(PRInt32 aNamespaceID, nsIAtom* aName,
+                           PRBool aNotify)
+{
+  if (aNamespaceID == kNameSpaceID_None &&
+      aName == nsGkAtoms::viewBox && mCoordCtx) {
+    nsCOMPtr<nsIDOMSVGRect> vb;
+    mViewBox->GetAnimVal(getter_AddRefs(vb));
+    vb->SetX(0);
+    vb->SetY(0);
+    vb->SetWidth(mLengthAttributes[WIDTH].GetAnimValue(mCoordCtx));
+    vb->SetHeight(mLengthAttributes[HEIGHT].GetAnimValue(mCoordCtx));
+  }
+
+  return nsSVGSVGElementBase::UnsetAttr(aNamespaceID, aName, aNotify);
+}
+
 //----------------------------------------------------------------------
 // nsISVGValueObserver methods:
 
@@ -1324,26 +1341,6 @@ nsSVGSVGElement::InvalidateTransformNotifyFrame()
     }
 #endif
   }
-}
-
-//----------------------------------------------------------------------
-// nsISVGContent methods
-
-nsresult
-nsSVGSVGElement::UnsetAttr(PRInt32 aNamespaceID, nsIAtom* aName,
-                           PRBool aNotify)
-{
-  if (aNamespaceID == kNameSpaceID_None &&
-      aName == nsGkAtoms::viewBox && mCoordCtx) {
-    nsCOMPtr<nsIDOMSVGRect> vb;
-    mViewBox->GetAnimVal(getter_AddRefs(vb));
-    vb->SetX(0);
-    vb->SetY(0);
-    vb->SetWidth(mLengthAttributes[WIDTH].GetAnimValue(mCoordCtx));
-    vb->SetHeight(mLengthAttributes[HEIGHT].GetAnimValue(mCoordCtx));
-  }
-
-  return nsSVGSVGElementBase::UnsetAttr(aNamespaceID, aName, aNotify);
 }
 
 //----------------------------------------------------------------------

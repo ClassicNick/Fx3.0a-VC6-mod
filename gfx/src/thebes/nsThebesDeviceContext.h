@@ -68,6 +68,7 @@ public:
     NS_DECL_ISUPPORTS_INHERITED
 
     NS_IMETHOD Init(nsNativeWidget aWidget);
+    NS_IMETHOD InitForPrinting(nsIDeviceContextSpec* aDevSpec);
     NS_IMETHOD CreateRenderingContext(nsIView *aView, nsIRenderingContext *&aContext);
 
     NS_IMETHOD CreateRenderingContext(nsIDrawingSurface *aSurface, nsIRenderingContext *&aContext);
@@ -93,9 +94,6 @@ public:
     NS_IMETHOD GetClientRect(nsRect &aRect);
 
     /* printing goop */
-    NS_IMETHOD GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
-                                   nsIDeviceContext *&aContext);
-
     NS_IMETHOD PrepareDocument(PRUnichar * aTitle, 
                                PRUnichar*  aPrintToFileName);
 
@@ -115,7 +113,7 @@ public:
 
     static void DebugShowCairoSurface (const char *aName, cairo_surface_t *aSurface);
 
-    static int prefChanged(const char *aPref, void *aClosure);
+    virtual PRBool CheckDPIChange();
 
     nsNativeWidget GetWidget() { return mWidget; }
 #ifdef XP_WIN
@@ -129,7 +127,7 @@ public:
 #endif
 
 protected:
-    nsresult SetDPI(PRInt32 aPrefDPI);
+    nsresult SetDPI();
     void ComputeClientRectUsingScreen(nsRect* outRect);
     void ComputeFullAreaUsingScreen(nsRect* outRect);
     void FindScreen(nsIScreen** outScreen);
@@ -140,8 +138,8 @@ protected:
 private:
     nsCOMPtr<nsIScreenManager> mScreenManager;
 
-    PRInt32 mWidth;
-    PRInt32 mHeight;
+    nscoord mWidth;
+    nscoord mHeight;
     PRBool mPrinter;
 
     nsRefPtrHashtable<nsISupportsHashKey, gfxASurface> mWidgetSurfaceCache;

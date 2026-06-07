@@ -1,5 +1,5 @@
-/* -*- Mode: C++; tab-width: 20; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -12,14 +12,15 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Oracle Corporation code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
- * The Initial Developer of the Original Code is Oracle Corporation.
+ * The Initial Developer of the Original Code is
+ * Mozilla Foundation.
  * Portions created by the Initial Developer are Copyright (C) 2005
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Stuart Parmenter <pavlov@pavlov.net>
+ * Contributor(s): Aleksey Chernoraenko <archer@meta-comm.com>
+ *                 Bob Clary <bob@bclary.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -34,20 +35,44 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 237461;
+var summary = 'don\'t crash with nested function collides with var';
+var actual = 'Crash';
+var expect = 'No Crash';
 
-#ifndef GFX_FILTER_H
-#define GFX_FILTER_H
+printBugNumber (bug);
+printStatus (summary);
 
-#include "gfxTypes.h"
+function g()
+{
+  var core = {};
+  core.js = {};
+  core.js.init = function()
+    {
+      var loader = null;
+        
+      function loader() {}
+    };
+  return core;
+}
 
-/**
- * A filter.
- *
- * @see gfxContext::PushFilter, gfxContext::PopFilter
- */
-class THEBES_API gfxFilter {
-    static gfxFilter* CreateOpacityFilter(gfxFloat alpha);
-    // CreateGaussianFilter, etc
-};
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  var s = new Script(""+g.toString());
+  try
+  {
+    var frozen = s.freeze(); // crash.
+    printStatus("len:" + frozen.length);
+  }
+  catch(e)
+  {
+  }
+} 
+actual = 'No Crash';
 
-#endif /* GFX_FILTER_H */
+reportCompare(expect, actual, summary);

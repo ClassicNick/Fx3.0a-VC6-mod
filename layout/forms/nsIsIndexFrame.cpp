@@ -45,7 +45,6 @@
 #include "nsPresState.h"
 #include "nsWidgetsCID.h"
 #include "nsIComponentManager.h"
-#include "nsIView.h"
 #include "nsHTMLParts.h"
 #include "nsIDOMHTMLInputElement.h"
 #include "nsINameSpaceManager.h"
@@ -88,8 +87,7 @@ NS_NewIsIndexFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 nsIsIndexFrame::nsIsIndexFrame(nsStyleContext* aContext) :
   nsAreaFrame(aContext)
 {
-    //Shrink the area around its contents
-  SetFlags(NS_BLOCK_SHRINK_WRAP | NS_BLOCK_SPACE_MGR);
+  SetFlags(NS_BLOCK_SPACE_MGR);
 }
 
 nsIsIndexFrame::~nsIsIndexFrame()
@@ -253,18 +251,6 @@ nsIsIndexFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
     return NS_OK;
   }
   return nsHTMLContainerFrame::QueryInterface(aIID, aInstancePtr);
-}
-
-void
-nsIsIndexFrame::ScrollIntoView(nsPresContext* aPresContext)
-{
-  if (aPresContext) {
-    nsIPresShell *presShell = aPresContext->GetPresShell();
-    if (presShell) {
-      presShell->ScrollFrameIntoView(this,
-                   NS_PRESSHELL_SCROLL_IF_NOT_VISIBLE,NS_PRESSHELL_SCROLL_IF_NOT_VISIBLE);
-    }
-  }
 }
 
 nscoord

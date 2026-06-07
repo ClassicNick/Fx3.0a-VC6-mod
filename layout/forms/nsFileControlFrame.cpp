@@ -44,7 +44,6 @@
 #include "nsGkAtoms.h"
 #include "nsWidgetsCID.h"
 #include "nsIComponentManager.h"
-#include "nsIView.h"
 #include "nsHTMLParts.h"
 #include "nsIDOMHTMLInputElement.h"
 #include "nsIFormControl.h"
@@ -87,8 +86,6 @@ nsFileControlFrame::nsFileControlFrame(nsStyleContext* aContext):
   mTextFrame(nsnull), 
   mCachedState(nsnull)
 {
-    //Shrink the area around its contents
-  SetFlags(NS_BLOCK_SHRINK_WRAP);
 }
 
 nsFileControlFrame::~nsFileControlFrame()

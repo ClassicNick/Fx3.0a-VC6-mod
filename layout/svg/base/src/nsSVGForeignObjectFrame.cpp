@@ -122,16 +122,13 @@ nsSVGForeignObjectFrame::AttributeChanged(PRInt32         aNameSpaceID,
     if (aAttribute == nsGkAtoms::width ||
         aAttribute == nsGkAtoms::height) {
       PostChildDirty();
-      UpdateCoveredRegion();
       UpdateGraphic();
     } else if (aAttribute == nsGkAtoms::x ||
                aAttribute == nsGkAtoms::y) {
-      UpdateCoveredRegion();
       UpdateGraphic();
     } else if (aAttribute == nsGkAtoms::transform) {
       // make sure our cached transform matrix gets (lazily) updated
       mCanvasTM = nsnull;
-      UpdateCoveredRegion();
       UpdateGraphic();
     }
   }
@@ -354,7 +351,6 @@ NS_IMETHODIMP
 nsSVGForeignObjectFrame::NotifyCanvasTMChanged(PRBool suppressInvalidation)
 {
   mCanvasTM = nsnull;
-  UpdateCoveredRegion();
   UpdateGraphic();
   return NS_OK;
 }
@@ -368,8 +364,13 @@ nsSVGForeignObjectFrame::NotifyRedrawSuspended()
 NS_IMETHODIMP
 nsSVGForeignObjectFrame::NotifyRedrawUnsuspended()
 {
-  if (!(mParent->GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD))
-    FlushDirtyRegion();
+  if (!(mParent->GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD)) {
+    if (GetStateBits() & NS_STATE_SVG_DIRTY) {
+      UpdateGraphic();
+    } else {
+      FlushDirtyRegion();
+    }
+  }
   return NS_OK;
 }
 
@@ -485,6 +486,9 @@ void nsSVGForeignObjectFrame::PostChildDirty()
 
 void nsSVGForeignObjectFrame::UpdateGraphic()
 {
+  if (GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD)
+    return;
+
   nsSVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(this);
   if (!outerSVGFrame) {
     NS_ERROR("null outerSVGFrame");
@@ -493,13 +497,26 @@ void nsSVGForeignObjectFrame::UpdateGraphic()
   
   PRBool suspended;
   outerSVGFrame->IsRedrawSuspended(&suspended);
-  if (!suspended) {
-    nsRect rect = nsSVGUtils::FindFilterInvalidation(this);
-    if (rect.IsEmpty()) {
-      rect = mRect;
+  if (suspended) {
+    AddStateBits(NS_STATE_SVG_DIRTY);
+  } else {
+    RemoveStateBits(NS_STATE_SVG_DIRTY);
+
+    outerSVGFrame->InvalidateRect(mRect);
+
+    UpdateCoveredRegion();
+
+    nsRect filterRect;
+    filterRect = nsSVGUtils::FindFilterInvalidation(this);
+    if (!filterRect.IsEmpty()) {
+      outerSVGFrame->InvalidateRect(filterRect);
+    } else {
+      outerSVGFrame->InvalidateRect(mRect);
     }
-    outerSVGFrame->InvalidateRect(rect);
   }
+
+  // Clear any layout dirty region since we invalidated our whole area.
+  mDirtyRegion.SetEmpty();
 }
 
 void
@@ -587,6 +604,7 @@ nsSVGForeignObjectFrame::FlushDirtyRegion() {
   nsRect rect = nsSVGUtils::FindFilterInvalidation(this);
   if (!rect.IsEmpty()) {
     outerSVGFrame->InvalidateRect(rect);
+    mDirtyRegion.SetEmpty();
     return;
   }
   

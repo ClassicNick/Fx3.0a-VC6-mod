@@ -16,10 +16,10 @@
  *
  * The Initial Developer of the Original Code is
  * Mozilla Foundation.
- * Portions created by the Initial Developer are Copyright (C) 2005
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): David Baron <dbaron@mozillafoundation.org>
+ * Contributor(s): shutdown
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,39 +35,40 @@
  *
  * ***** END LICENSE BLOCK ***** */
 //-----------------------------------------------------------------------------
-var bug = 291213;
-var summary = 'Do not crash in args_resolve enumerating |arguments|';
-var actual = 'No Crash';
-var expect = 'No Crash';
+var bug = 355982;
+var summary = 'Script("") should not fail';
+var actual = '';
+var expect = '';
 
-var scriptCode = "var result = \"\" + arguments; " +
-                 "for (i in arguments) " +
-                 "result += \"\\\n  \" + i + \" \" + arguments[i]; result;";
-var scripts = {};
 
-scripts["A"] = new Script(scriptCode);
+//-----------------------------------------------------------------------------
+test();
+//-----------------------------------------------------------------------------
 
-scripts["B"] = (function() {
-	return new Script(scriptCode);
-})();
+function test()
+{
+  enterFunc ('test');
+  printBugNumber (bug);
+  printStatus (summary);
+  
+  expect = 'No Error';
+  actual = 'No Error';
+  try
+  {
+    if (typeof Script == 'undefined')
+    {
+      print('Test skipped. Script not defined.');
+    }
+    else
+    {
+      Script('');
+    }
+  }
+  catch(ex)
+  {
+    actual = ex + '';
+  }
+  reportCompare(expect, actual, summary);
 
-scripts["C"] = (function() {
-	function x() { "a"; }
-	return new Script(scriptCode);
-})();
-
-// any Object (window, document, new Array(), ...)
-var anyObj = new Object();
-scripts["D"] = (function() {
-	function x() { anyObj; }
-	return new Script(scriptCode);
-})();
-
-var result;
-for (var i in scripts) {
-	try { result = scripts[i].exec(); }
-	catch (e) { result = e; }
-	printStatus(i + ") " + result);
+  exitFunc ('test');
 }
-
-reportCompare(expect, actual, summary);

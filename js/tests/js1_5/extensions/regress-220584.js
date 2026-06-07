@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -19,7 +20,7 @@
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   igor@fastmail.fm, PhilSchwartau@aol.com
+ *   igor@fastmail.fm, pschwartau@netscape.com
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -36,91 +37,82 @@
  * ***** END LICENSE BLOCK *****
  *
  *
- * Date:    15 Nov 2003
- * SUMMARY: Stressing the byte code generator
+ * Date:    29 Sep 2003
+ * SUMMARY: Testing __parent__ and __proto__ of Script object
  *
- * See http://bugzilla.mozilla.org/show_bug.cgi?id=225831
- *
+ * See http://bugzilla.mozilla.org/show_bug.cgi?id=220584
  */
 //-----------------------------------------------------------------------------
 var UBound = 0;
-var bug = 225831;
-var summary = 'Stressing the byte code generator';
+var bug = 220584;
+var summary = 'Testing __parent__ and __proto__ of Script object';
 var status = '';
 var statusitems = [];
 var actual = '';
 var actualvalues = [];
 var expect= '';
 var expectedvalues = [];
+var s;
 
 
-function f() { return {x: 0}; }
-
-var N = 300;
-var a = new Array(N + 1);
-a[N] = 10;
-a[0] = 100;
-
-
+// invoke |Script| as a function
 status = inSection(1);
-
-// build string of the form ++(a[++f().x + ++f().x + ... + ++f().x]) which
-// gives ++a[N]
-var str = "".concat("++(a[", repeat_str("++f().x + ", (N - 1)), "++f().x])");
-
-// Use Script constructor instead of simple eval to test Rhino optimizer mode
-// because in Rhino, eval always uses interpreted mode.
-var script = new Script(str);
-script();
-
-actual = a[N];
-expect = 11;
-addThis();
-
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  s = Script('1;');
+  actual = s instanceof Object;
+  expect = true;
+  addThis();
+}
 
 status = inSection(2);
-
-// build string of the form (a[f().x-- + f().x-- + ... + f().x--])--
-// which should give (a[0])--
-str = "".concat("(a[", repeat_str("f().x-- + ", (N - 1)), "f().x--])--");
-script = new Script(str);
-script();
-
-actual = a[0];
-expect = 99;
+actual = (s.__parent__ == undefined) || (s.__parent__ == null);
+expect = false;
 addThis();
-
 
 status = inSection(3);
+actual = (s.__proto__ == undefined) || (s.__proto__ == null);
+expect = false;
+addThis();
 
-// build string of the form [[1], [1], ..., [1]]
-str = "".concat("[", repeat_str("[1], ", (N - 1)), "[1]]");
-script = new Script(str);
-script();
-
-actual = uneval(script());
-expect = str;
+status = inSection(4);
+actual = (s + '').length > 0;
+expect = true;
 addThis();
 
 
-status = inSection(4);
+// invoke |Script| as a constructor
+status = inSection(5);
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined.');
+}
+else
+{
+  s = new Script('1;');
 
-// build string of the form ({1:{a:1}, 2:{a:1}, ... N:{a:1}})
-str = function() {
-  var arr = new Array(N+1);
-  arr[0] = "({";
-  for (var i = 1; i < N; ++i) {
-    arr[i] = i+":{a:1}, ";
-  }
-  arr[N] = N+":{a:1}})";
-  return "".concat.apply("", arr);
-}();
+  actual = s instanceof Object;
+  expect = true;
+  addThis();
+}
 
-script = new Script(str);
-script();
+status = inSection(6);
+actual = (s.__parent__ == undefined) || (s.__parent__ == null);
+expect = false;
+addThis();
 
-actual = uneval(script());
-expect = str;
+status = inSection(7);
+actual = (s.__proto__ == undefined) || (s.__proto__ == null);
+expect = false;
+addThis();
+
+status = inSection(8);
+actual = (s + '').length > 0;
+expect = true;
 addThis();
 
 
@@ -130,15 +122,6 @@ addThis();
 test();
 //-----------------------------------------------------------------------------
 
-
-
-function repeat_str(str, repeat_count)
-{
-  var arr = new Array(--repeat_count);
-  while (repeat_count != 0)
-    arr[--repeat_count] = str;
-  return str.concat.apply(str, arr);
-}
 
 
 function addThis()

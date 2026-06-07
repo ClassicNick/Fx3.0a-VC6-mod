@@ -845,14 +845,10 @@ DocumentViewerImpl::InitInternal(nsIWidget* aParentWidget,
 
 #ifdef NS_PRINT_PREVIEW
       if (mIsPageMode) {
-        nsCOMPtr<nsIDeviceContext> devctx;
+        ;
         nsCOMPtr<nsIDeviceContextSpec> devspec =
-          do_CreateInstance("@mozilla.org/gfx/devicecontextspec;1");
-        // XXX CRASHES ON OOM. YUM. WOULD SOMEONE PLEASE FIX ME.
-        //     PERHAPS SOMEONE SHOULD HAVE REVIEWED THIS CODE.
-        // XXX I have no idea how critical this code is, so i'm not fixing it.
-        //     In fact I'm just adding a line that makes this block
-        //     get compiled *less* often.
+          do_CreateInstance("@mozilla.org/gfx/devicecontextspec;1", &rv);
+        NS_ENSURE_SUCCESS(rv, rv);
         // mWindow has been initialized by preceding call to MakeWindow
         devspec->Init(mWindow, mPresContext->GetPrintSettings(), PR_FALSE);
         // XXX CRASHES ON OOM under at least
@@ -4117,6 +4113,9 @@ DocumentViewerImpl::OnDonePrinting()
 
 NS_IMETHODIMP DocumentViewerImpl::SetPageMode(PRBool aPageMode, nsIPrintSettings* aPrintSettings)
 {
+  // XXX until the print code is in a more stable state, I don't
+  // want to worry about this code
+  return NS_ERROR_NOT_IMPLEMENTED;
   mIsPageMode = aPageMode;
   // Get the current size of what is being viewed
   nsRect bounds;
