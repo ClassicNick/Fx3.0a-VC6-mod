@@ -642,9 +642,8 @@ nsPrintEngine::Print(nsIPrintSettings*       aPrintSettings,
     }
 
     if (NS_SUCCEEDED(rv)) {
-      mPrt->mPrintDC = do_CreateInstance("@mozilla.org/gfx/devicecontext;1", &rv);
-      if (NS_SUCCEEDED(rv))
-        rv = mPrt->mPrintDC->InitForPrinting(devspec);
+      rv = mDeviceContext->GetDeviceContextFor(devspec,
+                                               *getter_AddRefs(mPrt->mPrintDC));
       if (NS_SUCCEEDED(rv)) {
         // Get the Original PixelScale incase we need to start changing it
         mPrt->mPrintDC->GetCanonicalPixelScale(mPrt->mOrigDCScale);

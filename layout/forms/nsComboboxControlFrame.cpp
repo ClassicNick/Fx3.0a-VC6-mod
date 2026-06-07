@@ -517,10 +517,10 @@ nsComboboxControlFrame::AbsolutelyPositionDropDown()
   nsSize dropdownSize = mDropdownFrame->GetSize();
 
   nscoord screenHeightInPixels = 0;
-  if (NS_SUCCEEDED(nsFormControlFrame::GetScreenHeight(aPresContext, screenHeightInPixels))) {
+  if (NS_SUCCEEDED(nsFormControlFrame::GetScreenHeight(presContext, screenHeightInPixels))) {
     // Get the height of the dropdown list in pixels.
     float t2p;
-    t2p = aPresContext->TwipsToPixels();
+    t2p = presContext->TwipsToPixels();
     nscoord absoluteDropDownHeight = NSTwipsToIntPixels(dropdownSize.height, t2p);
     // Check to see if the drop-down list will go offscreen
     if (GetScreenRect().YMost() + absoluteDropDownHeight > screenHeightInPixels) {

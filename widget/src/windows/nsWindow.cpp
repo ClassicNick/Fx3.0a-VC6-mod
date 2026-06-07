@@ -56,6 +56,7 @@
 //#define DEBUG_KBSTATE
 #endif
 
+#include "nsCOMPtr.h"
 #include "nsWindow.h"
 #include "nsIAppShell.h"
 #include "nsIFontMetrics.h"

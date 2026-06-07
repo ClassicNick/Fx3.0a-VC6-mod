@@ -658,6 +658,7 @@ nsPresContext::ClearStyleDataAndReflow()
 void
 nsPresContext::PreferenceChanged(const char* aPrefName)
 {
+#ifdef MOZ_CAIRO_GFX
   if (!nsCRT::strcmp(aPrefName, "layout.css.dpi")) {
     nsRect bounds(mVisibleArea);
     bounds *= 1.0f / AppUnitsPerDevPixel();
@@ -673,6 +674,7 @@ nsPresContext::PreferenceChanged(const char* aPrefName)
     }
     return;
   }
+#endif
   // we use a zero-delay timer to coalesce multiple pref updates
   if (!mPrefChangedTimer)
   {
