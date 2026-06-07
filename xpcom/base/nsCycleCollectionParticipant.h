@@ -48,6 +48,33 @@
     { 0xbd, 0xc6, 0x23, 0xa5, 0x9d, 0x88, 0x1f, 0x80 }                         \
 }
 
+/**
+ * Special IID to get at the base nsISupports for a class. Usually this is the
+ * canonical nsISupports pointer, but in the case of tearoffs for example it is
+ * the base nsISupports pointer of the tearoff. This allow the cycle collector
+ * to have separate nsCycleCollectionParticipant's for tearoffs or aggregated
+ * classes.
+ */
+#define NS_CYCLECOLLECTIONISUPPORTS_IID                                        \
+{                                                                              \
+    0xc61eac14,                                                                \
+    0x5f7a,                                                                    \
+    0x4481,                                                                    \
+    { 0x96, 0x5e, 0x7e, 0xaa, 0x6e, 0xff, 0xa8, 0x5f }                         \
+}
+
+/**
+ * Just holds the IID so NS_GET_IID works.
+ */
+class NS_COM nsCycleCollectionISupports
+{
+public:
+    NS_DECLARE_STATIC_IID_ACCESSOR(NS_CYCLECOLLECTIONISUPPORTS_IID)
+};
+
+NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionISupports, 
+                              NS_CYCLECOLLECTIONISUPPORTS_IID)
+
 #undef  IMETHOD_VISIBILITY
 #define IMETHOD_VISIBILITY NS_VISIBILITY_DEFAULT
 
@@ -73,6 +100,10 @@ public:
     NS_IMETHOD Unlink(nsISupports *p);
     NS_IMETHOD Traverse(nsISupports *p, 
                         nsCycleCollectionTraversalCallback &cb);
+
+#ifdef DEBUG
+    NS_EXTERNAL_VIS_(PRBool) CheckForRightISupports(nsISupports *s);
+#endif
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant, 
@@ -100,21 +131,33 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
     foundInterface = & NS_CYCLE_COLLECTION_NAME(_class);                       \
   } else
 
+#define NS_IMPL_QUERY_CYCLE_COLLECTION_ISUPPORTS(_class)                       \
+  if ( aIID.Equals(NS_GET_IID(nsCycleCollectionISupports)) )                   \
+    foundInterface = NS_CYCLE_COLLECTION_CLASSNAME(_class)::Upcast(this);      \
+  else
+
 #define NS_INTERFACE_MAP_ENTRY_CYCLE_COLLECTION(_class)                        \
   NS_IMPL_QUERY_CYCLE_COLLECTION(_class)
+
+#define NS_INTERFACE_MAP_ENTRY_CYCLE_COLLECTION_ISUPPORTS(_class)              \
+  NS_IMPL_QUERY_CYCLE_COLLECTION_ISUPPORTS(_class)
+
+#define NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(_class)                      \
+  NS_INTERFACE_MAP_ENTRY_CYCLE_COLLECTION(_class)                              \
+  NS_INTERFACE_MAP_ENTRY_CYCLE_COLLECTION_ISUPPORTS(_class)
 
 
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers for implementing nsCycleCollectionParticipant::Unlink
 ///////////////////////////////////////////////////////////////////////////////
 
-#define NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class, _base)                   \
+#define NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class)                          \
   NS_IMETHODIMP                                                                \
   NS_CYCLE_COLLECTION_CLASSNAME(_class)::Unlink(nsISupports *s)                \
   {                                                                            \
-    NS_ASSERTION(nsCOMPtr<nsISupports>(do_QueryInterface(s)) == s,             \
-                 "not canonical nsISupports pointer");                         \
-    _class *tmp = NS_STATIC_CAST(_class*, NS_STATIC_CAST(_base*, s));
+    NS_ASSERTION(CheckForRightISupports(s),                                    \
+                 "not the nsISupports pointer we expect");                     \
+    _class *tmp = Downcast(s);
 
 #define NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_field)                       \
     tmp->_field = NULL;    
@@ -126,6 +169,15 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
     return NS_OK;                                                              \
   }
 
+#define NS_IMPL_CYCLE_COLLECTION_UNLINK_0(_class)                              \
+  NS_IMETHODIMP                                                                \
+  NS_CYCLE_COLLECTION_CLASSNAME(_class)::Unlink(nsISupports *s)                \
+  {                                                                            \
+    NS_ASSERTION(CheckForRightISupports(s),                                    \
+                 "not the nsISupports pointer we expect");                     \
+    return NS_OK;                                                              \
+  }
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers for implementing nsCycleCollectionParticipant::Traverse
@@ -134,15 +186,15 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
 #define NS_IMPL_CYCLE_COLLECTION_DESCRIBE(_class)                              \
     cb.DescribeNode(tmp->mRefCnt.get(), sizeof(_class), #_class);
 
-#define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class, _base)                 \
+#define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class)                        \
   NS_IMETHODIMP                                                                \
   NS_CYCLE_COLLECTION_CLASSNAME(_class)::Traverse                              \
                          (nsISupports *s,                                      \
                           nsCycleCollectionTraversalCallback &cb)              \
   {                                                                            \
-    NS_ASSERTION(nsCOMPtr<nsISupports>(do_QueryInterface(s)) == s,             \
-                 "not canonical nsISupports pointer");                         \
-    _class *tmp = NS_STATIC_CAST(_class*, NS_STATIC_CAST(_base*, s));          \
+    NS_ASSERTION(CheckForRightISupports(s),                                    \
+                 "not the nsISupports pointer we expect");                     \
+    _class *tmp = Downcast(s);                                                 \
     NS_IMPL_CYCLE_COLLECTION_DESCRIBE(_class)
 
 #define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_RAWPTR(_field)                       \
@@ -167,78 +219,78 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
 // Helpers for implementing a concrete nsCycleCollectionParticipant 
 ///////////////////////////////////////////////////////////////////////////////
 
-#define NS_DECL_CYCLE_COLLECTION_CLASS(_class)                                 \
+#define NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(_class, _base)                \
 class NS_CYCLE_COLLECTION_INNERCLASS(_class)                                           \
  : public nsCycleCollectionParticipant                                         \
 {                                                                              \
+public:                                                                        \
   NS_IMETHOD Unlink(nsISupports *n);                                           \
   NS_IMETHOD Traverse(nsISupports *n,                                          \
                       nsCycleCollectionTraversalCallback &cb);                 \
+  static _class* Downcast(nsISupports* s)                                      \
+  {                                                                            \
+    return NS_STATIC_CAST(_class*, NS_STATIC_CAST(_base*, s));                 \
+  }                                                                            \
+  static nsISupports* Upcast(_class *p)                                        \
+  {                                                                            \
+    return NS_ISUPPORTS_CAST(_base*, p);                                       \
+  }                                                                            \
 };																			   \
 friend class NS_CYCLE_COLLECTION_INNERCLASS(_class);
 
-#define NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_USING(_class, _base_class)    \
-typedef NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                             \
-        NS_CYCLE_COLLECTION_CLASSNAME(_class);
+#define NS_DECL_CYCLE_COLLECTION_CLASS(_class)                                 \
+  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(_class, _class)
 
 #define NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                 \
   static NS_CYCLE_COLLECTION_CLASSNAME(_class)                                 \
     NS_CYCLE_COLLECTION_NAME(_class);
 
+#define NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_USING(_class, _base_class)    \
+typedef NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                             \
+        NS_CYCLE_COLLECTION_CLASSNAME(_class);
+
 // The *_AMBIGUOUS macros are needed when a cast from _class* to
 // nsISupports* is ambiguous.  The _base parameter must match the base
 // class used to implement QueryInterface to nsISupports.
 
-#define NS_IMPL_CYCLE_COLLECTION_0_AMBIGUOUS(_class, _base)                    \
+#define NS_IMPL_CYCLE_COLLECTION_0(_class)                                     \
  NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                        \
- NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class, _base)                          \
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_END                                           \
- NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class, _base)                        \
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-#define NS_IMPL_CYCLE_COLLECTION_1_AMBIGUOUS(_class, _base, _f)                \
+#define NS_IMPL_CYCLE_COLLECTION_1(_class, _f)                                 \
  NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                        \
- NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class, _base)                          \
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_f)                                  \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_END                                           \
- NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class, _base)                        \
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_f)                                \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-#define NS_IMPL_CYCLE_COLLECTION_2_AMBIGUOUS(_class, _base, _f1, _f2)          \
+#define NS_IMPL_CYCLE_COLLECTION_2(_class, _f1, _f2)                           \
  NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                        \
- NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class, _base)                          \
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_f1)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_f2)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_END                                           \
- NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class, _base)                        \
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_f1)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_f2)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-#define NS_IMPL_CYCLE_COLLECTION_3_AMBIGUOUS(_class, _base, _f1, _f2, _f3)     \
+#define NS_IMPL_CYCLE_COLLECTION_3(_class, _f1, _f2, _f3)                      \
  NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                        \
- NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class, _base)                          \
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(_class)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_f1)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_f2)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_f3)                                 \
  NS_IMPL_CYCLE_COLLECTION_UNLINK_END                                           \
- NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class, _base)                        \
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(_class)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_f1)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_f2)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_f3)                               \
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
-
-#define NS_IMPL_CYCLE_COLLECTION_0(_class)                                     \
-        NS_IMPL_CYCLE_COLLECTION_0_AMBIGUOUS(_class, _class)
-
-#define NS_IMPL_CYCLE_COLLECTION_1(_class, _f)                                 \
-        NS_IMPL_CYCLE_COLLECTION_1_AMBIGUOUS(_class, _class, _f)
-
-#define NS_IMPL_CYCLE_COLLECTION_2(_class, _f1, _f2)                           \
-        NS_IMPL_CYCLE_COLLECTION_2_AMBIGUOUS(_class, _class, _f1, _f2)
-
-#define NS_IMPL_CYCLE_COLLECTION_3(_class, _f1, _f2, _f3)                      \
-        NS_IMPL_CYCLE_COLLECTION_3_AMBIGUOUS(_class, _class, _f1, _f2, _f3)
 
 #endif // nsCycleCollectionParticipant_h__

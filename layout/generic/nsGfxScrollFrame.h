@@ -51,7 +51,6 @@
 #include "nsIScrollableView.h"
 #include "nsIView.h"
 
-class nsISupportsArray;
 class nsPresContext;
 class nsIPresShell;
 class nsIContent;
@@ -81,9 +80,10 @@ public:
   PRBool NeedsClipWidget() const;
   void CreateScrollableView();
 
-  void CreateAnonymousContent(nsISupportsArray& aAnonymousChildren);
+  nsresult CreateAnonymousContent(nsTArray<nsIContent*>& aElements);
   nsresult FireScrollPortEvent();
   void PostOverflowEvent();
+  void Destroy();
 
   nsresult BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                             const nsRect&           aDirtyRect,
@@ -170,6 +170,11 @@ public:
                         const nsRect& aContentArea,
                         const nsRect& aOldScrollArea,
                         const nsRect& aScrollArea);
+
+  // owning references to the nsIAnonymousContentCreator-built content
+  nsCOMPtr<nsIContent> mHScrollbarContent;
+  nsCOMPtr<nsIContent> mVScrollbarContent;
+  nsCOMPtr<nsIContent> mScrollCornerContent;
 
   nsRevocableEventPtr<ScrollEvent> mScrollEvent;
   nsRevocableEventPtr<AsyncScrollPortEvent> mAsyncScrollPortEvent;
@@ -310,11 +315,7 @@ public:
   }
 
   // nsIAnonymousContentCreator
-  NS_IMETHOD CreateAnonymousContent(nsPresContext* aPresContext,
-                                    nsISupportsArray& aAnonymousItems);
-  NS_IMETHOD CreateFrameFor(nsPresContext*   aPresContext,
-                            nsIContent *      aContent,
-                            nsIFrame**        aFrame) { if (aFrame) *aFrame = nsnull; return NS_ERROR_FAILURE; }
+  virtual nsresult CreateAnonymousContent(nsTArray<nsIContent*>& aElements);
 
   // nsIScrollableFrame
   virtual nsIFrame* GetScrolledFrame() const;
@@ -466,11 +467,7 @@ public:
   }
 
   // nsIAnonymousContentCreator
-  NS_IMETHOD CreateAnonymousContent(nsPresContext* aPresContext,
-                                    nsISupportsArray& aAnonymousItems);
-  NS_IMETHOD CreateFrameFor(nsPresContext*   aPresContext,
-                            nsIContent *      aContent,
-                            nsIFrame**        aFrame) { if (aFrame) *aFrame = nsnull; return NS_ERROR_FAILURE; }
+  virtual nsresult CreateAnonymousContent(nsTArray<nsIContent*>& aElements);
 
   // nsIBox methods
   NS_DECL_ISUPPORTS

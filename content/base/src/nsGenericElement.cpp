@@ -57,7 +57,6 @@
 #include "nsIFocusController.h"
 #include "nsILinkHandler.h"
 #include "nsIScriptGlobalObject.h"
-#include "nsISupportsArray.h"
 #include "nsIURL.h"
 #include "nsNetUtil.h"
 #include "nsIFrame.h"
@@ -291,12 +290,15 @@ nsChildContentList::Item(PRUint32 aIndex, nsIDOMNode** aReturn)
 
 //----------------------------------------------------------------------
 
+NS_IMPL_CYCLE_COLLECTION_1(nsNode3Tearoff, mContent)
+
 NS_INTERFACE_MAP_BEGIN(nsNode3Tearoff)
   NS_INTERFACE_MAP_ENTRY(nsIDOM3Node)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsNode3Tearoff)
 NS_INTERFACE_MAP_END_AGGREGATED(mContent)
 
-NS_IMPL_ADDREF(nsNode3Tearoff)
-NS_IMPL_RELEASE(nsNode3Tearoff)
+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsNode3Tearoff)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsNode3Tearoff)
 
 NS_IMETHODIMP
 nsNode3Tearoff::GetBaseURI(nsAString& aURI)
@@ -644,12 +646,15 @@ nsNodeWeakReference::QueryReferent(const nsIID& aIID, void** aInstancePtr)
 }
 
 
+NS_IMPL_CYCLE_COLLECTION_1(nsNodeSupportsWeakRefTearoff, mNode)
+
 NS_INTERFACE_MAP_BEGIN(nsNodeSupportsWeakRefTearoff)
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsNodeSupportsWeakRefTearoff)
 NS_INTERFACE_MAP_END_AGGREGATED(mNode)
 
-NS_IMPL_ADDREF(nsNodeSupportsWeakRefTearoff)
-NS_IMPL_RELEASE(nsNodeSupportsWeakRefTearoff)
+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsNodeSupportsWeakRefTearoff)
+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsNodeSupportsWeakRefTearoff)
 
 NS_IMETHODIMP
 nsNodeSupportsWeakRefTearoff::GetWeakReference(nsIWeakReference** aInstancePtr)
@@ -684,15 +689,21 @@ nsDOMEventRTTearoff::~nsDOMEventRTTearoff()
 {
 }
 
+NS_IMPL_CYCLE_COLLECTION_1(nsDOMEventRTTearoff, mContent)
+
 NS_INTERFACE_MAP_BEGIN(nsDOMEventRTTearoff)
   NS_INTERFACE_MAP_ENTRY(nsIDOMEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsIDOMEventReceiver)
   NS_INTERFACE_MAP_ENTRY(nsIDOM3EventTarget)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNSEventTarget)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsDOMEventRTTearoff)
 NS_INTERFACE_MAP_END_AGGREGATED(mContent)
 
-NS_IMPL_ADDREF(nsDOMEventRTTearoff)
-NS_IMPL_RELEASE_WITH_DESTROY(nsDOMEventRTTearoff, LastRelease())
+NS_IMPL_CYCLE_COLLECTING_ADDREF_AMBIGUOUS(nsDOMEventRTTearoff,
+                                          nsIDOMEventTarget)
+NS_IMPL_CYCLE_COLLECTING_RELEASE_AMBIGUOUS_WITH_DESTROY(nsDOMEventRTTearoff,
+                                                        nsIDOMEventTarget,
+                                                        LastRelease())
 
 nsDOMEventRTTearoff *
 nsDOMEventRTTearoff::Create(nsIContent *aContent)
@@ -2972,7 +2983,7 @@ nsGenericElement::doRemoveChild(nsIDOMNode* aOldChild, nsIContent* aParent,
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(nsGenericElement)
 
-NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGenericElement, nsIContent)
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGenericElement)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_LISTENERMANAGER
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 
@@ -2994,7 +3005,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGenericElement, nsIContent)
   }
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsGenericElement, nsIContent)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsGenericElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_LISTENERMANAGER
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_PRESERVED_WRAPPER
 
@@ -3034,7 +3045,7 @@ NS_INTERFACE_MAP_BEGIN(nsGenericElement)
   NS_INTERFACE_MAP_ENTRY_TEAROFF(nsISupportsWeakReference,
                                  new nsNodeSupportsWeakRefTearoff(this))
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
-  NS_INTERFACE_MAP_ENTRY_CYCLE_COLLECTION(nsGenericElement)
+  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(nsGenericElement)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF_AMBIGUOUS(nsGenericElement, nsIContent)
@@ -3654,29 +3665,7 @@ nsGenericElement::List(FILE* out, PRInt32 aIndent,
   // XXX sXBL/XBL2 issue! Owner or current document?
   nsIDocument *document = GetOwnerDoc();
   if (document) {
-    nsIPresShell *shell = document->GetShellAt(0);
-    nsCOMPtr<nsISupportsArray> anonymousElements;
-    if (shell) {
-      shell->GetAnonymousContentFor(NS_CONST_CAST(nsGenericElement*, this),
-                                    getter_AddRefs(anonymousElements));
-    }
-
-    if (anonymousElements) {
-      anonymousElements->Count(&length);
-      if (length > 0) {
-        for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
-        fputs("native-anonymous-children<\n", out);
-
-        for (i = 0; i < length; ++i) {
-          nsCOMPtr<nsIDOMNode> node = do_QueryElementAt(anonymousElements, i);
-          nsCOMPtr<nsIContent> child = do_QueryInterface(node);
-          child->List(out, aIndent + 1);
-        }
-
-        for (indent = aIndent; --indent >= 0; ) fputs("  ", out);
-        fputs(">\n", out);
-      }
-    }
+    // Note: not listing nsIAnonymousContentCreator-created content...
 
     nsBindingManager* bindingManager = document->BindingManager();
     nsCOMPtr<nsIDOMNodeList> anonymousChildren;

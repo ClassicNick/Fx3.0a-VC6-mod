@@ -80,7 +80,7 @@ random-if(MOZ_WIDGET_TOOLKIT=="windows") == bugs/359903-1.html bugs/359903-1-ref
 != bugs/315620-1b.html bugs/315620-1-ref.html
 == bugs/315620-2a.xhtml bugs/315620-2-ref.xhtml
 != bugs/315620-2b.xhtml bugs/315620-2-ref.xhtml
-random == bugs/363329-1.html bugs/363329-1-ref.html # bug 366865
+== bugs/363329-1.html bugs/363329-1-ref.html
 == bugs/363329-2.html bugs/363329-2-ref.html
 == bugs/363637-1.html bugs/363637-1-ref.html
 == bugs/364079-1.html bugs/364079-1-ref.html
@@ -157,6 +157,9 @@ fails == bugs/368020-4.html bugs/368020-4-ref.html # bug 368085
 == bugs/348809-2f.html bugs/348809-2-ref.html
 == bugs/348809-2g.html bugs/348809-2-ref.html
 == bugs/348809-2h.html bugs/348809-2-ref.html
+== bugs/370586-1.xhtml bugs/370586-1-ref.xhtml
+== bugs/370629-1.html bugs/370629-1-ref.html
+== bugs/370629-2.html bugs/370629-2-ref.html
 
 # object/
 == object/no-attrs.html object/no-attrs-ref.html
@@ -289,24 +292,4 @@ fails == object/svg-with-type.html object/svg-with-type-ref.html
 random == table-width/percent-truncation-3.html table-width/percent-truncation-3-ref.html # bug 370720
 
 # xul-document-load/
-== xul-document-load/test001.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test002.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test003.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test004.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test005.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test006.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test007.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test008.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test009.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test010.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test011.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test012.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test013.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test014.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test015.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test016.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test017.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test018.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test019.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test020.xul xul-document-load/reference-green-window.xul
-== xul-document-load/test021.xul xul-document-load/reference-green-window.xul
+include xul-document-load/reftest.list

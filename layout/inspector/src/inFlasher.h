@@ -69,8 +69,6 @@ protected:
                 PRBool aDir, PRBool aBounds, float aP2T,
                 nsIRenderingContext* aRenderContext);
 
-  nsCOMPtr<nsIInspectorCSSUtils> mCSSUtils;
-
   nscolor mColor;
 
   PRUint16 mThickness;

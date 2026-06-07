@@ -77,6 +77,8 @@
 #include "nsIDOMHTMLMapElement.h"
 #include "nsEventDispatcher.h"
 
+#include "nsLayoutUtils.h"
+
 // XXX nav attrs: suppress
 
 class nsHTMLImageElement : public nsGenericHTMLElement,
