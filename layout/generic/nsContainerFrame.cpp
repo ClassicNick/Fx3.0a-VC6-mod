@@ -49,7 +49,6 @@
 #include "nsGUIEvent.h"
 #include "nsStyleConsts.h"
 #include "nsIView.h"
-#include "nsIScrollableView.h"
 #include "nsHTMLContainerFrame.h"
 #include "nsFrameManager.h"
 #include "nsIPresShell.h"
@@ -171,10 +170,12 @@ nsContainerFrame::InsertFrames(nsIAtom*  aListName,
 #ifdef IBMBIDI
     if (nsnull == aListName)
 #endif
-    // Ask the parent frame to reflow me.
-    AddStateBits(NS_FRAME_IS_DIRTY);
-    GetPresContext()->PresShell()->
-      FrameNeedsReflow(this, nsIPresShell::eTreeChange);
+    {
+      // Ask the parent frame to reflow me.
+      AddStateBits(NS_FRAME_IS_DIRTY);
+      GetPresContext()->PresShell()->
+        FrameNeedsReflow(this, nsIPresShell::eTreeChange);
+    }
   }
   return NS_OK;
 }

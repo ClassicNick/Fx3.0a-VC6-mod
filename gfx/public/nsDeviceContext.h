@@ -124,12 +124,6 @@ public:
                              PRUnichar*  aPrintToFileName) { return NS_OK; }
   NS_IMETHOD AbortDocument(void) { return NS_OK; }
 
-#ifdef NS_PRINT_PREVIEW
-  NS_IMETHOD SetAltDevice(nsIDeviceContext* aAltDC);
-  NS_IMETHOD GetAltDevice(nsIDeviceContext** aAltDC) { *aAltDC = mAltDC.get(); NS_IF_ADDREF(*aAltDC); return NS_OK;}
-  NS_IMETHOD SetUseAltDC(PRUint8 aValue, PRBool aOn);
-#endif
-
   NS_IMETHOD PrepareNativeWidget(nsIWidget *aWidget, void **aOut);
   NS_IMETHOD ClearCachedSystemFonts();
 
@@ -153,11 +147,6 @@ protected:
   nsCOMPtr<nsIAtom> mLocaleLangGroup; // XXX temp fix for performance bug - erik
   nsHashtable*      mFontAliasTable;
   float             mCPixelScale;
-
-#ifdef NS_PRINT_PREVIEW
-  nsCOMPtr<nsIDeviceContext> mAltDC;
-  PRUint8           mUseAltDC;
-#endif
 
 public:
   nsNativeWidget    mWidget;

@@ -45,6 +45,8 @@
 - (BOOL)setAttributeType:(SecKeychainAttrType)type toValue:(void*)valuePtr withLength:(UInt32)length;
 @end
 
+NSString* const kSecurityDomainSeparator = @";";
+
 @implementation KeychainItem
 
 + (KeychainItem*)keychainItemForHost:(NSString*)host
@@ -79,12 +81,6 @@
     attributes[usedAttributes].tag = kSecServerItemAttr;
     attributes[usedAttributes].data = (void*)(hostString);
     attributes[usedAttributes].length = strlen(hostString);
-    ++usedAttributes;
-  }
-  if (port != kAnyPort) {
-    attributes[usedAttributes].tag = kSecPortItemAttr;
-    attributes[usedAttributes].data = (void*)(&port);
-    attributes[usedAttributes].length = sizeof(port);
     ++usedAttributes;
   }
   if (protocol) {
@@ -123,6 +119,22 @@
     [matchingItems addObject:[[[KeychainItem alloc] initWithRef:keychainItemRef] autorelease]];
   }
   CFRelease(searchRef);
+
+  // Safari (and possibly others) store some things without ports, so we always
+  // search without a port. If any results match the port we wanted then
+  // discard all the other results; if not discard any non-generic entries
+  if (port != kAnyPort) {
+    NSMutableArray* exactMatches = [NSMutableArray array];
+    for (int i = [matchingItems count] - 1; i >= 0; --i) {
+      KeychainItem* item = [matchingItems objectAtIndex:i];
+      if ([item port] == port)
+        [exactMatches insertObject:item atIndex:0];
+      else if ([item port] != kAnyPort)
+        [matchingItems removeObjectAtIndex:i];
+    }
+    if ([exactMatches count] > 0)
+      matchingItems = exactMatches;
+  }
 
   return matchingItems;
 }
@@ -171,6 +183,7 @@
   [mPassword release];
   [mHost release];
   [mComment release];
+  [mSecurityDomains release];
   [super dealloc];
 }
 
@@ -179,14 +192,15 @@
   if (!mKeychainItemRef)
     return;
   SecKeychainAttributeInfo attrInfo;
-  UInt32 tags[7];
+  UInt32 tags[8];
   tags[0] = kSecAccountItemAttr;
   tags[1] = kSecServerItemAttr;
   tags[2] = kSecPortItemAttr;
   tags[3] = kSecProtocolItemAttr;
   tags[4] = kSecAuthenticationTypeItemAttr;
-  tags[5] = kSecCreatorItemAttr;
-  tags[6] = kSecCommentItemAttr;
+  tags[5] = kSecSecurityDomainItemAttr;
+  tags[6] = kSecCreatorItemAttr;
+  tags[7] = kSecCommentItemAttr;
   attrInfo.count = sizeof(tags)/sizeof(UInt32);
   attrInfo.tag = tags;
   attrInfo.format = NULL;
@@ -205,6 +219,8 @@
   mHost = nil;
   [mComment autorelease];
   mComment = nil;
+  [mSecurityDomains autorelease];
+  mSecurityDomains = nil;
 
   if (result != noErr) {
     NSLog(@"Couldn't load keychain data");
@@ -212,6 +228,7 @@
     mPassword = [[NSString alloc] init];
     mHost = [[NSString alloc] init];
     mComment = [[NSString alloc] init];
+    mSecurityDomains = [[NSArray alloc] init];
     return;
   }
 
@@ -231,6 +248,13 @@
       mAuthenticationType = *((SecAuthenticationType*)(attr.data));
     else if (attr.tag == kSecCreatorItemAttr)
       mCreator = attr.data ? *((OSType*)(attr.data)) : 0;
+    else if (attr.tag == kSecSecurityDomainItemAttr) {
+      NSString* domainsString = [[[NSString alloc] initWithBytes:(char*)(attr.data) length:attr.length encoding:NSUTF8StringEncoding] autorelease];
+      if ([domainsString isEqualToString:@""])
+        mSecurityDomains = [[NSArray alloc] init];
+      else
+        mSecurityDomains = [[domainsString componentsSeparatedByString:kSecurityDomainSeparator] retain];
+    }
   }
   mPassword = [[NSString alloc] initWithBytes:passwordData length:passwordLength encoding:NSUTF8StringEncoding];
   SecKeychainItemFreeAttributesAndData(attrList, (void*)passwordData);
@@ -368,6 +392,26 @@
     NSLog(@"Couldn't update keychain item comment");
   }
 }
+
+ - (void)setSecurityDomains:(NSArray*)securityDomains
+{
+  NSString* domainsString = [securityDomains componentsJoinedByString:kSecurityDomainSeparator];
+  if([self setAttributeType:kSecSecurityDomainItemAttr toString:domainsString]) {
+    [mSecurityDomains autorelease];
+    mSecurityDomains = [securityDomains retain];
+  }
+  else {
+    NSLog(@"Couldn't update keychain item security domains");
+  }
+}
+ 
+- (NSArray*)securityDomains
+{
+  if (!mDataLoaded)
+    [self loadKeychainData];
+  return mSecurityDomains;
+}
+ 
 
 - (BOOL)setAttributeType:(SecKeychainAttrType)type toString:(NSString*)value {
   const char* cString = [value UTF8String];

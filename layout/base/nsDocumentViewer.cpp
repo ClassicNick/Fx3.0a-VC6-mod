@@ -862,9 +862,10 @@ DocumentViewerImpl::InitInternal(nsIWidget* aParentWidget,
         //     In fact I'm just adding a line that makes this block
         //     get compiled *less* often.
         mDeviceContext->GetDeviceContextFor(devspec, *getter_AddRefs(devctx));
-        mDeviceContext->SetAltDevice(devctx);
-        mDeviceContext->SetUseAltDC(kUseAltDCFor_SURFACE_DIM, PR_TRUE);
-        //Get paper dims:
+        // XXX I'm breaking this code; I'm not sure I really want to mess with
+        // the document viewer at the moment to get the right device context
+        // (this won't break anyone, since page layout mode was never really
+        // usable)
         PRInt32 pageWidth, pageHeight;
         devctx->GetDeviceSurfaceDimensions(pageWidth, pageHeight);
         mPresContext->SetPageSize(nsSize(pageWidth, pageHeight));
@@ -1986,13 +1987,6 @@ DocumentViewerImpl::Show(void)
     NS_ENSURE_TRUE(mParentWidget, NS_ERROR_UNEXPECTED);
 
     mDeviceContext = mParentWidget->GetDeviceContext();
-
-#if defined(NS_PRINTING) && defined(NS_PRINT_PREVIEW)
-    // Clear PrintPreview Alternate Device
-    if (mDeviceContext) {
-      mDeviceContext->SetAltDevice(nsnull);
-    }
-#endif
 
     // Create presentation context
     NS_ASSERTION(!mPresContext, "Shouldn't have a prescontext if we have no shell!");

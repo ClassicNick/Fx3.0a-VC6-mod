@@ -56,6 +56,7 @@
 #include "nsIRollupListener.h"
 #include "nsIEventSink.h"
 #include "nsIScrollableView.h"
+#include "nsIViewManager.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIServiceManager.h"
 #include "nsGfxCIID.h"

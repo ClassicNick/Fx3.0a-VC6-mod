@@ -164,6 +164,9 @@ function getMostRecentWindow(aType) {
 #define BROKEN_WM_Z_ORDER
 #endif
 #endif
+#ifdef XP_OS2
+#define BROKEN_WM_Z_ORDER
+#endif
 
 // this returns the most recent non-popup browser window
 function getMostRecentBrowserWindow() {
@@ -601,6 +604,11 @@ var nsDefaultCommandLineHandler = {
     return this;
   },
 
+  // List of uri's that were passed via the command line without the app
+  // running and have already been handled. This is compared against uri's
+  // opened using DDE on Win32 so we only open one of the requests.
+  _handledURIs: [ ],
+
   /* nsICommandLineHandler */
   handle : function dch_handle(cmdLine) {
     var urilist = [];
@@ -608,16 +616,34 @@ var nsDefaultCommandLineHandler = {
     try {
       var ar;
       while ((ar = cmdLine.handleFlagWithParam("url", false))) {
-        urilist.push(resolveURIInternal(cmdLine, ar));
+        var found = false;
+        var uri = resolveURIInternal(cmdLine, ar);
+        // count will never be greater than zero except on Win32.
+        var count = this._handledURIs.length;
+        for (var i = 0; i < count; ++i) {
+          if (this._handledURIs[i].spec == uri.spec) {
+            this._handledURIs.splice(i, 1);
+            found = true;
+            cmdLine.preventDefault = true;
+            break;
+          }
+        }
+        if (!found) {
+          urilist.push(uri);
+          // The requestpending command line flag is only used on Win32.
+          if (cmdLine.handleFlag("requestpending", false) &&
+              cmdLine.state == nsICommandLine.STATE_INITIAL_LAUNCH)
+            this._handledURIs.push(uri)
+        }
       }
     }
     catch (e) {
       Components.utils.reportError(e);
     }
 
-    var count = cmdLine.length;
+    count = cmdLine.length;
 
-    for (var i = 0; i < count; ++i) {
+    for (i = 0; i < count; ++i) {
       var curarg = cmdLine.getArgument(i);
       if (curarg.match(/^-/)) {
         Components.utils.reportError("Warning: unrecognized command line flag " + curarg + "\n");
@@ -648,7 +674,7 @@ var nsDefaultCommandLineHandler = {
       }
 
       var speclist = [];
-      for (var uri in urilist) {
+      for (uri in urilist) {
         if (shouldLoadURI(urilist[uri]))
           speclist.push(urilist[uri].spec);
       }

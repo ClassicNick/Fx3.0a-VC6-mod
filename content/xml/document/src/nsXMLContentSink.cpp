@@ -54,7 +54,6 @@
 #include "nsIStyleSheetLinkingElement.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
-#include "nsIViewManager.h"
 #include "nsIDOMComment.h"
 #include "nsIDOMCDATASection.h"
 #include "nsDOMDocumentType.h"
@@ -96,7 +95,6 @@
 #include "nsContentErrors.h"
 #include "nsIDOMProcessingInstruction.h"
 #include "nsNodeUtils.h"
-#include "nsTimer.h"
 #include "nsIScriptGlobalObject.h"
 
 #ifdef MOZ_SVG

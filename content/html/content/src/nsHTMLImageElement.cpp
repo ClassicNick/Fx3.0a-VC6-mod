@@ -73,7 +73,6 @@
 #include "nsRuleData.h"
 
 #include "nsIJSContextStack.h"
-#include "nsIView.h"
 #include "nsImageMapUtils.h"
 #include "nsIDOMHTMLMapElement.h"
 #include "nsEventDispatcher.h"

@@ -822,10 +822,10 @@
             var droppingOnSelf = 
                 this._getSourceView() == this._self &&
                 this._self.view.selection.isSelected(index);
-            if (droppingOnSelf || node.containerReadOnly)
+            if (droppingOnSelf || PlacesUtils.nodeIsReadOnly(node))
               return false;
           } 
-          else if (node.parent && node.parent.containerReadOnly)
+          else if (node.parent && PlacesUtils.nodeIsReadOnly(node.parent))
             return false;
           
           return PlacesControllerDragHelper.canDrop(this._self, orientation);
@@ -991,8 +991,11 @@
       <handler event="select"><![CDATA[
         // This additional complexity is here for the sidebars
         var win = window;
-        while (win != window.top) {
+        while (true) {
           win.document.commandDispatcher.updateCommands("focus");
+          if (win == window.top)
+            break;
+
           win = win.parent;
         }
       ]]></handler>
