@@ -67,7 +67,7 @@ var PlacesCommandHook = {
    * Adds a bookmark to the page loaded in the current tab. 
    */
   bookmarkCurrentPage: function PCH_bookmarkCurrentPage() {
-    PlacesUtils.showAddBookmarkUI(getBrowser().selectedBrowser);
+    this.bookmarkPage(getBrowser().selectedBrowser);
   },
 
 
@@ -167,42 +167,26 @@ var PlacesCommandHook = {
 
   /**
    * Opens the Places Organizer. 
-   * @param   place
+   * @param   aPlace
    *          The place to select in the organizer window (a place: URI) 
+   * @param   aForcePlace
+   *          If true, aPlace will be set even if the organizer window is 
+   *          already open
    */
-  showPlacesOrganizer: function PCH_showPlacesOrganizer(place) {
-    var wm = 
-        Cc["@mozilla.org/appshell/window-mediator;1"].
-        getService(Ci.nsIWindowMediator);
+  showPlacesOrganizer: function PCH_showPlacesOrganizer(aPlace, aForcePlace) {
+    var wm = Cc["@mozilla.org/appshell/window-mediator;1"].
+             getService(Ci.nsIWindowMediator);
     var organizer = wm.getMostRecentWindow("Places:Organizer");
     if (!organizer) {
       // No currently open places window, so open one with the specified mode.
       openDialog("chrome://browser/content/places/places.xul", 
-                 "", "chrome,toolbar=yes,dialog=no,resizable", place);
+                 "", "chrome,toolbar=yes,dialog=no,resizable", aPlace);
     }
     else {
-      // Set the mode on an existing places window. 
-      organizer.selectPlaceURI(place);
+      if (aForcePlace)
+        organizer.selectPlaceURI(aPlace);
+
       organizer.focus();
-    }
-  },
-
-  /**
-   * Update the state of the tagging icon, depending on whether or not the 
-   * current page is bookmarked. 
-   */
-  updateTagButton: function PCH_updateTagButton() {
-    var bookmarkButton = document.getElementById("places-bookmark");
-    if (!bookmarkButton) 
-      return;
-
-    var currentLocation = getBrowser().selectedBrowser.webNavigation.currentURI;
-    if (PlacesUtils.bookmarks.isBookmarked(currentLocation)) {
-      bookmarkButton.label = PlacesUtils.getString("locationStatusBookmarked");
-      bookmarkButton.setAttribute("bookmarked", "true");
-    } else {
-      bookmarkButton.label = PlacesUtils.getString("locationStatusNotBookmarked");
-      bookmarkButton.removeAttribute("bookmarked");
     }
   },
 

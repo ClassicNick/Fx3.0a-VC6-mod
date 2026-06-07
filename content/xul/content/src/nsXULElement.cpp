@@ -71,11 +71,9 @@
 #include "nsIDOMMouseMotionListener.h"
 #include "nsIDOMLoadListener.h"
 #include "nsIDOMFocusListener.h"
-#include "nsIDOMPaintListener.h"
 #include "nsIDOMKeyListener.h"
 #include "nsIDOMFormListener.h"
 #include "nsIDOMXULListener.h"
-#include "nsIDOMScrollListener.h"
 #include "nsIDOMContextMenuListener.h"
 #include "nsIDOMDragListener.h"
 #include "nsIDOMEventListener.h"
@@ -431,8 +429,6 @@ nsXULElement::QueryInterface(REFNSIID aIID, void** aInstancePtr)
         inst = NS_STATIC_CAST(nsIDOMElement *, this);
     } else if (aIID.Equals(NS_GET_IID(nsIDOMXULElement))) {
         inst = NS_STATIC_CAST(nsIDOMXULElement *, this);
-    } else if (aIID.Equals(NS_GET_IID(nsIXMLContent))) {
-        inst = NS_STATIC_CAST(nsIXMLContent *, this);
     } else if (aIID.Equals(NS_GET_IID(nsIScriptEventHandlerOwner))) {
         inst = NS_STATIC_CAST(nsIScriptEventHandlerOwner*,
                               new nsXULElement::nsScriptEventHandlerOwnerTearoff(this));

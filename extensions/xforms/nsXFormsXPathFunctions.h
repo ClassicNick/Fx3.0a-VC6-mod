@@ -37,6 +37,9 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsIXFormsXPathFunctions.h"
+#include "nsIXFormsXPathState.h"
+#include "nsIDOMNode.h"
+#include "nsCOMPtr.h"
 
 class nsXFormsXPathFunctions : public nsIXFormsXPathFunctions
 {

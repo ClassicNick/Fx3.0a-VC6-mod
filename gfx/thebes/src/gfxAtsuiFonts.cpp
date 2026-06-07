@@ -344,7 +344,7 @@ public:
     gfxWrapperTextRun(gfxAtsuiFontGroup *aGroup,
                       const PRUint8* aString, PRUint32 aLength,
                       gfxTextRunFactory::Parameters* aParams)
-        : gfxTextRun(aParams, PR_TRUE),
+        : gfxTextRun(aParams),
           mContext(aParams->mContext),
           mInner(NS_ConvertASCIItoUTF16(nsDependentCSubstring(reinterpret_cast<const char*>(aString),
                                         reinterpret_cast<const char*>(aString + aLength))),
@@ -356,7 +356,7 @@ public:
     gfxWrapperTextRun(gfxAtsuiFontGroup *aGroup,
                       const PRUnichar* aString, PRUint32 aLength,
                       gfxTextRunFactory::Parameters* aParams)
-        : gfxTextRun(aParams, PR_TRUE), mContext(aParams->mContext),
+        : gfxTextRun(aParams), mContext(aParams->mContext),
           mInner(nsDependentSubstring(aString, aString + aLength), aGroup),
           mLength(aLength)
     {
@@ -379,20 +379,10 @@ public:
                             PropertyProvider* aBreakProvider,
                             gfxFloat* aAdvanceWidth)
     { NS_ERROR("NOT IMPLEMENTED"); }
-    virtual void DrawSpecialString(gfxContext* aContext, gfxPoint aPt,
-                                   SpecialString aString)
-    { NS_ERROR("NOT IMPLEMENTED"); }
     virtual Metrics MeasureText(PRUint32 aStart, PRUint32 aLength,
                                 PRBool aTightBoundingBox,
                                 PropertyProvider* aBreakProvider)
     { NS_ERROR("NOT IMPLEMENTED"); return Metrics(); }
-    virtual Metrics MeasureTextSpecialString(SpecialString aString,
-                                             PRBool aTightBoundingBox)
-    { NS_ERROR("NOT IMPLEMENTED"); return Metrics(); }
-    virtual gfxFloat GetAdvanceWidthSpecialString(SpecialString aString)
-    { NS_ERROR("NOT IMPLEMENTED"); return 0; }
-    virtual gfxFont::Metrics GetDecorationMetrics()
-    { NS_ERROR("NOT IMPLEMENTED"); return gfxFont::Metrics(); }
     virtual void SetLineBreaks(PRUint32 aStart, PRUint32 aLength,
                                PRBool aLineBreakBefore, PRBool aLineBreakAfter,
                                TextProvider* aProvider,
@@ -406,8 +396,6 @@ public:
                                          PRBool* aUsedHyphenation,
                                          PRUint32* aLastBreak)
     { NS_ERROR("NOT IMPLEMENTED"); return 0; }
-    virtual void FlushSpacingCache(PRUint32 aStart)
-    { NS_ERROR("NOT IMPLEMENTED"); }
 
     virtual void Draw(gfxContext *aContext, gfxPoint aPt,
                       PRUint32 aStart, PRUint32 aLength,
@@ -488,6 +476,7 @@ gfxTextRun *
 gfxAtsuiFontGroup::MakeTextRun(const PRUint8* aString, PRUint32 aLength,
                                Parameters* aParams)
 {
+    aParams->mFlags |= TEXT_IS_8BIT;
     return new gfxWrapperTextRun(this, aString, aLength, aParams);
 }
 

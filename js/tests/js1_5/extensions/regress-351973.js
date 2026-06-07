@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -11,15 +12,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Google Inc.
- * Portions created by the Initial Developer are Copyright (C) 2005
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *  Brian Ryner <bryner@brianryner.com>
+ * Contributor(s): Igor Bukanov
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -34,29 +34,49 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 351973;
+var summary = 'GC hazard with unrooted ids in Object.toSource';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
-#ifndef nsIDOMPageTransitionListener_h__
-#define nsIDOMPageTransitionListener_h__
 
-#include "nsIDOMEventListener.h"
+//-----------------------------------------------------------------------------
+test();
+//-----------------------------------------------------------------------------
 
-class nsIDOMEvent;
+function test()
+{
+  enterFunc ('test');
+  printBugNumber (bug);
+  printStatus (summary);
+  
+  function removeAllProperties(o)
+    {
+      for (var prop in o)
+        delete o[prop];
+      for (var i = 0; i != 50*1000; ++i) {
+        var tmp = Math.sqrt(i+0.2);
+        tmp = 0;
+      }
+      if (typeof gc == "function")
+        gc();
+    }
 
-/*
- * Page transition event listener interface.
- */
-#define NS_IDOMPAGETRANSITIONLISTENER_IID \
-{ 0x24f4d69f, 0x6b0c, 0x48a8, { 0xba, 0xb7, 0x12, 0x50, 0xcb, 0x5e, 0x48, 0x79 } }
+  function run_test()
+    {
 
-class nsIDOMPageTransitionListener : public nsIDOMEventListener {
- public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOMPAGETRANSITIONLISTENER_IID)
+      var o = {};
+      o.first = { toSource: function() { removeAllProperties(o); } };
+      for (var i = 0; i != 10; ++i) {
+        o[Math.sqrt(i + 0.1)] = 1;
+      }
+      return o.toSource();
+    }
 
-  NS_IMETHOD PageShow(nsIDOMEvent* aEvent) = 0;
-  NS_IMETHOD PageHide(nsIDOMEvent* aEvent) = 0;
-};
+  print(run_test());
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIDOMPageTransitionListener,
-                              NS_IDOMPAGETRANSITIONLISTENER_IID)
+  reportCompare(expect, actual, summary);
 
-#endif // nsIDOMPageTransitionListener_h__
+  exitFunc ('test');
+}

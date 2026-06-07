@@ -50,7 +50,7 @@
 #include "nsIOutputStream.h"
 #include "nsNetUtil.h"
 #include "msgCore.h"
-#include "nsIImportService.h"
+#include "nsMsgI18N.h"
 #include "nsIStringBundle.h"
 
 #include "plstr.h"
@@ -507,9 +507,6 @@ nsAddressBook::ExportDirectoryToDelimitedText(nsIAbDirectory *aDirectory, const 
 
   nsresult rv;
 
-  nsCOMPtr <nsIImportService> importService = do_GetService(NS_IMPORTSERVICE_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv,rv);
-
   nsCOMPtr <nsIOutputStream> outputStream;
   rv = NS_NewLocalFileOutputStream(getter_AddRefs(outputStream),
                                    aLocalFile,
@@ -542,7 +539,9 @@ nsAddressBook::ExportDirectoryToDelimitedText(nsIAbDirectory *aDirectory, const 
       if (NS_FAILED(bundle->GetStringFromID(EXPORT_ATTRIBUTES_TABLE[i].plainTextStringID, getter_Copies(columnName))))
         columnName.AppendInt(EXPORT_ATTRIBUTES_TABLE[i].plainTextStringID);
 
-      importService->SystemStringFromUnicode(columnName.get(), revisedName);
+      rv = nsMsgI18NConvertFromUnicode(nsMsgI18NFileSystemCharset(),
+                                       columnName, revisedName);
+      NS_ENSURE_SUCCESS(rv,rv);
 
       rv = outputStream->Write(revisedName.get(),
                                revisedName.Length(),
@@ -607,33 +606,20 @@ nsAddressBook::ExportDirectoryToDelimitedText(nsIAbDirectory *aDirectory, const 
               if (!needsQuotes && (newValue.FindChar(',') != kNotFound || newValue.FindChar('\x09') != kNotFound))
                 needsQuotes = PR_TRUE;
 
+              // Make sure we quote if containing CR/LF.
+              if (newValue.FindChar(nsCRT::CR) != kNotFound ||
+                  newValue.FindChar(nsCRT::LF) != kNotFound)
+                  needsQuotes = PR_TRUE;
+
               if (needsQuotes)
               {
                 newValue.Insert(NS_LITERAL_STRING("\""), 0);
                 newValue.AppendLiteral("\"");
               }
 
-              // For notes, make sure CR/LF is converted to spaces 
-              // to avoid creating multiple lines for a single card.
-              //
-              // the import code expects .txt, .tab, .csv files to
-              // have non-ASCII data in the system charset
-              //
-              // note, this means if you machine is set to US-ASCII
-              // but you have cards with Japanese characters
-              // you will lose data when exporting.
-              //
-              // the solution is to export / import as LDIF.
-              // non-ASCII data is treated as base64 encoded UTF-8 in LDIF
-              if (!strcmp(EXPORT_ATTRIBUTES_TABLE[i].abColName, kNotesColumn))
-              {
-                if (!newValue.IsEmpty())
-                {
-                  newValue.ReplaceChar(nsCRT::CR, ' ');
-                  newValue.ReplaceChar(nsCRT::LF, ' ');
-                }
-              }
-              rv = importService->SystemStringFromUnicode(newValue.get(), valueCStr);
+              rv = nsMsgI18NConvertFromUnicode(nsMsgI18NFileSystemCharset(),
+                                               newValue, valueCStr);
+              NS_ENSURE_SUCCESS(rv,rv);
 
               if (NS_FAILED(rv)) {
                 NS_ASSERTION(0, "failed to convert string to system charset.  use LDIF");

@@ -67,9 +67,6 @@
 <!ENTITY manBookmarksCmd.label "Organize Bookmarks...">
 <!ENTITY manBookmarksCmd.accesskey "M">
 <!ENTITY bookmarkAllCmd.label "Bookmark All Tabs...">
-<!ENTITY searchBookmarksCmd.label "Search in Bookmarks...">
-<!ENTITY searchBookmarksCmd.accesskey "S">
-<!ENTITY searchBookmarksCmd.commandkey "B">
 
 <!ENTITY backCmd.label                "Back">
 <!ENTITY backCmd.accesskey            "B">
@@ -377,10 +374,3 @@
 <!ENTITY spellAddDictionaries.label "Add dictionaries...">
 <!ENTITY spellAddDictionaries.accesskey "A">
 
-<!-- new bookmarks and history -->
-<!ENTITY location.status.not_bookmarked
-  "Star (Off)">
-<!ENTITY location.status.bookmarked
-  "Star (On)">
-<!ENTITY location.status.bookmark.tooltip
-  "Add a Bookmark to this page">

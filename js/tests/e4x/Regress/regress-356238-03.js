@@ -1,4 +1,5 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: java; tab-width:8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -12,18 +13,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
+ * Contributor(s): Igor Bukanov
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,27 +36,27 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+var bug = 356238;
+var summary = 'bug 356238';
+var actual = 'No Error';
+var expect = 'No Error';
 
-#ifndef nsIDOMScrollListener_h__
-#define nsIDOMScrollListener_h__
+printBugNumber (bug);
+printStatus (summary);
 
-#include "nsIDOMEvent.h"
-#include "nsIDOMEventListener.h"
+var xml = <xml><child><a/></child></xml>;
+var child = xml.child[0];
 
-// {00B04615-4BC4-11d4-BA11-001083023C1E}
-#define NS_IDOMSCROLLLISTENER_IID \
-{ 0xb04615, 0x4bc4, 0x11d4, { 0xba, 0x11, 0x0, 0x10, 0x83, 0x2, 0x3c, 0x1e } }
+try {
+  child.insertChildBefore(null, xml.child);
+  actual = "insertChildBefore succeded when it should throw an exception";
+} catch (e) {
+}
 
-class nsIDOMScrollListener : public nsIDOMEventListener {
+var list = child.*;
+var text = uneval(list[1]);
+if (text !== "undefined")
+  throw "child got unecxpected second element: "+text;
 
-public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOMSCROLLLISTENER_IID)
-
-  NS_IMETHOD Overflow(nsIDOMEvent* aEvent) = 0;
-  NS_IMETHOD Underflow(nsIDOMEvent* aEvent) = 0;
-  NS_IMETHOD OverflowChanged(nsIDOMEvent* aEvent) = 0;
-};
-
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIDOMScrollListener, NS_IDOMSCROLLLISTENER_IID)
-
-#endif // nsIDOMScrollListener_h__
+TEST(1, expect, actual);
+END();

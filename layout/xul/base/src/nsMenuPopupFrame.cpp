@@ -776,8 +776,8 @@ nsMenuPopupFrame::SyncViewWithFrame(nsPresContext* aPresContext,
   screenRight = screenLeft + screenWidth;
   screenBottom = screenTop + screenHeight;
   
-  PRInt32 screenTopTwips    = NSIntPixelsToTwips(screenTop, p2t);
-  PRInt32 screenLeftTwips   = NSIntPixelsToTwips(screenLeft, p2t);
+  PRInt32 screenLeftTwips    = NSIntPixelsToTwips(screenLeft, p2t);
+  PRInt32 screenTopTwips   = NSIntPixelsToTwips(screenTop, p2t);
   PRInt32 screenWidthTwips  = NSIntPixelsToTwips(screenWidth, p2t);
   PRInt32 screenHeightTwips = NSIntPixelsToTwips(screenHeight, p2t);
   PRInt32 screenRightTwips  = NSIntPixelsToTwips(screenRight, p2t);

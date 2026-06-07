@@ -12,18 +12,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
+ * Contributor(s): Jesse Ruderman
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -34,34 +34,25 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 361552;
+var summary = 'Crash with setter, watch, Script';
+var actual = '';
+var expect = '';
 
-#ifndef nsIDOMMutationListener_h__
-#define nsIDOMMutationListener_h__
+printBugNumber (bug);
+printStatus (summary);
+  
+expect = actual = 'No Crash';
 
-#include "nsIDOMEvent.h"
-#include "nsIDOMEventListener.h"
-
-/*
- * Mutation event listener interface.
- */
-// {0666EC94-3C54-4e16-8511-E8CC865F236C}
-#define NS_IDOMMUTATIONLISTENER_IID \
-{ 0x666ec94, 0x3c54, 0x4e16, { 0x85, 0x11, 0xe8, 0xcc, 0x86, 0x5f, 0x23, 0x6c } }
-
-class nsIDOMMutationListener : public nsIDOMEventListener {
-public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOMMUTATIONLISTENER_IID)
-    
-  NS_IMETHOD SubtreeModified(nsIDOMEvent* aMutationEvent)=0;
-  NS_IMETHOD NodeInserted(nsIDOMEvent* aMutationEvent)=0;
-  NS_IMETHOD NodeRemoved(nsIDOMEvent* aMutationEvent)=0;
-  NS_IMETHOD NodeRemovedFromDocument(nsIDOMEvent* aMutationEvent)=0;
-  NS_IMETHOD NodeInsertedIntoDocument(nsIDOMEvent* aMutationEvent)=0;
-  NS_IMETHOD AttrModified(nsIDOMEvent* aMutationEvent)=0;
-  NS_IMETHOD CharacterDataModified(nsIDOMEvent* aMutationEvent)=0;
-};
-
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIDOMMutationListener,
-                              NS_IDOMMUTATIONLISTENER_IID)
-
-#endif // nsIDOMMutationListener_h__
+if (typeof Script == 'undefined')
+{
+  print('Test skipped. Script not defined');
+}
+else
+{
+  this.__defineSetter__('x', gc); 
+  this.watch('x', new Script('')); 
+  x = 3;
+}
+reportCompare(expect, actual, summary);

@@ -12,18 +12,18 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Mozilla Communicator client code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -34,44 +34,29 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-#ifndef nsIDOMPaintListener_h__
-#define nsIDOMPaintListener_h__
+//-----------------------------------------------------------------------------
+var bug = 360969;
+var summary = '2^17: global var';
+var actual = 'No Crash';
+var expect = 'No Crash';
 
-#include "nsIDOMEvent.h"
-#include "nsIDOMEventListener.h"
+var global = this;
 
-/* a6cf906a-15b3-11d2-932e-00805f8add32 */
-#define NS_IDOMPAINTLISTENER_IID \
- {0xa6cf906a, 0x15b3, 0x11d2, {0x93, 0x2e, 0x00, 0x80, 0x5f, 0x8a, 0xdd, 0x32}}
+printBugNumber (bug);
+printStatus (summary);
+  
+var start = new Date();
+var p;
+var i;
+var limit = 2 << 16;
 
-/*
- * Paint event listener
- */
-class nsIDOMPaintListener : public nsIDOMEventListener {
-public:
-  NS_DECLARE_STATIC_IID_ACCESSOR(NS_IDOMPAINTLISTENER_IID)
-  /**
-  * Processes a paint event
-  * @param aEvent @see nsIDOMEvent.h 
-  * @returns whether the event was consumed or ignored. @see nsresult
-  */
-  NS_IMETHOD Paint(nsIDOMEvent* aEvent) = 0;
+for (var i = 0; i < limit; i++)
+{
+  eval('var pv;');
+}
 
-  /**
-  * Processes a resize event
-  * @param aEvent @see nsIDOMEvent.h 
-  * @returns whether the event was consumed or ignored. @see nsresult
-  */
-  NS_IMETHOD Resize(nsIDOMEvent* aEvent) = 0;
+reportCompare(expect, actual, summary);
 
-  /**
-  * Processes a scroll event
-  * @param aEvent @see nsIDOMEvent.h 
-  * @returns whether the event was consumed or ignored. @see nsresult
-  */
-  NS_IMETHOD Scroll(nsIDOMEvent* aEvent) = 0;
-};
+var stop = new Date();
 
-NS_DEFINE_STATIC_IID_ACCESSOR(nsIDOMPaintListener, NS_IDOMPAINTLISTENER_IID)
-
-#endif /* nsIDOMPaintListener_h__ */
+print('Elapsed time: ' + Math.floor((stop - start)/1000) + ' seconds');

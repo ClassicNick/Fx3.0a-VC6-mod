@@ -1,6 +1,4 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
-/* vim:expandtab:shiftwidth=4:tabstop=4:
- */
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -14,14 +12,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is mozilla.org code.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2006
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
+ * Contributor(s): Jesse Ruderman
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -36,36 +34,20 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 361346;
+var summary = 'Crash with setter, watch, GC';
+var actual = '';
+var expect = '';
 
-#ifndef TOOLKIT_H      
-#define TOOLKIT_H
+printBugNumber (bug);
+printStatus (summary);
+  
+expect = actual = 'No Crash';
 
-#include "nsIToolkit.h"
-#include <gtk/gtk.h>
+this.x setter= new Function; 
+this.watch('x', function(){}); 
+gc(); 
+x = {};
 
-/**
- * Wrapper around the thread running the message pump.
- * The toolkit abstraction is necessary because the message pump must
- * execute within the same thread that created the widget under Win32.
- */ 
-
-class nsToolkit : public nsIToolkit
-{
-public:
-    nsToolkit();
-    virtual ~nsToolkit();
-
-    NS_DECL_ISUPPORTS
-
-    NS_IMETHOD    Init(PRThread *aThread);
-
-    void          CreateSharedGC(void);
-    GdkGC         *GetSharedGC(void);
-
-private:
-    GdkGC         *mSharedGC;
-};
-
-
-
-#endif  // TOOLKIT_H
+reportCompare(expect, actual, summary);
