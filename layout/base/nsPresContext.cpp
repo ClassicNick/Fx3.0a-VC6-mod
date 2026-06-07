@@ -178,8 +178,7 @@ nsPresContext::nsPresContext(nsIDocument* aDocument, nsPresContextType aType)
     mDefaultFantasyFont("fantasy", NS_FONT_STYLE_NORMAL, NS_FONT_VARIANT_NORMAL,
                         NS_FONT_WEIGHT_NORMAL, 0, NSIntPointsToTwips(12)),
     mCanPaginatedScroll(PR_FALSE),
-    mIsRootPaginatedDocument(PR_FALSE),
-    mPPScale(1.0f)
+    mIsRootPaginatedDocument(PR_FALSE)
 {
   // NOTE! nsPresContext::operator new() zeroes out all members, so don't
   // bother initializing members to 0.
