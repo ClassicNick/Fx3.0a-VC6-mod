@@ -51,7 +51,6 @@ class nsEventChainPostVisitor;
 #include "nsIDOMEventReceiver.h"
 #include "nsIDOM3EventTarget.h"
 #include "nsIDOMNSEventTarget.h"
-#include "nsIChromeEventHandler.h"
 #include "nsIEventListenerManager.h"
 #include "nsPIWindowRoot.h"
 #include "nsIFocusController.h"
@@ -62,7 +61,6 @@ class nsEventChainPostVisitor;
 class nsWindowRoot : public nsIDOMEventReceiver,
                      public nsIDOM3EventTarget,
                      public nsIDOMNSEventTarget,
-                     public nsIChromeEventHandler,
                      public nsPIWindowRoot
 {
 public:
@@ -73,7 +71,13 @@ public:
   NS_DECL_NSIDOMEVENTTARGET
   NS_DECL_NSIDOM3EVENTTARGET
   NS_DECL_NSIDOMNSEVENTTARGET
-  NS_DECL_NSICHROMEEVENTHANDLER
+
+  virtual nsresult PreHandleEvent(nsEventChainPreVisitor& aVisitor);
+  virtual nsresult PostHandleEvent(nsEventChainPostVisitor& aVisitor);
+  virtual nsresult DispatchDOMEvent(nsEvent* aEvent,
+                                    nsIDOMEvent* aDOMEvent,
+                                    nsPresContext* aPresContext,
+                                    nsEventStatus* aEventStatus);
 
   // nsIDOMEventReceiver
   NS_IMETHOD AddEventListenerByIID(nsIDOMEventListener *aListener, const nsIID& aIID);
@@ -98,6 +102,6 @@ protected:
 
 extern nsresult
 NS_NewWindowRoot(nsIDOMWindow* aWindow,
-                 nsIChromeEventHandler** aResult);
+                 nsPIDOMEventTarget** aResult);
 
 #endif

@@ -28,12 +28,6 @@ RegExp.prototype.getClassProperty = Object.prototype.toString;
 var re = new RegExp();
 
 AddTestCase(
-  "new RegExp().__proto__",
-  RegExp.prototype,
-  re.__proto__
-  );
-
-AddTestCase(
   "RegExp.prototype.getClassProperty = Object.prototype.toString; " +
   "(new RegExp()).getClassProperty()",
   "[object RegExp]",

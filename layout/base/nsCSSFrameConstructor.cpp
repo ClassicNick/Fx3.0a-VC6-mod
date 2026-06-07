@@ -96,7 +96,7 @@
 #include "nsLegendFrame.h"
 #include "nsIContentIterator.h"
 #include "nsBoxLayoutState.h"
-#include "nsIBindingManager.h"
+#include "nsBindingManager.h"
 #include "nsXBLBinding.h"
 #include "nsITheme.h"
 #include "nsContentCID.h"
@@ -140,7 +140,6 @@
 #include "nsIScrollableFrame.h"
 
 #include "nsIXBLService.h"
-#include "nsIStyleRuleSupplier.h"
 
 #undef NOISY_FIRST_LETTER
 
@@ -4383,9 +4382,7 @@ nsCSSFrameConstructor::ConstructRootFrame(nsIContent*     aDocElement,
 
   // Set up our style rule observer.
   {
-    nsCOMPtr<nsIStyleRuleSupplier> ruleSupplier =
-      do_QueryInterface(mDocument->BindingManager());
-    mPresShell->StyleSet()->SetStyleRuleSupplier(ruleSupplier);
+    mPresShell->StyleSet()->SetBindingManager(mDocument->BindingManager());
   }
 
   // --------- BUILD VIEWPORT -----------
@@ -7708,7 +7705,12 @@ nsCSSFrameConstructor::GetFrameFor(nsIContent* aContent)
   if (!frame)
     return nsnull;
 
-  return frame->GetContentInsertionFrame();
+  nsIFrame* insertionFrame = frame->GetContentInsertionFrame();
+
+  NS_ASSERTION(insertionFrame == frame || !frame->IsLeaf(),
+    "The insertion frame is the primary frame or the primary frame isn't a leaf");
+
+  return insertionFrame;
 }
 
 nsIFrame*
@@ -8292,7 +8294,7 @@ nsCSSFrameConstructor::ContentAppended(nsIContent*     aContainer,
 
   PRBool hasInsertion = PR_FALSE;
   if (!multiple) {
-    nsIBindingManager *bindingManager = nsnull;
+    nsBindingManager *bindingManager = nsnull;
     nsIDocument* document = nsnull; 
     nsIContent *firstAppendedChild =
       aContainer->GetChildAt(aNewIndexInContainer);
@@ -10948,7 +10950,7 @@ nsCSSFrameConstructor::GetInsertionPoint(nsIFrame*     aParentFrame,
   if (!container)
     return NS_OK;
 
-  nsIBindingManager *bindingManager = mDocument->BindingManager();
+  nsBindingManager *bindingManager = mDocument->BindingManager();
 
   nsIContent* insertionElement;
   if (aChildContent) {

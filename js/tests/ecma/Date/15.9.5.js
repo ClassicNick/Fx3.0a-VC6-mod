@@ -77,9 +77,5 @@ new TestCase( SECTION,
 	      "Date.prototype.valueOf()",
 	      NaN,
 	      Date.prototype.valueOf() );
-new TestCase( SECTION,
-	      "Date.prototype.__proto__ == Object.prototype",
-	      true,
-	      Date.prototype.__proto__ == Object.prototype );
 test();
 

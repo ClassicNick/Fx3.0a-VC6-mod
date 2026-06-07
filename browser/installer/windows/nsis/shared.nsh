@@ -188,7 +188,7 @@
   WriteRegStr HKLM "$0\shell\properties\command" "" "$\"$8$\" -preferences"
 
   WriteRegStr HKLM "$0\shell\safemode" "" "$(CONTEXT_SAFE_MODE)"
-  WriteRegStr HKLM "$0\shell\safemode\command" "" "$\"$8$\" -safemode"
+  WriteRegStr HKLM "$0\shell\safemode\command" "" "$\"$8$\" -safe-mode"
 
   ; Vista Capabilities registry keys
   WriteRegStr HKLM "$0\Capabilities" "ApplicationDescription" "$(REG_APP_DESC)"
@@ -210,6 +210,22 @@
 
   ; Vista Registered Application
   WriteRegStr HKLM "Software\RegisteredApplications" "${AppRegName}" "$0\Capabilities"
+
+  ; The IconHandler reference for FirefoxHTML can end up in an inconsistent
+  ; state due to changes not being detected by the IconHandler for side by side
+  ; installs. The symptoms can be either an incorrect icon or no icon being
+  ; displayed for files associated with Firefox. By setting it here it will
+  ; always reference the install referenced in the
+  ; HKLM\Software\Classes\FirefoxHTML registry key.
+  ClearErrors
+  ReadRegStr $2 HKLM "Software\Classes\FirefoxHTML\ShellEx\IconHandler" ""
+  ${Unless} ${Errors}
+    ClearErrors
+    ReadRegStr $3 HKLM "Software\Classes\CLSID\$2\Old Icon\FirefoxHTML\DefaultIcon" ""
+    ${Unless} ${Errors}
+      WriteRegStr HKLM "Software\Classes\CLSID\$2\Old Icon\FirefoxHTML\DefaultIcon" "" "$8,1"
+    ${EndUnless}
+  ${EndUnless}
 !macroend
 !define SetStartMenuInternet "!insertmacro SetStartMenuInternet"
 

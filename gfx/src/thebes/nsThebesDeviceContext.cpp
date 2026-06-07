@@ -141,12 +141,12 @@ nsThebesDeviceContext::SetDPI()
 
     PRInt32 dpi = 96;
 
-    // Set prefVal the value of the preference
+    // Get prefVal the value of the preference
     // "layout.css.dpi"
     // or -1 if we can't get it.
-    // If it's negative, we pretend it's not set.
-    // If it's 0, it means force use of the operating system's logical
-    // resolution.
+    // If it's negative, use the default DPI setting
+    // If it's 0, force the use of the OS's set resolution.  Set this if your
+    //      X server has the correct DPI and it's less than 96dpi.
     // If it's positive, we use it as the logical resolution
     nsresult rv;
     PRInt32 prefDPI;
@@ -540,9 +540,10 @@ nsThebesDeviceContext::BeginDocument(PRUnichar*  aTitle,
 NS_IMETHODIMP
 nsThebesDeviceContext::EndDocument(void)
 {
-    mPrintingSurface->EndPrinting();
-    mPrintingSurface->Finish();
-
+    if (mPrintingSurface) {
+        mPrintingSurface->EndPrinting();
+        mPrintingSurface->Finish();
+    }
     if (mDeviceContextSpec)
         mDeviceContextSpec->EndDocument();
     return NS_OK;

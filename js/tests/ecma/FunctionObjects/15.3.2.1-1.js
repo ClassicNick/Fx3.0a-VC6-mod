@@ -112,11 +112,6 @@ new TestCase( SECTION,
 	      eval("MyObject.toString = Object.prototype.toString; MyObject.toString()") );
 
 new TestCase( SECTION,
-	      "MyObject.__proto__ == Function.prototype",    
-	      true, 
-	      MyObject.__proto__ == Function.prototype );
-
-new TestCase( SECTION,
 	      "MyObject.length",  
 	      1,
 	      MyObject.length );

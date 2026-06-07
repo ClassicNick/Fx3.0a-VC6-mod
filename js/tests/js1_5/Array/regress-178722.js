@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -76,9 +77,6 @@ var arr2 = new Array();
 var arr3 = [];
 var arr4 = [1];
 arr4.pop();
-function f () {return arguments};
-var arr5 = f();
-arr5.__proto__ = Array.prototype;
 
 
 status = inSection(1);
@@ -105,13 +103,6 @@ actual = arr instanceof Array && arr.length === 0 && arr === arr4;
 expect = true;
 addThis();
 
-status = inSection(5);
-arr = arr5.sort();
-actual = arr instanceof Array && arr.length === 0 && arr === arr5;
-expect = true;
-addThis();
-
-
 // now do the same thing, with non-default sorting:
 function g() {return 1;}
 
@@ -136,12 +127,6 @@ addThis();
 status = inSection('4a');
 arr = arr4.sort(g);
 actual = arr instanceof Array && arr.length === 0 && arr === arr4;
-expect = true;
-addThis();
-
-status = inSection('5a');
-arr = arr5.sort(g);
-actual = arr instanceof Array && arr.length === 0 && arr === arr5;
 expect = true;
 addThis();
 

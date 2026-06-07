@@ -56,7 +56,6 @@
 #include "nsDOMWindowList.h"
 #include "nsIBaseWindow.h"
 #include "nsIBrowserDOMWindow.h"
-#include "nsIChromeEventHandler.h"
 #include "nsIControllers.h"
 #include "nsIDocShellTreeOwner.h"
 #include "nsIDocShellTreeItem.h"
@@ -96,6 +95,7 @@
 #include "nsIDOMStorageList.h"
 #include "nsIDOMStorageWindow.h"
 #include "nsIFrame.h"
+#include "nsPIDOMEventTarget.h"
 
 #define DEFAULT_HOME_PAGE "www.mozilla.org"
 #define PREF_BROWSER_STARTUP_HOMEPAGE "browser.startup.homepage"
@@ -218,6 +218,7 @@ class nsGlobalWindow : public nsPIDOMWindow,
                        public nsIDOMJSWindow,
                        public nsIScriptObjectPrincipal,
                        public nsIDOMEventReceiver,
+                       public nsPIDOMEventTarget,
                        public nsIDOM3EventTarget,
                        public nsIDOMNSEventTarget,
                        public nsIDOMViewCSS,

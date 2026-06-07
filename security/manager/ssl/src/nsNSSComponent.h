@@ -59,6 +59,7 @@
 #include "nsWeakReference.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsSmartCardMonitor.h"
+#include "nsINSSErrorsService.h"
 #include "nsITimer.h"
 #include "nsNetUtil.h"
 #include "nsHashtable.h"
@@ -188,7 +189,8 @@ class nsNSSComponent : public nsISignatureVerifier,
                        public nsINSSComponent,
                        public nsIObserver,
                        public nsSupportsWeakReference,
-                       public nsITimerCallback
+                       public nsITimerCallback,
+                       public nsINSSErrorsService
 {
 public:
   NS_DEFINE_STATIC_CID_ACCESSOR( NS_NSSCOMPONENT_CID );
@@ -201,6 +203,7 @@ public:
   NS_DECL_NSIENTROPYCOLLECTOR
   NS_DECL_NSIOBSERVER
   NS_DECL_NSITIMERCALLBACK
+  NS_DECL_NSINSSERRORSSERVICE
 
   NS_METHOD Init();
 
@@ -292,6 +295,16 @@ public:
 private:
   nsCOMPtr<nsISupports> mLoadCookie;
   nsCOMPtr<nsIURIContentListener> mParentContentListener;
+};
+
+class nsNSSErrors
+{
+public:
+  static const char *getDefaultErrorStringName(PRInt32 err);
+  static const char *getOverrideErrorStringName(PRInt32 aErrorCode);
+  static nsresult getErrorMessageFromCode(PRInt32 err,
+                                          nsINSSComponent *component,
+                                          nsString &returnedMessage);
 };
 
 #endif // _nsNSSComponent_h_

@@ -1,5 +1,5 @@
 /*
- * $Id: CurrentPageTest.java,v 1.13 2007/01/30 18:26:37 edburns%acm.org Exp $
+ * $Id: CurrentPageTest.java,v 1.15 2007/02/16 16:03:18 edburns%acm.org Exp $
  */
 
 /* 
@@ -90,7 +90,7 @@ public class CurrentPageTest extends WebclientTestCase implements ClipboardOwner
     // Testcases
     // 
 
-    public void NOT_testCopyCurrentSelectionToSystemClipboard() throws Exception {
+    public void testCopyCurrentSelectionToSystemClipboard() throws Exception {
 	BrowserControl firstBrowserControl = null;
 	DocumentLoadListenerImpl listener = null;
 	Selection selection = null;
@@ -136,26 +136,61 @@ public class CurrentPageTest extends WebclientTestCase implements ClipboardOwner
 	}
 
 	CurrentPageTest.keepWaiting = true;
-	Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-	Transferable contents;
 
 	Thread.currentThread().sleep(3000);
 	currentPage.selectAll();
 	currentPage.copyCurrentSelectionToSystemClipboard();
+	Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+	Transferable contents;
 	contents = clipboard.getContents(this);
 	assertNotNull(contents);
 
-	DataFlavor bestTextFlavor = DataFlavor.getTextPlainUnicodeFlavor();
-	BufferedReader clipReader = 
-	    new BufferedReader(bestTextFlavor.getReaderForText(contents));
-	String contentLine;
-	StringBuffer buf = new StringBuffer();
-	while (null != (contentLine = clipReader.readLine())) {
-	    buf.append(contentLine);
-	    System.out.println(contentLine);
-	}
+	DataFlavor bestTextFlavor = DataFlavor.selectBestTextFlavor(clipboard.getAvailableDataFlavors());
+
+        BufferedReader clipReader = null;
+        try {
+            clipReader = new BufferedReader(bestTextFlavor.getReaderForText(contents));
+            
+        }
+        catch (Throwable e) {
+            fail("Can't get reader for text: Throwable: " + e.toString() + " " + 
+                    e.getMessage());
+        }
+        String contentLine;
+        StringBuffer buf = new StringBuffer();
+        while (null != (contentLine = clipReader.readLine())) {
+            buf.append(contentLine);
+            System.out.println(contentLine);
+        }
 	assertEquals("HistoryTest0This is page 0 of the history test.next",
 		     buf.toString());
+        
+        // Test HTML copy
+        
+	currentPage.copyCurrentSelectionHtmlToSystemClipboard();
+	contents = clipboard.getContents(this);
+	assertNotNull(contents);
+
+	bestTextFlavor = DataFlavor.selectBestTextFlavor(clipboard.getAvailableDataFlavors());
+
+        clipReader = null;
+        try {
+            clipReader = new BufferedReader(bestTextFlavor.getReaderForText(contents));
+            
+        }
+        catch (Throwable e) {
+            fail("Can't get reader for text: Throwable: " + e.toString() + " " + 
+                    e.getMessage());
+        }
+        buf = new StringBuffer();
+        while (null != (contentLine = clipReader.readLine())) {
+            buf.append(contentLine);
+            System.out.println(contentLine);
+        }
+	assertEquals("    <h1>HistoryTest0</h1><p>This is page 0 of the history test.</p><p><a id=\"HistoryTest1.html\" href=\"http://localhost:5243/HistoryTest1.html\">next</a></p>    <hr>  ",
+		     buf.toString());
+
+        
 
 	frame.setVisible(false);
 	BrowserControlFactory.deleteBrowserControl(firstBrowserControl);

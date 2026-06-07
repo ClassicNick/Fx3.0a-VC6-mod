@@ -2445,7 +2445,8 @@ var urlbarObserver = {
         try {
           gURLBar.value = url;
           const nsIScriptSecMan = Components.interfaces.nsIScriptSecurityManager;
-          urlSecurityCheck(gURLBar.value, gBrowser.currentURI.spec,
+          urlSecurityCheck(gURLBar.value,
+                           gBrowser.contentPrincipal,
                            nsIScriptSecMan.DISALLOW_INHERIT_PRINCIPAL);
           handleURLBarCommand();
         } catch (ex) {}
@@ -2859,10 +2860,9 @@ var goButtonObserver = {
       var url = getShortcutOrURI(draggedText, postData);
       try {
         getBrowser().dragDropSecurityCheck(aEvent, aDragSession, url);
-
-        const nsIScriptSecMan = Components.interfaces.nsIScriptSecurityManager;
-        urlSecurityCheck(url, gBrowser.currentURI.spec,
-                         nsIScriptSecMan.DISALLOW_INHERIT_PRINCIPAL);
+        urlSecurityCheck(url,
+                         gBrowser.contentPrincipal,
+                         Ci.nsIScriptSecurityManager.DISALLOW_INHERIT_PRINCIPAL);
         loadURI(url, null, postData.value, true);
       } catch (ex) {}
     },
@@ -3116,17 +3116,12 @@ const BrowserSearch = {
   }
 }
 
-function FillHistoryMenu(aParent, aMenu, aInsertBefore)
+function FillHistoryMenu(aParent, aMenu)
   {
     // Remove old entries if any
     deleteHistoryItems(aParent);
 
     var webNav = getWebNavigation();
-    if (!webNav) {
-      // This is always the case for non-browser windows (and the hidden window)
-      // on OS X
-      return true;
-    }
     var sessionHistory = webNav.sessionHistory;
 
     var count = sessionHistory.count;
@@ -3157,25 +3152,7 @@ function FillHistoryMenu(aParent, aMenu, aInsertBefore)
                 createMenuItem(aParent, j, entry.title);
             }
           break;
-        case "history":
-          aInsertBefore.hidden = (count == 0);
-          end = count > MAX_HISTORY_MENU_ITEMS ? count - MAX_HISTORY_MENU_ITEMS : 0;
-          for (j = count - 1; j >= end; j--)
-            {
-              entry = sessionHistory.getEntryAtIndex(j, false);
-              if (entry)
-                createRadioMenuItem(aParent,
-                                    j,
-                                    entry.title,
-                                    entry.URI ? entry.URI.spec : null,
-                                    j==index,
-                                    aInsertBefore);
-            }
-          break;
       }
-
-    // enable/disable RCT sub menu
-    HistoryMenu.toggleRecentlyClosedTabs();
 
     return true;
   }
@@ -3210,21 +3187,6 @@ function createMenuItem( aParent, aIndex, aLabel)
     menuitem.setAttribute( "label", aLabel );
     menuitem.setAttribute( "index", aIndex );
     aParent.appendChild( menuitem );
-  }
-
-function createRadioMenuItem( aParent, aIndex, aLabel, aStatusText, aChecked, aInsertBefore)
-  {
-    var menuitem = document.createElement( "menuitem" );
-    menuitem.setAttribute( "type", "radio" );
-    menuitem.setAttribute( "label", aLabel );
-    menuitem.setAttribute( "index", aIndex );
-    menuitem.setAttribute( "statustext", aStatusText );
-    if (aChecked==true)
-      menuitem.setAttribute( "checked", "true" );
-    if (aInsertBefore)
-      aParent.insertBefore( menuitem, aInsertBefore );
-    else
-      aParent.appendChild( menuitem );
   }
 
 function deleteHistoryItems(aParent)
@@ -4558,7 +4520,7 @@ function asyncOpenWebPanel(event)
 
 function handleLinkClick(event, href, linkNode)
 {
-  var docURL = event.target.ownerDocument.location.href;
+  var doc = event.target.ownerDocument;
 
   switch (event.button) {
     case 0:    // if left button clicked
@@ -4567,7 +4529,7 @@ function handleLinkClick(event, href, linkNode)
 #else
       if (event.ctrlKey) {
 #endif
-        openNewTabWith(href, docURL, null, event, false);
+        openNewTabWith(href, doc, null, event, false);
         event.stopPropagation();
         return true;
       }
@@ -4582,14 +4544,14 @@ function handleLinkClick(event, href, linkNode)
       }
                                                        
       if (event.shiftKey) {
-        openNewWindowWith(href, docURL, null, false);
+        openNewWindowWith(href, doc, null, false);
         event.stopPropagation();
         return true;
       }
 
       if (event.altKey) {
         saveURL(href, linkNode ? gatherTextUnder(linkNode) : "", null, true,
-                true, makeURI(docURL, event.target.ownerDocument.characterSet));
+                true, doc.documentURIObject);
         return true;
       }
 
@@ -4603,9 +4565,9 @@ function handleLinkClick(event, href, linkNode)
         tab = true;
       }
       if (tab)
-        openNewTabWith(href, docURL, null, event, false);
+        openNewTabWith(href, doc, null, event, false);
       else
-        openNewWindowWith(href, docURL, null, false);
+        openNewWindowWith(href, doc, null, false);
       event.stopPropagation();
       return true;
   }
@@ -5475,7 +5437,7 @@ var FeedHandler = {
     // preview UI
     if (!href)
       href = event.target.getAttribute("feed");
-    urlSecurityCheck(href, gBrowser.currentURI.spec,
+    urlSecurityCheck(href, gBrowser.contentPrincipal,
                      Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT_OR_DATA);
     var feedURI = makeURI(href, document.characterSet);
     // Use the feed scheme so X-Moz-Is-Feed will be set
@@ -5640,7 +5602,8 @@ var FeedHandler = {
       var wrapper = event.target;
 
       try { 
-        urlSecurityCheck(wrapper.href, gBrowser.currentURI.spec,
+        urlSecurityCheck(wrapper.href,
+                         gBrowser.contentPrincipal,
                          Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT_OR_DATA);
       }
       catch (ex) {

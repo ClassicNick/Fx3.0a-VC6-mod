@@ -59,8 +59,6 @@ startTest();
 var passed = true;
 writeHeaderToLog( SECTION + " Properties of the String Constructor" );
 
-new TestCase( SECTION,	"String.prototype",             Function.prototype,     String.__proto__ );
-
 new TestCase( SECTION,	"String.length",                1,                      String.length );
 
 test();

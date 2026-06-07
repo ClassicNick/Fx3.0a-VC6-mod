@@ -41,8 +41,6 @@
 #include "nsISVGRenderer.h"
 #include "nsSVGSVGElement.h"
 #include "nsSVGTextFrame.h"
-#include "nsIServiceManager.h"
-#include "nsIViewManager.h"
 #include "nsSVGRect.h"
 #include "nsDisplayList.h"
 #include "nsISVGRendererCanvas.h"
@@ -531,19 +529,9 @@ nsSVGOuterSVGFrame::GetType() const
 nsresult
 nsSVGOuterSVGFrame::InvalidateRect(nsRect aRect)
 {
-  // just ignore invalidates if painting is suppressed by the shell
-  PRBool suppressed = PR_FALSE;
-  GetPresContext()->PresShell()->IsPaintingSuppressed(&suppressed);
-  if (suppressed)
-    return NS_OK;
-  
-  nsIView* view = GetClosestView();
-  NS_ENSURE_TRUE(view, NS_ERROR_FAILURE);
-
-  nsIViewManager* vm = view->GetViewManager();
 
   aRect.ScaleRoundOut(GetTwipsPerPx());
-  vm->UpdateView(view, aRect, NS_VMREFRESH_NO_SYNC);
+  Invalidate(aRect);
 
   return NS_OK;
 }

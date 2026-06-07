@@ -49,7 +49,6 @@
 #include "nsIContent.h"
 #include "nsINameSpaceManager.h"
 #include "nsIDocument.h"
-#include "nsIBindingManager.h"
 #include "nsIDOMEventReceiver.h"
 #include "nsIDOMMouseEvent.h"
 #include "nsIDOMElement.h"
@@ -629,32 +628,31 @@ nsListBoxBodyFrame::ScrollByLines(PRInt32 aNumLines)
 NS_IMETHODIMP
 nsListBoxBodyFrame::GetIndexOfItem(nsIDOMElement* aItem, PRInt32* _retval)
 {
-  if (!aItem)
-    return NS_ERROR_NULL_POINTER;
-  
-  *_retval = 0;
-  nsCOMPtr<nsIContent> itemContent(do_QueryInterface(aItem));
+  if (aItem) {
+    *_retval = 0;
+    nsCOMPtr<nsIContent> itemContent(do_QueryInterface(aItem));
 
-  nsIContent* listbox = mContent->GetBindingParent();
-  NS_ENSURE_STATE(listbox);
+    nsIContent* listbox = mContent->GetBindingParent();
+    NS_ENSURE_STATE(listbox);
 
-  PRUint32 childCount = listbox->GetChildCount();
+    PRUint32 childCount = listbox->GetChildCount();
+    for (PRUint32 childIndex = 0; childIndex < childCount; childIndex++) {
+      nsIContent *child = listbox->GetChildAt(childIndex);
 
-  for (PRUint32 childIndex = 0; childIndex < childCount; childIndex++) {
-    nsIContent *child = listbox->GetChildAt(childIndex);
+      // we hit a list row, count it
+      if (child->Tag() == nsGkAtoms::listitem) {
+        // is this it?
+        if (child == itemContent)
+          return NS_OK;
 
-    // we hit a treerow, count it
-    if (child->Tag() == nsGkAtoms::listitem) {
-      // is this it?
-      if (child == itemContent)
-        return NS_OK;
-
-      ++(*_retval);
+        ++(*_retval);
+      }
     }
   }
 
   // not found
-  return NS_ERROR_FAILURE;
+  *_retval = -1;
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -662,7 +660,7 @@ nsListBoxBodyFrame::GetItemAtIndex(PRInt32 aIndex, nsIDOMElement** aItem)
 {
   *aItem = nsnull;
   if (aIndex < 0)
-    return NS_ERROR_ILLEGAL_VALUE;
+    return NS_OK;
   
   nsIContent* listbox = mContent->GetBindingParent();
   NS_ENSURE_STATE(listbox);
@@ -673,7 +671,7 @@ nsListBoxBodyFrame::GetItemAtIndex(PRInt32 aIndex, nsIDOMElement** aItem)
   for (PRUint32 childIndex = 0; childIndex < childCount; childIndex++) {
     nsIContent *child = listbox->GetChildAt(childIndex);
 
-    // we hit a treerow, count it
+    // we hit a list row, check if it is the one we are looking for
     if (child->Tag() == nsGkAtoms::listitem) {
       // is this it?
       if (itemCount == aIndex) {
@@ -684,7 +682,7 @@ nsListBoxBodyFrame::GetItemAtIndex(PRInt32 aIndex, nsIDOMElement** aItem)
   }
 
   // not found
-  return NS_ERROR_FAILURE;
+  return NS_OK;
 }
 
 /////////// nsListBoxBodyFrame ///////////////

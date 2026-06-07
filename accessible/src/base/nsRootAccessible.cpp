@@ -43,7 +43,6 @@
 #include "nsIAccessibleCaret.h"
 #include "nsIBaseWindow.h"
 #include "nsICaret.h"
-#include "nsIChromeEventHandler.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
 #include "nsIDocShellTreeNode.h"
@@ -264,7 +263,7 @@ nsRootAccessible::GetChromeEventHandler(nsIDOMEventTarget **aChromeTarget)
   nsCOMPtr<nsIDOMWindow> domWin;
   GetWindow(getter_AddRefs(domWin));
   nsCOMPtr<nsPIDOMWindow> privateDOMWindow(do_QueryInterface(domWin));
-  nsCOMPtr<nsIChromeEventHandler> chromeEventHandler;
+  nsCOMPtr<nsPIDOMEventTarget> chromeEventHandler;
   if (privateDOMWindow) {
     chromeEventHandler = privateDOMWindow->GetChromeEventHandler();
   }
@@ -325,6 +324,7 @@ nsresult nsRootAccessible::AddEventListeners()
   GetChromeEventHandler(getter_AddRefs(target));
   if (target) {
     target->AddEventListener(NS_LITERAL_STRING("pagehide"), this, PR_TRUE);
+    target->AddEventListener(NS_LITERAL_STRING("unload"), this, PR_TRUE);
   }
 
   if (!mCaretAccessible) {
@@ -361,6 +361,7 @@ nsresult nsRootAccessible::RemoveEventListeners()
   GetChromeEventHandler(getter_AddRefs(target));
   if (target) {
     target->RemoveEventListener(NS_LITERAL_STRING("pagehide"), this, PR_TRUE);
+    target->RemoveEventListener(NS_LITERAL_STRING("unload"), this, PR_TRUE);
   }
 
   if (mCaretAccessible) {
@@ -592,7 +593,8 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
   nsIAccessibilityService *accService = GetAccService();
   NS_ENSURE_TRUE(accService, NS_ERROR_FAILURE);
 
-  if (eventType.LowerCaseEqualsLiteral("pagehide")) {
+  if (eventType.LowerCaseEqualsLiteral("pagehide") ||
+      eventType.LowerCaseEqualsLiteral("unload")) {
     // pagehide event can be fired under several conditions, such as HTML
     // document going away, closing a window/dialog, and wizard page changing.
     // We only destroy the accessible object when it's a document accessible,
@@ -645,10 +647,11 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
   }
 
   nsCOMPtr<nsIAccessible> accessible;
-  if (NS_FAILED(accService->GetAccessibleInShell(aTargetNode, eventShell,
-                                                 getter_AddRefs(accessible))))
+  accService->GetAccessibleInShell(aTargetNode, eventShell,
+                                   getter_AddRefs(accessible));
+  if (!accessible)
     return NS_OK;
-  
+
 #ifdef MOZ_XUL
   // If it's a tree element, need the currently selected item
   nsCOMPtr<nsIAccessible> treeItemAccessible;
@@ -741,11 +744,13 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
           focusedItem = do_QueryInterface(selectedItem);
         }
 
-        if (!focusedItem ||
-            NS_FAILED(accService->GetAccessibleInShell(focusedItem, eventShell,
-                      getter_AddRefs(accessible)))) {
+        if (!focusedItem)
           return NS_OK;
-        }
+
+        accService->GetAccessibleInShell(focusedItem, eventShell,
+                                         getter_AddRefs(accessible));
+        if (!accessible)
+          return NS_OK;
       }
     }
     if (accessible == this) {
