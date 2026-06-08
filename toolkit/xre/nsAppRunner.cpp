@@ -776,11 +776,21 @@ ScopedXPCOMStartup::SetWindowCreator(nsINativeAppSupport* native)
   return wwatch->SetWindowCreator(creator);
 }
 
+/**
+ * A helper class which calls NS_LogTerm/NS_LogTerm in it's scope.
+ */
+class ScopedLogging
+{
+public:
+  ScopedLogging() { NS_LogInit(); }
+  ~ScopedLogging() { NS_LogTerm(); }
+};
+
 static void DumpArbitraryHelp()
 {
   nsresult rv;
 
-  NS_LogInit();
+  ScopedLogging log;
 
   {
     nsXREDirProvider dirProvider;
@@ -800,8 +810,6 @@ static void DumpArbitraryHelp()
     if (NS_SUCCEEDED(rv))
       printf("%s", text.get());
   }
-
-  NS_LogTerm();
 }
 
 // English text needs to go into a dtd file.
@@ -2105,6 +2113,8 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
     }
   }
 
+  ScopedLogging log;
+
   if (!appData.xreDirectory) {
     nsCOMPtr<nsILocalFile> lf;
     rv = XRE_GetBinaryPath(gArgv[0], getter_AddRefs(lf));
@@ -2191,8 +2201,6 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 #ifdef NS_TRACE_MALLOC
   gArgc = argc = NS_TraceMallocStartupArgs(gArgc, gArgv);
 #endif
-
-  NS_LogInit();
 
   {
     nsXREDirProvider dirProvider;
@@ -2688,8 +2696,6 @@ XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
       return rv == NS_ERROR_LAUNCHED_CHILD_PROCESS ? 0 : 1;
     }
   }
-
-  NS_LogTerm();
 
   return NS_FAILED(rv) ? 1 : 0;
 }

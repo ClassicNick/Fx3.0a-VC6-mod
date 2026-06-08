@@ -53,8 +53,7 @@ class nsSVGElement;
 typedef nsSVGPaintServerFrame  nsSVGPatternFrameBase;
 
 class nsSVGPatternFrame : public nsSVGPatternFrameBase,
-                          public nsISVGValueObserver,
-                          public nsSupportsWeakReference
+                          public nsISVGValueObserver
 {
 public:
   friend nsIFrame* NS_NewSVGPatternFrame(nsIPresShell* aPresShell, 

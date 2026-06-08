@@ -2311,7 +2311,7 @@ NS_METHOD nsWindow::Enable(PRBool bState)
 NS_METHOD nsWindow::IsEnabled(PRBool *aState)
 {
   NS_ENSURE_ARG_POINTER(aState);
-  *aState = !mWnd || ::IsWindowEnabled(mWnd);
+  *aState = !mWnd || (::IsWindowEnabled(mWnd) && ::IsWindowEnabled(::GetAncestor(mWnd, GA_ROOT)));
   return NS_OK;
 }
 
@@ -2676,7 +2676,7 @@ NS_METHOD nsWindow::SetCursor(nsCursor aCursor)
       gHCursor = NULL;
     }
   }
-  //}
+
   return NS_OK;
 }
 
@@ -3960,8 +3960,6 @@ void nsWindow::ConstrainZLevel(HWND *aAfter)
 // Process all nsWindows messages
 //
 //-------------------------------------------------------------------------
-static PRBool gJustGotDeactivate = PR_FALSE;
-static PRBool gJustGotActivate = PR_FALSE;
 
 #ifdef NS_DEBUG
 
@@ -4439,7 +4437,6 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
   PRBool result = PR_FALSE;                 // call the default nsWindow proc
   static PRBool getWheelInfo = PR_TRUE;
   *aRetValue = 0;
-  PRBool isMozWindowTakingFocus = PR_TRUE;
   nsPaletteInfo palInfo;
 
   // Uncomment this to see all windows messages
@@ -4999,11 +4996,9 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         PRInt32 fActive = LOWORD(wParam);
 
         if (WA_INACTIVE == fActive) {
-          gJustGotDeactivate = PR_TRUE;
           if (mIsTopWidgetWindow)
             mLastKeyboardLayout = gKeyboardLayout;
         } else {
-          gJustGotActivate = PR_TRUE;
           nsMouseEvent event(PR_TRUE, NS_MOUSE_ACTIVATE, this,
                              nsMouseEvent::eReal);
           InitEvent(event);
@@ -5021,6 +5016,8 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
           if (gSwitchKeyboardLayout && mLastKeyboardLayout)
             ActivateKeyboardLayout(mLastKeyboardLayout, 0);
         }
+
+        result = PR_TRUE;
       }
       break;
 
@@ -5039,12 +5036,18 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
 #endif
 
     case WM_SETFOCUS:
-      result = DispatchFocus(NS_GOTFOCUS, isMozWindowTakingFocus);
-      if (gJustGotActivate) {
-        gJustGotActivate = PR_FALSE;
-        gJustGotDeactivate = PR_FALSE;
-        result = DispatchFocus(NS_ACTIVATE, isMozWindowTakingFocus);
-      }
+      {
+        nsWindow* topWindow = GetNSWindowPtr(::GetAncestor(mWnd, GA_ROOT));
+
+        if ((HWND)wParam == NULL || 
+            (topWindow && topWindow->mWnd != ::GetAncestor((HWND)wParam, GA_ROOT))) {
+          result = DispatchFocus(NS_ACTIVATE, PR_TRUE);
+        }
+        else {
+          result = DispatchFocus(NS_GOTFOCUS, PR_TRUE);
+        }
+      }  
+
 #ifdef ACCESSIBILITY
       if (nsWindow::gIsAccessibilityOn) {
         // Create it for the first time so that it can start firing events
@@ -5088,20 +5091,29 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         ImmSetOpenStatus(hC, FALSE);
       }
 #endif
-      WCHAR className[kMaxClassNameLength];
-      nsToolkit::mGetClassName((HWND)wParam, className, kMaxClassNameLength);
-      if (wcscmp(className, kWClassNameUI) &&
-          wcscmp(className, kWClassNameContent) &&
-          wcscmp(className, kWClassNameContentFrame) &&
-          wcscmp(className, kWClassNameDialog) &&
-          wcscmp(className, kWClassNameGeneral)) {
-        isMozWindowTakingFocus = PR_FALSE;
+      {
+        nsWindow* topWindow = GetNSWindowPtr(::GetAncestor(mWnd, GA_ROOT));
+ 
+        if ((HWND)wParam == NULL ||
+            (topWindow && topWindow->mWnd != ::GetAncestor((HWND)wParam, GA_ROOT))) {
+          result = DispatchFocus(NS_DEACTIVATE, PR_FALSE);
+        }
+        else {
+          PRBool isMozWindowTakingFocus = PR_TRUE;
+          WCHAR className[kMaxClassNameLength];
+          
+          nsToolkit::mGetClassName((HWND)wParam, className, kMaxClassNameLength);
+          if (wcscmp(className, kWClassNameUI) &&
+              wcscmp(className, kWClassNameContent) &&
+              wcscmp(className, kWClassNameContentFrame) &&
+              wcscmp(className, kWClassNameDialog) &&
+              wcscmp(className, kWClassNameGeneral)) {
+            isMozWindowTakingFocus = PR_FALSE;
+          }
+
+          result = DispatchFocus(NS_LOSTFOCUS, isMozWindowTakingFocus);
+        }
       }
-      if (gJustGotDeactivate) {
-        gJustGotDeactivate = PR_FALSE;
-        result = DispatchFocus(NS_DEACTIVATE, isMozWindowTakingFocus);
-      }
-      result = DispatchFocus(NS_LOSTFOCUS, isMozWindowTakingFocus);
       break;
 
     case WM_WINDOWPOSCHANGED:
@@ -5207,6 +5219,7 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         InitEvent(event);
 
         result = DispatchWindowEvent(&event);
+<<<<<<< HEAD
 
         if (pl.showCmd == SW_SHOWMINIMIZED) {
           // Deactivate
@@ -5227,6 +5240,8 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
           result = DispatchFocus(NS_ACTIVATE, PR_TRUE);
         }
 
+=======
+>>>>>>> 81c29c7664
         NS_RELEASE(event.widget);
       }
     }

@@ -114,11 +114,11 @@ NS_INTERFACE_MAP_BEGIN(nsDOMUIEvent)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEvent)
 
 nsPoint nsDOMUIEvent::GetScreenPoint() {
-  if (!mEvent || 
-       // XXXldb Why not NS_MOUSE_SCROLL_EVENT?
-       (mEvent->eventStructType != NS_MOUSE_EVENT &&
-        mEvent->eventStructType != NS_POPUP_EVENT &&
-        !NS_IS_DRAG_EVENT(mEvent))) {
+  if (!mEvent ||
+      (mEvent->eventStructType != NS_MOUSE_EVENT &&
+       mEvent->eventStructType != NS_POPUP_EVENT &&
+       mEvent->eventStructType != NS_MOUSE_SCROLL_EVENT &&
+       !NS_IS_DRAG_EVENT(mEvent))) {
     return nsPoint(0, 0);
   }
 
@@ -133,11 +133,11 @@ nsPoint nsDOMUIEvent::GetScreenPoint() {
 }
 
 nsPoint nsDOMUIEvent::GetClientPoint() {
-  if (!mEvent || 
-       // XXXldb Why not NS_MOUSE_SCROLL_EVENT?
-       (mEvent->eventStructType != NS_MOUSE_EVENT &&
-        mEvent->eventStructType != NS_POPUP_EVENT &&
-        !NS_IS_DRAG_EVENT(mEvent)) ||
+  if (!mEvent ||
+      (mEvent->eventStructType != NS_MOUSE_EVENT &&
+       mEvent->eventStructType != NS_POPUP_EVENT &&
+       mEvent->eventStructType != NS_MOUSE_SCROLL_EVENT &&
+       !NS_IS_DRAG_EVENT(mEvent)) ||
       !mPresContext) {
     return nsPoint(0, 0);
   }
@@ -367,7 +367,9 @@ nsDOMUIEvent::SetCancelBubble(PRBool aCancelBubble)
 }
 
 nsPoint nsDOMUIEvent::GetLayerPoint() {
-  if (!mEvent || (mEvent->eventStructType != NS_MOUSE_EVENT) ||
+  if (!mEvent ||
+      (mEvent->eventStructType != NS_MOUSE_EVENT &&
+       mEvent->eventStructType != NS_MOUSE_SCROLL_EVENT) ||
       !mPresContext) {
     return nsPoint(0,0);
   }

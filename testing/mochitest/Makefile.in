@@ -46,6 +46,7 @@ include $(DEPTH)/config/autoconf.mk
 DIRS =	MochiKit \
 	static \
 	tests \
+	chrome \
 	$(NULL)
 
 include $(topsrcdir)/config/rules.mk
@@ -54,6 +55,8 @@ include $(topsrcdir)/config/rules.mk
 _SERV_FILES = 	runtests.pl \
 		gen_template.pl \
 		server.js \
+		harness.xul \
+		redirect.html \
 		$(topsrcdir)/netwerk/test/httpserver/httpd.js \
 		$(NULL)	
 
@@ -61,6 +64,7 @@ _SERV_FILES = 	runtests.pl \
 _DEST_DIR = $(DEPTH)/_tests/$(relativesrcdir)
 
 # XXXsayrer will work on making this work better with other apps
+# You can still pass --appname with a path to use something else
 ifeq ($(OS_ARCH),Darwin)
 ifdef MOZ_DEBUG
 browser_path = \"../$(DIST)/MinefieldDebug.app/Contents/MacOS/firefox\"

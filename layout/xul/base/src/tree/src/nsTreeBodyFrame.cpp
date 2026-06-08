@@ -1192,6 +1192,9 @@ nsTreeBodyFrame::GetCoordsForCellItem(PRInt32 aRow, nsITreeColumn* aCol, const n
     // Cell Text 
     nsAutoString cellText;
     mView->GetCellText(aRow, currCol, cellText);
+    // We're going to measure this text so we need to ensure bidi is enabled if
+    // necessary
+    CheckTextForBidi(cellText);
 
     // Create a scratch rect to represent the text rectangle, with the current 
     // X and Y coords, and a guess at the width and height. The width is the 
@@ -1264,6 +1267,32 @@ nsTreeBodyFrame::GetRowAt(PRInt32 aX, PRInt32 aY)
 }
 
 void
+nsTreeBodyFrame::CheckTextForBidi(nsAutoString& aText)
+{
+  // We could check to see whether the prescontext already has bidi enabled,
+  // but usually it won't, so it's probably faster to avoid the call to
+  // GetPresContext() when it's not needed.
+  const PRUnichar* text = aText.get();
+  PRUint32 length = aText.Length();
+  PRUint32 i;
+  PRBool maybeRTL = PR_FALSE;
+  for (i = 0; i < length; ++i) {
+    PRUnichar ch = text[i];
+    // To simplify things, anything that could be a surrogate or RTL
+    // presentation form is covered just by testing >= 0xD800). It's fine to
+    // enable bidi in rare cases where it actually isn't needed.
+    if (ch >= 0xD800 || IS_IN_BMP_RTL_BLOCK(ch)) {
+      maybeRTL = PR_TRUE;
+      break;
+    }
+  }
+  if (!maybeRTL)
+    return;
+
+  GetPresContext()->SetBidiEnabled(PR_TRUE);
+}
+
+void
 nsTreeBodyFrame::AdjustForCellText(nsAutoString& aText,
                                    PRInt32 aRowIndex,  nsTreeColumn* aColumn,
                                    nsIRenderingContext& aRenderingContext,
@@ -1293,6 +1322,8 @@ nsTreeBodyFrame::AdjustForCellText(nsAutoString& aText,
       if (nextColumn) {
         nsAutoString nextText;
         mView->GetCellText(aRowIndex, nextColumn, nextText);
+        // We don't measure or draw this text so no need to check it for
+        // bidi-ness
 
         if (nextText.Length() == 0) {
           nscoord width;
@@ -1530,6 +1561,9 @@ nsTreeBodyFrame::GetItemWithinCellAt(nscoord aX, const nsRect& aCellRect,
 
   nsAutoString cellText;
   mView->GetCellText(aRowIndex, aColumn, cellText);
+  // We're going to measure this text so we need to ensure bidi is enabled if
+  // necessary
+  CheckTextForBidi(cellText);
 
   nsRect textRect(currX, cellRect.y, remainingWidth, cellRect.height);
 
@@ -1667,6 +1701,9 @@ nsTreeBodyFrame::GetCellWidth(PRInt32 aRow, nsTreeColumn* aCol,
   // Get the cell text.
   nsAutoString cellText;
   mView->GetCellText(aRow, aCol, cellText);
+  // We're going to measure this text so we need to ensure bidi is enabled if
+  // necessary
+  CheckTextForBidi(cellText);
 
   nsStyleContext* textContext = GetPseudoStyleContext(nsCSSAnonBoxes::moztreecelltext);
 
@@ -3377,6 +3414,9 @@ nsTreeBodyFrame::PaintText(PRInt32              aRowIndex,
   // Now obtain the text for our cell.
   nsAutoString text;
   mView->GetCellText(aRowIndex, aColumn, text);
+  // We're going to paint this text so we need to ensure bidi is enabled if
+  // necessary
+  CheckTextForBidi(text);
 
   if (text.Length() == 0)
     return; // Don't paint an empty string. XXX What about background/borders? Still paint?

@@ -286,12 +286,8 @@ nsHTMLImageElement::GetXY()
     return point;
   }
 
-  nsPoint origin(0, 0);
-  nsIView* parentView;
-  nsresult rv = frame->GetOffsetFromView(origin, &parentView);
-  if (NS_FAILED(rv)) {
-    return point;
-  }
+  nsIFrame* layer = nsLayoutUtils::GetClosestLayer(frame->GetParent());
+  nsPoint origin(frame->GetOffsetTo(layer));
 
   // Get the scale from that Presentation Context
   float scale;

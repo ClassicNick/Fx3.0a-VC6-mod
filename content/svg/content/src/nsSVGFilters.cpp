@@ -252,14 +252,6 @@ public:
   }
 
   /*
-   * Releasing a source image will prevent FixupTarget() from copying pixels
-   * outside of the filter sub-region to the target surface.
-   */
-  void ReleaseSource() {
-    mSourceData = nsnull;
-  }
-
-  /*
    * Returns total length of data buffer in bytes
    */
   PRUint32 GetDataLength() {
@@ -273,15 +265,19 @@ public:
     return mStride;
   }
 
-private:
-  void ReleaseTarget();
+  /*
+   * Copy current sourceImage to targetImage
+   */
+  void CopySourceImage() { CopyImageSubregion(mTargetData, mSourceData); }
 
   /*
-   * FixupTarget copies the parts of the source image that lie outside of the
-   * filter subregion into the target image.  If no source image exists, then
-   * the area outside the filter region is filled with transparent black.
+   * Copy subregion from aSrc to aDest.
+   current sourceImage to targetImage
    */
-  void FixupTarget();
+  void CopyImageSubregion(PRUint8 *aDest, const PRUint8 *aSrc);
+
+private:
+  void ReleaseTarget();
 
   nsAutoString mInput, mResult;
   nsRect mRect;
@@ -366,58 +362,20 @@ nsSVGFilterResource::ReleaseTarget()
   if (!mTargetImage) {
     return;
   }
-  FixupTarget();
   mInstance->DefineImage(mResult, mTargetImage, mRect, mColorModel);
   mTargetImage = nsnull;
 }
 
 void
-nsSVGFilterResource::FixupTarget()
+nsSVGFilterResource::CopyImageSubregion(PRUint8 *aDest, const PRUint8 *aSrc)
 {
-  // top
-  if (mRect.y > 0) {
-    for (PRInt32 y = 0; y < mRect.y; y++)
-      if (mSourceData) {
-        memcpy(mTargetData + y * mStride, mSourceData + y * mStride, mStride);
-      } else {
-        memset(mTargetData + y * mStride, 0, mStride);
-      }
-  }
+  if (!aDest || !aSrc)
+    return;
 
-  // bottom
-  if (mRect.YMost() < mHeight) {
-    for (PRInt32 y = mRect.YMost(); y < mHeight; y++)
-      if (mSourceData) {
-        memcpy(mTargetData + y * mStride, mSourceData + y * mStride, mStride);
-      } else {
-        memset(mTargetData + y * mStride, 0, mStride);
-      }
-  }
-
-  // left
-  if (mRect.x > 0) {
-    for (PRInt32 y = mRect.y; y < mRect.YMost(); y++)
-      if (mSourceData) {
-        memcpy(mTargetData + y * mStride,
-               mSourceData + y * mStride,
-               4 * mRect.x);
-      } else {
-        memset(mTargetData + y * mStride, 0, 4 * mRect.x);
-      }
-  }
-
-  // right
-  if (mRect.XMost() < mWidth) {
-    for (PRInt32 y = mRect.y; y < mRect.YMost(); y++)
-      if (mSourceData) {
-        memcpy(mTargetData + y * mStride + 4 * mRect.XMost(),
-               mSourceData + y * mStride + 4 * mRect.XMost(),
-               4 * (mWidth - mRect.XMost()));
-      } else {
-        memset(mTargetData + y * mStride + 4 * mRect.XMost(),
-               0,
-               4 * (mWidth - mRect.XMost()));
-      }
+  for (PRInt32 y = mRect.y; y < mRect.YMost(); y++) {
+    memcpy(aDest + y * mStride + 4 * mRect.x,
+           aSrc + y * mStride + 4 * mRect.x,
+           4 * mRect.width);
   }
 }
 
@@ -467,6 +425,21 @@ protected:
   static NumberInfo sNumberInfo[2];
 
   nsCOMPtr<nsIDOMSVGAnimatedString> mIn1;
+
+private:
+
+  void BoxBlurH(PRUint8 *aInput, PRUint8 *aOutput,
+                PRInt32 aStride, nsRect aRegion,
+                PRUint32 leftLobe, PRUint32 rightLobe);
+
+  void BoxBlurV(PRUint8 *aInput, PRUint8 *aOutput,
+                PRInt32 aStride, nsRect aRegion,
+                unsigned topLobe, unsigned bottomLobe);
+
+  nsresult GaussianBlur(PRUint8 *aInput, PRUint8 *aOutput,
+                        nsSVGFilterResource *aFilterResource,
+                        float aStdX, float aStdY);
+
 };
 
 nsSVGElement::NumberInfo nsSVGFEGaussianBlurElement::sNumberInfo[2] =
@@ -573,10 +546,10 @@ nsSVGFEGaussianBlurElement::ParseAttribute(PRInt32 aNameSpaceID, nsIAtom* aName,
                                                         aValue, aResult);
 }
 
-static void
-boxBlurH(PRUint8 *aInput, PRUint8 *aOutput,
-         PRInt32 aStride, nsRect aRegion,
-         PRUint32 leftLobe, PRUint32 rightLobe)
+void
+nsSVGFEGaussianBlurElement::BoxBlurH(PRUint8 *aInput, PRUint8 *aOutput,
+                                     PRInt32 aStride, nsRect aRegion,
+                                     PRUint32 leftLobe, PRUint32 rightLobe)
 {
   PRInt32 boxSize = leftLobe + rightLobe + 1;
 
@@ -613,10 +586,10 @@ boxBlurH(PRUint8 *aInput, PRUint8 *aOutput,
   }
 }
 
-static void
-boxBlurV(PRUint8 *aInput, PRUint8 *aOutput,
-         PRInt32 aStride, nsRect aRegion,
-         unsigned topLobe, unsigned bottomLobe)
+void
+nsSVGFEGaussianBlurElement::BoxBlurV(PRUint8 *aInput, PRUint8 *aOutput,
+                                     PRInt32 aStride, nsRect aRegion,
+                                     unsigned topLobe, unsigned bottomLobe)
 {
   PRInt32 boxSize = topLobe + bottomLobe + 1;
 
@@ -653,17 +626,16 @@ boxBlurV(PRUint8 *aInput, PRUint8 *aOutput,
   }
 }
 
-static nsresult
-gaussianBlur(PRUint8 *aInput, PRUint8 *aOutput,
-             PRUint32 aLength, PRInt32 aStride, nsRect aRegion,
-             float aStdX, float aStdY)
+nsresult
+nsSVGFEGaussianBlurElement::GaussianBlur(PRUint8 *aInput, PRUint8 *aOutput,
+                                         nsSVGFilterResource *aFilterResource,
+                                         float aStdX, float aStdY)
 {
   if (aStdX < 0 || aStdY < 0) {
     return NS_ERROR_FAILURE;
   }
 
   if (aStdX == 0 || aStdY == 0) {
-    memset(aOutput, 0, aLength);
     return NS_OK;
   }
 
@@ -671,41 +643,44 @@ gaussianBlur(PRUint8 *aInput, PRUint8 *aOutput,
   dX = (PRUint32) floor(aStdX * 3*sqrt(2*M_PI)/4 + 0.5);
   dY = (PRUint32) floor(aStdY * 3*sqrt(2*M_PI)/4 + 0.5);
 
-  PRUint8 *tmp = new PRUint8[aLength];
+  PRUint8 *tmp = NS_STATIC_CAST(PRUint8*,
+                                calloc(aFilterResource->GetDataLength(), 1));
+  nsRect rect = aFilterResource->GetRect();
+  PRUint32 stride = aFilterResource->GetDataStride();
 
   if (dX & 1) {
     // odd
-    boxBlurH(aInput, tmp,  aStride, aRegion, dX/2, dX/2);
-    boxBlurH(tmp, aOutput, aStride, aRegion, dX/2, dX/2);
-    boxBlurH(aOutput, tmp, aStride, aRegion, dX/2, dX/2);
+    BoxBlurH(aInput, tmp,  stride, rect, dX/2, dX/2);
+    BoxBlurH(tmp, aOutput, stride, rect, dX/2, dX/2);
+    BoxBlurH(aOutput, tmp, stride, rect, dX/2, dX/2);
   } else {
     // even
     if (dX == 0) {
-      memcpy(tmp, aInput, aLength);
+      aFilterResource->CopyImageSubregion(tmp, aInput);
     } else {
-      boxBlurH(aInput, tmp,  aStride, aRegion, dX/2,     dX/2 - 1);
-      boxBlurH(tmp, aOutput, aStride, aRegion, dX/2 - 1, dX/2);
-      boxBlurH(aOutput, tmp, aStride, aRegion, dX/2,     dX/2);
+      BoxBlurH(aInput, tmp,  stride, rect, dX/2,     dX/2 - 1);
+      BoxBlurH(tmp, aOutput, stride, rect, dX/2 - 1, dX/2);
+      BoxBlurH(aOutput, tmp, stride, rect, dX/2,     dX/2);
     }
   }
 
   if (dY & 1) {
     // odd
-    boxBlurV(tmp, aOutput, aStride, aRegion, dY/2, dY/2);
-    boxBlurV(aOutput, tmp, aStride, aRegion, dY/2, dY/2);
-    boxBlurV(tmp, aOutput, aStride, aRegion, dY/2, dY/2);
+    BoxBlurV(tmp, aOutput, stride, rect, dY/2, dY/2);
+    BoxBlurV(aOutput, tmp, stride, rect, dY/2, dY/2);
+    BoxBlurV(tmp, aOutput, stride, rect, dY/2, dY/2);
   } else {
     // even
     if (dY == 0) {
-      memcpy(aOutput, tmp, aLength);
+      aFilterResource->CopyImageSubregion(aOutput, tmp);
     } else {
-      boxBlurV(tmp, aOutput, aStride, aRegion, dY/2,     dY/2 - 1);
-      boxBlurV(aOutput, tmp, aStride, aRegion, dY/2 - 1, dY/2);
-      boxBlurV(tmp, aOutput, aStride, aRegion, dY/2,     dY/2);
+      BoxBlurV(tmp, aOutput, stride, rect, dY/2,     dY/2 - 1);
+      BoxBlurV(aOutput, tmp, stride, rect, dY/2 - 1, dY/2);
+      BoxBlurV(tmp, aOutput, stride, rect, dY/2,     dY/2);
     }
   }
 
-  delete [] tmp;
+  free(tmp);
   return NS_OK;
 }
 
@@ -721,9 +696,9 @@ nsSVGFEGaussianBlurElement::Filter(nsSVGFilterInstance *instance)
   NS_ENSURE_SUCCESS(rv, rv);
   rv = fr.AcquireTargetImage(mResult, &targetData);
   NS_ENSURE_SUCCESS(rv, rv);
-  nsRect rect = fr.GetRect();
 
 #ifdef DEBUG_tor
+  nsRect rect = fr.GetRect();
   fprintf(stderr, "FILTER GAUSS rect: %d,%d  %dx%d\n",
           rect.x, rect.y, rect.width, rect.height);
 #endif
@@ -738,11 +713,7 @@ nsSVGFEGaussianBlurElement::Filter(nsSVGFilterInstance *instance)
   val.Init(nsSVGUtils::Y, 0xff, stdY, nsIDOMSVGLength::SVG_LENGTHTYPE_NUMBER);
   stdY = instance->GetPrimitiveLength(&val);
 
-  rv = gaussianBlur(sourceData, targetData, fr.GetDataLength(),
-                    fr.GetDataStride(), rect, stdX, stdY);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  return NS_OK;
+  return GaussianBlur(sourceData, targetData, &fr, stdX, stdY);
 }
 
 static PRUint32
@@ -952,7 +923,7 @@ nsSVGFEBlendElement::Filter(nsSVGFilterInstance *instance)
           rect.x, rect.y, rect.width, rect.height);
 #endif
 
-  memcpy(targetData, sourceData, rect.height * stride);
+  fr.CopySourceImage();
 
   rv = fr.AcquireSourceImage(mIn2, this, &sourceData);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1006,6 +977,324 @@ NS_IMETHODIMP
 nsSVGFEBlendElement::GetRequirements(PRUint32 *aRequirements)
 {
   *aRequirements = CheckStandardNames(mIn1);
+  return NS_OK;
+}
+
+//---------------------Color Matrix------------------------
+
+typedef nsSVGFE nsSVGFEColorMatrixElementBase;
+
+class nsSVGFEColorMatrixElement : public nsSVGFEColorMatrixElementBase,
+                                  public nsIDOMSVGFEColorMatrixElement,
+                                  public nsISVGFilter
+{
+protected:
+  friend nsresult NS_NewSVGFEColorMatrixElement(nsIContent **aResult,
+                                                nsINodeInfo *aNodeInfo);
+  nsSVGFEColorMatrixElement(nsINodeInfo* aNodeInfo);
+  nsresult Init();
+
+public:
+  // interfaces:
+  NS_DECL_ISUPPORTS_INHERITED
+
+  // FE Base
+  NS_FORWARD_NSIDOMSVGFILTERPRIMITIVESTANDARDATTRIBUTES(nsSVGFEColorMatrixElementBase::)
+
+  // nsISVGFilter
+  NS_IMETHOD Filter(nsSVGFilterInstance *instance);
+  NS_IMETHOD GetRequirements(PRUint32 *aRequirements);
+
+  // Color Matrix
+  NS_DECL_NSIDOMSVGFECOLORMATRIXELEMENT
+
+  NS_FORWARD_NSIDOMSVGELEMENT(nsSVGFEColorMatrixElementBase::)
+
+  NS_FORWARD_NSIDOMNODE(nsSVGFEColorMatrixElementBase::)
+  NS_FORWARD_NSIDOMELEMENT(nsSVGFEColorMatrixElementBase::)
+
+  virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
+
+protected:
+  //virtual NumberAttributesInfo GetNumberInfo();
+
+  nsCOMPtr<nsIDOMSVGAnimatedEnumeration> mType;
+  nsCOMPtr<nsIDOMSVGAnimatedNumberList>  mValues;
+  nsCOMPtr<nsIDOMSVGAnimatedString> mIn1;
+};
+
+NS_IMPL_NS_NEW_SVG_ELEMENT(FEColorMatrix)
+
+//----------------------------------------------------------------------
+// nsISupports methods
+
+NS_IMPL_ADDREF_INHERITED(nsSVGFEColorMatrixElement,nsSVGFEColorMatrixElementBase)
+NS_IMPL_RELEASE_INHERITED(nsSVGFEColorMatrixElement,nsSVGFEColorMatrixElementBase)
+
+NS_INTERFACE_MAP_BEGIN(nsSVGFEColorMatrixElement)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMNode)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMElement)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMSVGElement)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMSVGFilterPrimitiveStandardAttributes)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMSVGFEColorMatrixElement)
+  NS_INTERFACE_MAP_ENTRY(nsISVGFilter)
+  NS_INTERFACE_MAP_ENTRY_CONTENT_CLASSINFO(SVGFEColorMatrixElement)
+NS_INTERFACE_MAP_END_INHERITING(nsSVGFEColorMatrixElementBase)
+
+//----------------------------------------------------------------------
+// Implementation
+
+nsSVGFEColorMatrixElement::nsSVGFEColorMatrixElement(nsINodeInfo *aNodeInfo)
+  : nsSVGFEColorMatrixElementBase(aNodeInfo)
+{
+}
+
+nsresult
+nsSVGFEColorMatrixElement::Init()
+{
+  nsresult rv = nsSVGFEColorMatrixElementBase::Init();
+  NS_ENSURE_SUCCESS(rv,rv);
+
+  static struct nsSVGEnumMapping gTypes[] = {
+    {&nsGkAtoms::matrix, nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_MATRIX},
+    {&nsGkAtoms::saturate, nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_SATURATE},
+    {&nsGkAtoms::hueRotate, nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_HUE_ROTATE},
+    {&nsGkAtoms::luminanceToAlpha, nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_LUMINANCE_TO_ALPHA},
+    {nsnull, 0}
+  };
+
+  // Create mapped properties:
+  // DOM property: type, #IMPLIED attrib: type
+  {
+    nsCOMPtr<nsISVGEnum> types;
+    rv = NS_NewSVGEnum(getter_AddRefs(types),
+                       nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_MATRIX,
+                       gTypes);
+    NS_ENSURE_SUCCESS(rv,rv);
+    rv = NS_NewSVGAnimatedEnumeration(getter_AddRefs(mType), types);
+    NS_ENSURE_SUCCESS(rv,rv);
+    rv = AddMappedSVGValue(nsGkAtoms::type, mType);
+    NS_ENSURE_SUCCESS(rv,rv);
+  }
+
+  // DOM property: values, #IMPLIED attrib: values
+  {
+    nsCOMPtr<nsIDOMSVGNumberList> values;
+    rv = NS_NewSVGNumberList(getter_AddRefs(values));
+    NS_ENSURE_SUCCESS(rv,rv);
+    rv = NS_NewSVGAnimatedNumberList(getter_AddRefs(mValues), values);
+    NS_ENSURE_SUCCESS(rv,rv);
+    rv = AddMappedSVGValue(nsGkAtoms::values, mValues);
+    NS_ENSURE_SUCCESS(rv,rv);
+  }
+
+  // DOM property: in1 , #IMPLIED attrib: in
+  {
+    rv = NS_NewSVGAnimatedString(getter_AddRefs(mIn1));
+    NS_ENSURE_SUCCESS(rv,rv);
+    rv = AddMappedSVGValue(nsGkAtoms::in, mIn1);
+    NS_ENSURE_SUCCESS(rv,rv);
+  }
+
+  return rv;
+}
+
+//----------------------------------------------------------------------
+// nsIDOMNode methods
+
+
+NS_IMPL_ELEMENT_CLONE_WITH_INIT(nsSVGFEColorMatrixElement)
+
+
+//----------------------------------------------------------------------
+// nsSVGFEColorMatrixElement methods
+
+/* readonly attribute nsIDOMSVGAnimatedString in1; */
+NS_IMETHODIMP nsSVGFEColorMatrixElement::GetIn1(nsIDOMSVGAnimatedString * *aIn)
+{
+  *aIn = mIn1;
+  NS_IF_ADDREF(*aIn);
+  return NS_OK;
+}
+
+/* readonly attribute nsIDOMSVGAnimatedEnumeration type; */
+NS_IMETHODIMP nsSVGFEColorMatrixElement::GetType(nsIDOMSVGAnimatedEnumeration * *aType)
+{
+  *aType = mType;
+  NS_IF_ADDREF(*aType);
+  return NS_OK;
+}
+
+/* readonly attribute nsIDOMSVGAnimatedNumberList values; */
+NS_IMETHODIMP nsSVGFEColorMatrixElement::GetValues(nsIDOMSVGAnimatedNumberList * *aValues)
+{
+  *aValues = mValues;
+  NS_IF_ADDREF(*aValues);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSVGFEColorMatrixElement::GetRequirements(PRUint32 *aRequirements)
+{
+  *aRequirements = CheckStandardNames(mIn1);
+  return NS_OK;
+}
+
+//----------------------------------------------------------------------
+// nsSVGElement methods
+
+NS_IMETHODIMP
+nsSVGFEColorMatrixElement::Filter(nsSVGFilterInstance *instance)
+{
+  nsresult rv;
+  PRUint8 *sourceData, *targetData;
+  nsSVGFilterResource fr(instance,
+                         GetColorModel(nsSVGFilterInstance::ColorModel::UNPREMULTIPLIED));
+
+  rv = fr.AcquireSourceImage(mIn1, this, &sourceData);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = fr.AcquireTargetImage(mResult, &targetData);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRUint16 type;
+  mType->GetAnimVal(&type);
+
+  nsCOMPtr<nsIDOMSVGNumberList> list;
+  mValues->GetAnimVal(getter_AddRefs(list));
+  PRUint32 num = 0;
+  if (list) {
+    list->GetNumberOfItems(&num);
+  }
+
+  nsRect rect = fr.GetRect();
+  PRInt32 stride = fr.GetDataStride();
+
+#ifdef DEBUG_tor
+  fprintf(stderr, "FILTER COLOR MATRIX rect: %d,%d  %dx%d\n",
+          rect.x, rect.y, rect.width, rect.height);
+#endif
+
+  if (!HasAttr(kNameSpaceID_None, nsGkAtoms::values) &&
+      (type == nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_MATRIX ||
+       type == nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_SATURATE ||
+       type == nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_HUE_ROTATE)) {
+    // identity matrix filter
+    fr.CopySourceImage();
+    return NS_OK;
+  }
+
+  static const float identityMatrix[] = 
+    { 1, 0, 0, 0, 0,
+      0, 1, 0, 0, 0,
+      0, 0, 1, 0, 0,
+      0, 0, 0, 1, 0 };
+
+  static const float luminanceToAlphaMatrix[] = 
+    { 0,       0,       0,       0, 0,
+      0,       0,       0,       0, 0,
+      0,       0,       0,       0, 0,
+      0.2125f, 0.7154f, 0.0721f, 0, 0 };
+
+  nsCOMPtr<nsIDOMSVGNumber> number;
+  float colorMatrix[20];
+  float s, c;
+
+  switch (type) {
+  case nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_MATRIX:
+
+    if (num != 20)
+      return NS_ERROR_FAILURE;
+
+    for(PRUint32 j = 0; j < num; j++) {
+      list->GetItem(j, getter_AddRefs(number));
+      number->GetValue(&colorMatrix[j]);
+    }
+    break;
+  case nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_SATURATE:
+
+    if (num != 1)
+      return NS_ERROR_FAILURE;
+
+    list->GetItem(0, getter_AddRefs(number));
+    number->GetValue(&s);
+
+    if (s > 1 || s < 0)
+      return NS_ERROR_FAILURE;
+
+    memcpy(colorMatrix, identityMatrix, sizeof(colorMatrix));
+
+    colorMatrix[0] = 0.213f + 0.787f * s;
+    colorMatrix[1] = 0.715f - 0.715f * s;
+    colorMatrix[2] = 0.072f - 0.072f * s;
+
+    colorMatrix[5] = 0.213f - 0.213f * s;
+    colorMatrix[6] = 0.715f + 0.285f * s;
+    colorMatrix[7] = 0.072f - 0.072f * s;
+
+    colorMatrix[10] = 0.213f - 0.213f * s;
+    colorMatrix[11] = 0.715f - 0.715f * s;
+    colorMatrix[12] = 0.715f - 0.715f * s;
+
+    break;
+
+  case nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_HUE_ROTATE:
+
+    memcpy(colorMatrix, identityMatrix, sizeof(colorMatrix));
+
+    if (num != 1)
+      return NS_ERROR_FAILURE;
+
+    float hueRotateValue;
+    list->GetItem(0, getter_AddRefs(number));
+    number->GetValue(&hueRotateValue);
+
+    c = NS_STATIC_CAST(float, cos(hueRotateValue * M_PI / 180));
+    s = NS_STATIC_CAST(float, sin(hueRotateValue * M_PI / 180));
+
+    memcpy(colorMatrix, identityMatrix, sizeof(colorMatrix));
+
+    colorMatrix[0] = 0.213f + 0.787f * c - 0.213f * s;
+    colorMatrix[1] = 0.715f - 0.715f * c - 0.715f * s;
+    colorMatrix[2] = 0.072f - 0.072f * c + 0.928f * s;
+
+    colorMatrix[5] = 0.213f - 0.213f * c + 0.143f * s;
+    colorMatrix[6] = 0.715f + 0.285f * c + 0.140f * s;
+    colorMatrix[7] = 0.072f - 0.072f * c - 0.283f * s;
+
+    colorMatrix[10] = 0.213f - 0.213f * c - 0.787f * s;
+    colorMatrix[11] = 0.715f - 0.715f * c + 0.715f * s;
+    colorMatrix[12] = 0.072f + 0.928f * c + 0.072f * s;
+
+    break;
+
+  case nsSVGFEColorMatrixElement::SVG_FECOLORMATRIX_TYPE_LUMINANCE_TO_ALPHA:
+
+    memcpy(colorMatrix, luminanceToAlphaMatrix, sizeof(colorMatrix));
+    break;
+
+  default:
+    return NS_ERROR_FAILURE;
+  }
+
+  for (PRInt32 x = rect.x; x < rect.XMost(); x++) {
+    for (PRInt32 y = rect.y; y < rect.YMost(); y++) {
+      PRUint32 targIndex = y * stride + 4 * x;
+
+      float col[4];
+      for (int i = 0, row = 0; i < 4; i++, row += 5) {
+        col[i] = sourceData[targIndex + 2] * colorMatrix[row + 0] +
+                 sourceData[targIndex + 1] * colorMatrix[row + 1] +
+                 sourceData[targIndex + 0] * colorMatrix[row + 2] +
+                 sourceData[targIndex + 3] * colorMatrix[row + 3] +
+                 255 *                       colorMatrix[row + 4];
+        col[i] = PR_MIN(PR_MAX(0, col[i]), 255);
+      }
+      targetData[targIndex + 2] = NS_STATIC_CAST(PRUint8, col[0]);
+      targetData[targIndex + 1] = NS_STATIC_CAST(PRUint8, col[1]);
+      targetData[targIndex + 0] = NS_STATIC_CAST(PRUint8, col[2]);
+      targetData[targIndex + 3] = NS_STATIC_CAST(PRUint8, col[3]);
+    }
+  }
   return NS_OK;
 }
 
@@ -1246,7 +1535,7 @@ nsSVGFECompositeElement::Filter(nsSVGFilterInstance *instance)
 #endif
 
     // Copy the first source image
-    memcpy(targetData, sourceData, rect.height * stride);
+    fr.CopySourceImage();
 
     // Blend in the second source image
     rv = fr.AcquireSourceImage(mIn1, this, &sourceData);
@@ -1311,7 +1600,6 @@ nsSVGFECompositeElement::GetNumberInfo()
   return NumberAttributesInfo(mNumberAttributes, sNumberInfo,
                               NS_ARRAY_LENGTH(sNumberInfo));
 }
-
 
 //---------------------Component Transfer------------------------
 
@@ -1992,7 +2280,6 @@ nsSVGFEMergeElement::Filter(nsSVGFilterInstance *instance)
     cairo_set_source_surface(cr, sourceSurface, 0, 0);
     cairo_paint(cr);
   }
-  fr.ReleaseSource();
   cairo_destroy(cr);
   return NS_OK;
 }
@@ -3233,7 +3520,7 @@ nsSVGFEMorphologyElement::Filter(nsSVGFilterInstance *instance)
   mOperator->GetAnimVal(&op);
 
   if (rx == 0 && ry == 0) {
-    memcpy(targetData, sourceData, rect.height * stride);
+    fr.CopySourceImage();
     return NS_OK;
   }
   /* Scan the kernel for each pixel to determine max/min RGBA values.  Note that

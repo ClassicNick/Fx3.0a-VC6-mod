@@ -1407,10 +1407,8 @@ function ctrlNumberTabSelection(event)
 
   var oldTab = gBrowser.selectedTab;
   var newTab = gBrowser.tabContainer.childNodes[index];
-  if (newTab != oldTab) {
-    oldTab.selected = false;
+  if (newTab != oldTab)
     gBrowser.selectedTab = newTab;
-  }
 
   event.preventDefault();
   event.stopPropagation();
@@ -1960,9 +1958,7 @@ function getShortcutOrURI(aURL, aPostDataRef)
   try {
     var shortcutURL = null;
 #ifdef MOZ_PLACES_BOOKMARKS
-    var bookmarkService = Components.classes["@mozilla.org/browser/nav-bookmarks-service;1"]
-                             .getService(nsCI.nsINavBookmarksService);
-    var shortcutURI = bookmarkService.getURIForKeyword(aURL);
+    var shortcutURI = PlacesUtils.bookmarks.getURIForKeyword(aURL);
     if (shortcutURI)
       shortcutURL = shortcutURI.spec;
 #else
