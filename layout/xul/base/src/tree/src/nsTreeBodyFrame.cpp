@@ -905,6 +905,7 @@ nsTreeBodyFrame::InvalidateScrollbars(const ScrollParts& aParts)
   if (mUpdateBatchNest || !mView)
     return;
   nsWeakFrame weakFrame(this);
+  nsPresContext* presContext = GetPresContext();
 
   nsCOMPtr<nsIContent> vScrollbar = aParts.mVScrollbarContent;
   nsCOMPtr<nsIContent> hScrollbar = aParts.mHScrollbarContent;
@@ -3647,6 +3648,7 @@ nsTreeBodyFrame::PaintDropFeedback(const nsRect&        aDropFeedbackRect,
     }
 
     const nsStylePosition* stylePosition = feedbackContext->GetStylePosition();
+	nsPresContext* presContext = GetPresContext();
 
     // Obtain the width for the drop feedback or use default value.
     nscoord width;
