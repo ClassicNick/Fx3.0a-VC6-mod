@@ -179,7 +179,7 @@ nsBox::BeginLayout(nsBoxLayoutState& aState)
     // If the parent is dirty, all the children are dirty (nsHTMLReflowState
     // does this too).
     nsIFrame* box;
-    for (GetChildBox(&box); box; box->GetNextBox(&box))
+    for (box = GetChildBox(); box; box = box->GetNextBox())
       box->AddStateBits(NS_FRAME_IS_DIRTY);
   }
 
@@ -251,20 +251,6 @@ nsBox::RelayoutChildAtOrdinal(nsBoxLayoutState& aState, nsIBox* aChild)
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsBox::GetVAlign(Valignment& aAlign)
-{
-  aAlign = vAlign_Top;
-   return NS_OK;
-}
-
-NS_IMETHODIMP
-nsBox::GetHAlign(Halignment& aAlign)
-{
-  aAlign = hAlign_Left;
-   return NS_OK;
-}
-
 nsresult
 nsIFrame::GetClientRect(nsRect& aClientRect)
 {
@@ -276,10 +262,6 @@ nsIFrame::GetClientRect(nsRect& aClientRect)
 
   aClientRect.Deflate(borderPadding);
 
-  nsMargin insets;
-  GetInset(insets);
-
-  aClientRect.Deflate(insets);
   if (aClientRect.width < 0)
      aClientRect.width = 0;
 
@@ -291,7 +273,7 @@ nsIFrame::GetClientRect(nsRect& aClientRect)
   return NS_OK;
 }
 
-NS_IMETHODIMP
+void
 nsBox::SetBounds(nsBoxLayoutState& aState, const nsRect& aRect, PRBool aRemoveOverflowArea)
 {
     NS_BOX_ASSERTION(this, aRect.width >=0 && aRect.height >= 0, "SetBounds Size < 0");
@@ -338,9 +320,6 @@ nsBox::SetBounds(nsBoxLayoutState& aState, const nsRect& aRect, PRBool aRemoveOv
       }
     }
     */
-    
-
-    return NS_OK;
 }
 
 void
@@ -435,13 +414,6 @@ nsBox::GetMargin(nsMargin& aMargin)
   return NS_OK;
 }
 
-nsresult
-nsIFrame::GetParentBox(nsIBox** aParent)
-{
-  *aParent = (mParent && mParent->IsBoxFrame()) ? mParent : nsnull;
-  return NS_OK;
-}
-
 void
 nsBox::SizeNeedsRecalc(nsSize& aSize)
 {
@@ -506,7 +478,6 @@ nsBox::GetPrefSize(nsBoxLayoutState& aState)
     return pref;
 
   AddBorderAndPadding(pref);
-  AddInset(pref);
   nsIBox::AddCSSPrefSize(aState, this, pref);
 
   nsSize minSize = GetMinSize(aState);
@@ -526,7 +497,6 @@ nsBox::GetMinSize(nsBoxLayoutState& aState)
     return min;
 
   AddBorderAndPadding(min);
-  AddInset(min);
   nsIBox::AddCSSMinSize(aState, this, min);
   return min;
 }
@@ -547,7 +517,6 @@ nsBox::GetMaxSize(nsBoxLayoutState& aState)
     return max;
 
   AddBorderAndPadding(max);
-  AddInset(max);
   nsIBox::AddCSSMaxSize(aState, this, max);
   return max;
 }
@@ -657,15 +626,14 @@ nsBox::SyncLayout(nsBoxLayoutState& aState)
       // in XUL, but it can happen with the CSS 'outline' property and
       // possibly with other exotic stuff (e.g. relatively positioned
       // frames in HTML inside XUL).
-      nsIFrame* box;
-      GetChildBox(&box);
+      nsIFrame* box = GetChildBox();
       while (box) {
         nsRect* overflowArea = box->GetOverflowAreaProperty();
         nsRect bounds = overflowArea ? *overflowArea + box->GetPosition()
                                      : box->GetRect();
         rect.UnionRect(rect, bounds);
 
-        box->GetNextBox(&box);
+        box = box->GetNextBox();
       }
     }
 
@@ -1026,16 +994,6 @@ nsBox::AddMargin(nsSize& aSize, const nsMargin& aMargin)
      aSize.height += aMargin.top + aMargin.bottom;
 }
 
-#ifdef DEBUG_LAYOUT
-void
-nsBox::AddInset(nsIBox* aBox, nsSize& aSize)
-{
-  nsMargin margin(0,0,0,0);
-  aBox->GetInset(margin);
-  AddMargin(aSize, margin);
-}
-#endif
-
 void
 nsBox::BoundsCheck(nscoord& aMin, nscoord& aPref, nscoord& aMax)
 {
@@ -1082,9 +1040,8 @@ nsBox::GetDebugBoxAt( const nsPoint& aPoint,
   if (!thisRect.Contains(aPoint))
     return NS_ERROR_FAILURE;
 
-  nsIBox* child = nsnull;
+  nsIBox* child = GetChildBox();
   nsIBox* hit = nsnull;
-  GetChildBox(&child);
 
   *aBox = nsnull;
   while (nsnull != child) {
@@ -1093,27 +1050,12 @@ nsBox::GetDebugBoxAt( const nsPoint& aPoint,
     if (NS_SUCCEEDED(rv) && hit) {
       *aBox = hit;
     }
-    child->GetNextBox(&child);
+    child = child->GetNextBox();
   }
 
   // found a child
   if (*aBox) {
     return NS_OK;
-  }
-
- // see if it is in our in our insets
-  nsMargin m;
-  GetBorderAndPadding(m);
-
-  nsRect rect(thisRect);
-  rect.Deflate(m);
-  if (rect.Contains(aPoint)) {
-    GetInset(m);
-    rect.Deflate(m);
-    if (!rect.Contains(aPoint)) {
-      *aBox = this;
-      return NS_OK;
-    }
   }
 
   return NS_ERROR_FAILURE;
@@ -1124,14 +1066,6 @@ NS_IMETHODIMP
 nsBox::GetDebug(PRBool& aDebug)
 {
   aDebug = PR_FALSE;
-  return NS_OK;
-}
-
-
-NS_IMETHODIMP 
-nsBox::GetInset(nsMargin& margin)
-{
-  margin.SizeTo(0,0,0,0);
   return NS_OK;
 }
 

@@ -570,7 +570,6 @@ void nsTableCellFrame::VerticallyAlignChild(nscoord aMaxAscent)
     case NS_STYLE_VERTICAL_ALIGN_MIDDLE:
       // Align the middle of the child frame with the middle of the content area, 
       kidYTop = (height - childHeight - bottomInset + topInset) / 2;
-      kidYTop = nsTableFrame::RoundToPixel(kidYTop, p2t, eAlwaysRoundDown);
   }
   // if the content is larger than the cell height align from top
   kidYTop = PR_MAX(0, kidYTop);
@@ -762,9 +761,6 @@ NS_METHOD nsTableCellFrame::Reflow(nsPresContext*          aPresContext,
 
   // work around pixel rounding errors, round down to ensure we don't exceed the avail height in
   nscoord availHeight = aReflowState.availableHeight;
-  if (NS_UNCONSTRAINEDSIZE != availHeight) {
-    availHeight = nsTableFrame::RoundToPixel(availHeight, p2t, eAlwaysRoundDown);
-  }
 
   // see if a special height reflow needs to occur due to having a pct height
   nsTableFrame::CheckRequestSpecialHeightReflow(aReflowState);
@@ -855,9 +851,6 @@ NS_METHOD nsTableCellFrame::Reflow(nsPresContext*          aPresContext,
 
   if (NS_UNCONSTRAINEDSIZE != cellHeight) {
     cellHeight += topInset + bottomInset;
-    // work around block rounding errors, round down to ensure we don't exceed the avail height in
-    nsPixelRound roundMethod = (NS_UNCONSTRAINEDSIZE == availHeight) ? eAlwaysRoundUp : eAlwaysRoundDown;
-    cellHeight = nsTableFrame::RoundToPixel(cellHeight, p2t, roundMethod); 
   }
 
   // next determine the cell's width
@@ -867,7 +860,6 @@ NS_METHOD nsTableCellFrame::Reflow(nsPresContext*          aPresContext,
   if (NS_UNCONSTRAINEDSIZE != cellWidth) {
     cellWidth += leftInset + rightInset;    
   }
-  cellWidth = nsTableFrame::RoundToPixel(cellWidth, p2t); // work around block rounding errors
 
   // set the cell's desired size and max element size
   aDesiredSize.width   = cellWidth;

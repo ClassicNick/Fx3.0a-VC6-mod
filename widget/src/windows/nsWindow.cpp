@@ -5219,29 +5219,6 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
         InitEvent(event);
 
         result = DispatchWindowEvent(&event);
-<<<<<<< HEAD
-
-        if (pl.showCmd == SW_SHOWMINIMIZED) {
-          // Deactivate
-          WCHAR className[kMaxClassNameLength];
-          nsToolkit::mGetClassName((HWND)wParam, className, kMaxClassNameLength);
-          if (wcscmp(className, kWClassNameUI) &&
-              wcscmp(className, kWClassNameContent) &&
-              wcscmp(className, kWClassNameContentFrame) &&
-              wcscmp(className, kWClassNameDialog) &&
-              wcscmp(className, kWClassNameGeneral)) {
-            isMozWindowTakingFocus = PR_FALSE;
-          }
-          gJustGotDeactivate = PR_FALSE;
-          result = DispatchFocus(NS_DEACTIVATE, isMozWindowTakingFocus);
-        } else if (pl.showCmd == SW_SHOWNORMAL){
-          // Make sure we're active
-          result = DispatchFocus(NS_GOTFOCUS, PR_TRUE);
-          result = DispatchFocus(NS_ACTIVATE, PR_TRUE);
-        }
-
-=======
->>>>>>> 81c29c7664
         NS_RELEASE(event.widget);
       }
     }

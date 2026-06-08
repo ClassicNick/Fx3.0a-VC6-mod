@@ -584,7 +584,6 @@ nsGlobalWindow::CleanUp()
 
   mOpener = nsnull;             // Forces Release
   if (mContext) {
-    mContext->SetOwner(nsnull);
     mContext = nsnull;            // Forces Release
   }
   mChromeEventHandler = nsnull; // Forces Release
@@ -822,12 +821,9 @@ nsGlobalWindow::SetScriptContext(PRUint32 lang_id, nsIScriptContext *aScriptCont
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  nsIScriptContext *existing;
-  existing = mScriptContexts[lang_ndx];
-  NS_ASSERTION(!aScriptContext || !existing, "Bad call to SetContext()!");
+  NS_ASSERTION(!aScriptContext || !mScriptContexts[lang_ndx],
+               "Bad call to SetContext()!");
 
-  if (existing)
-    existing->SetOwner(nsnull);
   void *script_glob = nsnull;
 
   if (aScriptContext) {
@@ -1784,7 +1780,6 @@ nsGlobalWindow::SetDocShell(nsIDocShell* aDocShell)
       langCtx = mScriptContexts[st_ndx];
       if (langCtx) {
         langCtx->GC();
-        langCtx->SetOwner(nsnull);
         langCtx->FinalizeContext();
         mScriptContexts[st_ndx] = nsnull;
       }

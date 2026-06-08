@@ -579,13 +579,13 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
 
   PRInt32 numRows = GetRowCount() - (startRowFrame->GetRowIndex() - GetStartRowIndex());
   // collect the current height of each row.  nscoord* rowHeights = nsnull;
-  RowInfo* rowInfo;
-  if (numRows > 0) {
-    rowInfo = new RowInfo[numRows];
-    if (!rowInfo) return;
-    memset (rowInfo, 0, numRows*sizeof(RowInfo));
-  } 
-  else return;
+  if (numRows <= 0)
+    return;
+
+  nsTArray<RowInfo> rowInfo;
+  if (!rowInfo.AppendElements(numRows)) {
+    return;
+  }
 
   PRBool  hasRowSpanningCell = PR_FALSE;
   nscoord heightOfRows = 0;
@@ -604,10 +604,10 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
     if (!rowFrame->GetPrevInFlow()) {
       if (rowFrame->HasPctHeight()) {
         rowInfo[rowIndex].hasPctHeight = PR_TRUE;
-        rowInfo[rowIndex].pctHeight = nsTableFrame::RoundToPixel(rowFrame->GetHeight(pctHeightBasis), p2t);
+        rowInfo[rowIndex].pctHeight = rowFrame->GetHeight(pctHeightBasis);
       }
       rowInfo[rowIndex].hasStyleHeight = rowFrame->HasStyleHeight();
-      nonPctHeight = nsTableFrame::RoundToPixel(PR_MAX(nonPctHeight, rowFrame->GetFixedHeight()), p2t);
+      nonPctHeight = PR_MAX(nonPctHeight, rowFrame->GetFixedHeight());
     }
     UpdateHeights(rowInfo[rowIndex], nonPctHeight, heightOfRows, heightOfUnStyledRows);
 
@@ -646,6 +646,10 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
         // iteratate the row's cell frames 
         while (cellFrame) {
           PRInt32 rowSpan = tableFrame->GetEffectiveRowSpan(rowIndex + startRowIndex, *cellFrame);
+          if ((rowIndex + rowSpan) > numRows) {
+            // there might be rows pushed already to the nextInFlow
+            rowSpan = numRows - rowIndex;
+          }
           if (rowSpan > 1) { // a cell with rowspan > 1, determine the height of the rows it spans
             nscoord heightOfRowsSpanned = 0;
             nscoord heightOfUnStyledRowsSpanned = 0;
@@ -698,7 +702,7 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
                       // give rows their percentage, except for the first row which gets the remainder
                       nscoord extraForRow = (0 == spanX) ? extra - extraUsed  
                                                          : NSToCoordRound(((float)(extra)) * percent);
-                      extraForRow = PR_MIN(nsTableFrame::RoundToPixel(extraForRow, p2t), extra - extraUsed);
+                      extraForRow = PR_MIN(extraForRow, extra - extraUsed);
                       // update the row height
                       UpdateHeights(rowInfo[rowIndex + spanX], extraForRow, heightOfRows, heightOfUnStyledRows);
                       extraUsed += extraForRow;
@@ -726,7 +730,7 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
                     nscoord extraForRow = (numSpecialRowsSpanned - 1 == numSpecialRowsAllocated) 
                                           ? extra - extraUsed  
                                           : NSToCoordRound(((float)(extra)) * percent);
-                    extraForRow = PR_MIN(nsTableFrame::RoundToPixel(extraForRow, p2t), extra - extraUsed);
+                    extraForRow = PR_MIN(extraForRow, extra - extraUsed);
                     // update the row height
                     UpdateHeights(rowInfo[rowIndex + spanX], extraForRow, heightOfRows, heightOfUnStyledRows);
                     extraUsed += extraForRow;
@@ -779,7 +783,7 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
           nscoord extraForRow = (numRows - 1 == rowIndex) 
                                 ? extraComputedHeight - extraUsed  
                                 : NSToCoordRound(((float)extraComputedHeight) * percent);
-          extraForRow = PR_MIN(nsTableFrame::RoundToPixel(extraForRow, p2t), extraComputedHeight - extraUsed);
+          extraForRow = PR_MIN(extraForRow, extraComputedHeight - extraUsed);
           // update the row height
           UpdateHeights(rowInfo[rowIndex], extraForRow, heightOfRows, heightOfUnStyledRows);
           extraUsed += extraForRow;
@@ -821,7 +825,6 @@ nsTableRowGroupFrame::CalculateRowHeights(nsPresContext*          aPresContext,
   DidResizeRows(aDesiredSize);
 
   aDesiredSize.height = rowGroupHeight; // Adjust our desired size
-  delete [] rowInfo; // cleanup
 }
 
 nscoord
@@ -952,7 +955,9 @@ nsTableRowGroupFrame::SplitSpanningCells(nsPresContext&          aPresContext,
         // Ask the row to reflow the cell to the height of all the rows it spans up through aLastRow
         // aAvailHeight is the space between the row group start and the end of the page
         nscoord cellAvailHeight = aAvailHeight - rowPos.y;
-        nscoord cellHeight = row->ReflowCellFrame(&aPresContext, aReflowState, cell, 
+        PRBool isTopOfPage = (row == &aFirstRow) && aFirstRowIsTopOfPage;
+        nscoord cellHeight = row->ReflowCellFrame(&aPresContext, aReflowState,
+                                                  isTopOfPage, cell,
                                                   cellAvailHeight, status);
         aDesiredHeight = PR_MAX(aDesiredHeight, rowPos.y + cellHeight);
         if (NS_FRAME_IS_COMPLETE(status)) {
@@ -1039,12 +1044,8 @@ nsTableRowGroupFrame::SplitRowGroup(nsPresContext*          aPresContext,
   aDesiredSize.height = 0;
 
   GET_PIXELS_TO_TWIPS(aPresContext, p2t);
-  nscoord availWidth  = (NS_UNCONSTRAINEDSIZE == aReflowState.availableWidth) ?
-                        NS_UNCONSTRAINEDSIZE :
-                        nsTableFrame::RoundToPixel(aReflowState.availableWidth, p2t);
-  nscoord availHeight = (NS_UNCONSTRAINEDSIZE == aReflowState.availableHeight) ?
-                        NS_UNCONSTRAINEDSIZE :
-                        nsTableFrame::RoundToPixel(aReflowState.availableHeight, p2t);
+  nscoord availWidth  = aReflowState.availableWidth;
+  nscoord availHeight = aReflowState.availableHeight;
   
   PRBool  borderCollapse = ((nsTableFrame*)aTableFrame->GetFirstInFlow())->IsBorderCollapse();
   nscoord cellSpacingY   = aTableFrame->GetCellSpacingY();

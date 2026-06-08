@@ -48,13 +48,13 @@ STATIC_REQUIRES += \
 	$(NULL)
 
 STATIC_EXTRA_LIBS += \
-	$(addsuffix .$(LIB_SUFFIX),$(addprefix $(DIST)/lib/components/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_COMPS)))) \
-	$(addsuffix .$(LIB_SUFFIX),$(addprefix $(DIST)/lib/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_LIBS)))) \
+	$(addsuffix .$(LIB_SUFFIX),$(addprefix $(DEPTH)/staticlib/components/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_COMPS)))) \
+	$(addsuffix .$(LIB_SUFFIX),$(addprefix $(DEPTH)/staticlib/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_LIBS)))) \
 	$(NULL)
 
 STATIC_COMPONENT_LIST = $(shell cat $(FINAL_LINK_COMP_NAMES))
 
-STATIC_EXTRA_DEPS	+= $(FINAL_LINK_COMPS) $(FINAL_LINK_LIBS) $(addsuffix .$(LIB_SUFFIX),$(addprefix $(DIST)/lib/components/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_COMPS)))) $(addsuffix .$(LIB_SUFFIX),$(addprefix $(DIST)/lib/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_LIBS))))
+STATIC_EXTRA_DEPS	+= $(FINAL_LINK_COMPS) $(FINAL_LINK_LIBS) $(addsuffix .$(LIB_SUFFIX),$(addprefix $(DEPTH)/staticlib/components/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_COMPS)))) $(addsuffix .$(LIB_SUFFIX),$(addprefix $(DEPTH)/staticlib/$(LIB_PREFIX),$(shell cat $(FINAL_LINK_LIBS))))
 
 STATIC_EXTRA_DEPS	+= \
 	$(topsrcdir)/config/static-config.mk \
@@ -95,10 +95,6 @@ endif
 
 ifdef MOZ_ENABLE_XINERAMA
 STATIC_EXTRA_LIBS	+= $(MOZ_XINERAMA_LIBS)
-endif
-
-ifdef MOZ_CALENDAR
-STATIC_EXTRA_LIBS	+= $(call EXPAND_MOZLIBNAME,mozical)
 endif
 
 ifneq  (,$(MOZ_ENABLE_GTK)$(MOZ_ENABLE_GTK2)$(MOZ_ENABLE_XLIB))

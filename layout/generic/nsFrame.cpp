@@ -5904,8 +5904,6 @@ nsFrame::GetPrefSize(nsBoxLayoutState& aState)
 
     // notice we don't need to add our borders or padding
     // in. That's because the block did it for us.
-    // but we do need to add insets so debugging will work.
-    AddInset(size);
     nsIBox::AddCSSPrefSize(aState, this, size);
   }
 
@@ -5935,7 +5933,6 @@ nsFrame::GetMinSize(nsBoxLayoutState& aState)
   if (!completelyRedefined) {
     RefreshSizeCache(aState);
     size = metrics->mBlockMinSize;
-    AddInset(size);
     nsIBox::AddCSSMinSize(aState, this, size);
   }
 
@@ -5989,9 +5986,6 @@ nsFrame::GetBoxAscent(nsBoxLayoutState& aState)
     // Refresh our caches with new sizes.
     RefreshSizeCache(aState);
     metrics->mAscent = metrics->mBlockAscent;
-    nsMargin m(0, 0, 0, 0);
-    GetInset(m);
-    metrics->mAscent += m.top;
   }
 
   return metrics->mAscent;

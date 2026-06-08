@@ -1743,7 +1743,6 @@ nsTextControlFrame::GetPrefSize(nsBoxLayoutState& aState)
   nsresult rv = CalcIntrinsicSize(aState.GetRenderingContext(), pref);
   NS_ENSURE_SUCCESS(rv, pref);
   AddBorderAndPadding(pref);
-  AddInset(pref);
 
   mPrefSize = pref;
 

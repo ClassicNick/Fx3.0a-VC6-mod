@@ -567,6 +567,10 @@ class nsPathsDirectoryEnumerator : public nsAppDirectoryEnumerator
             while (!mNext && *mEndPath)
             {
                 const char *pathVar = mEndPath;
+           
+                // skip PATH_SEPARATORs at the begining of the mEndPath
+                while (*pathVar == PATH_SEPARATOR) pathVar++;
+
                 do { ++mEndPath; } while (*mEndPath && *mEndPath != PATH_SEPARATOR);
 
                 nsCOMPtr<nsILocalFile> localFile;

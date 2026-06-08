@@ -67,6 +67,7 @@ REQUIRES	= xpcom \
 		  $(NULL)
 
 CPPSRCS		= \
+		nsSVGAFrame.cpp \
 		nsSVGClipPathFrame.cpp \
 		nsSVGContainerFrame.cpp \
 		nsSVGFilterFrame.cpp \

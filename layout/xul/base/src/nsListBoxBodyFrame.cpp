@@ -391,8 +391,6 @@ nsListBoxBodyFrame::GetPrefSize(nsBoxLayoutState& aBoxLayoutState)
   nsSize pref = nsBoxFrame::GetPrefSize(aBoxLayoutState);
 
   PRInt32 size = GetFixedRowSize();
-  nsIBox* box = nsnull;
-  GetChildBox(&box);
   if (size > -1)
     pref.height = size*GetRowHeightTwips();
    

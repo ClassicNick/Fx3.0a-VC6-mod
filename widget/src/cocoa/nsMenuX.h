@@ -160,6 +160,7 @@ protected:
     PRPackedBool                mNeedsRebuild;
     PRPackedBool                mConstructed;
     PRPackedBool                mVisible;               // are we visible to the user?
+    PRPackedBool                mXBLAttached;
 };
 
 #endif // nsMenuX_h_

@@ -273,34 +273,6 @@ nsTableFrame::Destroy()
   nsHTMLContainerFrame::Destroy();
 }
 
-nscoord 
-nsTableFrame::RoundToPixel(nscoord       aValue,
-                           float         aPixelToTwips,
-                           nsPixelRound  aRound)
-{
-  nscoord fullPixel = NSToCoordRound(aPixelToTwips);
-  if (fullPixel <= 0) 
-    // We must be rendering to a device that has a resolution greater than Twips! 
-    // In that case, aValue is as accurate as it's going to get.
-    return aValue;
-  
-  PRInt32 excess = aValue % fullPixel;
-  if (0 == excess) 
-    return aValue;
-
-  nscoord halfPixel = NSToCoordRound(aPixelToTwips / 2.0f);
-  switch(aRound) {
-  case eRoundUpIfHalfOrMore:
-    if (excess >= halfPixel) { // eRoundUpIfHalfOrMore
-      return aValue + (fullPixel - excess);
-    }
-  case eAlwaysRoundDown:
-    return aValue - excess;
-  default: // eAlwaysRoundUp
-    return aValue + (fullPixel - excess);
-  }
-}
-
 // Make sure any views are positioned properly
 void
 nsTableFrame::RePositionViews(nsIFrame* aFrame)
@@ -3125,7 +3097,7 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
       while (rowFrame) {
         nsRect rowRect = rowFrame->GetRect();
         if ((amountUsed < aAmount) && rowFrame->HasPctHeight()) {
-          nscoord pctHeight = nsTableFrame::RoundToPixel(rowFrame->GetHeight(pctBasis), p2t);
+          nscoord pctHeight = rowFrame->GetHeight(pctBasis);
           nscoord amountForRow = PR_MIN(aAmount - amountUsed, pctHeight - rowRect.height);
           if (amountForRow > 0) {
             rowRect.height += amountForRow;
@@ -3229,7 +3201,7 @@ nsTableFrame::DistributeHeightToRows(const nsHTMLReflowState& aReflowState,
           // give rows their percentage, except for the last row which gets the remainder
           nscoord amountForRow = (rowFrame == lastElligibleRow) 
                                  ? aAmount - amountUsed : NSToCoordRound(((float)(pctBasis)) * percent);
-          amountForRow = PR_MIN(nsTableFrame::RoundToPixel(amountForRow, p2t), aAmount - amountUsed);
+          amountForRow = PR_MIN(amountForRow, aAmount - amountUsed);
           // update the row height
           nsRect newRowRect(rowRect.x, yOriginRow, rowRect.width, rowRect.height + amountForRow);
           rowFrame->SetRect(newRowRect);
