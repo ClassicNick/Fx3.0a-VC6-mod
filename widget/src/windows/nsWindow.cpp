@@ -2311,7 +2311,7 @@ NS_METHOD nsWindow::Enable(PRBool bState)
 NS_METHOD nsWindow::IsEnabled(PRBool *aState)
 {
   NS_ENSURE_ARG_POINTER(aState);
-  *aState = !mWnd || (::IsWindowEnabled(mWnd) && ::IsWindowEnabled(::GetAncestor(mWnd, GA_ROOT)));
+  *aState = !mWnd || (::IsWindowEnabled(mWnd) && ::IsWindowEnabled(::GetParent(mWnd)));
   return NS_OK;
 }
 
@@ -5037,10 +5037,10 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
 
     case WM_SETFOCUS:
       {
-        nsWindow* topWindow = GetNSWindowPtr(::GetAncestor(mWnd, GA_ROOT));
+        nsWindow* topWindow = GetNSWindowPtr(::GetParent(mWnd));
 
         if ((HWND)wParam == NULL || 
-            (topWindow && topWindow->mWnd != ::GetAncestor((HWND)wParam, GA_ROOT))) {
+            (topWindow && topWindow->mWnd != ::GetParent((HWND)wParam))) {
           result = DispatchFocus(NS_ACTIVATE, PR_TRUE);
         }
         else {
@@ -5092,10 +5092,10 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
       }
 #endif
       {
-        nsWindow* topWindow = GetNSWindowPtr(::GetAncestor(mWnd, GA_ROOT));
+        nsWindow* topWindow = GetNSWindowPtr(::GetParent(mWnd));
  
         if ((HWND)wParam == NULL ||
-            (topWindow && topWindow->mWnd != ::GetAncestor((HWND)wParam, GA_ROOT))) {
+            (topWindow && topWindow->mWnd != ::GetParent((HWND)wParam))) {
           result = DispatchFocus(NS_DEACTIVATE, PR_FALSE);
         }
         else {
