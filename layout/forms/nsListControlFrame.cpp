@@ -1827,12 +1827,6 @@ nsListControlFrame::GetType() const
 }
 
 PRBool
-nsListControlFrame::IsFrameOfType(PRUint32 aFlags) const
-{
-  return !(aFlags & ~(eReplaced | eReplacedContainsBlock));
-}
-
-PRBool
 nsListControlFrame::IsContainingBlock() const
 {
   // We are in fact the containing block for our options.  They should

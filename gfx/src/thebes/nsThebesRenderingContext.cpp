@@ -1002,10 +1002,10 @@ nsThebesRenderingContext::DrawImage(imgIContainer *aImage,
     // the dest rect is affected by the current transform; that'll be
     // handled by Image::Draw(), when we actually set up the rectangle.
     nsIntRect pxDr;
-    pxDr.x = NSToIntRound(FROM_TWIPS(twDestRect.x));
-    pxDr.y = NSToIntRound(FROM_TWIPS(twDestRect.y));
-    pxDr.width = NSToIntRound(FROM_TWIPS(twDestRect.width));
-    pxDr.height = NSToIntRound(FROM_TWIPS(twDestRect.height));
+    pxDr.x = FROM_TWIPS_INT(twDestRect.x);
+    pxDr.y = FROM_TWIPS_INT(twDestRect.y);
+    pxDr.width = FROM_TWIPS_INT(twDestRect.XMost()) - pxDr.x;
+    pxDr.height = FROM_TWIPS_INT(twDestRect.YMost()) - pxDr.y;
 
     // If we were asked to draw a 0-width or 0-height image,
     // as either the src or dst, just bail; we can't do anything

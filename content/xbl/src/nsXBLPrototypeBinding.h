@@ -50,7 +50,6 @@
 #include "nsHashtable.h"
 #include "nsIXBLDocumentInfo.h"
 #include "nsCOMArray.h"
-#include "nsIURL.h"
 
 class nsIAtom;
 class nsIDocument;
@@ -65,10 +64,9 @@ class nsXBLBinding;
 // *********************************************************************/
 // The XBLPrototypeBinding class
 
-// References to the prototype binding are held by each nsXBLBinding instance
-// that uses this prototype binding, and also by the XBLDocumentInfo's
-// binding table (with the XUL cache disabled).
-
+// Instances of this class are owned by the nsXBLDocumentInfo object returned
+// by XBLDocumentInfo().  Consumers who want to refcount things should refcount
+// that.
 class nsXBLPrototypeBinding
 {
 public:
@@ -77,7 +75,6 @@ public:
 
   nsIURI* BindingURI() const { return mBindingURI; }
   nsIURI* DocURI() const { return mXBLDocInfoWeak->DocumentURI(); }
-  nsresult GetID(nsACString& aResult) const { return mBindingURI->GetRef(aResult); }
 
   nsresult GetAllowScripts(PRBool* aResult);
 
@@ -231,7 +228,7 @@ protected:
 
 // MEMBER VARIABLES
 protected:
-  nsCOMPtr<nsIURL> mBindingURI;
+  nsCOMPtr<nsIURI> mBindingURI;
   nsCOMPtr<nsIContent> mBinding; // Strong. We own a ref to our content element in the binding doc.
   nsAutoPtr<nsXBLPrototypeHandler> mPrototypeHandler; // Strong. DocInfo owns us, and we own the handlers.
   
@@ -258,8 +255,6 @@ protected:
 
   PRInt32 mBaseNameSpaceID;    // If we extend a tagname/namespace, then that information will
   nsCOMPtr<nsIAtom> mBaseTag;  // be stored in here.
-
-  nsAutoRefCnt mRefCnt;
 
   nsCOMArray<nsXBLKeyEventHandler> mKeyHandlers;
 };

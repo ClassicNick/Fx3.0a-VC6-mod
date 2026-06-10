@@ -46,8 +46,6 @@
 #include "nsScrollbarButtonFrame.h"
 #include "nsGkAtoms.h"
 #include "nsIScrollableFrame.h"
-#include "nsIView.h"
-#include "nsIViewManager.h"
 #include "nsIScrollbarMediator.h"
 
 //
@@ -75,10 +73,6 @@ nsScrollbarFrame::Init(nsIContent* aContent,
                        nsIFrame*   aPrevInFlow)
 {
   nsresult  rv = nsBoxFrame::Init(aContent, aParent, aPrevInFlow);
-
-  CreateViewForFrame(GetPresContext(), this, GetStyleContext(), PR_TRUE);
-  nsIView* view = GetView();
-  view->GetViewManager()->SetViewContentTransparency(view, PR_TRUE);
 
   // We want to be a reflow root since we use reflows to move the
   // slider.  Any reflow inside the scrollbar frame will be a reflow to

@@ -183,8 +183,7 @@ nsView::nsView(nsViewManager* aViewManager, nsViewVisibility aVisibility)
   // a promise that the view will paint all its pixels opaquely. Views
   // should make this promise explicitly by calling
   // SetViewContentTransparency.
-  mVFlags = NS_VIEW_FLAG_TRANSPARENT;
-  mOpacity = 1.0f;
+  mVFlags = 0;
   mViewManager = aViewManager;
   mChildRemoved = PR_FALSE;
   mDirtyRegion = nsnull;
@@ -568,22 +567,6 @@ void nsView::RemoveChild(nsView *child)
   }
 }
 
-NS_IMETHODIMP nsView::SetOpacity(float opacity)
-{
-  mOpacity = opacity;
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsView::SetContentTransparency(PRBool aTransparent)
-{
-  if (aTransparent == PR_TRUE)
-    mVFlags |= NS_VIEW_FLAG_TRANSPARENT;
-  else
-    mVFlags &= ~NS_VIEW_FLAG_TRANSPARENT;
-
-  return NS_OK;
-}
-
 // Native widgets ultimately just can't deal with the awesome power of
 // CSS2 z-index. However, we set the z-index on the widget anyway
 // because in many simple common cases the widgets do end up in the
@@ -801,8 +784,8 @@ void nsIView::List(FILE* out, PRInt32 aIndent) const
   if (v->GetZParent()) {
     fprintf(out, " zparent=%p", (void*)v->GetZParent());
   }
-  fprintf(out, " z=%d vis=%d opc=%1.3f tran=%d clientData=%p <\n",
-          mZIndex, mVis, mOpacity, IsTransparent(), mClientData);
+  fprintf(out, " z=%d vis=%d clientData=%p <\n",
+          mZIndex, mVis, mClientData);
   for (nsView* kid = mFirstChild; kid; kid = kid->GetNextSibling()) {
     NS_ASSERTION(kid->GetParent() == this, "incorrect parent");
     kid->List(out, aIndent + 1);
@@ -886,102 +869,4 @@ PRBool nsIView::IsRoot() const
 PRBool nsIView::ExternalIsRoot() const
 {
   return nsIView::IsRoot();
-}
-
-/**
- * @param aStopAtView clipping from ancestors of this view will not be applied
- * @return PR_TRUE iff we found a placeholder parent edge on the way up the view tree
- * from aView to aStopAtView
- */
-static PRBool ApplyClipRect(const nsView* aView, nsRect* aRect, PRBool aFollowPlaceholders,
-                            nsIView* aStopAtView)
-{
-  // this records the offset from the origin of the current aView
-  // to the origin of the initial aView
-  nsPoint offset(0, 0);
-  PRBool lastViewIsFloating = aView->GetFloating();
-  PRBool foundPlaceholders = PR_FALSE;
-  while (NS_STATIC_CAST(const nsIView*, aView) != aStopAtView) {
-    const nsView* parentView = aView->GetParent();
-    nsPoint offsetFromParent = aView->GetPosition();
-
-    const nsView* zParent = aView->GetZParent();
-    if (zParent) {
-      foundPlaceholders = PR_TRUE;
-      if (aFollowPlaceholders) {
-        // correct offsetFromParent to account for the fact that we're
-        // switching parentView to ZParent
-        // Note that the common case is that parentView is an ancestor of
-        // ZParent.
-        const nsView* zParentChain;
-        for (zParentChain = zParent;
-             zParentChain != parentView && zParentChain;
-             zParentChain = zParentChain->GetParent()) {
-          offsetFromParent -= zParentChain->GetPosition();
-        }
-        if (!zParentChain) {
-          // uh oh. As we walked up the tree, we missed zParent. This can
-          // happen because of odd (but legal) containing block hierarchies.
-          // Just compute the required offset from scratch; this is slow,
-          // but hopefully rarely executed.
-          offsetFromParent = nsViewManager::ComputeViewOffset(aView)
-            - nsViewManager::ComputeViewOffset(zParent);
-        }
-        parentView = zParent;
-      }
-    }
-
-    if (!parentView) {
-      break;
-    }
-
-    PRBool parentIsFloating = parentView->GetFloating();
-    if (lastViewIsFloating && !parentIsFloating) {
-      break;
-    }
-
-    // now make offset be the offset from parentView's origin to the initial
-    // aView's origin
-    offset += offsetFromParent;
-    if (parentView->GetClipChildrenToBounds(aFollowPlaceholders)) {
-      // Get the parent's clip rect (which is just the dimensions in this
-      // case) into the initial aView's coordinates
-      nsRect clipRect = parentView->GetDimensions();
-      clipRect -= offset;
-      PRBool overlap = aRect->IntersectRect(clipRect, *aRect);
-      if (!overlap) {
-        break;
-      }
-    }
-    // The child-clipping rect is applied to all *content* children.
-    // So we apply it if we're in the placeholder-following pass, or
-    // if we're in the first pass and we haven't detected any
-    // placeholders yet, in which case this geometric ancestor is also
-    // a content ancestor.
-    const nsRect* r = parentView->GetClipChildrenToRect();
-    if (r && (!foundPlaceholders || aFollowPlaceholders)) {
-      // Get the parent's clip rect into the initial aView's coordinates
-      nsRect clipRect = *r;
-      clipRect -= offset;
-      PRBool overlap = aRect->IntersectRect(clipRect, *aRect);
-      if (!overlap) {
-        break;
-      }
-    }
-
-    aView = parentView;
-    lastViewIsFloating = parentIsFloating;
-  }
-
-  return foundPlaceholders;
-}
-
-nsRect nsView::GetClippedRect(nsIView* aStopAtView)
-{
-  nsRect clip = GetDimensions();
-  PRBool foundPlaceholders = ApplyClipRect(this, &clip, PR_FALSE, aStopAtView);
-  if (foundPlaceholders && !clip.IsEmpty()) {
-    ApplyClipRect(this, &clip, PR_TRUE, aStopAtView);
-  }
-  return clip;
 }

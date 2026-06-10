@@ -118,7 +118,13 @@ public:
   NS_IMETHOD_(nsrefcnt) Release(void) { return 1; }
 
   virtual nsIAtom* GetType() const;
-  virtual PRBool IsFrameOfType(PRUint32 aFlags) const;
+
+  virtual PRBool IsFrameOfType(PRUint32 aFlags) const
+  {
+    // nsLeafFrame is already eReplacedContainsBlock, but that's somewhat bogus
+    return nsLeafFrame::IsFrameOfType(aFlags &
+      ~(nsIFrame::eReplaced | nsIFrame::eReplacedContainsBlock));
+  }
 
   NS_IMETHOD Init(nsIContent*      aContent,
                   nsIFrame*        aParent,
@@ -358,12 +364,6 @@ nsIAtom*
 nsSubDocumentFrame::GetType() const
 {
   return nsGkAtoms::subDocumentFrame;
-}
-
-PRBool
-nsSubDocumentFrame::IsFrameOfType(PRUint32 aFlags) const
-{
-  return !(aFlags & ~(eReplaced | eReplacedContainsBlock));
 }
 
 /* virtual */ nscoord

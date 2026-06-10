@@ -1802,12 +1802,6 @@ nsTextControlFrame::IsLeaf() const
   return PR_TRUE;
 }
 
-PRBool
-nsTextControlFrame::IsFrameOfType(PRUint32 aFlags) const
-{
-  return !(aFlags & ~(eReplaced | eReplacedContainsBlock));
-}
-
 static PRBool
 IsFocusedContent(nsPresContext* aPresContext, nsIContent* aContent)
 {

@@ -62,10 +62,10 @@ enum nsRectVisibility {
   nsRectVisibility_kZeroAreaRect
 }; 
 
-
+// 143945d0-0a20-4bf0-a04d-ad212ab9acc2
 #define NS_IVIEWMANAGER_IID   \
-{ 0xd9af8f22, 0xc64d, 0x4036, \
-  { 0x9e, 0x8b, 0x69, 0x5a, 0x63, 0x69, 0x3f, 0xd3 } }
+{ 0x143945d0, 0x0a20, 0x4bf0, \
+  { 0xa0, 0x4d, 0xad, 0x21, 0x2a, 0xb9, 0xac, 0xc2 } }
 
 class nsIViewManager : public nsISupports
 {
@@ -194,25 +194,10 @@ public:
   NS_IMETHOD  GrabMouseEvents(nsIView *aView, PRBool& aResult) = 0;
 
   /**
-   * Used to grab/capture all keyboard events for a specific view,
-   * irrespective of the cursor position at which the
-   * event occurred.
-   * @param aView view to capture keyboard events
-   * @result event handling status
-   */
-  NS_IMETHOD  GrabKeyEvents(nsIView *aView, PRBool& aResult) = 0;
-
-  /**
    * Get the current view, if any, that's capturing mouse events.
    * @result view that is capturing mouse events or nsnull
    */
   NS_IMETHOD  GetMouseEventGrabber(nsIView *&aView) = 0;
-
-  /**
-   * Get the current view, if any, that's capturing keyboard events.
-   * @result view that is capturing keyboard events or nsnull
-   */
-  NS_IMETHOD  GetKeyEventGrabber(nsIView *&aView) = 0;
 
   /**
    * Given a parent view, insert another view as its child.
@@ -280,28 +265,6 @@ public:
                          PRBool aRepaintExposedAreaOnly = PR_FALSE) = 0;
 
   /**
-   * Set the region to which a view's descendants are clipped.  The view
-   * itself is not clipped to this region; this allows for effects
-   * where part of the view is drawn outside the clip region (e.g.,
-   * its borders and background).  The view manager generates the
-   * appropriate dirty regions.
-   * 
-   * @param aView view to set clipping for
-   * @param aRegion
-   *     if null then no clipping is required. In this case all descendant
-   * views (but not descendants through placeholder edges) must have their
-   * bounds inside the bounds of this view
-   *     if non-null, then we will clip this view's descendant views
-   * --- including descendants through placeholder edges ---
-   * to the region. The region's bounds must be within the bounds of
-   * this view. The descendant views' bounds need not be inside the bounds
-   * of this view (because we're going to clip them anyway).
-   *
-   * XXX Currently we only support regions consisting of a single rectangle.
-   */
-  NS_IMETHOD  SetViewChildClipRegion(nsIView *aView, const nsRegion *aRegion) = 0;
-
-  /**
    * Set the visibility of a view.
    * The view manager generates the appropriate dirty regions.
    * @param aView view to change visibility state of
@@ -337,29 +300,9 @@ public:
   NS_IMETHOD  SetViewFloating(nsIView *aView, PRBool aFloatingView) = 0;
 
   /**
-   * Set whether the view can be bitblitted during scrolling.
-   */
-  NS_IMETHOD  SetViewBitBltEnabled(nsIView *aView, PRBool aEnable) = 0;
-
-  /**
    * Set whether the view's children should be searched during event processing.
    */
   NS_IMETHOD  SetViewCheckChildEvents(nsIView *aView, PRBool aEnable) = 0;
-
-  /**
-   * Used set the transparency status of the content in a view. see
-   * nsIView.HasTransparency().
-   * @param aTransparent PR_TRUE if there are transparent areas, PR_FALSE otherwise.
-   */
-  NS_IMETHOD  SetViewContentTransparency(nsIView *aView, PRBool aTransparent) = 0;
-
-  /**
-   * Note: This didn't exist in 4.0. Called to set the opacity of a view. 
-   * A value of 0.0 means completely transparent. A value of 1.0 means
-   * completely opaque.
-   * @param opacity new opacity value
-   */
-  NS_IMETHOD  SetViewOpacity(nsIView *aView, float aOpacity) = 0;
 
   /**
    * Set the view observer associated with this manager
@@ -445,12 +388,6 @@ public:
    * @return error status
    */
   NS_IMETHOD GetRootScrollableView(nsIScrollableView **aScrollable) = 0;
-
-  /**
-   * Display the specified view. Used when printing.
-   */
-   //XXXbz how is this different from UpdateView(NS_VMREFRESH_IMMEDIATE)?
-  NS_IMETHOD Display(nsIView *aView, nscoord aX, nscoord aY, const nsRect& aClipRect) = 0;
 
   /**
    * Dump the specified view into a new offscreen rendering context.

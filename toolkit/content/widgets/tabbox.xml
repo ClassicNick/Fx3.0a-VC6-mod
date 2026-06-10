@@ -106,9 +106,7 @@
                 onget="return this.tabs ? this.tabs.selectedItem : null;">
         <setter>
         <![CDATA[
-          if (!val)
-            return val;
-          if (this.tabs)
+          if (val && this.tabs)
             this.tabs.selectedItem = val;
           return val;
         ]]>
@@ -119,9 +117,7 @@
                 onget="return this.tabpanels ? this.tabpanels.selectedPanel : null;">
         <setter>
         <![CDATA[
-          if (!val)
-            return val;
-          if (this.tabpanels)
+          if (val && this.tabpanels)
             this.tabpanels.selectedPanel = val;
           return val;
         ]]>
@@ -163,7 +159,7 @@
                 }
               break;
             case event.DOM_VK_LEFT:
-              if (event.metaKey &&  event.altKey && !event.shiftKey && !event.ctrlKey)
+              if (event.metaKey && event.altKey && !event.shiftKey && !event.ctrlKey)
                 if (this.tabbox.tabs && this.tabbox._handleMetaAltArrows) {
                   var offset = window.getComputedStyle(this.tabbox, "")
                                      .direction == "ltr" ? -1 : 1;
@@ -173,7 +169,7 @@
                 }
               break;
             case event.DOM_VK_RIGHT:
-              if (event.metaKey &&  event.altKey && !event.shiftKey && !event.ctrlKey)
+              if (event.metaKey && event.altKey && !event.shiftKey && !event.ctrlKey)
                 if (this.tabbox.tabs && this.tabbox._handleMetaAltArrows) {
                   var offset = window.getComputedStyle(this.tabbox, "")
                                      .direction == "ltr" ? 1 : -1;
@@ -413,12 +409,12 @@
             if (aNewTab == requestedTab)
               return;
           }
-          
+
+          var isTabFocused = false;
           try {
-            var isTabFocused = document.commandDispatcher.focusedElement == this.selectedItem;
-          } catch (e) {
-            isTabFocused = false;
-          }
+            isTabFocused =
+              (document.commandDispatcher.focusedElement == this.selectedItem);
+          } catch (e) {}
           this.selectedItem = aNewTab;
           if (isTabFocused) {
             aNewTab.focus();
@@ -444,7 +440,6 @@
         ]]>
         </body>
       </method>
-
 
       <method name="advanceSelectedTab">
         <parameter name="aDir"/>
@@ -628,7 +623,7 @@
       </property>
 
       <property name="selected" readonly="true"
-                onget="return (this.getAttribute('selected') == 'true')"/>
+                onget="return this.getAttribute('selected') == 'true';"/>
 
       <property name="_selected">
         <setter>

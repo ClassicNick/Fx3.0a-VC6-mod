@@ -457,33 +457,6 @@ SyncFrameViewGeometryDependentProperties(nsPresContext*  aPresContext,
       !display->mAppearance && bg->mBackgroundClip == NS_STYLE_BG_CLIP_BORDER &&
       !HasNonZeroBorderRadius(aStyleContext));
 
-  PRBool drawnOnUniformField = PR_FALSE;
-  if (aStyleContext->GetPseudoType() == nsCSSAnonBoxes::scrolledContent) {
-    // If the nsGfxScrollFrame draws a solid unclipped background
-    // color, and nothing else, then tell the view system that we're
-    // drawn on a uniform field. Note that it's OK if the background
-    // is clipped to the padding area, since the scrollport is within
-    // the borders.
-    nsIFrame* scrollFrame = aFrame->GetParent();
-    while (scrollFrame->GetStyleContext()->GetPseudoType()
-           == nsCSSAnonBoxes::scrolledContent) {
-      scrollFrame = scrollFrame->GetParent();
-    }
-    PRBool scrollFrameIsCanvas;
-    const nsStyleBackground* scrollFrameBG;
-    PRBool scrollFrameHasBG =
-      nsCSSRendering::FindBackground(aPresContext, scrollFrame, &scrollFrameBG,
-                                     &scrollFrameIsCanvas);
-    const nsStyleDisplay* bgDisplay = scrollFrame->GetStyleDisplay();
-    drawnOnUniformField = scrollFrameHasBG &&
-      !(scrollFrameBG->mBackgroundFlags & NS_STYLE_BG_COLOR_TRANSPARENT) &&
-      (scrollFrameBG->mBackgroundFlags & NS_STYLE_BG_IMAGE_NONE) &&
-      !HasNonZeroBorderRadius(scrollFrame->GetStyleContext()) &&
-      !(bgDisplay->IsAbsolutelyPositioned()
-        && (bgDisplay->mClipFlags & NS_STYLE_CLIP_RECT));
-  }
-  aView->SetHasUniformBackground(drawnOnUniformField);
-
   if (isCanvas) {
     nsIView* rootView;
     vm->GetRootView(rootView);
@@ -534,97 +507,6 @@ SyncFrameViewGeometryDependentProperties(nsPresContext*  aPresContext,
       }
     }
   }
-
-  // If the frame has visible content that overflows the content area, then we
-  // need the view marked as having transparent content
-
-  // There are two types of clipping:
-  // - 'clip' which only applies to absolutely positioned elements, and is
-  //    relative to the element's border edge. 'clip' applies to the entire
-  //    element
-  // - 'overflow:-moz-hidden-unscrollable' which only applies to
-  //    block-level elements and replaced elements. Note
-  //    that out-of-flow frames like floated or absolutely positioned
-  //    frames are block-level, but we can't rely on the 'display' value
-  //    being set correctly in the style context...
-  PRBool hasClip = display->IsAbsolutelyPositioned() && (display->mClipFlags & NS_STYLE_CLIP_RECT);
-  PRBool hasOverflowClip = isBlockLevel && (display->mOverflowX == NS_STYLE_OVERFLOW_CLIP);
-  if (hasClip || hasOverflowClip) {
-    nsSize frameSize = aFrame->GetSize();
-    nsRect  clipRect;
-
-    if (hasClip) {
-      // Start with the 'auto' values and then factor in user specified values
-      clipRect.SetRect(0, 0, frameSize.width, frameSize.height);
-
-      if (display->mClipFlags & NS_STYLE_CLIP_RECT) {
-        if (0 == (NS_STYLE_CLIP_TOP_AUTO & display->mClipFlags)) {
-          clipRect.y = display->mClip.y;
-        }
-        if (0 == (NS_STYLE_CLIP_LEFT_AUTO & display->mClipFlags)) {
-          clipRect.x = display->mClip.x;
-        }
-        if (0 == (NS_STYLE_CLIP_RIGHT_AUTO & display->mClipFlags)) {
-          clipRect.width = display->mClip.width;
-        }
-        if (0 == (NS_STYLE_CLIP_BOTTOM_AUTO & display->mClipFlags)) {
-          clipRect.height = display->mClip.height;
-        }
-      }
-    }
-
-    if (hasOverflowClip) {
-      // XXX We should be able to replace the next 14 lines with just
-      //   overflowClipRect.Deflate(aFrame->GetUsedBorderAndPadding());
-      // but unfortunately this function gets called during frame
-      // construction (why?), and GetUsedBorderAndPadding asserts when
-      // called on a frame that hasn't been reflowed yet (for good
-      // reason).
-      const nsStyleBorder* borderStyle = aStyleContext->GetStyleBorder();
-      const nsStylePadding* paddingStyle = aStyleContext->GetStylePadding();
-
-      nsMargin padding;
-      nsRect overflowClipRect(0, 0, frameSize.width, frameSize.height);
-      overflowClipRect.Deflate(borderStyle->GetBorder());
-      // XXX We need to handle percentage padding
-      if (paddingStyle->GetPadding(padding)) {
-        overflowClipRect.Deflate(padding);
-      }
-#ifdef DEBUG
-      else {
-        NS_WARNING("Percentage padding and CLIP overflow don't mix");
-      }
-#endif
-
-      if (hasClip) {
-        // If both 'clip' and 'overflow-clip' apply then use the intersection
-        // of the two
-        clipRect.IntersectRect(clipRect, overflowClipRect);
-      } else {
-        clipRect = overflowClipRect;
-      }
-    }
-  
-    nsRect newSize = aView->GetBounds();
-    newSize -= aView->GetPosition();
-
-    // If part of the view is being clipped out, then mark it transparent
-    if (clipRect.y > newSize.y
-        || clipRect.x > newSize.x
-        || clipRect.XMost() < newSize.XMost()
-        || clipRect.YMost() < newSize.YMost()) {
-      viewHasTransparentContent = PR_TRUE;
-    }
-
-    // Set clipping of child views.
-    nsRegion region(clipRect);
-    vm->SetViewChildClipRegion(aView, &region);
-  } else {
-    // Remove clipping of child views.
-    vm->SetViewChildClipRegion(aView, nsnull);
-  }
-
-  vm->SetViewContentTransparency(aView, viewHasTransparentContent);
 }
 
 void
@@ -672,27 +554,6 @@ nsContainerFrame::SyncFrameViewAfterReflow(nsPresContext* aPresContext,
 }
 
 void
-nsContainerFrame::SyncFrameViewAfterSizeChange(nsPresContext*  aPresContext,
-                                               nsIFrame*        aFrame,
-                                               nsStyleContext*  aStyleContext,
-                                               nsIView*         aView,
-                                               PRUint32         aFlags)
-{
-  NS_ASSERTION(!aStyleContext || aFrame->GetStyleContext() == aStyleContext,
-               "Wrong style context for frame?");
-
-  if (!aView) {
-    return;
-  }
-  
-  if (nsnull == aStyleContext) {
-    aStyleContext = aFrame->GetStyleContext();
-  }
-
-  SyncFrameViewGeometryDependentProperties(aPresContext, aFrame, aStyleContext, aView, aFlags);
-}
-
-void
 nsContainerFrame::SyncFrameViewProperties(nsPresContext*  aPresContext,
                                           nsIFrame*        aFrame,
                                           nsStyleContext*  aStyleContext,
@@ -711,11 +572,6 @@ nsContainerFrame::SyncFrameViewProperties(nsPresContext*  aPresContext,
   if (nsnull == aStyleContext) {
     aStyleContext = aFrame->GetStyleContext();
   }
-    
-  const nsStyleDisplay* display = aStyleContext->GetStyleDisplay();
-
-  // Set the view's opacity
-  vm->SetViewOpacity(aView, display->mOpacity);
 
   // Make sure visibility is correct
   if (0 == (aFlags & NS_FRAME_NO_VISIBILITY)) {
@@ -748,7 +604,7 @@ nsContainerFrame::SyncFrameViewProperties(nsPresContext*  aPresContext,
 
   // See if the frame is being relatively positioned or absolutely
   // positioned
-  PRBool isPositioned = display->IsPositioned();
+  PRBool isPositioned = aStyleContext->GetStyleDisplay()->IsPositioned();
 
   PRInt32 zIndex = 0;
   PRBool  autoZIndex = PR_FALSE;
@@ -774,54 +630,7 @@ nsContainerFrame::SyncFrameViewProperties(nsPresContext*  aPresContext,
 PRBool
 nsContainerFrame::FrameNeedsView(nsIFrame* aFrame)
 {
-  if (aFrame->NeedsView()) {
-    return PR_TRUE;
-  }
-
-  nsStyleContext* sc = aFrame->GetStyleContext();
-  const nsStyleDisplay* display = sc->GetStyleDisplay();
-  if (display->mOpacity != 1.0f) {
-    return PR_TRUE;
-  }
-
-  // See if the frame has a fixed background attachment
-  const nsStyleBackground *color;
-  PRBool isCanvas;
-  PRBool hasBackground = 
-    nsCSSRendering::FindBackground(aFrame->GetPresContext(),
-                                   aFrame, &color, &isCanvas);
-  if (hasBackground && color->HasFixedBackground()) {
-    return PR_TRUE;
-  }
-    
-  if (NS_STYLE_POSITION_RELATIVE == display->mPosition) {
-    return PR_TRUE;
-  } else if (display->IsAbsolutelyPositioned()) {
-    return PR_TRUE;
-  } 
-
-  if (sc->GetPseudoType() == nsCSSAnonBoxes::scrolledContent) {
-    return PR_TRUE;
-  }
-
-  // See if the frame is block-level and has 'overflow' set to
-  // '-moz-hidden-unscrollable'. If so, then we need to give it a view
-  // so clipping of any child views works correctly. Note that if it's
-  // floated it is also block-level, but we can't trust that the style
-  // context 'display' value is set correctly.
-  if ((display->IsBlockLevel() || display->IsFloating()) &&
-      (display->mOverflowX == NS_STYLE_OVERFLOW_CLIP)) {
-    // XXX Check for the frame being a block frame and only force a view
-    // in that case, because adding a view for box frames seems to cause
-    // problems for XUL...
-    nsIAtom* frameType = aFrame->GetType();
-    if ((frameType == nsGkAtoms::blockFrame) ||
-        (frameType == nsGkAtoms::areaFrame)) {
-      return PR_TRUE;
-    }
-  }
-
-  return PR_FALSE;
+  return aFrame->NeedsView();
 }
 
 static nscoord GetCoord(const nsStyleCoord& aCoord, nscoord aIfNotCoord)

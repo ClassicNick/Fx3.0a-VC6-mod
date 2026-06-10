@@ -9,6 +9,10 @@ const specs = [
   "resource:////",
   "resource:///http://www.mozilla.org/",
   "resource:///file:///",
+  "resource:///..\\",
+  "resource:///..\\..\\",
+  "resource:///..%5C",
+  "resource:///..%5c"
 ];
 
 function check_for_exception(spec)

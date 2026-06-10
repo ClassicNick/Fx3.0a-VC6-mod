@@ -1719,6 +1719,7 @@ void nsCSSRendering::PaintBorder(nsPresContext* aPresContext,
 
 #ifdef MOZ_CAIRO_GFX
   gfxContext *ctx = (gfxContext*) aRenderingContext.GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+  gfxContext::AntialiasMode oldMode = ctx->CurrentAntialiasMode();
   ctx->SetAntialiasMode(gfxContext::MODE_ALIASED);
 #endif
 
@@ -1752,7 +1753,7 @@ void nsCSSRendering::PaintBorder(nsPresContext* aPresContext,
   }
 
 #ifdef MOZ_CAIRO_GFX
-  ctx->SetAntialiasMode(gfxContext::MODE_COVERAGE);
+  ctx->SetAntialiasMode(oldMode);
 #endif
 }
 
@@ -2691,16 +2692,6 @@ nsCSSRendering::PaintBackground(nsPresContext* aPresContext,
   }
 
   vm->SetDefaultBackgroundColor(canvasColor.mBackgroundColor);
-
-  // Since nsHTMLContainerFrame::CreateViewForFrame might have created
-  // the view before we knew about the child with the fixed background
-  // attachment (root or BODY) or the stylesheet specifying that
-  // attachment, set the BitBlt flag here as well.
-  if (canvasColor.mBackgroundAttachment == NS_STYLE_BG_ATTACHMENT_FIXED) {
-    nsIView *view = aForFrame->GetView();
-    if (view)
-      vm->SetViewBitBltEnabled(view, PR_FALSE);
-  }
 
   PaintBackgroundWithSC(aPresContext, aRenderingContext, aForFrame,
                         aDirtyRect, aBorderArea, canvasColor,
@@ -4187,7 +4178,7 @@ nsCSSRendering::DrawTableBorderSegment(nsIRenderingContext&     aContext,
                                        nscolor                  aBorderColor,
                                        const nsStyleBackground* aBGColor,
                                        const nsRect&            aBorder,
-                                       float                    aPixelsToTwips,
+                                       PRInt32                  aAppUnitsPerCSSPixel,
                                        PRUint8                  aStartBevelSide,
                                        nscoord                  aStartBevelOffset,
                                        PRUint8                  aEndBevelSide,
@@ -4205,6 +4196,12 @@ nsCSSRendering::DrawTableBorderSegment(nsIRenderingContext&     aContext,
     aStartBevelOffset = 0;
     aEndBevelOffset = 0;
   }
+
+#ifdef MOZ_CAIRO_GFX
+  gfxContext *ctx = (gfxContext*) aContext.GetNativeGraphicData(nsIRenderingContext::NATIVE_THEBES_CONTEXT);
+  gfxContext::AntialiasMode oldMode = ctx->CurrentAntialiasMode();
+  ctx->SetAntialiasMode(gfxContext::MODE_ALIASED);
+#endif
 
   switch (aBorderStyle) {
   case NS_STYLE_BORDER_STYLE_NONE:
@@ -4399,6 +4396,10 @@ nsCSSRendering::DrawTableBorderSegment(nsIRenderingContext&     aContext,
     NS_ASSERTION(PR_FALSE, "Unexpected 'auto' table border");
     break;
   }
+
+#ifdef MOZ_CAIRO_GFX
+  ctx->SetAntialiasMode(oldMode);
+#endif
 }
 
 // End table border-collapsing section

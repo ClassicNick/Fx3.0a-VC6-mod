@@ -1674,12 +1674,6 @@ nsImageFrame::GetType() const
   return nsGkAtoms::imageFrame;
 }
 
-PRBool
-nsImageFrame::IsFrameOfType(PRUint32 aFlags) const
-{
-  return !(aFlags & ~(eReplaced));
-}
-
 #ifdef DEBUG
 NS_IMETHODIMP
 nsImageFrame::GetFrameName(nsAString& aResult) const

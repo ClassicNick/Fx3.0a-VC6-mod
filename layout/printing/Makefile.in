@@ -76,21 +76,12 @@ XPIDLSRCS	= \
 		$(NULL)
 
 CPPSRCS		= \
+		nsPrintEngine.cpp \
 		nsPrintData.cpp \
 		nsPrintObject.cpp \
 		nsPagePrintTimer.cpp \
 		nsPrintPreviewListener.cpp \
 		$(NULL)
-		
-ifdef MOZ_ENABLE_CAIRO_GFX
-CPPSRCS = \
-		nsPrintEngine.cpp \
-		$(NULL)
-else
-CPPSRCS = \
-		nsPrintEngineObsolete.cpp \
-		$(NULL)
-endif
 
 FORCE_STATIC_LIB = 1
 

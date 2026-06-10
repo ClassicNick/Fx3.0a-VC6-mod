@@ -1205,7 +1205,8 @@ nsSVGFEColorMatrixElement::Filter(nsSVGFilterInstance *instance)
     if (num != 20)
       return NS_ERROR_FAILURE;
 
-    for(PRUint32 j = 0; j < num; j++) {
+	PRUint32 j;
+    for(j = 0; j < num; j++) {
       list->GetItem(j, getter_AddRefs(number));
       number->GetValue(&colorMatrix[j]);
     }
