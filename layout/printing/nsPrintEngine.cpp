@@ -600,7 +600,7 @@ nsPrintEngine::DoCommonPrint(PRBool                  aIsPrintPreview,
 
   mPrt->mPrintDC = do_CreateInstance("@mozilla.org/gfx/devicecontext;1", &rv);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = mPrt->mPrintDC->InitForPrinting(devspec);
+  rv = mDeviceContext->GetDeviceContextFor(devspec, *getter_AddRefs(mPrt->mPrintDC));
   NS_ENSURE_SUCCESS(rv, rv);
   
   if (aIsPrintPreview) {
@@ -2149,8 +2149,8 @@ nsPrintEngine::DoPrint(nsPrintObject * aPO)
             if (startPageNum == endPageNum) {
               {
                 nsPresContext* presContext = poPresShell->GetPresContext();
-                startRect.y -= presContext->TwipsToAppUnits(margin.top);
-                endRect.y   -= presContext->TwipsToAppUnits(margin.top);
+                startRect.y -= margin.top;
+                endRect.y   -= margin.top;
                 // XXX This is temporary fix for printing more than one page of a selection
                 pageSequence->SetSelectionHeight(startRect.y, endRect.y+endRect.height-startRect.y);
 
