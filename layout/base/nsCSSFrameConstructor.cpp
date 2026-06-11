@@ -1747,9 +1747,25 @@ GetChildListNameFor(nsIFrame*       aChildFrame)
     listName = nsnull;
   }
 
-  // Verify that the frame is actually in that child list
-  NS_POSTCONDITION(nsFrameList(aChildFrame->GetParent()->GetFirstChild(listName))
-                   .ContainsFrame(aChildFrame), "not in child list");
+#ifdef NS_DEBUG
+  // Verify that the frame is actually in that child list or in the
+  // corresponding overflow list.
+  nsIFrame* parent = aChildFrame->GetParent();
+  PRBool found = nsFrameList(parent->GetFirstChild(listName))
+                   .ContainsFrame(aChildFrame);
+  if (!found) {
+    if (!(aChildFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW)) {
+      found = nsFrameList(parent->GetFirstChild(nsGkAtoms::overflowList))
+                .ContainsFrame(aChildFrame);
+    }
+    else if (aChildFrame->GetStyleDisplay()->IsFloating()) {
+      found = nsFrameList(parent->GetFirstChild(nsGkAtoms::overflowOutOfFlowList))
+                .ContainsFrame(aChildFrame);
+    }
+    // else it's positioned and should have been on the 'listName' child list.
+    NS_POSTCONDITION(found, "not in child list");
+  }
+#endif
 
   return listName;
 }
@@ -6078,12 +6094,10 @@ nsCSSFrameConstructor::ConstructXULFrame(nsFrameConstructorState& aState,
     if (!newFrame->IsLeaf()) {
       // XXXbz don't we need calls to ShouldBuildChildFrames
       // elsewhere too?  Why only for XUL?
-      PRBool processChildren = PR_TRUE;
-      mDocument->BindingManager()->ShouldBuildChildFrames(aContent,
-                                                          &processChildren);
-      if (processChildren)
+      if (mDocument->BindingManager()->ShouldBuildChildFrames(aContent)) {
         rv = ProcessChildren(aState, aContent, newFrame, PR_FALSE,
                              childItems, PR_FALSE);
+      }
     }
       
     CreateAnonymousFrames(aTag, aState, aContent, newFrame, PR_FALSE,
@@ -7045,10 +7059,10 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
 
   PRBool parentIsSVG = PR_FALSE;
   if (aParentFrame && aParentFrame->GetContent()) {
-    nsCOMPtr<nsIAtom> parentTag;
     PRInt32 parentNSID;
-    mDocument->BindingManager()->ResolveTag(aParentFrame->GetContent(),
-                                            &parentNSID, getter_AddRefs(parentTag));
+    nsIAtom* parentTag =
+      mDocument->BindingManager()->ResolveTag(aParentFrame->GetContent(),
+                                              &parentNSID);
 
     parentIsSVG = parentNSID == kNameSpaceID_SVG
 #ifdef MOZ_SVG_FOREIGNOBJECT
@@ -7435,10 +7449,10 @@ nsCSSFrameConstructor::ConstructFrameInternal( nsFrameConstructorState& aState,
         display = styleContext->GetStyleDisplay();
       }
 
-      nsCOMPtr<nsIAtom> baseTag;
       PRInt32 nameSpaceID;
-      xblService->ResolveTag(aContent, &nameSpaceID, getter_AddRefs(baseTag));
- 
+      nsCOMPtr<nsIAtom> baseTag =
+        mDocument->BindingManager()->ResolveTag(aContent, &nameSpaceID);
+
       if (baseTag != aTag || aNameSpaceID != nameSpaceID) {
         // Construct the frame using the XBL base tag.
         rv = ConstructFrameInternal(aState,
@@ -7497,6 +7511,11 @@ nsCSSFrameConstructor::ConstructFrameInternal( nsFrameConstructorState& aState,
   // do it now, when constructing frames.  See bug 115921.
   {
     styleContext->GetStyleVisibility();
+  }
+  // Start background loads during frame construction. This is just
+  // a hint; the paint code will do the right thing in any case.
+  {
+    styleContext->GetStyleBackground();
   }
 
   nsIFrame* lastChild = frameItems->lastChild;
@@ -8213,10 +8232,9 @@ nsCSSFrameConstructor::ContentAppended(nsIContent*     aContainer,
 
 #ifdef MOZ_XUL
   if (aContainer) {
-    nsCOMPtr<nsIAtom> tag;
     PRInt32 namespaceID;
-    mDocument->BindingManager()->ResolveTag(aContainer, &namespaceID,
-                                            getter_AddRefs(tag));
+    nsIAtom* tag =
+      mDocument->BindingManager()->ResolveTag(aContainer, &namespaceID);
 
     // Just ignore tree tags, anyway we don't create any frames for them.
     if (tag == nsGkAtoms::treechildren ||
@@ -8246,20 +8264,15 @@ nsCSSFrameConstructor::ContentAppended(nsIContent*     aContainer,
 
   PRBool hasInsertion = PR_FALSE;
   if (!multiple) {
-    nsBindingManager *bindingManager = nsnull;
     nsIDocument* document = nsnull; 
     nsIContent *firstAppendedChild =
       aContainer->GetChildAt(aNewIndexInContainer);
     if (firstAppendedChild) {
       document = firstAppendedChild->GetDocument();
     }
-    if (document)
-      bindingManager = document->BindingManager();
-    if (bindingManager) {
-      nsCOMPtr<nsIContent> insParent;
-      bindingManager->GetInsertionParent(firstAppendedChild, getter_AddRefs(insParent));
-      if (insParent)
-        hasInsertion = PR_TRUE;
+    if (document &&
+        document->BindingManager()->GetInsertionParent(firstAppendedChild)) {
+      hasInsertion = PR_TRUE;
     }
   }
   
@@ -8716,10 +8729,9 @@ PRBool NotifyListBoxBody(nsPresContext*    aPresContext,
     }
   }
 
-  nsCOMPtr<nsIAtom> tag;
   PRInt32 namespaceID;
-  aDocument->BindingManager()->ResolveTag(aContainer, &namespaceID,
-                                          getter_AddRefs(tag));
+  nsIAtom* tag =
+    aDocument->BindingManager()->ResolveTag(aContainer, &namespaceID);
 
   // Just ignore tree tags, anyway we don't create any frames for them.
   if (tag == nsGkAtoms::treechildren ||
@@ -10063,9 +10075,8 @@ nsCSSFrameConstructor::AttributeChanged(nsIContent* aContent,
   // happen otherwise).
   if (!primaryFrame && !reframe) {
     PRInt32 namespaceID;
-    nsCOMPtr<nsIAtom> tag;
-    mDocument->BindingManager()->ResolveTag(aContent, &namespaceID,
-                                            getter_AddRefs(tag));
+    nsIAtom* tag =
+      mDocument->BindingManager()->ResolveTag(aContent, &namespaceID);
 
     if (namespaceID == kNameSpaceID_XUL &&
         (tag == nsGkAtoms::listitem ||
@@ -10125,9 +10136,8 @@ nsCSSFrameConstructor::AttributeChanged(nsIContent* aContent,
         aModType != nsIDOMMutationEvent::REMOVAL) ||
        aAttribute == nsGkAtoms::menuactive)) {
     PRInt32 namespaceID;
-    nsCOMPtr<nsIAtom> tag;
-    mDocument->BindingManager()->ResolveTag(aContent, &namespaceID,
-                                            getter_AddRefs(tag));
+    nsIAtom* tag =
+      mDocument->BindingManager()->ResolveTag(aContent, &namespaceID);
 
     if (namespaceID == kNameSpaceID_XUL &&
         (tag == nsGkAtoms::menupopup || tag == nsGkAtoms::popup ||

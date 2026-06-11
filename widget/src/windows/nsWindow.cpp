@@ -5039,12 +5039,26 @@ PRBool nsWindow::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam, LRESULT 
 #endif
 
     case WM_SETFOCUS:
+<<<<<<< HEAD
       result = DispatchFocus(NS_GOTFOCUS, isMozWindowTakingFocus);
       if (gJustGotActivate) {
         gJustGotActivate = PR_FALSE;
         gJustGotDeactivate = PR_FALSE;
         result = DispatchFocus(NS_ACTIVATE, isMozWindowTakingFocus);
       }
+=======
+      {
+        nsWindow* topWindow = GetNSWindowPtr(::GetAncestor(mWnd, GA_ROOT));
+
+        result = DispatchFocus(NS_GOTFOCUS, PR_TRUE);
+        
+        if ((HWND)wParam == NULL || 
+            (topWindow && topWindow->mWnd != ::GetAncestor((HWND)wParam, GA_ROOT))) {
+          result = DispatchFocus(NS_ACTIVATE, PR_TRUE);
+        }
+      }  
+
+>>>>>>> cc98317542
 #ifdef ACCESSIBILITY
       if (nsWindow::gIsAccessibilityOn) {
         // Create it for the first time so that it can start firing events

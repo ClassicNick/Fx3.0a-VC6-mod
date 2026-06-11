@@ -14,8 +14,8 @@
 # The Original Code is the Bugzilla Testopia System.
 #
 # The Initial Developer of the Original Code is Greg Hendricks.
-# Portions created by Greg Hendricks are Copyright (C) 2001
-# Greg Hendricks. All Rights Reserved.
+# Portions created by Greg Hendricks are Copyright (C) 2006
+# Novell. All Rights Reserved.
 #
 # Contributor(s): Greg Hendricks <ghendricks@novell.com>
 #                 Michael Hight <mjhight@gmail.com>
@@ -44,14 +44,15 @@ use JSON;
 use Data::Dumper;
 
 Bugzilla->login(LOGIN_REQUIRED);
-Bugzilla->batch(1);
 
 my $cgi = Bugzilla->cgi;
-
-use vars qw($vars $template);
 my $template = Bugzilla->template;
 
+use vars qw($vars);
+
 print $cgi->header;
+
+ThrowUserError('testopia-permission-denied', {'object' => 'environments'}) unless Bugzilla->user->in_group('Testers');
 
 my $action = $cgi->param('action') || '';
 my $env_id = $cgi->param('env_id') || 0;
@@ -151,7 +152,7 @@ elsif ($action eq 'getcategories'){
     my $product_id = $cgi->param('product_id');
     detaint_natural($product_id);
     my $product = Bugzilla::Testtopia::Product->new($product_id);
-    exit unless Bugzilla->user->can_see_product($product->name);
+    exit unless $product && Bugzilla->user->can_see_product($product->name);
     my $cat = Bugzilla::Testopia::Environment::Category({});
     my $categories = $cat->get_element_categories_by_product($product_id);
     my $ret;
@@ -260,7 +261,9 @@ sub edit_category{
     my ($id) = (@_);
     my $category = Bugzilla::Testopia::Environment::Category->new($id);
     my $product = Bugzilla::Testopia::Product->new($category->product_id());
-    return unless Bugzilla->user->can_see_product($product->name);
+    
+    return unless $category->canedit;
+    
     $category->{'name'} =~ s/<span style='color:blue'>|<\/span>//g;
 
     $vars->{'category'} = $category;
@@ -275,7 +278,9 @@ sub edit_element{
     my $element = Bugzilla::Testopia::Environment::Element->new($id);
     my $category = Bugzilla::Testopia::Environment::Category->new($element->env_category_id());
     my $product = Bugzilla::Testopia::Product->new($category->product_id());
+    
     return unless $category->canedit;
+    
     $element->{'name'} =~ s/<span style='color:blue'>|<\/span>//g;
     
     $vars->{'element'} = $element;
@@ -334,7 +339,7 @@ sub do_edit_category{
     
     trick_taint($name);
     detaint_natural($product_id);
-    
+    Bugzilla->batch(1);
     eval{
         validate_selection($product_id, 'id', 'products');
     };
@@ -409,7 +414,7 @@ sub do_edit_property{
     
     trick_taint($name);
     detaint_natural($element_id);
-   
+    Bugzilla->batch(1);
     eval{
         validate_selection($element_id, 'element_id', 'test_environment_element');
     };
@@ -453,8 +458,10 @@ sub add_category{
     my ($id) = (@_);
     
     my $category = Bugzilla::Testopia::Environment::Category->new({});
-    my $product = Bugzilla::Testopia::Product->new($id);
-    return unless Bugzilla->user->can_see_product($product->name);
+    if ($id){
+        my $product = Bugzilla::Testopia::Product->new($id);
+        return unless Bugzilla->user->can_see_product($product->name);
+    }
     $category->{'product_id'} = $id;
     $category->{'name'} = 'New category ' . $category->new_category_count;
     

@@ -334,7 +334,7 @@ sub update {
     $dbh->bz_lock_tables('test_runs WRITE', 'test_run_activity WRITE',
         'test_fielddefs READ');
     foreach my $field (keys %{$newvalues}){
-        if ($self->{$field} ne $newvalues->{$field}){
+        if ($newvalues->{$field} && $self->{$field} ne $newvalues->{$field}){
             $dbh->do("UPDATE test_runs 
                       SET $field = ? WHERE run_id = ?",
                       undef, ($newvalues->{$field}, $self->{'run_id'}));
@@ -691,7 +691,7 @@ sub get_distinct_builds {
         $query .= "AND group_id NOT IN(" . 
               join(',', values(%{Bugzilla->user->groups})) . ") ";
     }
-    $query .= "WHERE group_id IS NULL AND test_builds.isactive = 1 ORDER BY build.name";
+    $query .= "WHERE group_id IS NULL AND build.isactive = 1 ORDER BY build.name";
     
     my $ref = $dbh->selectall_arrayref($query, {'Slice'=>{}});
 

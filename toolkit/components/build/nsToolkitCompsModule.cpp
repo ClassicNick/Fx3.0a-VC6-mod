@@ -60,6 +60,7 @@
 #ifdef MOZ_URL_CLASSIFIER
 #include "nsUrlClassifierDBService.h"
 #include "nsUrlClassifierStreamUpdater.h"
+#include "nsUrlClassifierUtils.h"
 #endif
 
 #ifdef MOZ_FEEDS
@@ -91,6 +92,7 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsTypeAheadFind)
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsUrlClassifierDBService,
                                          nsUrlClassifierDBService::GetInstance)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsUrlClassifierStreamUpdater)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsUrlClassifierUtils)
 #endif
 
 #ifdef MOZ_FEEDS
@@ -145,6 +147,10 @@ static const nsModuleComponentInfo components[] =
     NS_URLCLASSIFIERSTREAMUPDATER_CID,
     NS_URLCLASSIFIERSTREAMUPDATER_CONTRACTID,
     nsUrlClassifierStreamUpdaterConstructor },
+  { "Url Classifier Utils",
+    NS_URLCLASSIFIERUTILS_CID,
+    NS_URLCLASSIFIERUTILS_CONTRACTID,
+    nsUrlClassifierUtilsConstructor },
 #endif
 #ifdef MOZ_FEEDS
   { "Unescape HTML",
