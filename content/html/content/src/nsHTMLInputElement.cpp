@@ -238,6 +238,9 @@ public:
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_NO_UNLINK(nsHTMLInputElement,
+                                                     nsGenericHTMLFormElement)
+
 protected:
   // Helper method
   nsresult SetValueInternal(const nsAString& aValue,
@@ -371,13 +374,19 @@ nsHTMLInputElement::~nsHTMLInputElement()
 
 // nsISupports
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsHTMLInputElement)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsHTMLInputElement,
+                                                  nsGenericHTMLFormElement)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mControllers)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
 NS_IMPL_ADDREF_INHERITED(nsHTMLInputElement, nsGenericElement) 
 NS_IMPL_RELEASE_INHERITED(nsHTMLInputElement, nsGenericElement) 
 
 
 // QueryInterface implementation for nsHTMLInputElement
-NS_HTML_CONTENT_INTERFACE_MAP_BEGIN(nsHTMLInputElement,
-                                    nsGenericHTMLFormElement)
+NS_HTML_CONTENT_CC_INTERFACE_MAP_BEGIN(nsHTMLInputElement,
+                                       nsGenericHTMLFormElement)
   NS_INTERFACE_MAP_ENTRY(nsIDOMHTMLInputElement)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNSHTMLInputElement)
   NS_INTERFACE_MAP_ENTRY(nsITextControlElement)
@@ -1173,14 +1182,7 @@ nsHTMLInputElement::SetFocus(nsPresContext* aPresContext)
     }
   }
 
-  nsIEventStateManager *esm = aPresContext->EventStateManager();
-  if (esm->SetContentState(this, NS_EVENT_STATE_FOCUS)) {
-    nsIFormControlFrame* formControlFrame = GetFormControlFrame(PR_TRUE);
-    if (formControlFrame) {
-      formControlFrame->SetFocus(PR_TRUE, PR_TRUE);
-      nsLayoutUtils::ScrollIntoView(formControlFrame);
-    }
-  }
+  SetFocusAndScrollIntoView(aPresContext);
 }
 
 NS_IMETHODIMP

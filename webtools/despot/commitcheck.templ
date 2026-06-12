@@ -27,6 +27,7 @@
 #      ALL	$CVSROOT/CVSROOT/commitcheck.pl
 
 
+my $read_only_users = ' calbld caminobld ffxbld seabld tbirdbld xrbld ';
 
 $debug = 0;
 
@@ -120,9 +121,10 @@ foreach $f (@files) {
             }
         }
     }
+
     if (!$ok) {
         print STDERR "You may not check into partition $fullname{$t}\n";
-	print STDERR "the file $repository/$f on branch $b\n";
+        print STDERR "the file $repository/$f on branch $b\n";
         print STDERR "If you think you should be allowed to, send mail to\n";
         print STDERR "one of the below people:\n";
         $s = $super{$t};
@@ -132,6 +134,17 @@ foreach $f (@files) {
         }
         exit 1;
     }
+}
+
+if ($username eq "") {
+    $username = $ENV{"CVS_USER"} || getlogin || (getpwuid($<))[0] || "nobody";
+}
+
+if ($read_only_users =~ m/ $username /) {
+    print STDERR "You may not check into this CVS repository.\n";
+    print STDERR "If you think you should be allowed to, please contact\n";
+    print STDERR "the system administrators at sysadmins@mozilla.org.\n";
+    exit 1;
 }
 
 exit 0;

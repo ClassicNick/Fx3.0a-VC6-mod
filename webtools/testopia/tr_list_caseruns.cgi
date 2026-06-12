@@ -143,7 +143,9 @@ if ($action eq 'Commit'){
         
     }
     $vars->{'title'} = "Update Successful";
-    $vars->{'tr_message'} = "$i Test Case-Runs Updated";
+    my $updated = $i - scalar @uneditable;
+    $vars->{'tr_error'} = scalar @uneditable . " Not updated" if scalar @uneditable > 0;
+    $vars->{'tr_message'} = "$updated Test Case-Runs Updated";
     if ($serverpush && !$cgi->param('debug')) {
         print $cgi->multipart_end;
         print $cgi->multipart_start;
@@ -290,11 +292,18 @@ if ($cgi->param('run_id')){
 my $case = Bugzilla::Testopia::TestCase->new({'case_id' => 0});
 $vars->{'expand_report'} = $cgi->param('expand_report') || 0;
 $vars->{'expand_filter'} = $cgi->param('expand_filter') || 0;
-$vars->{'dotweak'} = Bugzilla->user->in_group('Testers');
 $vars->{'table'} = $table;
 $vars->{'action'} = 'tr_list_caserun.cgi';
 $vars->{'caserun'} = Bugzilla::Testopia::TestCaseRun->new({});
 $vars->{'case'} = Bugzilla::Testopia::TestCase->new({});
+if ($vars->{'run'}) {
+    $vars->{'dotweak'} = $vars->{'run'}->canedit();
+    $vars->{'candelete'} = $vars->{'run'}->candelete();
+}
+else {
+    $vars->{'dotweak'} = Bugzilla->user->in_group('Testers');
+    $vars->{'candelete'} = Param('testopia-allow-group-member-deletes');
+}
 if ($serverpush && !$cgi->param('debug')) {
     print $cgi->multipart_end;
     print $cgi->multipart_start;

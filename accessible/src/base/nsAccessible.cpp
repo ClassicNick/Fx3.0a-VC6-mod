@@ -92,11 +92,55 @@
 #include "nsITimer.h"
 #include "nsIMutableArray.h"
 #include "nsIPersistentProperties2.h"
+#include "nsIDOMTreeWalker.h"
+#include "nsIDOMDocumentTraversal.h"
+#include "nsIDOMNodeFilter.h"
 
 #ifdef NS_DEBUG
 #include "nsIFrameDebug.h"
 #include "nsIDOMCharacterData.h"
 #endif
+
+/**
+ * nsAccessibleDOMStringList implementation
+ */
+nsAccessibleDOMStringList::nsAccessibleDOMStringList()
+{
+}
+
+nsAccessibleDOMStringList::~nsAccessibleDOMStringList()
+{
+}
+
+NS_IMPL_ISUPPORTS1(nsAccessibleDOMStringList, nsIDOMDOMStringList)
+
+NS_IMETHODIMP
+nsAccessibleDOMStringList::Item(PRUint32 aIndex, nsAString& aResult)
+{
+  if (aIndex >= (PRUint32)mNames.Count()) {
+    SetDOMStringToNull(aResult);
+  } else {
+    mNames.StringAt(aIndex, aResult);
+  }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAccessibleDOMStringList::GetLength(PRUint32 *aLength)
+{
+  *aLength = (PRUint32)mNames.Count();
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAccessibleDOMStringList::Contains(const nsAString& aString, PRBool *aResult)
+{
+  *aResult = mNames.IndexOf(aString) > -1;
+
+  return NS_OK;
+}
 
 /*
  * Class nsAccessible
@@ -591,7 +635,7 @@ NS_IMETHODIMP nsAccessible::GetPreviousSibling(nsIAccessible * *aPreviousSibling
   }
 
   nsCOMPtr<nsIAccessible> parent;
-  if (NS_FAILED(GetParent(getter_AddRefs(parent)))) {
+  if (NS_FAILED(GetParent(getter_AddRefs(parent))) || !parent) {
     return NS_ERROR_FAILURE;
   }
 
@@ -2207,10 +2251,29 @@ NS_IMETHODIMP nsAccessible::SetName(const nsAString& name)
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
-/* DOMString getKeyBinding (); */
-NS_IMETHODIMP nsAccessible::GetKeyBinding(nsAString& _retval)
+NS_IMETHODIMP
+nsAccessible::GetDefaultKeyBinding(nsAString& aKeyBinding)
 {
-  return NS_ERROR_NOT_IMPLEMENTED;
+  aKeyBinding.Truncate();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAccessible::GetKeyBindings(nsIDOMDOMStringList **aKeyBindings)
+{
+  nsAccessibleDOMStringList *keyBindings = new nsAccessibleDOMStringList();
+  NS_ENSURE_TRUE(keyBindings, NS_ERROR_OUT_OF_MEMORY);
+
+  // Currently we support only unique key binding on element.
+  nsAutoString defaultKey;
+  nsresult rv = GetDefaultKeyBinding(defaultKey);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (!defaultKey.IsEmpty())
+    keyBindings->Add(defaultKey);
+
+  NS_ADDREF(*aKeyBindings = keyBindings);
+  return NS_OK;
 }
 
 /* unsigned long getRole (); */
@@ -2520,12 +2583,7 @@ NS_IMETHODIMP nsAccessible::GetExtState(PRUint32 *aExtState)
   PRUint32 state ;
   GetFinalState(&state);
   if (0 == (state & STATE_UNAVAILABLE)) {  // If not disabled
-    // And if has at least 1 action or it is focusable, it can be ENABLED and SENSITIVE
-    PRUint8 actions;
-    GetNumActions(&actions);
-    if (actions > 0 || (state & STATE_FOCUSABLE)) {
-      *aExtState |= EXT_STATE_ENABLED | EXT_STATE_SENSITIVE;
-    }
+    *aExtState |= EXT_STATE_ENABLED | EXT_STATE_SENSITIVE;
   }
 
   if (state & (STATE_COLLAPSED | STATE_EXPANDED)) {
@@ -2901,3 +2959,39 @@ PRInt32 nsAccessible::TextLength(nsIAccessible *aAccessible)
   }
   return textLength;
 }
+
+already_AddRefed<nsIAccessible>
+nsAccessible::GetFirstAvailableAccessible(nsIDOMNode *aStartNode, PRBool aRequireLeaf)
+{
+  nsIAccessibilityService *accService = GetAccService();
+  nsCOMPtr<nsIAccessible> accessible;
+  nsCOMPtr<nsIDOMTreeWalker> walker; 
+  nsCOMPtr<nsIDOMNode> currentNode(aStartNode);
+
+  while (currentNode) {
+    accService->GetAccessibleInWeakShell(currentNode, mWeakShell, getter_AddRefs(accessible)); // AddRef'd
+    if (accessible && (!aRequireLeaf || IsLeaf(accessible))) {
+      nsIAccessible *retAccessible = accessible;
+      NS_ADDREF(retAccessible);
+      return retAccessible;
+    }
+    if (!walker) {
+      // Instantiate walker lazily since we won't need it in 90% of the cases
+      // where the first DOM node we're given provides an accessible
+      nsCOMPtr<nsIDOMDocument> document;
+      currentNode->GetOwnerDocument(getter_AddRefs(document));
+      nsCOMPtr<nsIDOMDocumentTraversal> trav = do_QueryInterface(document);
+      NS_ASSERTION(trav, "No DOM document traversal for document");
+      NS_ENSURE_TRUE(trav, nsnull);
+      trav->CreateTreeWalker(mDOMNode, nsIDOMNodeFilter::SHOW_ELEMENT | nsIDOMNodeFilter::SHOW_TEXT,
+                            nsnull, PR_FALSE, getter_AddRefs(walker));
+      NS_ENSURE_TRUE(walker, nsnull);
+      walker->SetCurrentNode(currentNode);
+    }
+
+    walker->NextNode(getter_AddRefs(currentNode));
+  }
+
+  return nsnull;
+}
+

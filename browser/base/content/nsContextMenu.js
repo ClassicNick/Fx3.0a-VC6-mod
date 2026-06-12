@@ -688,7 +688,8 @@ nsContextMenu.prototype = {
     urlSecurityCheck(this.imageURL,
                      this.browser.contentPrincipal,
                      Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
-    openUILink( this.imageURL, e );
+    var doc = this.target.ownerDocument;
+    openUILink( this.imageURL, e, null, null, null, null, doc.documentURIObject );
   },
 
   // Change current window to the URL of the background image.
@@ -696,7 +697,8 @@ nsContextMenu.prototype = {
     urlSecurityCheck(this.bgImageURL,
                      this.browser.contentPrincipal,
                      Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
-    openUILink(this.bgImageURL, e );
+    var doc = this.target.ownerDocument;
+    openUILink(this.bgImageURL, e, null, null, null, null, doc.documentURIObject );
   },
 
   disableSetDesktopBackground: function() {
@@ -1124,11 +1126,15 @@ nsContextMenu.prototype = {
   },
 #endif
 
-  savePageAs: function() {
+  savePageAs: function CM_savePageAs() {
     saveDocument(this.browser.contentDocument);
   },
 
-  printFrame: function() {
+  sendPage: function CM_sendPage() {
+    MailIntegration.sendLinkForWindow(this.browser.contentWindow);  
+  },
+
+  printFrame: function CM_printFrame() {
     PrintUtils.print(this.target.ownerDocument.defaultView);
   }
 };

@@ -384,6 +384,18 @@ DeletingFrameSubtree(nsFrameManager* aFrameManager,
 
 #ifdef  MOZ_SVG
 
+static nsIFrame *
+SVG_GetFirstNonAAncestorFrame(nsIFrame *aParentFrame)
+{
+  for (nsIFrame *ancestorFrame = aParentFrame; ancestorFrame != nsnull;
+       ancestorFrame = ancestorFrame->GetParent()) {
+    if (ancestorFrame->GetType() != nsGkAtoms::svgAFrame) {
+      return ancestorFrame;
+    }
+  }
+  return nsnull;
+}
+
 // Test to see if this language is supported
 static PRBool
 SVG_TestLanguage(const nsSubstring& lstr, const nsSubstring& prefs) 
@@ -1801,6 +1813,7 @@ nsCSSFrameConstructor::nsCSSFrameConstructor(nsIDocument *aDocument,
   , mQuotesDirty(PR_FALSE)
   , mCountersDirty(PR_FALSE)
   , mInitialContainingBlockIsAbsPosContainer(PR_FALSE)
+  , mIsDestroyingFrameTree(PR_FALSE)
 {
   if (!gGotXBLFormPrefs) {
     gGotXBLFormPrefs = PR_TRUE;
@@ -5207,12 +5220,16 @@ nsCSSFrameConstructor::ConstructTextFrame(nsFrameConstructorState& aState,
 
 #ifdef MOZ_SVG
   if (aParentFrame->IsFrameOfType(nsIFrame::eSVG)) {
-    nsISVGTextContentMetrics* metrics;
-    CallQueryInterface(aParentFrame, &metrics);
-    if (!metrics) {
-      return NS_OK;
+    nsIFrame *ancestorFrame = SVG_GetFirstNonAAncestorFrame(aParentFrame);
+    if (ancestorFrame) {
+      nsISVGTextContentMetrics* metrics;
+      CallQueryInterface(ancestorFrame, &metrics);
+      if (!metrics) {
+        return NS_OK;
+      }
+      newFrame = NS_NewSVGGlyphFrame(mPresShell, aContent,
+                                     ancestorFrame, aStyleContext);
     }
-    newFrame = NS_NewSVGGlyphFrame(mPresShell, aContent, aParentFrame, aStyleContext);
   }
   else {
     newFrame = NS_NewTextFrame(mPresShell, aStyleContext);
@@ -7189,10 +7206,13 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     newFrame = NS_NewSVGTextFrame(mPresShell, aContent, aStyleContext);
   }
   else if (aTag == nsGkAtoms::tspan) {
-    nsISVGTextContentMetrics* metrics;
-    CallQueryInterface(aParentFrame, &metrics);
-    if (metrics) {
-      newFrame = NS_NewSVGTSpanFrame(mPresShell, aContent, aParentFrame, aStyleContext);
+    nsIFrame *ancestorFrame = SVG_GetFirstNonAAncestorFrame(aParentFrame);
+    if (ancestorFrame) {
+      nsISVGTextContentMetrics* metrics;
+      CallQueryInterface(ancestorFrame, &metrics);
+      if (metrics)
+        newFrame = NS_NewSVGTSpanFrame(mPresShell, aContent,
+                                       ancestorFrame, aStyleContext);
     }
   }
   else if (aTag == nsGkAtoms::linearGradient) {
@@ -7217,9 +7237,11 @@ nsCSSFrameConstructor::ConstructSVGFrame(nsFrameConstructorState& aState,
     newFrame = NS_NewSVGClipPathFrame(mPresShell, aContent, aStyleContext);
   }
   else if (aTag == nsGkAtoms::textPath) {
-    if (aParentFrame &&
-        aParentFrame->GetType() == nsGkAtoms::svgTextFrame) {
-      newFrame = NS_NewSVGTextPathFrame(mPresShell, aContent, aParentFrame, aStyleContext);
+    nsIFrame *ancestorFrame = SVG_GetFirstNonAAncestorFrame(aParentFrame);
+    if (ancestorFrame &&
+        ancestorFrame->GetType() == nsGkAtoms::svgTextFrame) {
+      newFrame = NS_NewSVGTextPathFrame(mPresShell, aContent,
+                                        ancestorFrame, aStyleContext);
     }
   }
   else if (aTag == nsGkAtoms::filter) {
@@ -9388,10 +9410,11 @@ DeletingFrameSubtree(nsFrameManager* aFrameManager,
 nsresult
 nsCSSFrameConstructor::RemoveMappingsForFrameSubtree(nsIFrame* aRemovedFrame)
 {
-  if (NS_UNLIKELY(mPresShell->IsDestroying())) {
-    // The frame tree might not be in a consistent state if the pres shell
-    // is being destroyed. Most likely the frame manager has cleared all
-    // mappings and is destroying the frame hierarchy right now, bug 372576.
+  if (NS_UNLIKELY(mIsDestroyingFrameTree)) {
+    // The frame tree might not be in a consistent state after
+    // WillDestroyFrameTree() has been called. Most likely we're destroying
+    // the pres shell which means the frame manager takes care of clearing all
+    // mappings so there is no need to walk the frame tree here, bug 372576.
     return NS_OK;
   }
 
@@ -10239,6 +10262,8 @@ nsCSSFrameConstructor::WillDestroyFrameTree()
 #if defined(DEBUG_dbaron_off)
   mCounterManager.Dump();
 #endif
+
+  mIsDestroyingFrameTree = PR_TRUE;
 
   // Prevent frame tree destruction from being O(N^2)
   mQuoteList.Clear();

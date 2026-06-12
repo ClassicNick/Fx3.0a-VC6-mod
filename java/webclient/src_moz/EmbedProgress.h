@@ -28,6 +28,7 @@
 #include "jni_util.h"
 
 class NativeBrowserControl;
+class AjaxListener;
 
 class EmbedProgress : public nsIWebProgressListener,
                       public nsSupportsWeakReference
@@ -46,11 +47,17 @@ class EmbedProgress : public nsIWebProgressListener,
 
   NS_DECL_NSIWEBPROGRESSLISTENER
 
- private:
-
+  NativeBrowserControl *GetOwner();
   static void RequestToURIString (nsIRequest *aRequest, char **aString);
 
+ private:
+
+  NS_IMETHOD GetAjaxListener(AjaxListener** result);
+  NS_IMETHOD RemoveAjaxListener(void);
+
   NativeBrowserControl *mOwner;
+
+  AjaxListener *mAjaxListener;
     
   jobject mEventRegistration;
 

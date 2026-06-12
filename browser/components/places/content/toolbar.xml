@@ -315,15 +315,20 @@
       <method name="updateChevron">
         <parameter name="event"/>
         <body><![CDATA[
-        
           // Ignore events that aren't on the document or the window
           // (html document, tooltips, etc)
-          if (event && event.target != document && event.target != window)
+          // Do not ignore content window resizes, because they may
+          // be the result of the toolbar being shown/hidden
+          if (event && event.target != document && event.target != window &&
+              event.target != content)
             return;
-        
-          this._chevron.collapsed = false;
-          var chevronWidth = this._chevron.boxObject.width;          
+
           var totalWidth = this.boxObject.width;
+          if(this.lastWidth == totalWidth)
+            return; // don't recalculate if the size hasn't changed 
+          this.lastWidth = totalWidth;
+          this._chevron.collapsed = false;
+          var chevronWidth = this._chevron.boxObject.width;
           var spaceLeft = totalWidth;
           var overflowed = false;
           for (var i = 0; i < this.childNodes.length; i++) {
@@ -339,6 +344,8 @@
           this._chevron.collapsed = !overflowed;
         ]]></body>
       </method>
+
+      <field name="lastWidth">0</field>
       
       <!-- nsIPlacesView -->
       <property name="place">
@@ -353,11 +360,17 @@
           history.queryStringToQueries(val, queries, { }, options);
           if (!queries.value.length) 
             queries.value = [history.getNewQuery()];
-          this._result = 
-            history.executeQueries(queries.value, queries.value.length,
-                                   options.value);
-          this._result.root.containerOpen = true;
-          this._rebuild();
+          try {
+            this._result = 
+              history.executeQueries(queries.value, queries.value.length,
+                                     options.value);
+            this._result.root.containerOpen = true;
+            this._rebuild();
+          }
+          catch(ex) {
+            // Invalid query, or had no results.
+            // This is valid, eg: user deletes their bookmarks toolbar folder. 
+          }
           return val;
         ]]></setter>
       </property>
@@ -472,34 +485,38 @@
             this.doRebuild();
         },
         onItemAdded: function TB_O_onItemAdded(id, bookmark, folder, index) {
-          if (folder == PlacesUtils.bookmarks.toolbarRoot) {
+          if (folder == PlacesUtils.bookmarks.toolbarFolder) {
             this._self._currentURIs[bookmark.spec] = true;
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
           }
         },
         onItemRemoved: function TB_O_onItemRemoved(id, bookmark, folder, index) {
-          if (folder == PlacesUtils.bookmarks.toolbarRoot) {
+          if (folder == PlacesUtils.bookmarks.toolbarFolder) {
             delete this._self._currentURIs[bookmark.spec];
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
           }
         },
         onItemChanged: function TB_O_onItemChanged(id, bookmark, property, value) {
+          if (property == "became_toolbar_folder") {
+            var place = PlacesUtils.getQueryStringForFolder(id);
+            this._self.place = place || null;
+          }
           this._numBatches ? this._batchedOperation = true : this.doRebuild();
         },
         onItemVisited: function TB_0_onItemVisited(bookmark, visitId, time) {
           //this._self._init();
         },
         onFolderAdded: function TB_O_onFolderAdded(folder, parent, index) {
-          if (parent == PlacesUtils.bookmarks.toolbarRoot)
+          if (parent == PlacesUtils.bookmarks.toolbarFolder)
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
         },
         onFolderRemoved: function TB_O_onFolderRemoved(folder, parent, index) {
-          if (parent == PlacesUtils.bookmarks.toolbarRoot)
+          if (parent == PlacesUtils.bookmarks.toolbarFolder)
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
         },
         onFolderMoved: function TB_O_onFolderMoved(folder, oldParent, oldIndex, newParent, newIndex) {
-          if (oldParent == PlacesUtils.bookmarks.toolbarRoot ||
-              newParent == PlacesUtils.bookmarks.toolbarRoot)
+          if (oldParent == PlacesUtils.bookmarks.toolbarFolder ||
+              newParent == PlacesUtils.bookmarks.toolbarFolder)
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
         },
         onFolderChanged: function TB_O_onFolderChanged(folder, property) {
@@ -512,11 +529,11 @@
           setTimeout(hitch(this._self, this._self._rebuild), 1);
         },
         onSeparatorAdded: function TB_O_onSeparatorAdded(parent, index) {
-          if (parent == PlacesUtils.bookmarks.toolbarRoot)
+          if (parent == PlacesUtils.bookmarks.toolbarFolder)
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
         },
         onSeparatorRemoved: function TB_O_onSeparatorRemoved(parent, index) {
-          if (parent == PlacesUtils.bookmarks.toolbarRoot)
+          if (parent == PlacesUtils.bookmarks.toolbarFolder)
             this._numBatches ? this._batchedOperation = true : this.doRebuild();
         }
       })]]></field>

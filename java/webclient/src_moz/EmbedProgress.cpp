@@ -37,10 +37,13 @@
 #include "NativeBrowserControl.h"
 
 #include "HttpHeaderVisitorImpl.h"
+#include "AjaxListener.h"
 
 #include "ns_globals.h" // for prLogModuleInfo
 
-EmbedProgress::EmbedProgress(void) : mCapturePageInfo(JNI_FALSE)
+EmbedProgress::EmbedProgress(void) : 
+    mCapturePageInfo(JNI_FALSE),
+    mAjaxListener(nsnull)
 {
   mOwner = nsnull;
   mEventRegistration = nsnull;
@@ -53,6 +56,7 @@ EmbedProgress::~EmbedProgress()
 	::util_DeleteGlobalRef(env, mEventRegistration);
 	mEventRegistration = nsnull;
     }
+    RemoveAjaxListener();
 
 }
 
@@ -85,6 +89,16 @@ EmbedProgress::SetEventRegistration(jobject yourEventRegistration)
     if (nsnull == mEventRegistration) {
         ::util_ThrowExceptionToJava(env, "Exception: EmbedProgress->SetEventRegistration(): can't create NewGlobalRef\n\tfor eventRegistration");
 	rv = NS_ERROR_FAILURE;
+    }
+    AjaxListener *observer = nsnull;
+    rv = GetAjaxListener(&observer);
+    if (observer && NS_SUCCEEDED(rv)) {
+	if (mCapturePageInfo) {
+	    observer->StartObserving();
+	}
+	else {
+	    observer->StopObserving();
+	}
     }
 
     return rv;
@@ -462,6 +476,37 @@ EmbedProgress::OnSecurityChange(nsIWebProgress *aWebProgress,
 		  aState);
     **********/
   return NS_OK;
+}
+
+NativeBrowserControl* EmbedProgress::GetOwner()
+{
+    return mOwner;
+}
+
+NS_IMETHODIMP
+EmbedProgress::GetAjaxListener(AjaxListener* *result)
+{
+    if (nsnull == result) {
+	return NS_ERROR_NULL_POINTER;
+    }
+
+    nsresult rv = NS_ERROR_FAILURE;
+
+    if (nsnull == mAjaxListener) {
+	JNIEnv *env = (JNIEnv *) JNU_GetEnv(gVm, JNI_VERSION);
+	mAjaxListener = new AjaxListener(this, env, mEventRegistration);
+    }
+    *result = mAjaxListener;
+    rv = NS_OK;
+    
+    return rv;
+}
+
+NS_IMETHODIMP
+EmbedProgress::RemoveAjaxListener(void) 
+{
+    nsresult rv = NS_ERROR_NOT_IMPLEMENTED;
+    return rv;
 }
 
 /* static */

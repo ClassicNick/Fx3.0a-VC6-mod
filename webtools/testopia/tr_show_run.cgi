@@ -79,6 +79,7 @@ if ($action eq 'Commit'){
 elsif ($action eq 'History'){
     print $cgi->header;
     my $run = Bugzilla::Testopia::TestRun->new($run_id);
+    ThrowUserError("testopia-permission-denied", {'object' => 'run'}) unless $run->canview;
     $vars->{'run'} = $run; 
     $template->process("testopia/run/history.html.tmpl", $vars)
       || ThrowTemplateError($template->error());
@@ -128,7 +129,7 @@ elsif ($action eq 'do_clone'){
 
     }
     
-    ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->canedit;
+    ThrowUserError("testopia-read-only", {'object' => 'run'}) unless $run->plan->canedit;
     my $summary = $cgi->param('summary');
     my $build = $cgi->param('build');
     my $plan_id = $cgi->param('plan_id');
@@ -280,6 +281,7 @@ elsif ($action eq 'addcc'){
         $run->add_cc($ccid);
     }
     my $cc = get_cc_xml($run);
+    print $cgi->header;
     print $cc;
 }
 elsif ($action eq 'removecc'){
@@ -290,6 +292,7 @@ elsif ($action eq 'removecc'){
         $run->remove_cc($ccid);
     }
     my $cc = get_cc_xml($run);
+    print $cgi->header;
     print $cc;
 }
 elsif ($action eq 'Delete'){
@@ -417,7 +420,7 @@ sub do_update {
 
 sub display {
     my $run = shift;
-    
+    ThrowUserError("testopia-permission-denied", {'object' => 'run'}) unless $run->canview;
     # See if there is a saved filter
     if ($cgi->cookie('TESTOPIA-FILTER-RUN-' . $run_id) && $action ne 'Filter' && $action ne 'clear_filter'){
         $cgi = Bugzilla::CGI->new($cgi->cookie('TESTOPIA-FILTER-RUN-' . $run_id));

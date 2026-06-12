@@ -18,6 +18,9 @@ tar -xjf "${MSYS_SRCDIR}/make-3.81-MSYS-1.0.11-snapshot.tar.bz2" -C "${MSYS_STAG
 # install the uber-new make.exe from Earnie Boyd
 cp "${MSYS_SRCDIR}/make.exe" "${MSYS_STAGEDIR}/mozilla-build/make-3.81/bin"
 
+# copy /bin/sh to /bin/bash
+cp "${MSYS_STAGEDIR}/mozilla-build/msys/bin/sh.exe" "${MSYS_STAGEDIR}/mozilla-build/msys/bin/bash.exe"
+
 # install UPX
 unzip -d "${MSYS_STAGEDIR}/mozilla-build" "${MSYS_SRCDIR}/upx203w.zip"
 
@@ -80,10 +83,17 @@ cp "${MSYS_SRCDIR}"/{profile-inputrc.sh,profile-extrapaths.sh,profile-echo.sh,pr
 # Copy the batch files that make everything go!
 cp "${MSYS_SRCDIR}"/{guess-msvc.bat,start-msvc6.bat,start-msvc71.bat,start-msvc8.bat} "${MSYS_STAGEDIR}/mozilla-build"
 
-# zip it up and make an installer
+# Install autoconf 2.13
+tar -xzf "${MSYS_SRCDIR}/autoconf-2.13.tar.gz" -C "${MSYS_STAGEDIR}"
+pushd "${MSYS_STAGEDIR}/autoconf-2.13"
+./configure --prefix=/local --program-suffix=-2.13
+make
+make install prefix="${MSYS_STAGEDIR}/mozilla-build/msys/local"
+popd
+
+# Install wget
+unzip -d "${MSYS_STAGEDIR}/mozilla-build/wget" "${MSYS_SRCDIR}/wget-1.10.2b.zip"
+
+# stage files to make the installer
 cp "${MSYS_SRCDIR}"/{license.rtf,installit.nsi} "${MSYS_STAGEDIR}"
 unix2dos "${MSYS_STAGEDIR}/license.rtf"
-pushd "${MSYS_STAGEDIDR}"
-makensis //NOCD installit.nsi
-zip -r9D mozilla-build.zip mozilla-build
-popd

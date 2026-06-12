@@ -34,8 +34,7 @@ if "%VC8DIR%"=="" (
     call "%VC8EXPRESSDIR%\Bin\vcvars32.bat"
 
     rem Don't set SDK paths in this block, because blocks are early-evaluated.
-)
-else (
+) else (
     rem Prepend MSVC paths
     call "%VC8DIR%\Bin\vcvars32.bat"
 )
@@ -50,4 +49,4 @@ if "%VC8DIR%"=="" (
 )
 
 cd "%USERPROFILE%"
-start "MSYS Shell - MSVC8 Environment" "%MOZILLABUILD%\msys\bin\rxvt" -backspacekey  -sl 2500 -fg %FGCOLOR% -bg %BGCOLOR% -sr -fn "Lucida Console" -tn msys -geometry 80x25 -e /bin/sh --login -i
+start "MSYS Shell - MSVC8 Environment" "%MOZILLABUILD%\msys\bin\rxvt" -backspacekey  -sl 2500 -fg %FGCOLOR% -bg %BGCOLOR% -sr -fn "Lucida Console" -tn msys -geometry 80x25 -e /bin/bash --login -i

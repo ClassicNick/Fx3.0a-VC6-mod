@@ -308,6 +308,19 @@ function BookmarkThisTab()
 #endif
 }
 
+#ifdef MOZ_PLACES_BOOKMARKS
+/**
+ * Initialize the bookmarks toolbar
+ */
+function initBookmarksToolbar() {
+  var bt = document.getElementById("bookmarksBarContent");
+  if (!bt)
+    return;
+  bt.place =
+    PlacesUtils.getQueryStringForFolder(PlacesUtils.bookmarks.toolbarFolder);
+}
+#endif
+
 const gSessionHistoryObserver = {
   observe: function(subject, topic, data)
   {
@@ -1005,6 +1018,8 @@ function delayedStartup()
           .controllers.appendController(BookmarksMenuController);
 #else
   PlacesMenuDNDController.init();
+
+  initBookmarksToolbar();
 #endif
 
   // called when we go into full screen, even if it is
@@ -4452,7 +4467,10 @@ function asyncOpenWebPanel(event)
                     BROWSER_ADD_BM_FEATURES, dialogArgs);
          event.preventDefault();
 #else
-         dump("*** IMPLEMENT ME: Bug 329964\n");
+         PlacesUtils.showAddBookmarkUI(makeURI(wrapper.href),
+                                       wrapper.getAttribute("title"),
+                                       null, true, true);
+         event.preventDefault();
 #endif
          return false;
        }
@@ -5045,9 +5063,9 @@ function WindowIsClosing()
 }
 
 var MailIntegration = {
-  sendLinkForContent: function () {
-    this.sendMessage(window.content.location.href,
-                     window.content.document.title);
+  sendLinkForWindow: function (aWindow) {
+    this.sendMessage(aWindow.location.href,
+                     aWindow.document.title);
   },
 
   sendMessage: function (aBody, aSubject) {

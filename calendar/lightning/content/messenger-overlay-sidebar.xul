@@ -81,7 +81,6 @@
     <command id="publish_calendar" oncommand="ltnPublishCalendar()"/>
     <command id="import_command" oncommand="loadEventsFromFile()"/>
     <command id="export_command" oncommand="exportEntireCalendar()"/>
-    <command id="print_command" oncommand="calPrint()"/>
     <command id="reload_remote_calendars" oncommand="getCompositeCalendar().refresh();"/>
   </commandset>
 
@@ -226,7 +225,8 @@
         &lightning.imipbar.description;
       </description>
       <spacer flex="1"/>
-      <button id="imip-btn1" align="right"/>
+      <button id="imip-button1" align="center" pack="end"/>
+      <button id="imip-button2" align="center" pack="end" hidden="true"/>
     </hbox>
   </hbox>
 </vbox>

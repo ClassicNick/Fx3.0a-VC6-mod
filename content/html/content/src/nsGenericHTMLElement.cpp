@@ -1795,7 +1795,7 @@ nsGenericHTMLElement::GetFormControlFrameFor(nsIContent* aContent,
   if (aFlushContent) {
     // Cause a flush of content, so we get up-to-date frame
     // information
-    aDocument->FlushPendingNotifications(Flush_Frames);
+    aDocument->FlushPendingNotifications(Flush_Layout);
   }
   nsIFrame* frame = GetPrimaryFrameFor(aContent, aDocument);
   if (frame) {
@@ -3063,6 +3063,23 @@ nsGenericHTMLFormElement::IntrinsicState() const
   return state;
 }
 
+void
+nsGenericHTMLFormElement::SetFocusAndScrollIntoView(nsPresContext* aPresContext)
+{
+  nsIEventStateManager *esm = aPresContext->EventStateManager();
+  if (esm->SetContentState(this, NS_EVENT_STATE_FOCUS)) {
+    nsIFormControlFrame* formControlFrame = GetFormControlFrame(PR_TRUE);
+    if (formControlFrame) {
+      formControlFrame->SetFocus(PR_TRUE, PR_TRUE);
+      nsCOMPtr<nsIPresShell> presShell = aPresContext->GetPresShell();
+      if (presShell) {
+        presShell->ScrollContentIntoView(this, NS_PRESSHELL_SCROLL_IF_NOT_VISIBLE,
+                                         NS_PRESSHELL_SCROLL_IF_NOT_VISIBLE);
+      }
+    }
+  }
+}
+
 //----------------------------------------------------------------------
 
 nsGenericHTMLFrameElement::~nsGenericHTMLFrameElement()
@@ -3072,9 +3089,16 @@ nsGenericHTMLFrameElement::~nsGenericHTMLFrameElement()
   }
 }
 
+NS_IMPL_CYCLE_COLLECTION_CLASS(nsGenericHTMLFrameElement)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsGenericHTMLFrameElement,
+                                                  nsGenericHTMLElement)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mFrameLoader)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
 NS_INTERFACE_MAP_BEGIN(nsGenericHTMLFrameElement)
   NS_INTERFACE_MAP_ENTRY(nsIDOMNSHTMLFrameElement)
   NS_INTERFACE_MAP_ENTRY(nsIFrameLoaderOwner)
+  NS_INTERFACE_MAP_ENTRY_CYCLE_COLLECTION(nsGenericHTMLFrameElement)
 NS_INTERFACE_MAP_END_INHERITING(nsGenericHTMLElement)
 
 nsresult

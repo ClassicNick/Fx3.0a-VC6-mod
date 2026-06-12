@@ -1785,8 +1785,8 @@
                         this.calView.doDeleteEvent(occ);
                     }
                 }
-                if (isToDo(Ci.calITodo) &&
-                    (!aNewItem.entryDate || !aNewItem.dueDate || !this.mTasksInView)) {
+                if (isToDo(aNewItem) &&
+                    (!aNewItem.entryDate || !aNewItem.dueDate || !this.calView.mTasksInView)) {
                     return;
                 }
                 occs = aOldItem.getOccurrencesBetween(this.calView.startDate,
@@ -1808,11 +1808,11 @@
                     return;
                 }
 
-                if (isToDo(Ci.calITodo) && !this.calView.mTasksInView) {
+                if (isToDo(aItem) && !this.calView.mTasksInView) {
                     return;
                 }
 
-                if (isToDo(Ci.calITodo) && (!aItem.entryDate || !aItem.dueDate)) {
+                if (isToDo(aItem) && (!aItem.entryDate || !aItem.dueDate)) {
                     return;
                 }
 

@@ -50,6 +50,7 @@
 #include "nsINameSpaceManager.h"
 #include "nsWeakReference.h"
 #include "nsString.h"
+#include "nsIDOMDOMStringList.h"
 
 struct nsRect;
 class nsIContent;
@@ -113,6 +114,25 @@ struct nsRoleMapEntry
   nsStateMapEntry attributeMap7;
 };
 
+
+class nsAccessibleDOMStringList : public nsIDOMDOMStringList
+{
+public:
+  nsAccessibleDOMStringList();
+  virtual ~nsAccessibleDOMStringList();
+
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSIDOMDOMSTRINGLIST
+
+  PRBool Add(const nsAString& aName) {
+    return mNames.AppendString(aName);
+  }
+
+private:
+  nsStringArray mNames;
+};
+
+
 class nsAccessible : public nsAccessNodeWrap, 
                      public nsIAccessible, 
                      public nsPIAccessible,
@@ -152,6 +172,7 @@ public:
   static PRBool IsText(nsIAccessible *aAcc) { PRUint32 role = Role(aAcc); return role == ROLE_TEXT_LEAF || role == ROLE_STATICTEXT; }
   static PRBool IsEmbeddedObject(nsIAccessible *aAcc) { PRUint32 role = Role(aAcc); return role != ROLE_TEXT_LEAF && role != ROLE_WHITESPACE && role != ROLE_STATICTEXT; }
   static PRInt32 TextLength(nsIAccessible *aAccessible);
+  static PRBool IsLeaf(nsIAccessible *aAcc) { PRInt32 numChildren; aAcc->GetChildCount(&numChildren); return numChildren > 0; }
   
   already_AddRefed<nsIAccessible> GetParent() {
     nsIAccessible *parent = nsnull;
@@ -201,6 +222,15 @@ protected:
   nsIAccessible *NextChild(nsCOMPtr<nsIAccessible>& aAccessible);
     
   already_AddRefed<nsIAccessible> GetNextWithState(nsIAccessible *aStart, PRUint32 matchState);
+
+  /**
+   * Return an accessible for the given DOM node, or if that node isn't accessible, return the
+   * accessible for the next DOM node which has one (based on forward depth first search)
+   * @param aStartNode, the DOM node to start from
+   * @param aRequireLeaf, only accept leaf accessible nodes
+   * @return the resulting accessible
+   */   
+  already_AddRefed<nsIAccessible> GetFirstAvailableAccessible(nsIDOMNode *aStartNode, PRBool aRequireLeaf = PR_FALSE);
 
   // Selection helpers
   static already_AddRefed<nsIAccessible> GetMultiSelectFor(nsIDOMNode *aNode);

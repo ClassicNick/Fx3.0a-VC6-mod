@@ -1,4 +1,4 @@
-//* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -57,6 +57,7 @@
  *   FEEDURL is the URI of the RSS feed if this is a livemark.
  *   LAST_CHARSET should be stored as an annotation (FIXME bug 334408) so that the
  *     next time we go to that page we remember the user's preference.
+ *   WEB_PANEL is set to "true" if the bookmark should be loaded in the sidebar.
  *   ICON will be stored in the favicon service
  *   ICON_URI is new for places bookmarks.html, it refers to the original
  *     URI of the favicon so we don't have to make up favicon URLs.
@@ -101,6 +102,7 @@
 #include "nsIServiceManager.h"
 #include "nsNavBookmarks.h"
 #include "nsNavHistory.h"
+#include "nsAnnotationService.h"
 #include "nsNavHistoryResult.h"
 #include "nsNetUtil.h"
 #include "nsParserCIID.h"
@@ -118,10 +120,13 @@ static NS_DEFINE_CID(kParserCID, NS_PARSER_CID);
 #define KEY_PLACESROOT_LOWER "places_root"
 #define KEY_HREF_LOWER "href"
 #define KEY_FEEDURL_LOWER "feedurl"
+#define KEY_WEB_PANEL_LOWER "web_panel"
 #define KEY_LASTCHARSET_LOWER "last_charset"
 #define KEY_ICON_LOWER "icon"
 #define KEY_ICON_URI_LOWER "icon_uri"
 #define KEY_SHORTCUTURL_LOWER "shortcuturl"
+
+#define LOAD_IN_SIDEBAR_ANNO NS_LITERAL_CSTRING("bookmarkProperties/loadInSidebar")
 
 #define BOOKMARKS_MENU_ICON_URI "chrome://browser/skin/places/bookmarksMenu.png"
 #define BOOKMARKS_TOOLBAR_ICON_URI "chrome://browser/skin/places/bookmarksToolbar.png"
@@ -275,11 +280,12 @@ protected:
   nsCOMPtr<nsIAnnotationService> mAnnotationService;
   nsCOMPtr<nsILivemarkService> mLivemarkService;
 
-  // if set, we will move root items to where we find them. This should be
-  // set when we are loading the default places html file, and should be
-  // unset when doing normal imports so that, for example, the toolbar folder
-  // will be a child of the menu in old bookmarks.html, and we don't want
-  // to reparent it on import.
+  // If set, we will move root items to from their existing position
+  // in the hierarchy, to where we find them in the bookmarks file
+  // being imported. This should be set when we are loading 
+  // the default places html file, and should be unset when doing
+  // normal imports so that root folders will not get moved  when
+  // importing bookmarks.html files.
   PRBool mAllowRootChanges;
 
   // if set, this is an import of initial bookmarks.html content,
@@ -637,6 +643,7 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
   nsAutoString iconUri;
   nsAutoString lastCharset;
   nsAutoString keyword;
+  nsAutoString webPanel;
   PRInt32 attrCount = node.GetAttributeCount();
   for (PRInt32 i = 0; i < attrCount; i ++) {
     const nsAString& key = node.GetKeyAt(i);
@@ -652,6 +659,8 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
       lastCharset = node.GetValueAt(i);
     } else if (key.LowerCaseEqualsLiteral(KEY_SHORTCUTURL_LOWER)) {
       keyword = node.GetValueAt(i);
+    } else if (key.LowerCaseEqualsLiteral(KEY_WEB_PANEL_LOWER)) {
+      webPanel = node.GetValueAt(i);
     }
   }
   href.Trim(kWhitespace);
@@ -660,6 +669,7 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
   iconUri.Trim(kWhitespace);
   lastCharset.Trim(kWhitespace);
   keyword.Trim(kWhitespace);
+  webPanel.Trim(kWhitespace);
 
   // For feeds, get the feed URL. If it is invalid, it will leave mPreviousFeed
   // NULL and we'll continue trying to create it as a normal bookmark.
@@ -711,6 +721,20 @@ BookmarkContentSink::HandleLinkBegin(const nsIParserNode& node)
   if (! keyword.IsEmpty())
     mBookmarksService->SetKeywordForBookmark(frame.mPreviousId, keyword);
 
+  if (webPanel.LowerCaseEqualsLiteral("true")) {
+    // set load-in-sidebar annotation for the bookmark
+
+    nsCOMPtr<nsIURI> placeURI;
+    rv = mBookmarksService->GetItemURI(frame.mPreviousId,
+                                       getter_AddRefs(placeURI));
+    NS_ASSERTION(NS_SUCCEEDED(rv),
+                 "failed to get a place: uri for a new bookmark");
+    if (NS_SUCCEEDED(rv)) {
+      mAnnotationService->SetAnnotationInt32(placeURI, LOAD_IN_SIDEBAR_ANNO,
+                                             1, 0,
+                                             nsIAnnotationService::EXPIRE_NEVER);
+    }
+  }
   // FIXME bug 334408: save the last charset
 }
 
@@ -835,12 +859,24 @@ BookmarkContentSink::NewFrame()
       }
       break;
     case BookmarkImportFrame::Container_Toolbar:
-      // toolbar root
-      rv = mBookmarksService->GetToolbarRoot(&ourID);
+      // get toolbar folder
+      PRInt64 btf;
+      rv = mBookmarksService->GetToolbarFolder(&btf);
       NS_ENSURE_SUCCESS(rv, rv);
-      if (mAllowRootChanges) {
-        updateFolder = PR_TRUE;
+      if (!btf) {
+        // create new folder
+        rv = mBookmarksService->CreateFolder(CurFrame().mContainerID,
+                                            containerName,
+                                            mBookmarksService->DEFAULT_INDEX, &ourID);
+        NS_ENSURE_SUCCESS(rv, rv);
+        // there's no toolbar folder, so make us the toolbar folder
+        rv = mBookmarksService->SetToolbarFolder(ourID);
+        NS_ENSURE_SUCCESS(rv, rv);
+        // set favicon
         SetFaviconForFolder(ourID, NS_LITERAL_CSTRING(BOOKMARKS_TOOLBAR_ICON_URI));
+      }
+      else {
+        ourID = btf;
       }
       break;
     default:
@@ -852,7 +888,7 @@ BookmarkContentSink::NewFrame()
 #endif
 
   if (updateFolder) {
-    // move the menu/toolbar folder to the current position
+    // move the menu folder to the current position
     mBookmarksService->MoveFolder(ourID, CurFrame().mContainerID, -1);
     mBookmarksService->SetFolderTitle(ourID, containerName);
 #ifdef DEBUG_IMPORT
@@ -1160,12 +1196,12 @@ static const char kIndent[] = "    ";
 
 static const char kPlacesRootAttribute[] = " PLACES_ROOT=\"true\"";
 static const char kBookmarksRootAttribute[] = " BOOKMARKS_MENU=\"true\"";
-static const char kToolbarRootAttribute[] = " PERSONAL_TOOLBAR_FOLDER=\"true\"";
+static const char kToolbarFolderAttribute[] = " PERSONAL_TOOLBAR_FOLDER=\"true\"";
 static const char kIconAttribute[] = " ICON=\"";
 static const char kIconURIAttribute[] = " ICON_URI=\"";
 static const char kHrefAttribute[] = " HREF=\"";
 static const char kFeedURIAttribute[] = " FEEDURL=\"";
-
+static const char kWebPanelAttribute[] = " WEB_PANEL=\"true\"";
 
 // WriteContainerPrologue
 //
@@ -1345,8 +1381,8 @@ nsNavBookmarks::WriteContainerHeader(PRInt64 aFolder, const nsCString& aIndent,
   } else if (aFolder == mBookmarksRoot) {
     rv = aOutput->Write(kBookmarksRootAttribute, sizeof(kBookmarksRootAttribute)-1, &dummy);
     if (NS_FAILED(rv)) return rv;
-  } else if (aFolder == mToolbarRoot) {
-    rv = aOutput->Write(kToolbarRootAttribute, sizeof(kToolbarRootAttribute)-1, &dummy);
+  } else if (aFolder == mToolbarFolder) {
+    rv = aOutput->Write(kToolbarFolderAttribute, sizeof(kToolbarFolderAttribute)-1, &dummy);
     if (NS_FAILED(rv)) return rv;
   }
 
@@ -1396,13 +1432,14 @@ nsNavBookmarks::WriteContainerTitle(PRInt64 aFolder, nsIOutputStream* aOutput)
 }
 
 
-// WriteItem
+// nsNavBookmarks::WriteItem
 //
 //    "<DT><A HREF="..." ICON="...">Name</A>"
 
-static nsresult
-WriteItem(nsNavHistoryResultNode* aItem, const nsCString& aIndent,
-          nsIOutputStream* aOutput)
+nsresult
+nsNavBookmarks::WriteItem(nsNavHistoryResultNode* aItem,
+                          const nsCString& aIndent,
+                          nsIOutputStream* aOutput)
 {
   PRUint32 dummy;
   nsresult rv;
@@ -1432,6 +1469,26 @@ WriteItem(nsNavHistoryResultNode* aItem, const nsCString& aIndent,
   // ' ICON="..."'
   rv = WriteFaviconAttribute(uri, aOutput);
   if (NS_FAILED(rv)) return rv;
+
+  // annotations
+  PRInt64 bookmarkId;
+  rv = aItem->GetBookmarkId(&bookmarkId);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIURI> placeURI;
+  rv = GetItemURI(bookmarkId, getter_AddRefs(placeURI));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsAnnotationService* annosvc = nsAnnotationService::GetAnnotationService();
+  NS_ENSURE_TRUE(annosvc, NS_ERROR_OUT_OF_MEMORY);
+
+  // Write WEB_PANEL="true" if the load-in-sidebar annotation is set for the
+  // item
+  PRBool loadInSidebar = PR_FALSE;
+  rv = annosvc->HasAnnotation(placeURI, LOAD_IN_SIDEBAR_ANNO, &loadInSidebar);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (loadInSidebar)
+    aOutput->Write(kWebPanelAttribute, sizeof(kWebPanelAttribute)-1, &dummy);
 
   // FIXME bug 334408: write last character set here
 
@@ -1609,10 +1666,10 @@ nsNavBookmarks::WriteContainerContents(PRInt64 aFolder, const nsCString& aIndent
     if (items[i]->IsFolder()) {
       // bookmarks folder
       PRInt64 folderId = items[i]->GetAsFolder()->mFolderId;
-      if (aFolder == mRoot && (folderId == mToolbarRoot ||
+      if (aFolder == mRoot && (folderId == mToolbarFolder ||
                                folderId == mBookmarksRoot)) {
-        // don't write out the bookmarks menu or the toolbar folder from the
-        // places root. When writing to bookmarks.html, these are reparented
+        // don't write out the bookmarks menu folder from the
+        // places root. When writing to bookmarks.html, it is reparented
         // to the menu, which is the root of the namespace. This provides
         // better backwards compatability.
         continue;
@@ -1702,10 +1759,6 @@ nsNavBookmarks::ExportBookmarksHTML(nsIFile* aBookmarksFile)
 
   // places root
   rv = WriteContainer(mRoot, indent, strm);
-  if (NS_FAILED(rv)) return rv;
-
-  // toolbar
-  rv = WriteContainer(mToolbarRoot, indent, strm);
   if (NS_FAILED(rv)) return rv;
 
   // bookmarks menu contents

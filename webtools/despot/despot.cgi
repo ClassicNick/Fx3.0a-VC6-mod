@@ -426,20 +426,24 @@ sub DeleteUser {
 
 sub ChangeUser {
     EnsureDespot();
-    foreach my $field ("email") {
+    foreach my $field ("email", "voucher") {
         my $value = param($field);
         if ($value ne param("orig_$field")) {
-            # XXX: we need to sanitize $field before using it
-            my $query = $::db->prepare("SELECT COUNT(*) FROM users WHERE $field = ?");
-            $query->execute($value);
-            my @row;
-            @row = $query->fetchrow_array();
-            if ($row[0] > 0) {
-                Punt("Can't change $field to '$value'; already used.");
+            if ($field == "email") {
+                my $query = $::db->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
+                $query->execute($value);
+                my @row;
+                @row = $query->fetchrow_array();
+                if ($row[0] > 0) {
+                   Punt("Can't change email to '$value'; already used.");
+                }
+            }
+            elsif ($field == "voucher") {
+                # EmailToId() will Punt() if the voucher is not valid.
+                $value = EmailToId($value, 1);
             }
         }
     }
-
 
     my $query = $::db->prepare("SHOW COLUMNS FROM users");
     $query->execute();
@@ -739,7 +743,7 @@ sub ViewAccount {
                             "WHERE members.userid = ? " .
                               "AND partitions.id = members.partitionid " .
                               "AND repositories.id = partitions.repositoryid " .
-                            "ORDER BY class");
+                            "ORDER BY class DESC");
     $query->execute($::loginid);
     while (@row = $query->fetchrow_array()) {
         my ($partid, $repname,$partname,$class) = (@row);

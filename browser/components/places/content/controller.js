@@ -78,10 +78,6 @@ const NEWLINE= "\n";
 const NEWLINE = "\r\n";
 #endif
 
-// The minimum amount of transactions we should tell our observers to begin
-// batching (rather than letting them do incremental drawing).
-const MIN_TRANSACTIONS_FOR_BATCH = 5;
-
 /**
  * Represents an insertion point within a container where we can insert
  * items. 
@@ -282,6 +278,15 @@ PlacesController.prototype = {
 #endif
       }
       return false;
+    case "placesCmd_setAsBookmarksToolbarFolder":
+      if (this._view.hasSingleSelection) {
+        var selectedNode = this._view.selectedNode;
+        if (PlacesUtils.nodeIsFolder(selectedNode) &&
+            selectedNode.folderId != PlacesUtils.bookmarks.toolbarFolder) {
+          return true;
+        }
+      }
+      return false;
 #endif
     default:
       return false;
@@ -364,6 +369,9 @@ PlacesController.prototype = {
       break;
     case "placesCmd_reload":
       this.reloadSelectedLivemarks();
+      break;
+    case "placesCmd_setAsBookmarksToolbarFolder":
+      this.setBookmarksToolbarFolder();
       break;
 #endif
     }
@@ -655,6 +663,7 @@ PlacesController.prototype = {
         case Ci.nsINavHistoryResultNode.RESULT_TYPE_VISIT:
         case Ci.nsINavHistoryResultNode.RESULT_TYPE_FULL_VISIT:
           nodeData["link"] = true;
+          uri = PlacesUtils._uri(node.uri);
           if (PlacesUtils.nodeIsBookmark(node))
             nodeData["bookmark"] = true;
           break;
@@ -673,9 +682,17 @@ PlacesController.prototype = {
 
       // annotations
       if (uri) {
-        var names = PlacesUtils.annotations.getPageAnnotationNames(uri, { });
+        var names = PlacesUtils.annotations.getPageAnnotationNames(uri, {});
         for (var j = 0; j < names.length; ++j)
           nodeData[names[i]] = true;
+
+        // For bookmark-items also include the bookmark-specific annotations
+        if ("bookmark" in nodeData) {
+          var placeURI = PlacesUtils.bookmarks.getItemURI(node.bookmarkId);
+          names = PlacesUtils.annotations.getPageAnnotationNames(placeURI, {});
+          for (j = 0; j < names.length; ++j)
+            nodeData[names[i]] = true;
+        }
       }
 #ifdef EXTENDED_LIVEBOOKMARKS_UI
       else if (nodeType == Ci.nsINavHistoryResultNode.RESULT_TYPE_QUERY) {
@@ -819,26 +836,40 @@ PlacesController.prototype = {
   },
 
   /**
-   * Loads the selected node's URL in the appropriate tab or window, given the user's
-   * preference specified by modifier keys tracked by a DOM mouse event
+   * Loads the selected node's URL in the appropriate tab or window or as a web
+   * panel given the user's preference specified by modifier keys tracked by a
+   * DOM mouse/key event.
    * @param   aEvent
-   *          The DOM Mouse event with modifier keys set that track the user's
-   *          preferred destination window or tab.
+   *          The DOM mouse/key event with modifier keys set that track the
+   *          user's preferred destination window or tab.
    */
   openSelectedNodeWithEvent: function PC_openSelectedNodeWithEvent(aEvent) {
-    var node = this._view.selectedURINode;
-    if (node && PlacesUtils.checkURLSecurity(node))
-      openUILink(node.uri, aEvent);
+    this.openSelectedNodeIn(whereToOpenLink(aEvent));
   },
 
   /**
-   * Loads the selected node's URL in the appropriate tab or window.
-   * @see openUILinkIn
+   * Loads the selected node's URL in the appropriate tab or window or as a
+   * web panel.
+   * see also openUILinkIn
    */
   openSelectedNodeIn: function PC_openSelectedNodeIn(aWhere) {
     var node = this._view.selectedURINode;
-    if (node && PlacesUtils.checkURLSecurity(node))
+    if (node && PlacesUtils.checkURLSecurity(node)) {
+       // Check whether the node is a bookmark which should be opened as
+       // a web panel
+      if (aWhere == "current" && PlacesUtils.nodeIsBookmark(node)) {
+        var placeURI = PlacesUtils.bookmarks.getItemURI(node.bookmarkId);
+        if (PlacesUtils.annotations
+                       .hasAnnotation(placeURI, LOAD_IN_SIDEBAR_ANNO)) {
+          var w = getTopWin();
+          if (w) {
+            w.openWebPanel(node.title, node.uri);
+            return;
+          }
+        }
+      }
       openUILinkIn(node.uri, aWhere);
+    }
   },
 
   /**
@@ -1103,6 +1134,18 @@ PlacesController.prototype = {
                       "", "chrome, modal",
                       this._view.getSelectionNodes(), PlacesUtils.tm);
   },
+
+  /**
+   * Makes the selected node the bookmarks toolbar folder.
+   */
+  setBookmarksToolbarFolder: function PC_setBookmarksToolbarFolder() {
+    if (!this._view.hasSingleSelection)
+      return false;
+    var selectedNode = this._view.selectedNode;
+    var txn = new PlacesSetBookmarksToolbarTransaction(selectedNode.folderId);
+    PlacesUtils.tm.doTransaction(txn);
+  },
+
 
   /**
    * Creates a set of transactions for the removal of a range of items. A range is 
@@ -1595,6 +1638,10 @@ PlacesBaseTransaction.prototype = {
     return this._livemarks;
   },
 
+  // The minimum amount of transactions we should tell our observers to begin
+  // batching (rather than letting them do incremental drawing).
+  MIN_TRANSACTIONS_FOR_BATCH: 5,
+
   LOG: LOG,
   redoTransaction: function PIT_redoTransaction() {
     throw Cr.NS_ERROR_NOT_IMPLEMENTED;
@@ -1623,7 +1670,7 @@ PlacesAggregateTransaction.prototype = {
   
   doTransaction: function() {
     this.LOG("== " + this._name + " (Aggregate) ==============");
-    if (this._transactions.length >= MIN_TRANSACTIONS_FOR_BATCH)
+    if (this._transactions.length >= this.MIN_TRANSACTIONS_FOR_BATCH)
       this.bookmarks.beginUpdateBatch();
     for (var i = 0; i < this._transactions.length; ++i) {
       var txn = this._transactions[i];
@@ -1631,14 +1678,14 @@ PlacesAggregateTransaction.prototype = {
         txn.container = this.container;
       txn.doTransaction();
     }
-    if (this._transactions.length >= MIN_TRANSACTIONS_FOR_BATCH)
+    if (this._transactions.length >= this.MIN_TRANSACTIONS_FOR_BATCH)
       this.bookmarks.endUpdateBatch();
     this.LOG("== " + this._name + " (Aggregate Ends) =========");
   },
   
   undoTransaction: function() {
     this.LOG("== UN" + this._name + " (UNAggregate) ============");
-    if (this._transactions.length >= MIN_TRANSACTIONS_FOR_BATCH)
+    if (this._transactions.length >= this.MIN_TRANSACTIONS_FOR_BATCH)
       this.bookmarks.beginUpdateBatch();
     for (var i = this._transactions.length - 1; i >= 0; --i) {
       var txn = this._transactions[i];
@@ -1646,7 +1693,7 @@ PlacesAggregateTransaction.prototype = {
         txn.container = this.container;
       txn.undoTransaction();
     }
-    if (this._transactions.length >= MIN_TRANSACTIONS_FOR_BATCH)
+    if (this._transactions.length >= this.MIN_TRANSACTIONS_FOR_BATCH)
       this.bookmarks.endUpdateBatch();
     this.LOG("== UN" + this._name + " (UNAggregate Ends) =======");
   }
@@ -2037,6 +2084,48 @@ PlacesEditBookmarkURITransaction.prototype = {
 };
 
 /**
+ * Set/Unset Load-in-sidebar annotation
+ */
+function PlacesSetLoadInSidebarTransaction(aBookmarkId, aLoadInSidebar) {
+  this.id = aBookmarkId;
+  this._loadInSidebar = aLoadInSidebar;
+  this.redoTransaction = this.doTransaction;
+}
+PlacesSetLoadInSidebarTransaction.prototype = {
+  __proto__: PlacesBaseTransaction.prototype,
+  _anno: {
+    name: LOAD_IN_SIDEBAR_ANNO,
+    type: Ci.mozIStorageValueArray.VALUE_TYPE_INTEGER,
+    value: 1,
+    flags: 0,
+    expires: Ci.nsIAnnotationService.EXPIRE_NEVER
+  },
+
+  doTransaction: function PSLIST_doTransaction() {
+    this._placeURI = this.utils.bookmarks.getItemURI(this.id);
+    this._wasSet = this.utils.annotations
+                       .hasAnnotation(this._placeURI, this._anno.name);
+    if (this._loadInSidebar) {
+      this.utils.setAnnotationsForURI(this._placeURI,
+                                      [this._anno]);
+    }
+    else {
+      try {
+        this.utils.annotations.removeAnnotation(this._placeURI,
+                                                this._anno.name);
+      } catch(ex) { }
+    }
+  },
+
+  undoTransaction: function PSLIST_undoTransaction() {
+    if (this._wasSet != this._loadInSidebar) {
+      this._loadInSidebar = !this._loadInSidebar;
+      this.doTransaction();
+    }
+  }
+};
+
+/**
  * Edit a folder's title.
  */
 function PlacesEditFolderTitleTransaction(id, newTitle) {
@@ -2160,6 +2249,26 @@ PlacesEditBookmarkMicrosummaryTransaction.prototype = {
   }
 };
 
+/**
+ * Set the bookmarks toolbar folder.
+ */
+function PlacesSetBookmarksToolbarTransaction(aFolderId) {
+  this._folderId = aFolderId;
+  this._oldFolderId = this.utils.toolbarFolder;
+  this.redoTransaction = this.doTransaction;
+}
+PlacesSetBookmarksToolbarTransaction.prototype = {
+  __proto__: PlacesBaseTransaction.prototype,
+  
+  doTransaction: function PSBTT_doTransaction() {
+    this.utils.bookmarks.toolbarFolder = this._folderId;
+  },
+
+  undoTransaction: function PSBTT_undoTransaction() {
+    this.utils.bookmarks.toolbarFolder = this._oldFolderId;
+  }
+};
+
 function goUpdatePlacesCommands() {
   goUpdateCommand("placesCmd_open");
   goUpdateCommand("placesCmd_open:window");
@@ -2172,6 +2281,7 @@ function goUpdatePlacesCommands() {
   goUpdateCommand("placesCmd_new:separator");
   goUpdateCommand("placesCmd_show:info");
   goUpdateCommand("placesCmd_moveBookmarks");
+  goUpdateCommand("placesCmd_setAsBookmarksToolbarFolder");
   goUpdateCommand("placesCmd_reload");
   // XXXmano todo: sort commands handling
 #endif
