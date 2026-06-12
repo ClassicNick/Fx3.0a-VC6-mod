@@ -89,6 +89,7 @@
 #include "nsPluginLogging.h"
 #include "nsIPrefBranch2.h"
 #include "nsIFrame.h"
+#include "nsIScriptChannel.h"
 
 // Friggin' X11 has to "#define None". Lame!
 #ifdef None
@@ -5756,6 +5757,13 @@ NS_IMETHODIMP nsPluginHostImpl::NewPluginURLStream(const nsString& aURL,
       {
         // Set the owner of channel to the document principal...
         channel->SetOwner(doc->NodePrincipal());
+
+        // And if it's a script allow it to execute against the
+        // document's script context.
+        nsCOMPtr<nsIScriptChannel> scriptChannel(do_QueryInterface(channel));
+        if (scriptChannel) {
+          scriptChannel->SetExecutionPolicy(nsIScriptChannel::EXECUTE_NORMAL);
+        }
       }
 
       // deal with headers and post data

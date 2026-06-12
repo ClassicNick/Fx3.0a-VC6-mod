@@ -58,6 +58,7 @@ CPPSRCS	+= 	gfxWindowsFonts.cpp \
 		gfxWindowsSurface.cpp \
 		nsUnicodeRange.cpp \
 		$(NULL)
+CPPSRCS +=	gfxPDFSurface.cpp
 
 ifdef MOZ_ENABLE_CAIRO_GFX
 CPPSRCS	+= 	gfxWindowsFonts.cpp \

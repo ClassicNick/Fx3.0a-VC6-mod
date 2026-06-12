@@ -52,6 +52,8 @@ random-if(MOZ_WIDGET_TOOLKIT=="windows") == 28811-2b.html 28811-2-ref.html # bug
 != 40596-1h.html 40596-1-ref.html
 == 40596-1i.html 40596-1-ref.html
 != 40596-1j.html 40596-1-ref.html
+== 97777-1.html 97777-1-ref.html
+== 97777-2.html 97777-2-ref.html
 == 98223-1.html 98223-1-ref.html
 == 98223-2.html 98223-2-ref.html
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 142233-1.html 142233-1-ref.html # bug 369040
@@ -62,6 +64,9 @@ random-if(MOZ_WIDGET_TOOLKIT=="windows") == 163504-1a.html 163504-1-ref.html # b
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 163504-1b.html 163504-1-ref.html # bug 369040
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 163504-2a.html 163504-2-ref.html # bug 369040
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 163504-2b.html 163504-2-ref.html # bug 369040
+== 169749-1.html 169749-1-ref.html
+== 172073-1.html 172073-1-ref.html
+== 243266-1.html 243266-1-ref.html
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 273681-1.html 273681-1-ref.html # bug 369040
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 300691-1a.html 300691-1-ref.html # bug 369040
 random-if(MOZ_WIDGET_TOOLKIT=="windows") == 300691-1b.html 300691-1-ref.html # bug 369040
@@ -157,3 +162,5 @@ fails == 368020-4.html 368020-4-ref.html # bug 368085
 == 370629-1.html 370629-1-ref.html
 == 370629-2.html 370629-2-ref.html
 == 370692-1.xhtml 370692-1-ref.xhtml
+== 371925-1a.html 371925-1-ref.html
+== 371925-1b.html 371925-1-ref.html

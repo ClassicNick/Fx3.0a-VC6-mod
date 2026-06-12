@@ -408,6 +408,12 @@ nsRange::DoSetRange(nsINode* aStartN, PRInt32 aStartOffset,
                    aRoot == IsValidBoundary(aEndN)),
                   "Wrong root");
   NS_PRECONDITION(!aRoot ||
+                  (aStartN->IsNodeOfType(nsINode::eCONTENT) &&
+                   aEndN->IsNodeOfType(nsINode::eCONTENT) &&
+                   aRoot ==
+                    NS_STATIC_CAST(nsIContent*, aStartN)->GetBindingParent() &&
+                   aRoot ==
+                    NS_STATIC_CAST(nsIContent*, aEndN)->GetBindingParent()) ||
                   (!aRoot->GetNodeParent() &&
                    (aRoot->IsNodeOfType(nsINode::eDOCUMENT) ||
                     aRoot->IsNodeOfType(nsINode::eATTRIBUTE) ||
@@ -540,10 +546,18 @@ IsValidBoundary(nsINode* aNode)
     return nsnull;
   }
 
-  if (aNode->IsNodeOfType(nsINode::eCONTENT) &&
-      NS_STATIC_CAST(nsIContent*, aNode)->Tag() ==
-        nsGkAtoms::documentTypeNodeName) {
-    return nsnull;
+  if (aNode->IsNodeOfType(nsINode::eCONTENT)) {
+    nsIContent* content = NS_STATIC_CAST(nsIContent*, aNode);
+    if (content->Tag() == nsGkAtoms::documentTypeNodeName) {
+      return nsnull;
+    }
+
+    // If the node has a binding parent, that should be the root.
+    // XXXbz maybe only for native anonymous content?
+    nsINode* root = content->GetBindingParent();
+    if (root) {
+      return root;
+    }
   }
 
   // Elements etc. must be in document or in document fragment,

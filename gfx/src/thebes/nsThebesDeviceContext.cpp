@@ -73,6 +73,7 @@ static nsSystemFontsGTK2 *gSystemFonts = nsnull;
 #include <cairo-win32.h>
 #include "nsSystemFontsWin.h"
 #include "gfxWindowsSurface.h"
+#include "gfxPDFSurface.h"
 static nsSystemFontsWin *gSystemFonts = nsnull;
 #include <usp10.h>
 #elif defined(XP_OS2)
@@ -118,7 +119,6 @@ nsThebesDeviceContext::nsThebesDeviceContext()
     mWidth = 0;
     mHeight = 0;
 
-    mPrinter = PR_FALSE;
     mDeviceContextSpec = nsnull;
 
     mWidgetSurfaceCache.Init();
@@ -156,7 +156,6 @@ nsThebesDeviceContext::SetDPI()
         if (NS_FAILED(rv)) {
             prefDPI = -1;
         }
-    }
 
 #if defined(MOZ_ENABLE_GTK2)
     float screenWidthIn = float(::gdk_screen_width_mm()) / 25.4f;
@@ -176,29 +175,40 @@ nsThebesDeviceContext::SetDPI()
     }
 
 #elif defined(XP_WIN)
-    // XXX we should really look at the widget for printing and such, but this widget is currently always null...
-    HDC dc = GetHDC() ? GetHDC() : GetDC((HWND)nsnull);
+        // XXX we should really look at the widget if !dc but it is currently always null
+        HDC dc = GetPrintHDC();
+        if (!dc)
+            dc = GetDC((HWND)nsnull);
 
     OSVal = GetDeviceCaps(dc, LOGPIXELSY);
     if (GetDeviceCaps(dc, TECHNOLOGY) != DT_RASDISPLAY)
         do_round = PR_FALSE;
 
-    if (dc != GetHDC())
-        ReleaseDC((HWND)nsnull, dc);
+        if (dc != GetPrintHDC())
+            ReleaseDC((HWND)nsnull, dc);
 
-    if (OSVal != 0)
-        dpi = OSVal;
+        if (OSVal != 0)
+            dpi = OSVal;
 
 #elif defined(XP_MACOSX)
 
-    // XXX Need to get the screen DPI instead of defaulting to 96dpi
+        // we probably want to actually get a real DPI here?
+        dpi = 96;
 
     if (mPrinter) {
         dpi = 72;
         do_round = PR_FALSE;
     }
 
-#endif
+    NS_ASSERTION(dpi != -1, "no dpi set");
+
+    if (dotsArePixels) {
+        // First figure out the closest multiple of 96, which is the number of
+        // dev pixels per CSS pixel.  Then, divide that into AppUnitsPerCSSPixel()
+        // to get the number of app units per dev pixel.  The PR_MAXes are to
+        // make sure we don't end up dividing by zero.
+        mAppUnitsPerDevPixel = PR_MAX(1, AppUnitsPerCSSPixel() /
+                                      PR_MAX(1, (dpi + 48) / 96));
 
     int in2pt = 72;
 
@@ -416,7 +426,7 @@ nsThebesDeviceContext::ConvertPixel(nscolor aColor, PRUint32 & aPixel)
 NS_IMETHODIMP
 nsThebesDeviceContext::GetDeviceSurfaceDimensions(PRInt32 &aWidth, PRInt32 &aHeight)
 {
-    if (mPrinter) {
+    if (mPrintingSurface) {
         // we have a printer device
         aWidth = mWidth;
         aHeight = mHeight;
@@ -433,7 +443,7 @@ nsThebesDeviceContext::GetDeviceSurfaceDimensions(PRInt32 &aWidth, PRInt32 &aHei
 NS_IMETHODIMP
 nsThebesDeviceContext::GetRect(nsRect &aRect)
 {
-    if (mPrinter) {
+    if (mPrintingSurface) {
         // we have a printer device
         aRect.x = 0;
         aRect.y = 0;
@@ -448,7 +458,7 @@ nsThebesDeviceContext::GetRect(nsRect &aRect)
 NS_IMETHODIMP
 nsThebesDeviceContext::GetClientRect(nsRect &aRect)
 {
-    if (mPrinter) {
+    if (mPrintingSurface) {
         // we have a printer device
         aRect.x = 0;
         aRect.y = 0;
@@ -676,7 +686,7 @@ nsThebesDeviceContext::FindScreen(nsIScreen** outScreen)
 void
 nsThebesDeviceContext::CalcPrintingSize()
 {
-    if (!mPrinter)
+    if (!mPrintingSurface)
         return;
 
     PRBool inPoints = PR_TRUE;
@@ -688,11 +698,14 @@ nsThebesDeviceContext::CalcPrintingSize()
         size = reinterpret_cast<gfxImageSurface*>(mPrintingSurface.get())->GetSize();
         break;
 
-#ifdef MOZ_ENABLE_GTK2
+#if defined(MOZ_ENABLE_GTK2) || defined(XP_WIN)
     case gfxASurface::SurfaceTypePDF:
         inPoints = PR_TRUE;
         size = reinterpret_cast<gfxPDFSurface*>(mPrintingSurface.get())->GetSize();
         break;
+#endif
+
+#ifdef MOZ_ENABLE_GTK2
     case gfxASurface::SurfaceTypePS:
         inPoints = PR_TRUE;
         size = reinterpret_cast<gfxPSSurface*>(mPrintingSurface.get())->GetSize();
@@ -714,7 +727,7 @@ nsThebesDeviceContext::CalcPrintingSize()
         size.width = NSToIntRound(::GetDeviceCaps(dc, HORZRES) * mDevUnitsToAppUnits);
         size.height = NSToIntRound(::GetDeviceCaps(dc, VERTRES) * mDevUnitsToAppUnits);
         mDepth = (PRUint32)::GetDeviceCaps(dc, BITSPIXEL);
-        if (dc != (HDC)GetHDC())
+        if (dc != (HDC)GetPrintHDC())
             ReleaseDC((HWND)mWidget, dc);
         break;
     }

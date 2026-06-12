@@ -75,8 +75,8 @@ public:
     NS_IMETHOD CreateRenderingContext(nsIRenderingContext *&aContext);
     NS_IMETHOD CreateRenderingContextInstance(nsIRenderingContext *&aContext);
 
-    NS_IMETHOD SupportsNativeWidgets(PRBool &aSupportsWidgets);
-    NS_IMETHOD PrepareNativeWidget(nsIWidget* aWidget, void** aOut);
+    NS_IMETHOD SupportsNativeWidgets(PRBool& aSupportsWidgets);
+    NS_IMETHOD PrepareNativeWidget(nsIWidget *aWidget, void **aOut);
 
     NS_IMETHOD GetSystemFont(nsSystemFontID aID, nsFont *aFont) const;
 
@@ -86,21 +86,21 @@ public:
 
     NS_IMETHOD GetPaletteInfo(nsPaletteInfo& aPaletteInfo);
 
-    NS_IMETHOD ConvertPixel(nscolor aColor, PRUint32 & aPixel);
+    NS_IMETHOD ConvertPixel(nscolor aColor, PRUint32& aPixel);
 
-    NS_IMETHOD GetDeviceSurfaceDimensions(PRInt32 &aWidth, PRInt32 &aHeight);
-    NS_IMETHOD GetRect(nsRect &aRect);
-    NS_IMETHOD GetClientRect(nsRect &aRect);
+    NS_IMETHOD GetDeviceSurfaceDimensions(PRInt32& aWidth, PRInt32& aHeight);
+    NS_IMETHOD GetRect(nsRect& aRect);
+    NS_IMETHOD GetClientRect(nsRect& aRect);
 
     /* printing goop */
     NS_IMETHOD GetDeviceContextFor(nsIDeviceContextSpec *aDevice,
                                    nsIDeviceContext *&aContext);
 
-    NS_IMETHOD PrepareDocument(PRUnichar * aTitle, 
-                               PRUnichar*  aPrintToFileName);
+    NS_IMETHOD PrepareDocument(PRUnichar *aTitle, 
+                               PRUnichar *aPrintToFileName);
 
-    NS_IMETHOD BeginDocument(PRUnichar*  aTitle, 
-                             PRUnichar*  aPrintToFileName,
+    NS_IMETHOD BeginDocument(PRUnichar  *aTitle, 
+                             PRUnichar  *aPrintToFileName,
                              PRInt32     aStartPage, 
                              PRInt32     aEndPage);
 
@@ -119,7 +119,7 @@ public:
 
     nsNativeWidget GetWidget() { return mWidget; }
 #ifdef XP_WIN
-    HDC GetHDC() {
+    HDC GetPrintHDC() {
         if (mPrintingSurface) {
             NS_ASSERTION(mPrintingSurface->GetType() == gfxASurface::SurfaceTypeWin32, "invalid surface type");
             return reinterpret_cast<gfxWindowsSurface*>(mPrintingSurface.get())->GetDC();
@@ -130,9 +130,9 @@ public:
 
 protected:
     nsresult SetDPI();
-    void ComputeClientRectUsingScreen(nsRect* outRect);
-    void ComputeFullAreaUsingScreen(nsRect* outRect);
-    void FindScreen(nsIScreen** outScreen);
+    void ComputeClientRectUsingScreen(nsRect *outRect);
+    void ComputeFullAreaUsingScreen(nsRect *outRect);
+    void FindScreen(nsIScreen **outScreen);
     void CalcPrintingSize();
 
     PRUint32 mDepth;
@@ -142,12 +142,11 @@ private:
 
     nscoord mWidth;
     nscoord mHeight;
-    PRBool mPrinter;
 
     nsRefPtrHashtable<nsISupportsHashKey, gfxASurface> mWidgetSurfaceCache;
 
     nsRefPtr<gfxASurface> mPrintingSurface;
-    nsIDeviceContextSpec * mDeviceContextSpec;
+    nsIDeviceContextSpec *mDeviceContextSpec;
 };
 
 #endif /* _NS_CAIRODEVICECONTEXT_H_ */
