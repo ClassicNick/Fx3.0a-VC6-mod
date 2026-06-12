@@ -1,3 +1,4 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -11,14 +12,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Java XPCOM Bindings.
+ * The Original Code is JavaScript Engine testing utilities.
  *
- * The Initial Developer of the Original Code is IBM Corporation.
- * Portions created by the Initial Developer are Copyright (C) 2006
- * IBM Corporation. All Rights Reserved.
+ * The Initial Developer of the Original Code is
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2007
+ * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Javier Pedemonte (jhpedemonte@gmail.com)
+ * Contributor(s): Igor Bukanov
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -33,40 +34,47 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
+//-----------------------------------------------------------------------------
+var bug = 372331;
+var summary = 'for-in should not bind name too early';
+var actual = '';
+var expect = '';
 
-import org.mozilla.xpcom.Mozilla;
-import org.mozilla.xpcom.nsISupports;
 
-public class Foo implements nsISupports {
+//-----------------------------------------------------------------------------
+test();
+//-----------------------------------------------------------------------------
 
-  static int gCount;
-  int mID;
+function test()
+{
+  enterFunc ('test');
+  printBugNumber (bug);
+  printStatus (summary);
+  
+  var index;
+  var obj = { index: 1 };
 
-  public Foo(int aID)
+  expect = 'No Error';
+
+  function gen()
   {
-    mID = aID;
-    ++gCount;
-    System.out.println("init: " + mID + " (" +
-                       Integer.toHexString(this.hashCode()) + "), " +
-                       gCount +" total");
+    delete obj.index;
+    yield 2;
   }
 
-  // nsISupports implementation
-  public nsISupports queryInterface(String aIID)
-  {
-    return Mozilla.queryInterface(this, aIID);
+  with (obj) {
+    for (index in gen());
   }
 
-  public int getId()
-  {
-    return mID;
-  }
+  if ('index' in obj)
+    throw "for-in binds name to early";
 
-  protected void finalize() throws Throwable
-  {
-    --gCount;
-    System.out.println("destruct: " + mID + " (" +
-                       Integer.toHexString(this.hashCode()) + "), " +
-                       gCount +" remain");
-  }
+  if (index !== 2)
+    throw "unexpected value of index: "+index;
+
+  actual = 'No Error';
+
+  reportCompare(expect, actual, summary);
+
+  exitFunc ('test');
 }

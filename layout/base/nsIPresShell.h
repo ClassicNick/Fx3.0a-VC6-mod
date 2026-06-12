@@ -99,12 +99,12 @@ class nsIScrollableFrame;
 
 typedef short SelectionType;
 
-// 252622d2-161e-4240-a912-e921179d9c9d
-#define NS_IPRESSHELL_IID     \
-{ 0x252622d2, 0x161e, 0x4240, \
-  { 0xa9, 0x12, 0xe9, 0x21, 0x17, 0x9d, 0x9c, 0x9d } }
+//12f7a744-26d8-493e-8072-90123a35f69f
+#define NS_IPRESSHELL_IID \
+{ 0x12f7a744, 0x26d8, 0x493e, \
+  { 0x80, 0x72, 0x90, 0x12, 0x3a, 0x35, 0xf6, 0x9f } }
 
-// Constants uses for ScrollFrameIntoView() function
+// Constants for ScrollFrameIntoView() and ScrollContentIntoView() functions.
 #define NS_PRESSHELL_SCROLL_TOP      0
 #define NS_PRESSHELL_SCROLL_BOTTOM   100
 #define NS_PRESSHELL_SCROLL_LEFT     0
@@ -122,12 +122,6 @@ typedef short SelectionType;
 #define VERIFY_REFLOW_REALLY_NOISY_RC 0x20
 #define VERIFY_REFLOW_INCLUDE_SPACE_MANAGER 0x40
 #define VERIFY_REFLOW_DURING_RESIZE_REFLOW  0x80
-
-// for PostAttributeChanged
-enum nsAttributeChangeType {
-  eChangeType_Set = 0,       // Set attribute
-  eChangeType_Remove = 1     // Remove attribute
-};
 
 /**
  * Presentation shell interface. Presentation shells are the
@@ -168,6 +162,11 @@ public:
    */
   NS_IMETHOD Destroy() = 0;
 
+  /**
+   * @return PR_TRUE if this pres shell is currently being destroyed.
+   */
+  PRBool IsDestroying() const { return mIsDestroying; }
+  
   // All frames owned by the shell are allocated from an arena.  They are also recycled
   // using free lists (separate free lists being maintained for each size_t).
   // Methods for recycling frames.
@@ -386,15 +385,9 @@ public:
   NS_IMETHOD FlushPendingNotifications(mozFlushType aType) = 0;
 
   /**
-   * Post a request to set and attribute after reflow has finished.
+   * Callbacks will be called even if reflow itself fails for
+   * some reason.
    */
-  NS_IMETHOD PostAttributeChange(nsIContent* aContent,
-                                 PRInt32 aNameSpaceID, 
-                                 nsIAtom* aName,
-                                 const nsString& aValue,
-                                 PRBool aNotify,
-                                 nsAttributeChangeType aType) = 0;
-
   NS_IMETHOD PostReflowCallback(nsIReflowCallback* aCallback) = 0;
   NS_IMETHOD CancelReflowCallback(nsIReflowCallback* aCallback) = 0;
 
@@ -448,6 +441,17 @@ public:
   NS_IMETHOD ScrollFrameIntoView(nsIFrame *aFrame,
                                  PRIntn   aVPercent, 
                                  PRIntn   aHPercent) const = 0;
+
+  /**
+   * Otherwise same as the above, but takes an aContent as the first parameter
+   * and after flushing pending notifications tries to find primary frame
+   * for that and then call ScrollFrameIntoView.
+   * @param aContent The content object of which primary frame should be
+   *                 scrolled into view.
+   */
+  NS_IMETHOD ScrollContentIntoView(nsIContent* aContent,
+                                   PRIntn      aVPercent,
+                                   PRIntn      aHPercent) const = 0;
 
   /**
    * Suppress notification of the frame manager that frames are

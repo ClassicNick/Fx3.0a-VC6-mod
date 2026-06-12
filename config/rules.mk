@@ -766,7 +766,7 @@ install:: $(SDK_HEADERS)
 endif
 endif
 
-install:: $(SHARED_LIBRARY) $(IMPORT_LIBRARY) $(LIBRARY) $(PROGRAM) $(SIMPLE_PROGRAMS)
+install:: $(SHARED_LIBRARY) $(IMPORT_LIBRARY) $(LIBRARY) $(PROGRAM) $(SIMPLE_PROGRAMS) $(JAVA_LIBRARY)
 ifndef NO_INSTALL
 #ifdef LIBRARY
 #ifndef IS_COMPONENT
@@ -1836,8 +1836,12 @@ ifdef CYGWIN_WRAPPER
 NATIVE_TOPSRCDIR   := `cygpath -wa $(topsrcdir)`
 FWDSLASH_TOPSRCDIR := `cygpath -ma $(topsrcdir)`
 else
-NATIVE_TOPSRCDIR   := $(topsrcdir)
 FWDSLASH_TOPSRCDIR := $(topsrcdir)
+ifeq ($(HOST_OS_ARCH),WINNT)
+NATIVE_TOPSRCDIR   := $(subst /,\\,$(WIN_TOP_SRC))
+else 
+NATIVE_TOPSRCDIR   := $(topsrcdir)
+endif
 endif # CYGWIN_WRAPPER
 
 # Test execution

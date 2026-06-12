@@ -63,8 +63,9 @@ public:
 
     cairo_pattern_t *CairoPattern();
     void AddColorStop(gfxFloat offset, const gfxRGBA& c);
+
     void SetMatrix(const gfxMatrix& matrix);
-    gfxMatrix CurrentMatrix() const;
+    gfxMatrix GetMatrix() const;
 
     enum GraphicsExtend {
         EXTEND_NONE,
@@ -82,6 +83,8 @@ public:
 
     /* returns TRUE if it succeeded */
     PRBool GetSolidColor(gfxRGBA& aColor);
+
+    already_AddRefed<gfxASurface> GetSurface();
 
 protected:
     cairo_pattern_t *mPattern;

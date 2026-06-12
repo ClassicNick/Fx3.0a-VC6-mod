@@ -18,11 +18,11 @@ REQUIRES = \
 	pref \
 	xpcom \
 	unicharutil \
-	gfx \
 	$(NULL)
 
 CPPSRCS	= \
 	gfxASurface.cpp \
+	gfxAlphaRecovery.cpp \
 	gfxContext.cpp \
 	gfxImageSurface.cpp \
 	gfxFont.cpp \
@@ -56,6 +56,7 @@ ifeq ($(MOZ_WIDGET_TOOLKIT),windows)
 CPPSRCS	+= 	gfxWindowsFonts.cpp \
 		gfxWindowsPlatform.cpp \
 		gfxWindowsSurface.cpp \
+		gfxWindowsNativeDrawing.cpp \
 		nsUnicodeRange.cpp \
 		$(NULL)
 CPPSRCS +=	gfxPDFSurface.cpp

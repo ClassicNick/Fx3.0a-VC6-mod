@@ -423,11 +423,9 @@ nsThebesFontMetrics::DrawString(const char *aString, PRUint32 aLength,
     if (!textRun.get())
         return NS_ERROR_FAILURE;
     gfxPoint pt(aX, aY);
-#ifdef MOZ_X11    
     if (mTextRunRTL) {
         pt.x += textRun->GetAdvanceWidth(0, aLength, &provider);
     }
-#endif
     textRun->Draw(aContext->Thebes(), pt, 0, aLength,
                   nsnull, &provider, nsnull);
     return NS_OK;
@@ -449,11 +447,9 @@ nsThebesFontMetrics::DrawString(const PRUnichar* aString, PRUint32 aLength,
     if (!textRun.get())
         return NS_ERROR_FAILURE;
     gfxPoint pt(aX, aY);
-#ifdef MOZ_X11
     if (mTextRunRTL) {
         pt.x += textRun->GetAdvanceWidth(0, aLength, &provider);
     }
-#endif
     textRun->Draw(aContext->Thebes(), pt, 0, aLength,
                   nsnull, &provider, nsnull);
     return NS_OK;

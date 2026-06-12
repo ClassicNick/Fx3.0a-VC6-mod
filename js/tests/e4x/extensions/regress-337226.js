@@ -1,3 +1,5 @@
+/* -*- Mode: java; tab-width:8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -11,15 +13,14 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Java XPCOM Bindings.
+ * The Original Code is JavaScript Engine testing utilities.
  *
  * The Initial Developer of the Original Code is
- * IBM Corporation.
- * Portions created by the Initial Developer are Copyright (C) 2005
- * IBM Corporation. All Rights Reserved.
+ * Mozilla Foundation.
+ * Portions created by the Initial Developer are Copyright (C) 2007
+ * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s):
- *   Javier Pedemonte (jhpedemonte@gmail.com)
+ * Contributor(s): Igor Bukanov
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,26 +36,15 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "ITestParams.h"
+var bug = 337226;
+var summary = 'function::globalfunction';
+var actual = 'No Error';
+var expect = 'No Error';
 
+printBugNumber (bug);
+printStatus (summary);
 
-// {3f64f1ad-bbbc-4c2f-88c8-e5b6b67bb0cc}
-#define TESTPARAMS_CID \
-{ 0x3f64f1ad, 0xbbbc, 0x4c2f, \
-    { 0x88, 0xc8, 0xe5, 0xb6, 0xb6, 0x7b, 0xb0, 0xcc } }
+var s = function::parseInt;
 
-class TestParams : public ITestParams
-{
-public:
-  NS_DECL_ISUPPORTS
-  NS_DECL_ITESTPARAMS
-
-  TestParams();
-
-private:
-  ~TestParams();
-
-protected:
-  /* additional members */
-};
-
+TEST(1, expect, actual);
+END();

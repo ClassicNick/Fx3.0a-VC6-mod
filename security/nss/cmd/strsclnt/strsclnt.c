@@ -1410,6 +1410,8 @@ main(int argc, char **argv)
 
 	}
     }
+    PL_DestroyOptState(optstate);
+
     if (!hostName || status == PL_OPT_BAD)
     	Usage(progName);
 
@@ -1474,7 +1476,15 @@ main(int argc, char **argv)
     if (Cert_And_Key.key) {
 	SECKEY_DestroyPrivateKey(Cert_And_Key.key);
     }
+
     PR_DestroyLock(Cert_And_Key.lock);
+
+    if (Cert_And_Key.password) {
+        PL_strfree(Cert_And_Key.password);
+    }
+    if (Cert_And_Key.nickname) {
+        PL_strfree(Cert_And_Key.nickname);
+    }
 
     /* some final stats. */
     if (ssl3stats->hsh_sid_cache_hits + ssl3stats->hsh_sid_cache_misses +

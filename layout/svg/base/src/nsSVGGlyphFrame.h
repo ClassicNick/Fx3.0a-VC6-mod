@@ -203,7 +203,6 @@ protected:
 
   void UpdateGeometry(PRBool bRedraw, PRBool suppressInvalidation);
   void UpdateMetrics();
-  nsSVGTextFrame *GetTextFrame();
   PRBool ContainsPoint(float x, float y);
   nsresult GetGlobalTransform(cairo_t *ctx, nsISVGCairoCanvas *aCanvas);
   nsresult GetHighlight(PRUint32 *charnum, PRUint32 *nchars,

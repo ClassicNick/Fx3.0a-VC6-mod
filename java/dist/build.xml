@@ -62,6 +62,7 @@
     <antcall target="build.dist.jar" />
     <antcall target="copy.binaries" />
     <antcall target="copy.test.src" />
+    <antcall target="copy.core.src" />
     <antcall target="copy.build.support" />
     <antcall target="build.javadocs" />
     <antcall target="build.zip" />
@@ -95,6 +96,7 @@
     <mkdir dir="${dist.home}/bin" />
     <mkdir dir="${dist.home}/javadocs" />
     <mkdir dir="${dist.home}/test" />
+    <mkdir dir="${dist.home}/src" />
 
     <condition property="so.prefix" value="">
       <and>
@@ -187,11 +189,17 @@
   </target>
 
   <target name="copy.test.src" depends="prepare">
+
+    <!-- Populate the netbeans Test Packages -->
+
     <copy todir="${dist.home}/test/automated/src/main/java">
       <fileset dir="${source.home}/webclient/test/automated/src/classes">
         <exclude name="**/*Bookmark*.java" />
         <exclude name="**/*Preferences*.java" />
         <exclude name="**/*Profile*.java" />
+      </fileset>
+      <fileset dir="${basedir}/mcp-test/src/test/java">
+        <include name="**/*.java" />
       </fileset>
     </copy>
     <copy todir="${dist.home}/test/automated/src/main/resources">
@@ -200,12 +208,42 @@
       </fileset>
     </copy>
 
+    <!-- Populate the netbeans Source Packages -->
+
     <copy todir="${dist.home}/test/manual/src/main/java">
       <fileset dir="${source.home}/webclient/test/manual/src/classes" />
+      <fileset dir="${basedir}/mcp-test/src/main/java">
+        <include name="**/*.java" />
+      </fileset>
     </copy>
 
 
   </target>
+
+  <target name="copy.core.src" depends="prepare">
+
+    <!-- Populate the netbeans Source Package with the core 
+         webclient sources -->
+
+    <copy todir="${dist.home}/src/main/java" includeEmptyDirs="false">
+      <fileset dir="${source.home}/webclient/classes_spec">
+        <exclude name="**/test/*" />
+        <exclude name="**/test_nonnative/*" />
+        <exclude name="**/wrapper_nonnative/*" />
+        <exclude name="**/*.html" />
+        <exclude name="**/*ICE*.*" />
+      </fileset>
+      <fileset dir="${source.home}/util/classes">
+        <exclude name="**/*.html" />
+      </fileset>
+      <fileset dir="${source.home}/dom/classes">
+        <exclude name="**/*.html" />
+      </fileset>
+
+    </copy>
+
+  </target>
+
 
   <target name="copy.build.support" depends="prepare">
     <copy todir="${dist.home}/netbeans">

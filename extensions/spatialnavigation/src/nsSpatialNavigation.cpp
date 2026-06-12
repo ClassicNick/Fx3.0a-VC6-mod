@@ -69,12 +69,6 @@ nsSpatialNavigation::HandleEvent(nsIDOMEvent* aEvent)
 }
 
 NS_IMETHODIMP
-nsSpatialNavigation::KeyDown(nsIDOMEvent* aEvent)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsSpatialNavigation::KeyUp(nsIDOMEvent* aEvent)
 {
   return NS_OK;
@@ -82,6 +76,12 @@ nsSpatialNavigation::KeyUp(nsIDOMEvent* aEvent)
 
 NS_IMETHODIMP
 nsSpatialNavigation::KeyPress(nsIDOMEvent* aEvent)
+{
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSpatialNavigation::KeyDown(nsIDOMEvent* aEvent)
 {
   nsCOMPtr<nsIPrefBranch> prefBranch = do_GetService(NS_PREFSERVICE_CONTRACTID);
   PRBool enabled;
@@ -125,7 +125,7 @@ nsSpatialNavigation::KeyPress(nsIDOMEvent* aEvent)
       nsCOMPtr<nsIFormControl> formControl(do_QueryInterface(targetContent));
       formControlType = formControl->GetType();
       
-      if (!mService->mIgnoreTextFields)
+      if (mService->mIgnoreTextFields)
       {
         if (formControlType == NS_FORM_TEXTAREA ||
             formControlType == NS_FORM_INPUT_TEXT ||
@@ -136,7 +136,7 @@ nsSpatialNavigation::KeyPress(nsIDOMEvent* aEvent)
         }
       }
   }
-  else if (!mService->mIgnoreTextFields && targetContent->IsNodeOfType(nsINode::eHTML)) 
+  else if (mService->mIgnoreTextFields && targetContent->IsNodeOfType(nsINode::eHTML)) 
   {
     // Test for isindex, a deprecated kind of text field. We're using a string 
     // compare because <isindex> is not considered a form control, so it does 
@@ -195,14 +195,71 @@ nsSpatialNavigation::KeyPress(nsIDOMEvent* aEvent)
   
   if (keyCode == mService->mKeyCodeLeft)
   {
+  
+   // ************************************************************************************
+    // NS_FORM_TEXTAREA cases:
+
+    // ************************************************************************************
+    // NS_FORM_INPUT_TEXT | NS_FORM_INPUT_PASSWORD | NS_FORM_INPUT_FILE cases
+
+
+    if (formControlType == NS_FORM_INPUT_TEXT || 
+        formControlType == NS_FORM_INPUT_PASSWORD)
+    {
+      PRInt32 selectionStart, textLength;
+      nsCOMPtr<nsIDOMNSHTMLInputElement> input = do_QueryInterface(targetContent);
+      if (input) {
+        input->GetSelectionStart (&selectionStart);
+        input->GetTextLength (&textLength);
+      } else {
+        nsCOMPtr<nsIDOMNSHTMLTextAreaElement> textArea = do_QueryInterface(targetContent);
+        if (textArea) {
+          textArea->GetSelectionStart (&selectionStart);
+          textArea->GetTextLength (&textLength);
+        }
+      }
+	  
+      if (textLength != 0 && selectionStart != 0)
+        return NS_OK;
+    }
+
     // We're using this key, no one else should
     aEvent->StopPropagation();
 	aEvent->PreventDefault();
+	
     return Left();
   }
   
   if (keyCode == mService->mKeyCodeRight)
   {
+    // ************************************************************************************
+    // NS_FORM_TEXTAREA cases:
+
+    // ************************************************************************************
+    // NS_FORM_INPUT_TEXT | NS_FORM_INPUT_PASSWORD | NS_FORM_INPUT_FILE cases
+
+    if (formControlType == NS_FORM_INPUT_TEXT || 
+        formControlType == NS_FORM_INPUT_PASSWORD)
+    {
+      PRInt32 selectionEnd, textLength;
+      nsCOMPtr<nsIDOMNSHTMLInputElement> input = do_QueryInterface(targetContent);
+      if (input) {
+        input->GetSelectionEnd (&selectionEnd);
+        input->GetTextLength (&textLength);
+      } else {
+        nsCOMPtr<nsIDOMNSHTMLTextAreaElement> textArea = do_QueryInterface(targetContent);
+        if (textArea) {
+          textArea->GetSelectionEnd (&selectionEnd);
+          textArea->GetTextLength (&textLength);
+        }
+      }
+      
+      // going down.
+
+      if (textLength  != selectionEnd)
+        return NS_OK;
+    }
+	
     aEvent->StopPropagation();
 	aEvent->PreventDefault();
     return Right();
@@ -219,11 +276,16 @@ nsSpatialNavigation::KeyPress(nsIDOMEvent* aEvent)
     // based on the selected position we decide to nav. or
     // not.
 
-    if (formControlType == NS_FORM_SELECT)
-      return NS_OK;
+    // ************************************************************************************
+    // NS_FORM_SELECT cases:
+    // * if it is a select form of 'size' attr != than '1' then we do as above.
+
+    // * if it is a select form of 'size' attr == than '1', snav can take care of it.
+    // if (formControlType == NS_FORM_SELECT)
+    //   return NS_OK;
 
     aEvent->StopPropagation();
-	aEvent->PreventDefault();
+    aEvent->PreventDefault();
     return Up();
   }
   
@@ -237,11 +299,16 @@ nsSpatialNavigation::KeyPress(nsIDOMEvent* aEvent)
     // based on the selected position we decide to nav. or
     // not.
 
-    if (formControlType == NS_FORM_SELECT)
-      return NS_OK;
+    // ************************************************************************************
+    // NS_FORM_SELECT cases:
+    // * if it is a select form of 'size' attr != than '1' then we do as above.
+
+    // * if it is a select form of 'size' attr == than '1', snav can take care of it.
+    // if (formControlType == NS_FORM_SELECT)
+    //   return NS_OK;
 
     aEvent->StopPropagation();  // We're using this key, no one else should
-	aEvent->PreventDefault();
+    aEvent->PreventDefault();
     return Down();
   }
   
@@ -544,9 +611,13 @@ nsSpatialNavigation::handleMove(int direction)
   nsCOMPtr<nsIContent> focusedContent;
   getFocusedContent(direction, getter_AddRefs(focusedContent));
 
-  if (!focusedContent)
-    return NS_OK;
-  
+  // there are some websites which have no focusable elements,
+  // only text, for example. In these cases, scrolling have to be
+  // performed by snav.
+  if (!focusedContent) {
+     ScrollWindow(direction, getContentWindow());
+     return NS_OK;
+  }
   nsPresContext* presContext = getPresContext(focusedContent);
   if(!presContext)
     return NS_ERROR_NULL_POINTER;
@@ -580,7 +651,7 @@ nsSpatialNavigation::handleMove(int direction)
     if (!doc)
       return NS_ERROR_FAILURE;
     
-    nsIPresShell *presShell = doc->GetShellAt(0);
+/*    nsIPresShell *presShell = doc->GetShellAt(0);
 
     nsIFrame* cframe = presShell->GetPrimaryFrameFor(c);
     
@@ -589,9 +660,10 @@ nsSpatialNavigation::handleMove(int direction)
     if (b)
       setFocusedContent(c);
     else
-      ScrollWindow(direction, getContentWindow());
+      ScrollWindow(direction, getContentWindow());*/
 
-   return NS_OK;
+    setFocusedContent(c);
+    return NS_OK;
   }
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -733,8 +805,9 @@ nsSpatialNavigation::setFocusedContent(nsIContent* c)
   nsCOMPtr<nsIDOMWindow> contentWindow;
   if (mService->mDisableJSWhenFocusing)
     contentWindow = getContentWindow();
-    
-  DisableJSScope foopy (contentWindow);
+
+  // We do not want to have JS disable at anytime - see bug 51075
+  // DisableJSScope foopy (contentWindow);
 
   //#ifdef OLDER_LAYOUT  
   nsPresContext* presContext = getPresContext(c);

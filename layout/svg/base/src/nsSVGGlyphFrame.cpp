@@ -104,9 +104,10 @@ nsSVGGlyphFrame::UpdateGraphic(PRBool suppressInvalidation)
   if (GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD)
     return NS_OK;
 
-  nsSVGTextFrame *textFrame = GetTextFrame();
-  if (textFrame)
-    textFrame->NotifyGlyphMetricsChange();
+  nsSVGTextContainerFrame *containerFrame =
+    NS_STATIC_CAST(nsSVGTextContainerFrame *, mParent);
+  if (containerFrame)
+    containerFrame->UpdateGraphic();
 
   return NS_OK;
 }
@@ -1015,7 +1016,7 @@ NS_IMETHODIMP_(already_AddRefed<nsIDOMSVGLengthList>)
 nsSVGGlyphFrame::GetX()
 {
   nsSVGTextContainerFrame *containerFrame;
-  containerFrame = NS_STATIC_CAST (nsSVGTextContainerFrame *, mParent);
+  containerFrame = NS_STATIC_CAST(nsSVGTextContainerFrame *, mParent);
   if (containerFrame)
     return containerFrame->GetX();
   return nsnull;
@@ -1025,7 +1026,7 @@ NS_IMETHODIMP_(already_AddRefed<nsIDOMSVGLengthList>)
 nsSVGGlyphFrame::GetY()
 {
   nsSVGTextContainerFrame *containerFrame;
-  containerFrame = NS_STATIC_CAST (nsSVGTextContainerFrame *, mParent);
+  containerFrame = NS_STATIC_CAST(nsSVGTextContainerFrame *, mParent);
   if (containerFrame)
     return containerFrame->GetY();
   return nsnull;
@@ -1035,7 +1036,7 @@ NS_IMETHODIMP_(already_AddRefed<nsIDOMSVGLengthList>)
 nsSVGGlyphFrame::GetDx()
 {
   nsSVGTextContainerFrame *containerFrame;
-  containerFrame = NS_STATIC_CAST (nsSVGTextContainerFrame *, mParent);
+  containerFrame = NS_STATIC_CAST(nsSVGTextContainerFrame *, mParent);
   if (containerFrame)
     return containerFrame->GetDx();
   return nsnull;
@@ -1045,7 +1046,7 @@ NS_IMETHODIMP_(already_AddRefed<nsIDOMSVGLengthList>)
 nsSVGGlyphFrame::GetDy()
 {
   nsSVGTextContainerFrame *containerFrame;
-  containerFrame = NS_STATIC_CAST (nsSVGTextContainerFrame *, mParent);
+  containerFrame = NS_STATIC_CAST(nsSVGTextContainerFrame *, mParent);
   if (containerFrame)
     return containerFrame->GetDy();
   return nsnull;
@@ -1334,21 +1335,6 @@ void nsSVGGlyphFrame::UpdateGeometry(PRBool bRedraw,
       outerSVGFrame->InvalidateRect(mRect);
     }
   }  
-}
-
-nsSVGTextFrame *
-nsSVGGlyphFrame::GetTextFrame()
-{
-  NS_ASSERTION(mParent, "null parent");
-
-  nsSVGTextContainerFrame *containerFrame;
-  containerFrame = NS_STATIC_CAST (nsSVGTextContainerFrame *, mParent);
-  if (!containerFrame) {
-    NS_ERROR("invalid container");
-    return nsnull;
-  }
-
-  return containerFrame->GetTextFrame();
 }
 
 PRBool
