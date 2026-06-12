@@ -166,7 +166,7 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
     NS_ASSERTION(CheckForRightISupports(s),                                    \
                  "not the nsISupports pointer we expect");                     \
     _class *tmp = NS_STATIC_CAST(_class*, Downcast(s));                        \
-    NS_CYCLE_COLLECTION_CLASSNAME(_base_class)::Unlink(s);
+    NS_CYCLE_COLLECTION_INNERCLASS(_base_class)::Unlink(s);
 
 #define NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(_field)                       \
     tmp->_field = NULL;    
@@ -215,26 +215,22 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsCycleCollectionParticipant,
     NS_ASSERTION(CheckForRightISupports(s),                                    \
                  "not the nsISupports pointer we expect");                     \
     _class *tmp = NS_STATIC_CAST(_class*, Downcast(s));                        \
-    NS_CYCLE_COLLECTION_CLASSNAME(_base_class)::Traverse(s, cb);
+    NS_CYCLE_COLLECTION_INNERCLASS(_base_class)::Traverse(s, cb);
 
 #define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_RAWPTR(_field)                       \
-    if (tmp->_field) { cb.NoteXPCOMChild(tmp->_field); }
+    cb.NoteXPCOMChild(tmp->_field);
 
 #define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(_field)                     \
-    if (tmp->_field) { cb.NoteXPCOMChild(tmp->_field.get()); }
+    cb.NoteXPCOMChild(tmp->_field.get());
 
 #define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR_AMBIGUOUS(_field, _base)    \
-  {                                                                            \
-    nsISupports *f = NS_ISUPPORTS_CAST(_base*, tmp->_field);                   \
-    if (f) { cb.NoteXPCOMChild(f); }                                           \
-  }
+    cb.NoteXPCOMChild(NS_ISUPPORTS_CAST(_base*, tmp->_field));
 
 #define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMARRAY(_field)                   \
     {                                                                          \
-     PRInt32 i;                                                                \
-     for (i = 0; i < tmp->_field.Count(); ++i)                                 \
-       if (tmp->_field[i])                                                     \
-         cb.NoteXPCOMChild(tmp->_field[i]);                                    \
+      PRInt32 i;                                                               \
+      for (i = 0; i < tmp->_field.Count(); ++i)                                \
+        cb.NoteXPCOMChild(tmp->_field[i]);                                     \
     }
 
 #define NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END                                  \
@@ -268,8 +264,10 @@ friend class NS_CYCLE_COLLECTION_INNERCLASS(_class);
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(_class, _class)
 
 #define NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(_class, _base_class)          \
-class NS_CYCLE_COLLECTION_INNERCLASS                                           \
- : public NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                           \
+typedef NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                             \
+        NS_CYCLE_COLLECTION_INNERCLASS(_base_class);                           \
+class NS_CYCLE_COLLECTION_INNERCLASS(_class)                                   \
+ : public NS_CYCLE_COLLECTION_INNERCLASS(_base_class)                          \
 {                                                                              \
 public:                                                                        \
   NS_IMETHOD Unlink(nsISupports *n);                                           \
@@ -280,12 +278,15 @@ public:                                                                        \
     return NS_STATIC_CAST(_class*, NS_STATIC_CAST(_base_class*,                \
       NS_CYCLE_COLLECTION_CLASSNAME(_base_class)::Downcast(s)));               \
   }                                                                            \
-};
+};																			   \
+friend class NS_CYCLE_COLLECTION_INNERCLASS(_class);
 
 #define NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_NO_UNLINK(_class,             \
                                                            _base_class)        \
-class NS_CYCLE_COLLECTION_INNERCLASS                                           \
- : public NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                           \
+typedef NS_CYCLE_COLLECTION_CLASSNAME(_base_class)                             \
+        NS_CYCLE_COLLECTION_INNERCLASS(_base_class);                           \
+class NS_CYCLE_COLLECTION_INNERCLASS(_class)                                   \
+ : public NS_CYCLE_COLLECTION_INNERCLASS(_base_class)                          \
 {                                                                              \
 public:                                                                        \
   NS_IMETHOD Traverse(nsISupports *n,                                          \
@@ -295,7 +296,8 @@ public:                                                                        \
     return NS_STATIC_CAST(_class*, NS_STATIC_CAST(_base_class*,                \
       NS_CYCLE_COLLECTION_CLASSNAME(_base_class)::Downcast(s)));               \
   }                                                                            \
-};
+};																			   \
+friend class NS_CYCLE_COLLECTION_INNERCLASS(_class);
 
 #define NS_IMPL_CYCLE_COLLECTION_CLASS(_class)                                 \
   static NS_CYCLE_COLLECTION_CLASSNAME(_class)                                 \

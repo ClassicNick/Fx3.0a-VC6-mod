@@ -46,6 +46,7 @@ use strict;
 use Bugzilla::Constants;
 use Bugzilla::Util;
 use Bugzilla::Error;
+use Bugzilla::DB::Schema::Mysql;
 
 # This module extends the DB interface via inheritance
 use base qw(Bugzilla::DB);
@@ -260,10 +261,10 @@ sub bz_setup_database {
     # to type MyISAM if so.  ISAM tables are deprecated in MySQL 3.23,
     # which Bugzilla now requires, and they don't support more than 16
     # indexes per table, which Bugzilla needs.
-    my $sth = $self->prepare("SHOW TABLE STATUS");
-    $sth->execute;
-    my @isam_tables = ();
-    while (my ($name, $type) = $sth->fetchrow_array) {
+    my $table_status = $self->selectall_arrayref("SHOW TABLE STATUS");
+    my @isam_tables;
+    foreach my $row (@$table_status) {
+        my ($name, $type) = @$row;
         push(@isam_tables, $name) if $type eq "ISAM";
     }
 
@@ -281,11 +282,46 @@ sub bz_setup_database {
         print "\nISAM->MyISAM table conversion done.\n\n";
     }
 
+    my $sd_index_deleted = 0;
+    my @tables = $self->bz_table_list_real();
+    # We want to convert the bugs table to MyISAM, but it's possible that
+    # it has a fulltext index on it and this will fail unless we remove
+    # the index.
+    if (grep($_ eq 'bugs', @tables)) {
+        if ($self->bz_index_info_real('bugs', 'short_desc')) {
+            $self->bz_drop_index_raw('bugs', 'short_desc');
+        }
+        if ($self->bz_index_info_real('bugs', 'bugs_short_desc_idx')) {
+            $self->bz_drop_index_raw('bugs', 'bugs_short_desc_idx');
+            $sd_index_deleted = 1; # Used for later schema cleanup.
+        }
+    }
+
+    # Upgrade tables from MyISAM to InnoDB
+    my @myisam_tables;
+    foreach my $row (@$table_status) {
+        my ($name, $type) = @$row;
+        if ($type =~ /^MYISAM$/i 
+            && !grep($_ eq $name, Bugzilla::DB::Schema::Mysql::MYISAM_TABLES))
+        {
+            push(@myisam_tables, $name) ;
+        }
+    }
+    if (scalar @myisam_tables) {
+        print "Bugzilla now uses the InnoDB storage engine in MySQL for",
+              " most tables.\nConverting tables to InnoDB:\n";
+        foreach my $table (@myisam_tables) {
+            print "Converting table $table... ";
+            $self->do("ALTER TABLE $table TYPE = InnoDB");
+            print "done.\n";
+        }
+    }
+    
+
     # There is a bug in MySQL 4.1.0 - 4.1.15 that makes certain SELECT
     # statements fail after a SHOW TABLE STATUS: 
     # http://bugs.mysql.com/bug.php?id=13535
     # This is a workaround, a dummy SELECT to reset the LAST_INSERT_ID.
-    my @tables = $self->bz_table_list_real();
     if (grep($_ eq 'bugs', @tables)
         && $self->bz_column_info_real("bugs", "bug_id"))
     {
@@ -465,6 +501,10 @@ sub bz_setup_database {
     # And now we create the tables and the Schema object.
     $self->SUPER::bz_setup_database();
 
+    if ($sd_index_deleted) {
+        $self->_bz_real_schema->delete_index('bugs', 'bugs_short_desc_idx');
+        $self->_bz_store_real_schema;
+    }
 
     # The old timestamp fields need to be adjusted here instead of in
     # checksetup. Otherwise the UPDATE statements inside of bz_add_column

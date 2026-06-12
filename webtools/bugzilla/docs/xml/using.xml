@@ -361,7 +361,7 @@
     <para>
       The life cycle, also known as work flow, of a bug is currently hardcoded
       into Bugzilla. <xref linkend="lifecycle-image"/> contains a graphical
-      repsentation of this life cycle. If you wish to customize this image for
+      representation of this life cycle. If you wish to customize this image for
       your site, the <ulink url="../images/bzLifecycle.xml">diagram file</ulink>
       is available in <ulink url="http://www.gnome.org/projects/dia">Dia's</ulink>
       native XML format.
@@ -458,7 +458,7 @@
           to whom each bug is assigned). When the operator is either 
           "equals" or "notequals", the value can be "%reporter%", 
           "%assignee%", "%qacontact%", or "%user%."  The user pronoun
-          referes to the user who is executing the query or, in the case
+          refers to the user who is executing the query or, in the case
           of whining reports, the user who will be the recipient
           of the report. The reporter, assignee, and qacontact
           pronouns refer to the corresponding fields in the bug.
@@ -734,7 +734,7 @@
             You now see a form where you can specify the component (part of
             the product which is affected by the bug you discovered; if you have
             no idea, just select <quote>General</quote> if such a component exists),
-            the version of the program you were using, the Operarting System and
+            the version of the program you were using, the Operating System and
             platform your program is running on and the severity of the bug (if the
             bug you found crashes the program, it's probably a major or a critical
             bug; if it's a typo somewhere, that's something pretty minor; if it's

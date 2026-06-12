@@ -465,8 +465,9 @@ STDMETHODIMP nsAccessibleWrap::get_accRole(
   PRUint32 xpRole = 0, msaaRole = 0;
   if (NS_FAILED(xpAccessible->GetFinalRole(&xpRole)))
     return E_FAIL;
-  msaaRole = msaaRoleMap[xpRole];
-  NS_ASSERTION(msaaRoleMap[nsIAccessible::ROLE_LAST_ENTRY] == ROLE_MSAA_LAST_ENTRY,
+
+  msaaRole = gWindowsRoleMap[xpRole].msaaRole;
+  NS_ASSERTION(gWindowsRoleMap[nsIAccessible::ROLE_LAST_ENTRY].msaaRole == ROLE_WINDOWS_LAST_ENTRY,
                "MSAA role map skewed");
 
   // Special case, not a great place for this, but it's better than adding extra role buttonmenu role to ARIA
@@ -487,11 +488,15 @@ STDMETHODIMP nsAccessibleWrap::get_accRole(
   // Use BSTR role to expose role attribute or tag name + namespace
   nsCOMPtr<nsIDOMNode> domNode;
   nsCOMPtr<nsIAccessNode> accessNode(do_QueryInterface(xpAccessible));
-  NS_ASSERTION(accessNode, "No accessnode for accessible");
+  if (!accessNode)
+    return E_FAIL;
+
   accessNode->GetDOMNode(getter_AddRefs(domNode));
   nsIContent *content = GetRoleContent(domNode);
-  NS_ASSERTION(content, "No content for accessible");
-  if (content && content->IsNodeOfType(nsINode::eELEMENT)) {
+  if (!content)
+    return E_FAIL;
+
+  if (content->IsNodeOfType(nsINode::eELEMENT)) {
     nsAutoString roleString;
     if (msaaRole != ROLE_SYSTEM_CLIENT && !GetRoleAttribute(content, roleString)) {
       nsINodeInfo *nodeInfo = content->NodeInfo();
@@ -1086,6 +1091,161 @@ nsAccessibleWrap::Reset(void)
   mEnumVARIANTPosition = 0;
   return NOERROR;
 }
+
+
+// IAccessible2
+
+STDMETHODIMP
+nsAccessibleWrap::get_nRelations(long *nRelations)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_relation(long relationIndex,
+                               IAccessibleRelation **relation)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_relations(long maxRelations,
+                                IAccessibleRelation **relation,
+                                long *nRelations)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::role(long *role)
+{
+  PRUint32 xpRole = 0;
+  if (NS_FAILED(GetFinalRole(&xpRole)))
+    return E_FAIL;
+
+  NS_ASSERTION(gWindowsRoleMap[nsIAccessible::ROLE_LAST_ENTRY].ia2Role == ROLE_WINDOWS_LAST_ENTRY,
+               "MSAA role map skewed");
+
+  *role = gWindowsRoleMap[xpRole].ia2Role;
+
+  return S_OK;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::scrollTo(boolean topLeft)
+{
+  if (NS_SUCCEEDED(ScrollTo(topLeft)))
+    return S_OK;
+  return E_FAIL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_groupPosition(long *groupLevel,
+                                    long *similarItemsInGroup,
+                                    long *positionInGroup)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_localizedRoleName(BSTR *localizedRoleName)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_states(AccessibleStates *states)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_localizedStateNames(long maxLocalizedStateNames,
+                                          BSTR **localizedStateNames,
+                                          long *nLocalizedStateNames)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_extendedRole(BSTR *extendedRole)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_localizedExtendedRole(BSTR *localizedExtendedRole)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_nExtendedStates(long *nExtendedStates)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_extendedStates(long maxExtendedStates,
+                                     BSTR **extendedStates,
+                                     long *nExtendedStates)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_localizedExtendedStates(long maxLocalizedExtendedStates,
+                                              BSTR **localizedExtendedStates,
+                                              long *nLocalizedExtendedStates)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_uniqueID(long *uniqueID)
+{
+  void **id = nsnull;
+  if (NS_SUCCEEDED(GetUniqueID(id))) {
+    *uniqueID = NS_REINTERPRET_POINTER_CAST(long, *id);
+    return S_OK;
+  }
+  return E_FAIL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_windowHandle(HWND *windowHandle)
+{
+  void **handle = nsnull;
+  if (NS_SUCCEEDED(GetOwnerWindow(handle))) {
+    *windowHandle = NS_REINTERPRET_POINTER_CAST(HWND, *handle);
+    return S_OK;
+  }
+  return E_FAIL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_indexInParent(long *indexInParent)
+{
+  PRInt32 index;
+  if (NS_SUCCEEDED(GetIndexInParent(&index))) {
+    *indexInParent = index;
+    return S_OK;
+  }
+  return E_FAIL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_locale(IA2Locale *locale)
+{
+  return E_NOTIMPL;
+}
+
+STDMETHODIMP
+nsAccessibleWrap::get_attributes(BSTR *attributes)
+{
+  return E_NOTIMPL;
+}
+
 
 STDMETHODIMP
 nsAccessibleWrap::Clone(IEnumVARIANT FAR* FAR* ppenum)

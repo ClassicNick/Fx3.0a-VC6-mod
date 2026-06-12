@@ -192,10 +192,14 @@ nsSVGGeometryFrame::DidModifySVGObservable(nsISVGValue* observable,
 float
 nsSVGGeometryFrame::GetStrokeWidth()
 {
+  nsSVGElement *ctx = NS_STATIC_CAST(nsSVGElement*,
+                                     GetType() == nsGkAtoms::svgGlyphFrame ?
+                                     mContent->GetParent() : mContent);
+
   return
     nsSVGUtils::CoordToFloat(GetPresContext(),
-      GetType() == nsGkAtoms::svgGlyphFrame ? mContent->GetParent() : mContent,
-      GetStyleSVG()->mStrokeWidth);
+                             ctx,
+                             GetStyleSVG()->mStrokeWidth);
 }
 
 nsresult
@@ -216,7 +220,9 @@ nsSVGGeometryFrame::GetStrokeDashArray(double **aDashes, PRUint32 *aCount)
     if (dashes) {
       for (PRUint32 i = 0; i < count; i++) {
         dashes[i] =
-          nsSVGUtils::CoordToFloat(presContext, mContent, dasharray[i]);
+          nsSVGUtils::CoordToFloat(presContext,
+                                   NS_STATIC_CAST(nsSVGElement*, mContent),
+                                   dasharray[i]);
         if (dashes[i] < 0.0f) {
           delete [] dashes;
           return NS_OK;
@@ -243,7 +249,8 @@ float
 nsSVGGeometryFrame::GetStrokeDashoffset()
 {
   return
-    nsSVGUtils::CoordToFloat(GetPresContext(), mContent,
+    nsSVGUtils::CoordToFloat(GetPresContext(),
+                             NS_STATIC_CAST(nsSVGElement*, mContent),
                              GetStyleSVG()->mStrokeDashoffset);
 }
 

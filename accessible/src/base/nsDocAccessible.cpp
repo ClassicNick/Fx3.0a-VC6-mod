@@ -964,12 +964,12 @@ nsDocAccessible::AttributeChanged(nsIDocument *aDocument, nsIContent* aContent,
     else if (aAttribute == nsAccessibilityAtoms::valuenow) {
       eventType = nsIAccessibleEvent::EVENT_VALUE_CHANGE;
     }
-    else if (aAttribute == nsAccessibilityAtoms::multiselect) {
+    else if (aAttribute == nsAccessibilityAtoms::multiselectable) {
       // This affects whether the accessible supports nsIAccessibleSelectable.
       // COM says we cannot change what interfaces are supported on-the-fly,
       // so invalidate this object. A new one will be created on demand.
       if (HasRoleAttribute(aContent)) {
-        // The multiselect and other waistate attributes only take affect
+        // The multiselectable and other waistate attributes only take affect
         // when dynamic content role is present
         InvalidateCacheSubtree(aContent, nsIAccessibleEvent::EVENT_REORDER);
       }
@@ -1037,6 +1037,11 @@ nsDocAccessible::ContentRemoved(nsIDocument *aDocument, nsIContent* aContainer,
                                 nsIContent* aChild, PRInt32 aIndexInContainer)
 {
   InvalidateCacheSubtree(aChild, nsIAccessibleEvent::EVENT_HIDE);
+}
+
+void
+nsDocAccessible::ParentChainChanged(nsIContent *aContent)
+{
 }
 
 nsresult nsDocAccessible::FireDelayedToolkitEvent(PRUint32 aEvent,

@@ -50,16 +50,19 @@ NS_IMPL_ISUPPORTS2(AjaxListener,
 		   nsIDOMEventListener)
 
 AjaxListener::AjaxListener(EmbedProgress *owner, 
-			   JNIEnv *env,
-			   jobject eventRegistration) : 
+			   JNIEnv *env) : 
     mOwner(owner),
     mJNIEnv(env),
-    mEventRegistration(eventRegistration)
+    mIsObserving(PR_FALSE)
 {
 }
 
 AjaxListener::~AjaxListener()
 {
+    mOwner->RemoveAjaxListener();
+    mJNIEnv = nsnull;
+    mOwner = nsnull;
+    mIsObserving = PR_FALSE;
 }
 
 //
@@ -176,10 +179,16 @@ NS_IMETHODIMP
 AjaxListener::StartObserving(void)
 {
     nsresult rv = NS_ERROR_NOT_IMPLEMENTED;
+    if (mIsObserving) {
+	return NS_OK;
+    }
 
     nsCOMPtr<nsIObserverService> obsService = do_GetService("@mozilla.org/observer-service;1", &rv);
     if (obsService && NS_SUCCEEDED(rv)) {
 	rv = obsService->AddObserver(this, "http-on-modify-request", PR_FALSE);
+	if (NS_SUCCEEDED(rv)) {
+	    mIsObserving = PR_TRUE;
+	}
     }
 
     return rv;
@@ -189,9 +198,13 @@ NS_IMETHODIMP
 AjaxListener::StopObserving()
 {
     nsresult rv = NS_ERROR_NOT_IMPLEMENTED;
+    if (!mIsObserving) {
+	return NS_OK;
+    }
 
     nsCOMPtr<nsIObserverService> obsService = do_GetService("@mozilla.org/observer-service;1", &rv);
     if (obsService && NS_SUCCEEDED(rv)) {
+	mIsObserving = PR_FALSE;
 	rv = obsService->RemoveObserver(this, "http-on-modify-request");
     }
 
@@ -356,13 +369,17 @@ AjaxListener::ObserveAjax(nsIRequest *request,
 	break;
     }
 
-    ::util_SendEventToJava(nsnull, 
-			   mEventRegistration, 
-			   DOCUMENT_LOAD_LISTENER_CLASSNAME,
-			   DocumentLoader_maskValues[maskValue], 
-			   properties);
+    jobject eventRegistration = nsnull;
+    if (NS_SUCCEEDED(rv = mOwner->GetEventRegistration(&eventRegistration)) &&
+	eventRegistration) {
+	::util_SendEventToJava(nsnull, 
+			       eventRegistration, 
+			       DOCUMENT_LOAD_LISTENER_CLASSNAME,
+			       DocumentLoader_maskValues[maskValue], 
+			       properties);
+    }
     
-    return NS_OK;
+    return rv;
 }
 
 

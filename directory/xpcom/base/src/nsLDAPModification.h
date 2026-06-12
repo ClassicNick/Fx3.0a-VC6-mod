@@ -12,19 +12,19 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG project.
- *
+ * The Original Code is the mozilla.org LDAP XPCOM SDK.
+ * 
  * The Initial Developer of the Original Code is
- * Crocodile Clips Ltd..
+ * Peter Van der Beken.
  * Portions created by the Initial Developer are Copyright (C) 2002
- * the Initial Developer. All Rights Reserved.
- *
+ * Peter Van der Beken. All Rights Reserved.
+ * 
  * Contributor(s):
- *   Alex Fritze <alex@croczilla.com> (original author)
+ *   Peter Van der Beken <peterv@propagandism.org>
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -36,50 +36,38 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef __NS_NSSVGCOORDCTX_H__
-#define __NS_NSSVGCOORDCTX_H__
+#ifndef _nsLDAPModification_h_
+#define _nsLDAPModification_h_
 
+#include "nsILDAPModification.h"
+#include "nsIMutableArray.h"
+#include "nsString.h"
 #include "nsCOMPtr.h"
-#include "nsIDOMSVGNumber.h"
-#include "nsSVGNumber.h"
 
-////////////////////////////////////////////////////////////////////////
-// nsSVGCoordCtx: ref-counted class used as a context for
-// percentage/unit-based calculation on svg lengths
+// 5b0f4d00-062e-11d6-a7f2-fc943c3c039c
+//
+#define NS_LDAPMODIFICATION_CID \
+{ 0x5b0f4d00, 0x062e, 0x11d6, \
+  { 0xa7, 0xf2, 0xfc, 0x94, 0x3c, 0x3c, 0x03, 0x9c }}
 
-class nsSVGCoordCtx
+class nsLDAPModification : public nsILDAPModification
 {
 public:
-  float GetMillimeterPerPixel() { return mmPerPx; }
-  
-  already_AddRefed<nsIDOMSVGNumber> GetLength() {
-    nsIDOMSVGNumber *rv = mLength.get();
-    NS_IF_ADDREF(rv);
-    return rv;
-  }
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSILDAPMODIFICATION
 
-  
-  nsrefcnt AddRef() { return ++mRefCnt; }
-  nsrefcnt Release() {
-    --mRefCnt;
-    if (mRefCnt == 0) {
-      mRefCnt = 1; // stabilize
-      delete this;
-      return 0;
-    }
-    return mRefCnt;
-  }  
-  
-protected:
-  friend class nsSVGCoordCtxHolder;
-  
-  nsSVGCoordCtx() : mRefCnt(1) { // addrefs
-    NS_NewSVGNumber(getter_AddRefs(mLength));
-  }
-  
-  PRUint32 mRefCnt;
-  float mmPerPx;
-  nsCOMPtr<nsIDOMSVGNumber> mLength;
+  // constructor & destructor
+  //
+  nsLDAPModification();
+  virtual ~nsLDAPModification();
+
+  nsresult Init();
+
+private:
+  PRInt32 mOperation;
+  nsCString mType;
+  nsCOMPtr<nsIMutableArray> mValues;
+  PRLock* mValuesLock;
 };
 
-#endif // __NS_NSSVGCOORDCTX_H__
+#endif // _nsLDAPModification_h_

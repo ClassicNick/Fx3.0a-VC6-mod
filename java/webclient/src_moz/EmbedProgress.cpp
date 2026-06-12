@@ -90,6 +90,8 @@ EmbedProgress::SetEventRegistration(jobject yourEventRegistration)
         ::util_ThrowExceptionToJava(env, "Exception: EmbedProgress->SetEventRegistration(): can't create NewGlobalRef\n\tfor eventRegistration");
 	rv = NS_ERROR_FAILURE;
     }
+    // We get the listener here to ensure the mEventRegistration is 
+    // properly passed to the AjaxListener ctor.
     AjaxListener *observer = nsnull;
     rv = GetAjaxListener(&observer);
     if (observer && NS_SUCCEEDED(rv)) {
@@ -108,7 +110,18 @@ nsresult
 EmbedProgress::SetCapturePageInfo(jboolean newState)
 {
     mCapturePageInfo = newState;
-    return NS_OK;
+    AjaxListener *observer = nsnull;
+    nsresult rv = GetAjaxListener(&observer);
+    if (observer && NS_SUCCEEDED(rv)) {
+	if (mCapturePageInfo) {
+	    observer->StartObserving();
+	}
+	else {
+	    observer->StopObserving();
+	}
+    }
+
+    return rv;
 }
 
 NS_IMETHODIMP
@@ -494,7 +507,7 @@ EmbedProgress::GetAjaxListener(AjaxListener* *result)
 
     if (nsnull == mAjaxListener) {
 	JNIEnv *env = (JNIEnv *) JNU_GetEnv(gVm, JNI_VERSION);
-	mAjaxListener = new AjaxListener(this, env, mEventRegistration);
+	mAjaxListener = new AjaxListener(this, env);
     }
     *result = mAjaxListener;
     rv = NS_OK;
@@ -505,9 +518,27 @@ EmbedProgress::GetAjaxListener(AjaxListener* *result)
 NS_IMETHODIMP
 EmbedProgress::RemoveAjaxListener(void) 
 {
-    nsresult rv = NS_ERROR_NOT_IMPLEMENTED;
+    nsresult rv = NS_OK;
+    AjaxListener *observer = nsnull;
+    rv = GetAjaxListener(&observer);
+    if (NS_SUCCEEDED(rv) && observer) {
+	observer->StopObserving();
+	mAjaxListener = nsnull;
+    }
+
     return rv;
 }
+
+NS_IMETHODIMP
+EmbedProgress::GetEventRegistration(jobject *result)
+{
+    if (nsnull == result) {
+	return NS_ERROR_NULL_POINTER;
+    }
+    *result = mEventRegistration;
+    return NS_OK;
+}
+
 
 /* static */
 void

@@ -151,6 +151,7 @@ static NS_DEFINE_CID(kDOMEventGroupCID, NS_DOMEVENTGROUP_CID);
 #include "nsLayoutStatics.h"
 #include "nsIJSContextStack.h"
 #include "nsIXPConnect.h"
+#include "nsCycleCollector.h"
 
 #ifdef MOZ_LOGGING
 // so we can get logging even in release builds
@@ -781,6 +782,10 @@ nsDocument::~nsDocument()
            ("DOCUMENT %p destroyed", this));
 #endif
 
+#ifdef DEBUG
+  nsCycleCollector_DEBUG_wasFreed(NS_STATIC_CAST(nsIDocument*, this));
+#endif
+
   mInDestructor = PR_TRUE;
 
   // Clear mObservers to keep it in sync with the mutationobserver list
@@ -949,10 +954,7 @@ SubDocTraverser(PLDHashTable *table, PLDHashEntryHdr *hdr, PRUint32 number,
     NS_STATIC_CAST(nsCycleCollectionTraversalCallback*, arg);
 
   cb->NoteXPCOMChild(entry->mKey);
-  nsISupports *doc = entry->mSubDocument;
-  if (doc) {
-    cb->NoteXPCOMChild(doc);
-  }
+  cb->NoteXPCOMChild(entry->mSubDocument);
 
   return PL_DHASH_NEXT;
 }
@@ -964,10 +966,7 @@ RadioGroupsTraverser(nsHashKey *aKey, void *aData, void* aClosure)
   nsCycleCollectionTraversalCallback *cb = 
     NS_STATIC_CAST(nsCycleCollectionTraversalCallback*, aClosure);
 
-  nsISupports *radioButton = entry->mSelectedRadioButton;
-  if (radioButton) {
-    cb->NoteXPCOMChild(radioButton);
-  }
+  cb->NoteXPCOMChild(entry->mSelectedRadioButton);
 
   nsSmallVoidArray &radioButtons = entry->mRadioButtons;
   PRUint32 i, count = radioButtons.Count();
@@ -1054,11 +1053,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsDocument)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMARRAY(mVisitednessChangedURIs)
 
   // Traverse any associated preserved wrapper.
-  {
-    nsISupports *preservedWrapper = tmp->GetReference(tmp);
-    if (preservedWrapper)
-      cb.NoteXPCOMChild(preservedWrapper);
-  }
+  cb.NoteXPCOMChild(tmp->GetReference(tmp));
 
   if (tmp->mSubDocuments && tmp->mSubDocuments->ops) {
     PL_DHashTableEnumerate(tmp->mSubDocuments, SubDocTraverser, &cb);
@@ -2624,6 +2619,7 @@ nsDocument::RemoveObserver(nsIDocumentObserver* aObserver)
 void
 nsDocument::BeginUpdate(nsUpdateType aUpdateType)
 {
+  ++mUpdateNestLevel;
   if (mScriptLoader) {
     mScriptLoader->AddExecuteBlocker();
   }
@@ -2634,6 +2630,14 @@ void
 nsDocument::EndUpdate(nsUpdateType aUpdateType)
 {
   NS_DOCUMENT_NOTIFY_OBSERVERS(EndUpdate, (this, aUpdateType));
+
+  --mUpdateNestLevel;
+  if (mUpdateNestLevel == 0) {
+    // This set of updates may have created XBL bindings.  Run the
+    // constructors.
+    mBindingManager->ProcessAttachedQueue();
+  }
+
   if (mScriptLoader) {
     mScriptLoader->RemoveExecuteBlocker();
   }
@@ -4783,6 +4787,8 @@ nsDocument::FlushPendingNotifications(mozFlushType aType)
       sink->FlushPendingNotifications(aType);
     }
   }
+
+  // Should we be flushing pending binding constructors in here?
 
   nsPIDOMWindow *window = GetWindow();
 

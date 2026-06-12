@@ -455,13 +455,12 @@
   <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=276230">
     [%- terms.Bug %] 276230</a>: The support for restricting access to 
     particular Categories of New Charts is not complete. You should treat 
-    the 'chartgroup' Param as the only access mechanism available.
-
-    <p>However, charts migrated from Old Charts will be restricted to 
-      the groups that are marked MANDATORY for the corresponding Product.
-      There is currently no way to change this restriction, and the 
-      groupings will not be updated if the group configuration
-      for the Product changes.</p></li>
+    the 'chartgroup' Param as the only access mechanism available.<br>
+    However, charts migrated from Old Charts will be restricted to 
+    the groups that are marked MANDATORY for the corresponding Product.
+    There is currently no way to change this restriction, and the 
+    groupings will not be updated if the group configuration
+    for the Product changes.</li>
 </ul>
 
 <h2><a name="v30_upgrading"></a>How to Upgrade From An Older Version</h2>
@@ -506,8 +505,8 @@
    installation can be corrupted beyond recovery. Having a backup keeps you
    safe.
 
-    <p>Example: <kbd>mysqldump -u root -p [% terms.bugs %] &gt; 
-      [% terms.bugs %]-db.sql</kbd></p></li>
+    <p>Example: <kbd>mysqldump -u root -p bu[%# trick filter %]gs &gt; 
+      bu[%# trick filter %]gs-db.sql</kbd></p></li>
 
   <li>Replace the files in your installation with the new version of 
    [% terms.Bugzilla %], or you can try to use CVS to upgrade.

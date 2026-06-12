@@ -554,48 +554,26 @@ if ($action eq Bugzilla->params->{'move-button-text'}) {
     $user->is_mover || ThrowUserError("auth_failure", {action => 'move',
                                                        object => 'bugs'});
 
-    # Moved bugs are marked as RESOLVED MOVED.
-    my $sth = $dbh->prepare("UPDATE bugs
-                                SET bug_status = 'RESOLVED',
-                                    resolution = 'MOVED',
-                                    delta_ts = ?
-                              WHERE bug_id = ?");
-    # Bugs cannot be a dupe and moved at the same time.
-    my $sth2 = $dbh->prepare("DELETE FROM duplicates WHERE dupe = ?");
-
-    my $comment = "";
-    if (defined $cgi->param('comment') && $cgi->param('comment') !~ /^\s*$/) {
-        $comment = $cgi->param('comment');
-    }
-
     $dbh->bz_lock_tables('bugs WRITE', 'bugs_activity WRITE', 'duplicates WRITE',
                          'longdescs WRITE', 'profiles READ', 'groups READ',
                          'bug_group_map READ', 'group_group_map READ',
                          'user_group_map READ', 'classifications READ',
                          'products READ', 'components READ', 'votes READ',
-                         'cc READ', 'fielddefs READ');
+                         'cc READ', 'fielddefs READ', 'bug_status READ',
+                         'resolution READ');
 
-    my $timestamp = $dbh->selectrow_array("SELECT NOW()");
     my @bugs;
     # First update all moved bugs.
     foreach my $id (@idlist) {
         my $bug = new Bugzilla::Bug($id);
         push(@bugs, $bug);
-
-        $sth->execute($timestamp, $id);
-        $sth2->execute($id);
-
-        AppendComment($id, $whoid, $comment, 0, $timestamp, 0, CMT_MOVED_TO, $user->login);
-
-        if ($bug->bug_status ne 'RESOLVED') {
-            LogActivityEntry($id, 'bug_status', $bug->bug_status,
-                             'RESOLVED', $whoid, $timestamp);
-        }
-        if ($bug->resolution ne 'MOVED') {
-            LogActivityEntry($id, 'resolution', $bug->resolution,
-                             'MOVED', $whoid, $timestamp);
-        }
+        $bug->add_comment(scalar $cgi->param('comment'), 
+                          { type => CMT_MOVED_TO, extra_data => $user->login });
+        $bug->set_status('RESOLVED');
+        $bug->set_resolution('MOVED');
     }
+
+    $_->update() foreach @bugs;
     $dbh->bz_unlock_tables();
 
     # Now send emails.
@@ -1106,6 +1084,17 @@ SWITCH: for ($cgi->param('knob')) {
 
             ChangeStatus('RESOLVED');
         }
+        else {
+            # You cannot use change_resolution if there is at least
+            # one open bug.
+            my $open_states = join(',', map {$dbh->quote($_)} BUG_STATE_OPEN);
+            my $idlist = join(',', @idlist);
+            my $is_open =
+              $dbh->selectrow_array("SELECT 1 FROM bugs WHERE bug_id IN ($idlist)
+                                     AND bug_status IN ($open_states)");
+
+            ThrowUserError('resolution_not_allowed') if $is_open;
+        }
 
         ChangeResolution($bug, $cgi->param('resolution'));
         last SWITCH;
@@ -1611,7 +1600,7 @@ foreach my $id (@idlist) {
     if (Bugzilla->user->in_group(Bugzilla->params->{'timetrackinggroup'})) {
         $work_time = $cgi->param('work_time');
         if ($work_time) {
-            # AppendComment (called below) can in theory raise an error,
+            # add_comment (called below) can in theory raise an error,
             # but because we've already validated work_time here it's
             # safe to log the entry before adding the comment.
             LogActivityEntry($id, "work_time", "", $work_time,
@@ -1622,9 +1611,13 @@ foreach my $id (@idlist) {
     if ($cgi->param('comment') || $work_time || $duplicate) {
         my $type = $duplicate ? CMT_DUPE_OF : CMT_NORMAL;
 
-        AppendComment($id, $whoid, scalar($cgi->param('comment')),
-                      scalar($cgi->param('commentprivacy')), $timestamp,
-                      $work_time, $type, $duplicate);
+        $old_bug_obj->add_comment(scalar($cgi->param('comment')),
+            { isprivate => scalar($cgi->param('commentprivacy')),
+              work_time => $work_time, type => $type, 
+              extra_data => $duplicate});
+        # XXX When update() is used for other things than comments,
+        # this should probably be moved.
+        $old_bug_obj->update($timestamp);
         $bug_changed = 1;
     }
 
@@ -2100,8 +2093,10 @@ foreach my $id (@idlist) {
                      undef, $reporter, $duplicate);
         }
         # Bug 171639 - Duplicate notifications do not need to be private.
-        AppendComment($duplicate, $whoid, "", 0, $timestamp, 0,
-                      CMT_HAS_DUPE, scalar $cgi->param('id'));
+        my $dup = new Bugzilla::Bug($duplicate);
+        $dup->add_comment("", { type => CMT_HAS_DUPE, 
+                                extra_data => $new_bug_obj->bug_id });
+        $dup->update($timestamp);
 
         $dbh->do(q{INSERT INTO duplicates VALUES (?, ?)}, undef,
                  $duplicate, $cgi->param('id'));

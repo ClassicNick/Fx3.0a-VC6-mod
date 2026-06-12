@@ -44,6 +44,7 @@ use Bugzilla::Component;
 use Bugzilla::Group;
 
 use List::Util qw(min);
+use Storable qw(dclone);
 
 use base qw(Bugzilla::Object Exporter);
 @Bugzilla::Bug::EXPORT = qw(
@@ -138,6 +139,27 @@ sub VALIDATORS {
     }
     return $validators;
 };
+
+use constant UPDATE_VALIDATORS => {
+    bug_status => \&_check_bug_status,
+    resolution => \&_check_resolution,
+};
+
+use constant UPDATE_COLUMNS => qw(
+    everconfirmed
+    bug_status
+    resolution
+);
+
+# This is used by add_comment to know what we validate before putting in
+# the DB.
+use constant UPDATE_COMMENT_COLUMNS => qw(
+    thetext
+    work_time
+    type
+    extra_data
+    isprivate
+);
 
 # Used in LogActivityEntry(). Gives the max length of lines in the
 # activity table.
@@ -350,7 +372,7 @@ sub run_create_validators {
     delete $params->{product};
 
     ($params->{bug_status}, $params->{everconfirmed})
-        = $class->_check_bug_status($product, $params->{bug_status});
+        = $class->_check_bug_status($params->{bug_status}, $product);
 
     $params->{target_milestone} = $class->_check_target_milestone($product,
         $params->{target_milestone});
@@ -395,6 +417,48 @@ sub run_create_validators {
     delete $params->{bug_id};
 
     return $params;
+}
+
+sub update {
+    my $self = shift;
+
+    my $dbh = Bugzilla->dbh;
+    # XXX This is just a temporary hack until all updating happens
+    # inside this function.
+    my $delta_ts = shift || $dbh->selectrow_array("SELECT NOW()");
+    $self->{delta_ts} = $delta_ts;
+
+    my $changes = $self->SUPER::update(@_);
+
+    foreach my $comment (@{$self->{added_comments} || []}) {
+        my $columns = join(',', keys %$comment);
+        my @values  = values %$comment;
+        my $qmarks  = join(',', ('?') x @values);
+        $dbh->do("INSERT INTO longdescs (bug_id, who, bug_when, $columns)
+                       VALUES (?,?,?,$qmarks)", undef,
+                 $self->bug_id, Bugzilla->user->id, $delta_ts, @values);
+    }
+
+    # Log bugs_activity items
+    # XXX Eventually, when bugs_activity is able to track the dupe_id,
+    # this code should go below the duplicates-table-updating code below.
+    foreach my $field (keys %$changes) {
+        my $change = $changes->{$field};
+        LogActivityEntry($self->id, $field, $change->[0], $change->[1], 
+                         Bugzilla->user->id, $delta_ts);
+    }
+
+    # If this bug is no longer a duplicate, it no longer belongs in the
+    # dup table.
+    if (exists $changes->{'resolution'} 
+        && $changes->{'resolution'}->[0] eq 'DUPLICATE') 
+    {
+        my $dup_id = $self->dup_id;
+        $dbh->do("DELETE FROM duplicates WHERE dupe = ?", undef, $self->id);
+        $changes->{'dupe_of'} = [$dup_id, undef];
+    }
+
+    return $changes;
 }
 
 # This is the correct way to delete bugs from the DB.
@@ -513,30 +577,43 @@ sub _check_bug_severity {
 }
 
 sub _check_bug_status {
-    my ($invocant, $product, $status) = @_;
+    my ($invocant, $status, $product) = @_;
     my $user = Bugzilla->user;
 
-    my @valid_statuses = VALID_ENTRY_STATUS;
-
-    if ($user->in_group('editbugs', $product->id)
-        || $user->in_group('canconfirm', $product->id)) {
-       # Default to NEW if the user with privs hasn't selected another status.
-       $status ||= 'NEW';
-    }
-    elsif (!$product->votes_to_confirm) {
-        # Without privs, products that don't support UNCONFIRMED default to
-        # NEW.
-        $status = 'NEW';
+    my %valid_statuses;
+    if (ref $invocant) {
+        $invocant->{'prod_obj'} ||= 
+            new Bugzilla::Product({name => $invocant->product});
+        $product = $invocant->{'prod_obj'};
+        my $field = new Bugzilla::Field({ name => 'bug_status' });
+        %valid_statuses = map { $_ => 1 } @{$field->legal_values};
     }
     else {
-        $status = 'UNCONFIRMED';
+        %valid_statuses = map { $_ => 1 } VALID_ENTRY_STATUS;
+
+        if ($user->in_group('editbugs', $product->id)
+            || $user->in_group('canconfirm', $product->id)) {
+           # Default to NEW if the user with privs hasn't selected another
+           # status.
+           $status ||= 'NEW';
+        }
+        elsif (!$product->votes_to_confirm) {
+            # Without privs, products that don't support UNCONFIRMED default 
+            # to NEW.
+            $status = 'NEW';
+        }
+        else {
+            $status = 'UNCONFIRMED';
+        }
     }
 
     # UNCONFIRMED becomes an invalid status if votes_to_confirm is 0,
     # even if you are in editbugs.
-    shift @valid_statuses if !$product->votes_to_confirm;
+    delete $valid_statuses{'UNCONFIRMED'} if !$product->votes_to_confirm;
 
-    check_field('bug_status', $status, \@valid_statuses);
+    check_field('bug_status', $status, [keys %valid_statuses]);
+
+    return $status if ref $invocant;
     return ($status, $status eq 'UNCONFIRMED' ? 0 : 1);
 }
 
@@ -588,6 +665,14 @@ sub _check_commentprivacy {
     my $insider_group = Bugzilla->params->{"insidergroup"};
     return ($insider_group && Bugzilla->user->in_group($insider_group) 
             && $comment_privacy) ? 1 : 0;
+}
+
+sub _check_comment_type {
+    my ($invocant, $type) = @_;
+    detaint_natural($type)
+      || ThrowCodeError('bad_arg', { argument => 'type', 
+                                     function => caller });
+    return $type;
 }
 
 sub _check_component {
@@ -752,6 +837,13 @@ sub _check_rep_platform {
     return $platform;
 }
 
+sub _check_resolution {
+    my ($invocant, $resolution) = @_;
+    $resolution = trim($resolution);
+    check_field('resolution', $resolution);
+    return $resolution;
+}
+
 sub _check_short_desc {
     my ($invocant, $short_desc) = @_;
     # Set the parameter to itself, but cleaned up
@@ -843,6 +935,10 @@ sub _check_version {
     return $version;
 }
 
+sub _check_work_time {
+    return $_[0]->_check_time($_[1], 'work_time');
+}
+
 sub _check_select_field {
     my ($invocant, $value, $field) = @_;
     $value = trim($value);
@@ -880,6 +976,69 @@ sub fields {
     );
 }
 
+#####################################################################
+# Mutators 
+#####################################################################
+
+#################
+# "Set" Methods #
+#################
+
+sub _set_everconfirmed { $_[0]->set('everconfirmed', $_[1]); }
+sub set_resolution     { $_[0]->set('resolution',    $_[1]); }
+sub set_status { 
+    my ($self, $status) = @_;
+    $self->set('bug_status', $status); 
+    # Check for the everconfirmed transition
+    $self->_set_everconfirmed(1) if ($status eq 'NEW'
+                                     || $status eq 'ASSIGNED');
+}
+
+########################
+# "Add/Remove" Methods #
+########################
+
+# $bug->add_comment("comment", {isprivate => 1, work_time => 10.5,
+#                               type => CMT_NORMAL, extra_data => $data});
+sub add_comment {
+    my ($self, $comment, $params) = @_;
+
+    $comment = $self->_check_comment($comment);
+    # XXX At some point we need to refactor check_can_change_field
+    # so that custom installs can use PrivilegesRequired here.
+    $self->check_can_change_field('longdesc')
+        || ThrowUserError('illegal_change', { field => 'longdesc' });
+
+    $params ||= {};
+    if (exists $params->{work_time}) {
+        $params->{work_time} = $self->_check_work_time($params->{work_time});
+    }
+    if (exists $params->{type}) {
+        $params->{type} = $self->_check_comment_type($params->{type});
+    }
+    if (exists $params->{isprivate}) {
+        $params->{isprivate} = 
+            $self->_check_commentprivacy($params->{isprivate});
+    }
+    # XXX We really should check extra_data, too.
+
+    if ($comment eq '' && !($params->{type} || $params->{work_time})) {
+        return;
+    }
+
+    $self->{added_comments} ||= [];
+    my $add_comment = dclone($params);
+    $add_comment->{thetext} = $comment;
+
+    # We only want to trick_taint fields that we know about--we don't
+    # want to accidentally let somebody set some field that's not OK
+    # to set!
+    foreach my $field (UPDATE_COMMENT_COLUMNS) {
+        trick_taint($add_comment->{$field}) if defined $add_comment->{$field};
+    }
+
+    push(@{$self->{added_comments}}, $add_comment);
+}
 
 #####################################################################
 # Instance Accessors

@@ -380,9 +380,9 @@ sub update_table_definitions {
     if ($dbh->bz_column_info('components', 'initialqacontact')->{NOTNULL}) {
         $dbh->bz_alter_column('components', 'initialqacontact', 
                               {TYPE => 'INT3'});
-        $dbh->do("UPDATE components SET initialqacontact = NULL " .
-                  "WHERE initialqacontact = 0");
     }
+    $dbh->do("UPDATE components SET initialqacontact = NULL " .
+              "WHERE initialqacontact = 0");
 
     _migrate_email_prefs_to_new_table();
     _initialize_dependency_tree_changes_email_pref();
@@ -524,6 +524,8 @@ sub update_table_definitions {
     ################################################################
 
     Bugzilla::Hook::process('install-update_db');
+
+    $dbh->bz_setup_foreign_keys();
 }
 
 # Subroutines should be ordered in the order that they are called.

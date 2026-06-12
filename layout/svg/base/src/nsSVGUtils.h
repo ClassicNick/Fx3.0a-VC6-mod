@@ -66,7 +66,7 @@ class nsISVGValueObserver;
 class nsIAtom;
 class nsSVGLength2;
 class nsSVGElement;
-class nsSVGCoordCtxProvider;
+class nsSVGSVGElement;
 class nsAttrValue;
 class nsIRenderingContext;
 
@@ -94,6 +94,21 @@ class nsIRenderingContext;
 
 /* are we the child of a non-display container? */
 #define NS_STATE_SVG_NONDISPLAY_CHILD 0x20000000
+
+/**
+ * Byte offsets of channels in a native packed gfxColor or cairo image surface.
+ */
+#ifdef IS_BIG_ENDIAN
+#define GFX_ARGB32_OFFSET_A 0
+#define GFX_ARGB32_OFFSET_R 1
+#define GFX_ARGB32_OFFSET_G 2
+#define GFX_ARGB32_OFFSET_B 3
+#else
+#define GFX_ARGB32_OFFSET_A 3
+#define GFX_ARGB32_OFFSET_R 2
+#define GFX_ARGB32_OFFSET_G 1
+#define GFX_ARGB32_OFFSET_B 0
+#endif
 
 /*
  * Checks the svg enable preference and if a renderer could
@@ -144,7 +159,8 @@ public:
    * Factor (straight userspace), Coord (dimensioned), and Percent (of
    * the current SVG viewport)
    */
-  static float CoordToFloat(nsPresContext *aPresContext, nsIContent *aContent,
+  static float CoordToFloat(nsPresContext *aPresContext,
+                            nsSVGElement *aContent,
                             const nsStyleCoord &aCoord);
   /*
    * Gets an internal frame for an element referenced by a URI.  Note that this
@@ -238,12 +254,6 @@ public:
    * child or container SVG frame.
    */
   static already_AddRefed<nsIDOMSVGMatrix> GetCanvasTM(nsIFrame *aFrame);
-
-  /*
-   * Get element's coordinate context provider.
-   */
-  static already_AddRefed<nsSVGCoordCtxProvider>
-  GetCoordContextProvider(nsSVGElement *aElement);
 
   /*
    * Get frame's covered region by walking the children and doing union.

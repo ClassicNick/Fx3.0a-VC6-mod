@@ -81,6 +81,9 @@ public:
   {
   }
 
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_USING(nsGenericHTMLElement,
+                                                 nsGenericElement)
+
   /** Typesafe, non-refcounting cast from nsIContent.  Cheaper than QI. **/
   static nsGenericHTMLElement* FromContent(nsIContent *aContent)
   {
@@ -727,12 +730,6 @@ protected:
   NS_HIDDEN_(nsresult) GetURIListAttr(nsIAtom* aAttr, nsAString& aResult);
 
   /**
-   * Helper method to recreate all frames for this content, if there
-   * are any.
-   */
-  void RecreateFrames();
-
-  /**
    * Locate an nsIEditor rooted at this content node, if there is one.
    */
   NS_HIDDEN_(nsresult) GetEditor(nsIEditor** aEditor);
@@ -774,6 +771,9 @@ public:
   virtual ~nsGenericHTMLFormElement();
 
   NS_IMETHOD QueryInterface(REFNSIID aIID, void** aInstancePtr);
+
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED_USING(nsGenericHTMLFormElement,
+                                                 nsGenericHTMLElement)
 
   virtual PRBool IsNodeOfType(PRUint32 aFlags) const;
 

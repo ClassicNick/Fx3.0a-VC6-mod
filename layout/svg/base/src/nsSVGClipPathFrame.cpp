@@ -43,6 +43,7 @@
 #include "nsGkAtoms.h"
 #include "nsSVGUtils.h"
 #include "nsSVGGraphicElement.h"
+#include "nsIDOMSVGRect.h"
 
 //----------------------------------------------------------------------
 // Implementation

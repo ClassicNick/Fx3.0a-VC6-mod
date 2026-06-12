@@ -41,7 +41,6 @@
 
 #include "nsSVGContainerFrame.h"
 #include "nsISVGSVGFrame.h"
-#include "nsSVGCoordCtxProvider.h"
 #include "nsISVGEnum.h"
 #include "nsIDOMSVGPoint.h"
 #include "nsIDOMSVGNumber.h"
@@ -54,8 +53,7 @@ class nsISVGRenderer;
 typedef nsSVGDisplayContainerFrame nsSVGOuterSVGFrameBase;
 
 class nsSVGOuterSVGFrame : public nsSVGOuterSVGFrameBase,
-                           public nsISVGSVGFrame,
-                           public nsSVGCoordCtxProvider
+                           public nsISVGSVGFrame
 {
   friend nsIFrame*
   NS_NewSVGOuterSVGFrame(nsIPresShell* aPresShell, nsIContent* aContent, nsStyleContext* aContext);
@@ -83,10 +81,6 @@ public:
                            nsIFrame*       aPrevFrame,
                            nsIFrame*       aFrameList);
 
-  // We don't define an AttributeChanged method since changes to the
-  // 'x', 'y', 'width' and 'height' attributes of our content object
-  // are handled in nsSVGSVGElement::DidModifySVGObservable
-
   nsIFrame* GetFrameForPoint(const nsPoint& aPoint);
 
   NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
@@ -110,6 +104,10 @@ public:
   }
 #endif
 
+  NS_IMETHOD  AttributeChanged(PRInt32         aNameSpaceID,
+                               nsIAtom*        aAttribute,
+                               PRInt32         aModType);
+
   // nsSVGOuterSVGFrame methods:
 
   /* Invalidate takes a nsRect in screen pixel coordinates */
@@ -124,7 +122,6 @@ public:
 
   // nsSVGContainerFrame methods:
   virtual already_AddRefed<nsIDOMSVGMatrix> GetCanvasTM();
-  virtual already_AddRefed<nsSVGCoordCtxProvider> GetCoordContextProvider();
 
 protected:
   // implementation helpers:

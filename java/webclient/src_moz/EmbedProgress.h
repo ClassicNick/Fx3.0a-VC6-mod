@@ -54,9 +54,11 @@ class EmbedProgress : public nsIWebProgressListener,
 
   NS_IMETHOD GetAjaxListener(AjaxListener** result);
   NS_IMETHOD RemoveAjaxListener(void);
+  NS_IMETHOD GetEventRegistration(jobject *result);
 
   NativeBrowserControl *mOwner;
 
+  friend class AjaxListener;
   AjaxListener *mAjaxListener;
     
   jobject mEventRegistration;
