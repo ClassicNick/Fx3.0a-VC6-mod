@@ -1504,7 +1504,9 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
     dirty.IntersectRect(dirty, aChild->GetOverflowRect());
   }
 
-  if (!(aChild->GetStateBits() & NS_FRAME_FORCE_DISPLAY_LIST_DESCEND_INTO)) {
+  if (aBuilder->GetPaintAllFrames()) {
+    dirty = aChild->GetOverflowRect();
+  } else if (!(aChild->GetStateBits() & NS_FRAME_FORCE_DISPLAY_LIST_DESCEND_INTO)) {
     // No need to descend into aChild to catch placeholders for visible
     // positioned stuff. So see if we can short-circuit frame traversal here.
 
@@ -2940,12 +2942,6 @@ nsFrame::MarkIntrinsicWidthsDirty()
 /* virtual */ nscoord
 nsFrame::GetMinWidth(nsIRenderingContext *aRenderingContext)
 {
-#ifdef DEBUG
-  nsAutoString frameName;
-  GetFrameName(frameName);
-  NS_WARNING(nsCAutoString(NS_ConvertUTF16toUTF8(frameName) +
-    nsDependentCString(" frame didn't implement GetMinWidth")).get());
-#endif
   nscoord result = 0;
   DISPLAY_MIN_WIDTH(this, result);
   return result;
@@ -2954,12 +2950,6 @@ nsFrame::GetMinWidth(nsIRenderingContext *aRenderingContext)
 /* virtual */ nscoord
 nsFrame::GetPrefWidth(nsIRenderingContext *aRenderingContext)
 {
-#ifdef DEBUG
-  nsAutoString frameName;
-  GetFrameName(frameName);
-  NS_WARNING(nsCAutoString(NS_ConvertUTF16toUTF8(frameName) +
-    nsDependentCString(" frame didn't implement GetPrefWidth")).get());
-#endif
   nscoord result = 0;
   DISPLAY_PREF_WIDTH(this, result);
   return result;

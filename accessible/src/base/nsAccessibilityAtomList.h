@@ -138,11 +138,13 @@ ACCESSIBILITY_ATOM(controls, "controls")
 ACCESSIBILITY_ATOM(describedby, "describedby")
 ACCESSIBILITY_ATOM(flowto, "flowto")
 ACCESSIBILITY_ATOM(labelledby, "labelledby")
+ACCESSIBILITY_ATOM(owns, "owns")
 
   // Alphabetical list of attributes
 ACCESSIBILITY_ATOM(acceltext, "acceltext")
 ACCESSIBILITY_ATOM(accesskey, "accesskey")
 ACCESSIBILITY_ATOM(alt, "alt")
+ACCESSIBILITY_ATOM(anonid, "anonid") // Used for ID's in XBL
 ACCESSIBILITY_ATOM(control, "control")
 ACCESSIBILITY_ATOM(data, "data")
 ACCESSIBILITY_ATOM(disabled, "disabled")

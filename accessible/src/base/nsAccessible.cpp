@@ -318,7 +318,9 @@ NS_IMETHODIMP nsAccessible::GetDescription(nsAString& aDescription)
       if (isXUL) {
         // Try XUL <description control="[id]">description text</description>
         nsIContent *descriptionContent =
-          GetXULLabelContent(content, nsAccessibilityAtoms::description);
+          FindNeighbourPointingToNode(content, nsAccessibilityAtoms::description,
+                                      nsAccessibilityAtoms::control);
+
         if (descriptionContent) {
           // We have a description content node
           AppendFlatStringFromSubtree(descriptionContent, &description);
@@ -1563,44 +1565,24 @@ nsresult nsAccessible::AppendFlatStringFromSubtreeRecurse(nsIContent *aContent, 
 
 nsIContent *nsAccessible::GetLabelContent(nsIContent *aForNode)
 {
-  return aForNode->IsNodeOfType(nsINode::eXUL) ? GetXULLabelContent(aForNode) :
-                                                 GetHTMLLabelContent(aForNode);
-}
- 
-nsIContent* nsAccessible::GetXULLabelContent(nsIContent *aForNode, nsIAtom *aLabelType)
-{
-  nsAutoString controlID;
-  aForNode->GetAttr(kNameSpaceID_None, nsAccessibilityAtoms::id, controlID);
-  if (controlID.IsEmpty())
-    return nsnull;
+  if (aForNode->IsNodeOfType(nsINode::eXUL))
+    return FindNeighbourPointingToNode(aForNode, nsAccessibilityAtoms::label,
+                                       nsAccessibilityAtoms::control);
 
-  // Look for label in subtrees of nearby ancestors
-  static const PRUint32 kAncestorLevelsToSearch = 5;
-  PRUint32 count = 0;
-  nsIContent *labelContent = nsnull;
-  nsIContent *prevSearched = nsnull;
-
-  while (!labelContent && ++count <= kAncestorLevelsToSearch && 
-         (aForNode = aForNode->GetParent()) != nsnull) {
-    labelContent = GetContentPointingTo(&controlID, aForNode,
-                                        nsAccessibilityAtoms::control,
-                                        prevSearched,
-                                        kNameSpaceID_None, aLabelType);
-    prevSearched = aForNode;
-  }
-
-  return labelContent;
+  return GetHTMLLabelContent(aForNode);
 }
 
 nsIContent* nsAccessible::GetHTMLLabelContent(nsIContent *aForNode)
 {
+  // Get either <label for="[id]"> element which explictly points to aForNode, or 
+  // <label> ancestor which implicitly point to it
   nsIContent *walkUpContent = aForNode;
 
   // go up tree get name of ancestor label if there is one. Don't go up farther than form element
   while ((walkUpContent = walkUpContent->GetParent()) != nsnull) {
     nsIAtom *tag = walkUpContent->Tag();
     if (tag == nsAccessibilityAtoms::label) {
-      return walkUpContent;
+      return walkUpContent;  // An ancestor <label> implicitly points to us
     }
     if (tag == nsAccessibilityAtoms::form ||
         tag == nsAccessibilityAtoms::body) {
@@ -1614,7 +1596,8 @@ nsIContent* nsAccessible::GetHTMLLabelContent(nsIContent *aForNode)
       if (forId.IsEmpty()) {
         break;
       }
-      return GetContentPointingTo(&forId, walkUpContent, nsAccessibilityAtoms::_for); 
+      return FindDescendantPointingToID(&forId, walkUpContent,
+                                        nsAccessibilityAtoms::_for);
     }
   }
 
@@ -1672,19 +1655,105 @@ nsresult nsAccessible::GetTextFromRelationID(nsIAtom *aIDAttrib, nsString &aName
   return rv;
 }
 
+nsIContent*
+nsAccessible::FindNeighbourPointingToNode(nsIContent *aForNode,
+                                          nsIAtom *aTagName, nsIAtom *aAttr,
+                                          PRUint32 aAncestorLevelsToSearch)
+{
+  nsCOMPtr<nsIContent> binding;
+
+  nsAutoString controlID;
+  aForNode->GetAttr(kNameSpaceID_None, nsAccessibilityAtoms::id, controlID);
+  if (controlID.IsEmpty()) {
+    binding = aForNode->GetBindingParent();
+    if (binding == aForNode)
+      return nsnull;
+
+    aForNode->GetAttr(kNameSpaceID_None, nsAccessibilityAtoms::anonid, controlID);
+    if (controlID.IsEmpty())
+      return nsnull;
+  }
+
+  // Look for label in subtrees of nearby ancestors
+  PRUint32 count = 0;
+  nsIContent *labelContent = nsnull;
+  nsIContent *prevSearched = nsnull;
+
+  while (!labelContent && ++count <= aAncestorLevelsToSearch &&
+         (aForNode = aForNode->GetParent()) != nsnull) {
+
+    if (aForNode == binding) {
+      // When we reach the binding parent, make sure to check
+      // all of its anonymous child subtrees
+      nsCOMPtr<nsIDocument> doc = aForNode->GetCurrentDoc();
+      nsCOMPtr<nsIDOMDocumentXBL> xblDoc(do_QueryInterface(doc));
+      if (!xblDoc)
+        return nsnull;
+
+      nsCOMPtr<nsIDOMNodeList> nodes;
+      nsCOMPtr<nsIDOMElement> forElm(do_QueryInterface(aForNode));
+      xblDoc->GetAnonymousNodes(forElm, getter_AddRefs(nodes));
+      if (!nodes)
+        return nsnull;
+
+      PRUint32 length;
+      nsresult rv = nodes->GetLength(&length);
+      if (NS_FAILED(rv))
+        return nsnull;
+
+      for (PRUint32 index = 0; index < length && !labelContent; index++) {
+        nsCOMPtr<nsIDOMNode> node;
+        rv = nodes->Item(index, getter_AddRefs(node));
+        if (NS_FAILED(rv))
+          return nsnull;
+
+        nsCOMPtr<nsIContent> content = do_QueryInterface(node);
+        if (!content)
+          return nsnull;
+
+        if (content != prevSearched) {
+          labelContent = FindDescendantPointingToID(&controlID, content,  aAttr,
+                                                    nsnull, kNameSpaceID_None,
+                                                    aTagName);
+        }
+      }
+      break;
+    }
+
+    labelContent = FindDescendantPointingToID(&controlID, aForNode,
+                                              aAttr, prevSearched,
+                                              kNameSpaceID_None, aTagName);
+    prevSearched = aForNode;
+  }
+
+  return labelContent;
+}
+
 // Pass in aForAttrib == nsnull if any <label> will do
-nsIContent *nsAccessible::GetContentPointingTo(const nsAString *aId,
-                                               nsIContent *aLookContent,
-                                               nsIAtom *aForAttrib,
-                                               nsIContent *aExcludeContent,
-                                               PRUint32 aForAttribNameSpace,
-                                               nsIAtom *aTagType)
+nsIContent*
+nsAccessible::FindDescendantPointingToID(const nsAString *aId,
+                                         nsIContent *aLookContent,
+                                         nsIAtom *aForAttrib,
+                                         nsIContent *aExcludeContent,
+                                         PRUint32 aForAttribNameSpace,
+                                         nsIAtom *aTagType)
 {
   if (!aTagType || aLookContent->Tag() == aTagType) {
     if (aForAttrib) {
-      if (aLookContent->AttrValueIs(aForAttribNameSpace, aForAttrib,
-                                    *aId, eCaseMatters)) {
-        return aLookContent;
+      // Check for ID in the attribute aForAttrib, which can be a list
+      nsAutoString idList;
+      if (aLookContent->GetAttr(aForAttribNameSpace, aForAttrib, idList)) {
+        idList.Insert(' ', 0);  // Surround idlist with spaces for search
+        idList.Append(' ');
+        nsAutoString id(*aId);
+        id.Insert(' ', 0); // Surround id with spaces for search
+        id.Append(' ');
+        // idList is now a set of id's with spaces around each,
+        // and id also has spaces around it.
+        // If id is a substring of idList then we have a match
+        if (idList.Find(id) != -1) {
+          return aLookContent;
+        }
       }
     }
     if (aTagType) {
@@ -1692,15 +1761,16 @@ nsIContent *nsAccessible::GetContentPointingTo(const nsAString *aId,
     }
   }
 
-  // Recursively search descendents for labels
+  // Recursively search descendants for labels
   PRUint32 count  = 0;
   nsIContent *child;
   nsIContent *labelContent = nsnull;
 
   while ((child = aLookContent->GetChildAt(count++)) != nsnull) {
     if (child != aExcludeContent) {
-      labelContent = GetContentPointingTo(aId, child, aForAttrib, aExcludeContent,
-                                          aForAttribNameSpace, aTagType);
+      labelContent = FindDescendantPointingToID(aId, child, aForAttrib,
+                                                aExcludeContent,
+                                                aForAttribNameSpace, aTagType);
     }
     if (labelContent) {
       return labelContent;
@@ -1806,7 +1876,10 @@ nsresult nsAccessible::GetXULName(nsAString& aLabel, PRBool aCanAggregateSubtree
   // CASES #2 and #3 ------ label as a child or <label control="id" ... > </label>
   if (NS_FAILED(rv) || label.IsEmpty()) {
     label.Truncate();
-    nsIContent *labelContent = GetXULLabelContent(content);
+    nsIContent *labelContent =
+      FindNeighbourPointingToNode(content, nsAccessibilityAtoms::label,
+                                  nsAccessibilityAtoms::control);
+
     nsCOMPtr<nsIDOMXULLabelElement> xulLabel(do_QueryInterface(labelContent));
     // Check if label's value attribute is used
     if (xulLabel && NS_SUCCEEDED(xulLabel->GetValue(label)) && label.IsEmpty()) {
@@ -2265,12 +2338,15 @@ nsAccessible::GetDefaultKeyBinding(nsAString& aKeyBinding)
 }
 
 NS_IMETHODIMP
-nsAccessible::GetKeyBindings(nsIDOMDOMStringList **aKeyBindings)
+nsAccessible::GetKeyBindings(PRUint8 aActionIndex,
+                             nsIDOMDOMStringList **aKeyBindings)
 {
+  // Currently we support only unique key binding on element for default action.
+  NS_ENSURE_TRUE(aActionIndex == 0, NS_ERROR_INVALID_ARG);
+
   nsAccessibleDOMStringList *keyBindings = new nsAccessibleDOMStringList();
   NS_ENSURE_TRUE(keyBindings, NS_ERROR_OUT_OF_MEMORY);
 
-  // Currently we support only unique key binding on element.
   nsAutoString defaultKey;
   nsresult rv = GetDefaultKeyBinding(defaultKey);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2349,39 +2425,24 @@ NS_IMETHODIMP nsAccessible::GetAccessibleBelow(nsIAccessible **_retval)
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
-already_AddRefed<nsIDOMNode> nsAccessible::GetInverseRelatedNode(nsIAtom *aRelationAttr,
-                                                                 PRUint32 aAncestorLevelsToSearch)
+already_AddRefed<nsIDOMNode>
+nsAccessible::FindNeighbourPointingToThis(nsIAtom *aRelationAttr,
+                                          PRUint32 aAncestorLevelsToSearch)
 {
-  // aAncestorLevelsToSearch is an optimization used for label and description searches.
-  // We expect the control to be relatively near the label/description in the DOM tree,
-  // so to optimize we don't search the entire DOM tree.
   nsIContent *content = GetRoleContent(mDOMNode);
-  if (!content) {
+  if (!content)
     return nsnull; // Node shut down
-  }
-  nsAutoString controlID;
-  content->GetAttr(kNameSpaceID_None, nsAccessibilityAtoms::id, controlID);
-  if (controlID.IsEmpty()) {
+
+  nsIContent* description = FindNeighbourPointingToNode(content, nsnull,
+                                                        aRelationAttr,
+                                                        aAncestorLevelsToSearch);
+
+  if (!description)
     return nsnull;
-  }
-  // Something might be pointing to us
-  PRUint32 count = 0;
-  nsIContent *start = content;
-  nsIContent *prevSearched = nsnull;
-  while ((!aAncestorLevelsToSearch || ++count <= aAncestorLevelsToSearch) && 
-        (start = start->GetParent()) != nsnull) {
-    nsIContent *description = GetContentPointingTo(&controlID, start,
-                                                   aRelationAttr, prevSearched,
-                                                   kNameSpaceID_WAIProperties,
-                                                   nsnull);
-    if (description) {
-      nsIDOMNode *relatedNode;
-      CallQueryInterface(description, &relatedNode);
-      return relatedNode;
-    }
-    prevSearched = start;
-  }
-  return nsnull;
+
+  nsIDOMNode *relatedNode;
+  CallQueryInterface(description, &relatedNode);
+  return relatedNode;
 }
 
 
@@ -2414,7 +2475,8 @@ NS_IMETHODIMP nsAccessible::GetAccessibleRelated(PRUint32 aRelationType, nsIAcce
       }
       if (relatedID.IsEmpty()) {
         const PRUint32 kAncestorLevelsToSearch = 3;
-        relatedNode = GetInverseRelatedNode(nsAccessibilityAtoms::labelledby, kAncestorLevelsToSearch);
+        relatedNode = FindNeighbourPointingToThis(nsAccessibilityAtoms::labelledby,
+                                                  kAncestorLevelsToSearch);
       }
       break;
     }
@@ -2433,7 +2495,10 @@ NS_IMETHODIMP nsAccessible::GetAccessibleRelated(PRUint32 aRelationType, nsIAcce
                        nsAccessibilityAtoms::describedby, relatedID);
       if (relatedID.IsEmpty()) {
         nsIContent *description =
-          GetXULLabelContent(content, nsAccessibilityAtoms::description);
+          FindNeighbourPointingToNode(content,
+                                      nsAccessibilityAtoms::description,
+                                      nsAccessibilityAtoms::control);
+
         relatedNode = do_QueryInterface(description);
       }
       break;
@@ -2441,7 +2506,10 @@ NS_IMETHODIMP nsAccessible::GetAccessibleRelated(PRUint32 aRelationType, nsIAcce
   case RELATION_DESCRIPTION_FOR:
     {
       const PRUint32 kAncestorLevelsToSearch = 3;
-      relatedNode = GetInverseRelatedNode(nsAccessibilityAtoms::describedby, kAncestorLevelsToSearch);
+      relatedNode =
+        FindNeighbourPointingToThis(nsAccessibilityAtoms::describedby,
+                                    kAncestorLevelsToSearch);
+
       if (!relatedNode && content->Tag() == nsAccessibilityAtoms::description &&
           content->IsNodeOfType(nsINode::eXUL)) {
         // This affectively adds an optional control attribute to xul:description,
@@ -2452,9 +2520,14 @@ NS_IMETHODIMP nsAccessible::GetAccessibleRelated(PRUint32 aRelationType, nsIAcce
       }
       break;
     }
-  case RELATION_CONTROLLED_BY: 
+  case RELATION_NODE_CHILD_OF:
     {
-      relatedNode = GetInverseRelatedNode(nsAccessibilityAtoms::controls);
+      relatedNode = FindNeighbourPointingToThis(nsAccessibilityAtoms::owns);
+      break;
+    }
+  case RELATION_CONTROLLED_BY:
+    {
+      relatedNode = FindNeighbourPointingToThis(nsAccessibilityAtoms::controls);
       break;
     }
   case RELATION_CONTROLLER_FOR:
@@ -2471,7 +2544,7 @@ NS_IMETHODIMP nsAccessible::GetAccessibleRelated(PRUint32 aRelationType, nsIAcce
     }
   case RELATION_FLOWS_FROM:
     {
-      relatedNode = GetInverseRelatedNode(nsAccessibilityAtoms::flowto);
+      relatedNode = FindNeighbourPointingToThis(nsAccessibilityAtoms::flowto);
       break;
     }
 
