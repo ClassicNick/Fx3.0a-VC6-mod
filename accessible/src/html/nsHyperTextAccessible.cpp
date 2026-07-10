@@ -103,7 +103,7 @@ nsresult nsHyperTextAccessible::QueryInterface(REFNSIID aIID, void** aInstancePt
       // If this contains editable text
       PRUint32 extState;
       GetExtState(&extState);
-      if (extState & EXT_STATE_EDITABLE) {
+      if (extState & nsIAccessibleStates::EXT_STATE_EDITABLE) {
         *aInstancePtr = NS_STATIC_CAST(nsIAccessibleEditableText*, this);
         NS_ADDREF_THIS();
         return NS_OK;
@@ -142,14 +142,14 @@ NS_IMETHODIMP nsHyperTextAccessible::GetRole(PRUint32 *aRole)
   nsIAtom *tag = content->Tag();
 
   if (tag == nsAccessibilityAtoms::caption) {
-    *aRole = ROLE_CAPTION;
+    *aRole = nsIAccessibleRole::ROLE_CAPTION;
   }
   else if (tag == nsAccessibilityAtoms::form) {
-    *aRole = ROLE_FORM;
+    *aRole = nsIAccessibleRole::ROLE_FORM;
   }
   else if (tag == nsAccessibilityAtoms::div ||
            tag == nsAccessibilityAtoms::blockquote) {
-    *aRole = ROLE_SECTION;
+    *aRole = nsIAccessibleRole::ROLE_SECTION;
   }
   else if (tag == nsAccessibilityAtoms::h1 ||
            tag == nsAccessibilityAtoms::h2 ||
@@ -157,15 +157,15 @@ NS_IMETHODIMP nsHyperTextAccessible::GetRole(PRUint32 *aRole)
            tag == nsAccessibilityAtoms::h4 ||
            tag == nsAccessibilityAtoms::h5 ||
            tag == nsAccessibilityAtoms::h6) {
-    *aRole = ROLE_HEADING;
+    *aRole = nsIAccessibleRole::ROLE_HEADING;
   }
   else {
     nsIFrame *frame = GetFrame();
     if (frame && frame->GetType() == nsAccessibilityAtoms::blockFrame) {
-      *aRole = ROLE_PARAGRAPH;
+      *aRole = nsIAccessibleRole::ROLE_PARAGRAPH;
     }
     else {
-      *aRole = ROLE_TEXT_CONTAINER; // In ATK this works
+      *aRole = nsIAccessibleRole::ROLE_TEXT_CONTAINER; // In ATK this works
     }
   }
   return NS_OK;
@@ -184,14 +184,14 @@ NS_IMETHODIMP nsHyperTextAccessible::GetExtState(PRUint32 *aExtState)
     PRUint32 flags;
     editor->GetFlags(&flags);
     if (0 == (flags & nsIPlaintextEditor::eEditorReadonlyMask)) {
-      *aExtState |= EXT_STATE_EDITABLE;
+      *aExtState |= nsIAccessibleStates::EXT_STATE_EDITABLE;
     }
   }
 
   PRInt32 childCount;
   GetChildCount(&childCount);
   if (childCount > 0) {
-    *aExtState |= EXT_STATE_SELECTABLE_TEXT;
+    *aExtState |= nsIAccessibleStates::EXT_STATE_SELECTABLE_TEXT;
   }
   return rv;
 }
@@ -562,7 +562,20 @@ PRInt32 nsHyperTextAccessible::GetRelativeOffset(nsIPresShell *aPresShell, nsIFr
               kIsScrollViewAStop, kIsKeyboardSelect, kIsVisualBidi,
               wordMovementType);
   nsresult rv = aFromFrame->PeekOffset(&pos);
-  NS_ENSURE_SUCCESS(rv, -1);
+  if (NS_FAILED(rv)) {
+    if (aDirection == eDirPrevious) {
+      // Use passed-in frame as starting point in failure case for now,
+      // this is a hack to deal with starting on a list bullet frame,
+      // which fails in PeekOffset() because the line iterator doesn't see it.
+      // XXX Need to look at our overall handling of list bullets, which are an odd case
+      pos.mResultContent = aFromFrame->GetContent();
+      PRInt32 endOffsetUnused;
+      aFromFrame->GetOffsets(pos.mContentOffset, endOffsetUnused);
+    }
+    else {
+      return rv;
+    }
+  }
 
   // Turn the resulting node and offset into a hyperTextOffset
   PRInt32 hyperTextOffset;
@@ -589,7 +602,7 @@ PRInt32 nsHyperTextAccessible::GetRelativeOffset(nsIPresShell *aPresShell, nsIFr
   else if (aAmount == eSelectEndLine && finalAccessible) { 
     // If not at very end of hypertext, we may need change the end of line offset by 1, 
     // to make sure we are in the right place relative to the line ending
-    if (Role(finalAccessible) == ROLE_WHITESPACE) {  // Landed on <br> hard line break
+    if (Role(finalAccessible) == nsIAccessibleRole::ROLE_WHITESPACE) {  // Landed on <br> hard line break
       // if aNeedsStart, set end of line exactly 1 character past line break
       // XXX It would be cleaner if we did not have to have the hard line break check,
       // and just got the correct results from PeekOffset() for the <br> case -- the returned offset should
@@ -692,15 +705,17 @@ nsresult nsHyperTextAccessible::GetTextHelper(EGetTextType aType, nsAccessibleTe
     return NS_ERROR_INVALID_ARG;
   }
 
+  PRInt32 finalStartOffset, finalEndOffset;
+
   // If aType == eGetAt we'll change both the start and end offset from
   // the original offset
   if (aType == eGetAfter) {
-    startOffset = aOffset;
+    finalStartOffset = aOffset;
   }
   else {
-    startOffset = GetRelativeOffset(presShell, startFrame,  startOffset,
-                                    amount, eDirPrevious, needsStart);
-    NS_ENSURE_TRUE(startOffset >= 0, NS_ERROR_FAILURE);
+    finalStartOffset = GetRelativeOffset(presShell, startFrame,  startOffset,
+                                         amount, eDirPrevious, needsStart);
+    NS_ENSURE_TRUE(finalStartOffset >= 0, NS_ERROR_FAILURE);
   }
 
   if (aType == eGetBefore) {
@@ -708,14 +723,15 @@ nsresult nsHyperTextAccessible::GetTextHelper(EGetTextType aType, nsAccessibleTe
   }
   else {
     // Start moving forward from the start so that we don't get 
-    // 2 words/lines if the offset occured on whitespace boundary    
-    endOffset = startOffset; // Passed by reference to GetPosAndText()
+    // 2 words/lines if the offset occured on whitespace boundary
+    // Careful, startOffset and endOffset are passed by reference to GetPosAndText() and changed
+    startOffset = endOffset = finalStartOffset;
     nsIFrame *endFrame = GetPosAndText(startOffset, endOffset);
     if (!endFrame) {
       return NS_ERROR_FAILURE;
     }
-    endOffset = GetRelativeOffset(presShell, endFrame, endOffset, amount,
-                                  eDirNext, needsStart);
+    finalEndOffset = GetRelativeOffset(presShell, endFrame, endOffset, amount,
+                                       eDirNext, needsStart);
     NS_ENSURE_TRUE(endOffset >= 0, NS_ERROR_FAILURE);
   }
 
@@ -726,13 +742,13 @@ nsresult nsHyperTextAccessible::GetTextHelper(EGetTextType aType, nsAccessibleTe
     return GetTextHelper(eGetAfter, aBoundaryType, aOffset, aStartOffset, aEndOffset, aText);
   }
 
-  *aStartOffset = startOffset;
-  *aEndOffset = endOffset;
+  *aStartOffset = finalStartOffset;
+  *aEndOffset = finalEndOffset;
 
-  NS_ASSERTION((startOffset < aOffset && endOffset >= aOffset) || aType != eGetBefore, "Incorrect results for GetTextHelper");
-  NS_ASSERTION((startOffset <= aOffset && endOffset > aOffset) || aType == eGetBefore, "Incorrect results for GetTextHelper");
+  NS_ASSERTION((finalStartOffset < aOffset && finalEndOffset >= aOffset) || aType != eGetBefore, "Incorrect results for GetTextHelper");
+  NS_ASSERTION((finalStartOffset <= aOffset && finalEndOffset > aOffset) || aType == eGetBefore, "Incorrect results for GetTextHelper");
 
-  return GetPosAndText(startOffset, endOffset, &aText) ? NS_OK : NS_ERROR_FAILURE;
+  return GetPosAndText(finalStartOffset, finalEndOffset, &aText) ? NS_OK : NS_ERROR_FAILURE;
 }
 
 /**
@@ -1019,7 +1035,8 @@ NS_IMETHODIMP nsHyperTextAccessible::GetLinkIndex(PRInt32 aCharIndex, PRInt32 *a
 
   while (NextChild(accessible) && characterCount <= aCharIndex) {
     PRUint32 role = Role(accessible);
-    if (role == ROLE_TEXT_LEAF || role == ROLE_STATICTEXT) {
+    if (role == nsIAccessibleRole::ROLE_TEXT_LEAF ||
+        role == nsIAccessibleRole::ROLE_STATICTEXT) {
       characterCount += TextLength(accessible);
     }
     else {
@@ -1027,7 +1044,7 @@ NS_IMETHODIMP nsHyperTextAccessible::GetLinkIndex(PRInt32 aCharIndex, PRInt32 *a
         *aLinkIndex = linkIndex;
         break;
       }
-      if (role != ROLE_WHITESPACE) {
+      if (role != nsIAccessibleRole::ROLE_WHITESPACE) {
         ++ linkIndex;
       }
     }

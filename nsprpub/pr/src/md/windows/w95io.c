@@ -131,6 +131,8 @@ _PR_MD_INIT_IO()
     InitGetFileInfo();
 
     InitUnicodeSupport();
+
+    _PR_MD_InitSockets();
 }
 
 PRStatus

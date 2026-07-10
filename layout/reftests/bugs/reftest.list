@@ -151,6 +151,7 @@ fails-if(MOZ_WIDGET_TOOLKIT!="windows") == 351641-2b.html 351641-2-ref.html # bu
 == 364861-1.html 364861-1-ref.html
 == 364862-1.html 364862-1-ref.html
 == 365173-1.html 365173-1-ref.html
+== 366616-1.xul 366616-1-ref.xul
 == 367220-1.html 367220-1-ref.html
 == 367247-s-visible.html 367247-s-hidden.html
 == 367247-s-hidden.html 367247-s-auto.html
@@ -190,3 +191,4 @@ fails == 368504-1.html 368504-1-ref.html # bug 368504
 == 371925-1a.html 371925-1-ref.html
 == 371925-1b.html 371925-1-ref.html
 == 372553-1.html 372553-1-ref.html
+== 373381-1.html 373381-1-ref.html

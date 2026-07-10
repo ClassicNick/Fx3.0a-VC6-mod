@@ -1,5 +1,5 @@
 /*
- * $Id: MCP.java,v 1.6 2007/03/09 04:34:24 edburns%acm.org Exp $
+ * $Id: MCP.java,v 1.8 2007/03/14 21:02:13 edburns%acm.org Exp $
  */
 
 /* 
@@ -34,6 +34,7 @@ import java.awt.event.KeyListener;
 import java.awt.event.MouseListener;
 import java.io.FileNotFoundException;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.mozilla.dom.util.DOMTreeDumper;
@@ -50,7 +51,10 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
 /**
- *
+ * <p>The main class for the Mozilla Control Program.  Please see <a
+ * href="package-summary.html">the package description</a> for an
+ * overview.</p>
+
  * @author edburns
  */
 public class MCP {
@@ -59,12 +63,12 @@ public class MCP {
     public MCP() {
     }
     
-    public static final String MCP_LOG = "org.mozilla.mcp";
-    public static final String MCP_LOG_STRINGS = "org.mozilla.mcp.MCPLogStrings";
+    private static final String MCP_LOG = "org.mozilla.mcp";
+    private static final String MCP_LOG_STRINGS = "org.mozilla.mcp.MCPLogStrings";
 
-    public static final Logger LOGGER = getLogger(MCP_LOG);
+    private static final Logger LOGGER = getLogger(MCP_LOG);
     
-    static Logger getLogger( String loggerName ) {
+    private static Logger getLogger( String loggerName ) {
         return Logger.getLogger(loggerName, MCP_LOG_STRINGS );
     }
     
@@ -81,6 +85,37 @@ public class MCP {
     private boolean initialized = false;
     private Robot robot;
     private DOMTreeDumper treeDumper = null;
+    private CountDownLatch latch = null;
+    
+    private void createLatch() {
+        if (null != latch) {
+            IllegalStateException ise = new IllegalStateException("Trying to set latch when latch is already set!");
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.throwing("org.mozilla.mcp.MCP", "createLatch", ise);
+            }
+            throw ise;
+        }
+        latch = new CountDownLatch(1);
+    }
+    
+    private void lockLatch() throws InterruptedException {
+        if (null == latch) {
+            IllegalStateException ise = new IllegalStateException("Trying to lock latch before it has been created!");
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.throwing("org.mozilla.mcp.MCP", "lockLatch", ise);
+            }
+            throw ise;
+        }
+        latch.await();
+    }
+
+    private void openLatch() {
+        if (null != latch || 1 != latch.getCount()) {
+            latch.countDown();
+            latch = null;
+        }
+    }    
+
     
     public void setAppData(String absolutePathToNativeBrowserBinDir)
     throws FileNotFoundException,
@@ -180,31 +215,76 @@ public class MCP {
         }
         return pageInfoListener;
     }
+
+    /**
+
+    * <p>Add the argument <code>AjaxListener</code> to this MCP
+    * instance.</p>
+
+    */
     
     public void addAjaxListener(AjaxListener listener) {
         getEventRegistration().addDocumentLoadListener(listener);
     }
     
+    /**
+
+    * <p>Remove the argument <code>AjaxListener</code> to this MCP
+    * instance.</p>
+
+    */
     public void removeAjaxListener(AjaxListener listener) {
         getEventRegistration().removeDocumentLoadListener(listener);
     }
 
+    /**
+
+    * <p>Add the argument <code>MouseListener</code> to the
+    * <code>Canvas</code> for this MCP instance.</p>
+
+    */
     public void addMouseListener(MouseListener listener) {
         getBrowserControlCanvas().addMouseListener(listener);
     }
     
+    /**
+
+    * <p>Remove the argument <code>MouseListener</code> from the
+    * <code>Canvas</code> for this MCP instance.</p>
+
+    */
     public void removeMouseListener(MouseListener listener) {
         getBrowserControlCanvas().removeMouseListener(listener);
     }
 
+    /**
+
+    * <p>Add the argument <code>KeyListener</code> to the
+    * <code>Canvas</code> for this MCP instance.</p>
+
+    */
     public void addKeyListener(KeyListener listener) {
         getBrowserControlCanvas().addKeyListener(listener);
     }
     
+    /**
+
+    * <p>Remove the argument <code>KeyListener</code> from the
+    * <code>Canvas</code> for this MCP instance.</p>
+
+    */
     public void removeKeyListener(KeyListener listener) {
         getBrowserControlCanvas().removeKeyListener(listener);
     }
 
+    /**
+
+    * <p>Return the Webclient <code>BrowserControl</code> instance used
+    * by this <code>MCP</code> instance.  This is useful for operations
+    * that require more complex browser control than that offered by
+    * <code>MCP</code>.</p>
+
+    */
     public BrowserControl getBrowserControl() {
         if (!initialized) {
             IllegalStateException ise = new IllegalStateException("Not initialized.  Call setAppData()");
@@ -232,6 +312,15 @@ public class MCP {
         }
         return browserControl;
     }
+
+    /**
+
+    * <p>Return the realized and visible <code>java.awt.Frame</code>
+    * containing the actual browser window.  There is no need to put
+    * this Frame inside of any surrounding Swing or AWT windows.  It is
+    * sufficient to stand alone.</p>
+
+    */
     
     public Frame getRealizedVisibleBrowserWindow() {
         if (null == frame) {
@@ -256,11 +345,50 @@ public class MCP {
         }
         return frame;
     }
+
+    /**
+
+    * <p>Make invisible, and delete the <code>BrowserControl</code>
+    * instance for this MCP instance.  Reset internal state of the
+    * instance so that a subsequent call to {@link
+    * #getRealizedVisibleBrowserWindow} will create a new
+    * <code>Frame</code>.</p>
+
+    */
     
     public void deleteBrowserControl() {
         getRealizedVisibleBrowserWindow().setVisible(false);
         BrowserControlFactory.deleteBrowserControl(getBrowserControl());
+	browserControl = null;
+	navigation = null;
+	eventRegistration = null;
+	canvas = null;
+	pageInfoListener = null;
+	frame = null;
+	x = 0;
+	y = 0;
+	width = 1280;
+	height = 960;
+	initialized = false;
+	robot = null;
+	treeDumper = null;
+	if (null != latch) {
+	    latch.countDown();
+	}
+	latch = null;
     }
+
+    /**
+
+    * <p>Return the DOM <code>Element</code> with the given id or name.
+    * First, <code>Document.getElementById()</code> is called, passing
+    * the argument <code>id</code>.  If an element is found, it is
+    * returned.  Otherwise, the document is traversed and the first
+    * element encountered with a <code>name</code> equal to the argument
+    * <code>id</code> is returned.  If no such element exists,
+    * <code>null</code> is returned.</p>
+
+    */
     
     public Element findElement(String id) {
         Element result = null;
@@ -277,12 +405,32 @@ public class MCP {
         
         return result;
     }
+
+    /**
+
+    * <p>Return <code>true</code> if and only if the argument
+    * <code>toFind</code> occurs within the current page.  Case is not
+    * significant.  Users desiring more detailed find behavior should
+    * use {@link #getBrowserControl} to obtain a reference to the
+    * <code>CurrentPage</code> interface, which has more advanced
+    * methods pertaining to the current page. </p>
+
+    */
     
     public boolean findInPage(String toFind) {
         boolean found = false;
-        found = getCurrentPage().find(toFind, true, true);
+        found = getCurrentPage().find(toFind, true, false);
         return found;
     }
+
+    /**
+
+    * <p>Find the DOM element within the current page matching the
+    * argument <code>id</code> using {@link #findElement}.  Use
+    * <code>java.awt.Robot</code> to click the element.  Return
+    * immediately after clicking the element.</p>
+
+    */
     
     public void clickElement(String id) {
         Element element = findElement(id);
@@ -296,6 +444,7 @@ public class MCP {
                     x = Integer.valueOf(clientX).intValue();
                     y = Integer.valueOf(clientY).intValue();
                     Robot robot = getRobot();
+                    createLatch();
                     robot.mouseMove(x, y);
                     robot.mousePress(InputEvent.BUTTON1_MASK);
                     robot.mouseRelease(InputEvent.BUTTON1_MASK);
@@ -312,34 +461,49 @@ public class MCP {
             throw new IllegalStateException("Unable to click element " + id);
         }
     }
+
+    /**
+
+    * <p>Find the DOM element within the current page matching the
+    * argument <code>id</code> using {@link #findElement}.  Use
+    * <code>java.awt.Robot</code> to click the element.  Block until the
+    * document load triggered by the click has completed.</p>
+
+    */
+
     
     public void blockingClickElement(String idOrName) {
         synchronized (this) {
             try {
                 clickElement(idOrName);
-                this.wait();
-            }
-            catch (IllegalStateException ise) {
-                LOGGER.throwing(this.getClass().getName(), "blockingClickElementGivenId",
-                        ise);
+                lockLatch();
             }
             catch (InterruptedException ie) {
-                LOGGER.throwing(this.getClass().getName(), "blockingClickElementGivenId",
-                        ie);
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "blockingClickElementGivenId", ie);
+                }
             }
         }
     }
+
+    /**
+
+    * <p>Load the url, blocking until the load has completed.</p>
+
+    */
+
     
     public void blockingLoad(String url) {
         Navigation2 nav = getNavigation();
         synchronized (this) {
             nav.loadURL(url);
+            createLatch();
             try {
-                this.wait();
+                lockLatch();
             } catch (InterruptedException ex) {
-                LOGGER.throwing(this.getClass().getName(), "blockingLoad",
-                        ex);
-                ex.printStackTrace();
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "blockingLoad", ex);
+                }
             }
         }
     }
@@ -372,9 +536,7 @@ public class MCP {
             switch ((int)type) {
                 case ((int) DocumentLoadEvent.END_AJAX_EVENT_MASK):
                 case ((int) DocumentLoadEvent.END_DOCUMENT_LOAD_EVENT_MASK):
-                    synchronized (owner) {
-                        owner.notifyAll();
-                    }
+                    openLatch();
                     break;
                 case ((int) DocumentLoadEvent.START_URL_LOAD_EVENT_MASK):
                     String method = (String) eventData.get("method");

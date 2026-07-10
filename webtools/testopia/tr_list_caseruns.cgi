@@ -196,7 +196,7 @@ elsif ($action eq 'Delete Selected'){
         my $caserun = Bugzilla::Testopia::TestCaseRun->new($1) if $p =~ $reg;
         if (($caserun && !$caserun->candelete)){
             print $cgi->multipart_end if $serverpush;
-            ThrowUserError("testopia-read-only", {'object' => 'case run'});
+            ThrowUserError("testopia-no-delete", {'object' => $caserun});
         }
         push @caseruns, $caserun if $caserun;
     }
@@ -304,7 +304,8 @@ if ($vars->{'run'}) {
 }
 else {
     $vars->{'dotweak'} = Bugzilla->user->in_group('Testers');
-    $vars->{'candelete'} = Param('testopia-allow-group-member-deletes');
+    $vars->{'candelete'} = Bugzilla->user->in_group('admin') 
+        || (Bugzilla->user->in_group('Testers') && Param('testopia-allow-group-member-deletes'));
 }
 if ($serverpush && !$cgi->param('debug')) {
     print $cgi->multipart_end;

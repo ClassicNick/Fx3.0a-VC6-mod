@@ -228,13 +228,13 @@ NS_IMETHODIMP nsCaretAccessible::GetBounds(PRInt32 *x, PRInt32 *y, PRInt32 *widt
 
 NS_IMETHODIMP nsCaretAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_CARET;
+  *_retval = nsIAccessibleRole::ROLE_CARET;
   return NS_OK;
 }
 
 NS_IMETHODIMP nsCaretAccessible::GetState(PRUint32 *_retval)
 {
-  *_retval = mVisible? 0: STATE_INVISIBLE;
+  *_retval = mVisible? 0: nsIAccessibleStates::STATE_INVISIBLE;
   return NS_OK;
 }
 

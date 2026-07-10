@@ -203,7 +203,9 @@ sub elements_to_json {
         $json .= '{title:"'. $element->{'name'} .'",';
         $json .=  'objectId:"'. $element->{'element_id'}. '",';
         $json .=  'widgetId:"element'. $element->{'element_id'} .'",';
-        $json .=  'actionsDisabled:["addCategory","addValue","addChild"],';
+        $json .=  'actionsDisabled:["addCategory","addValue","addChild"';
+        $json .=  ',"remove"' unless $self->canedit;
+        $json .=  '],';
         $json .=  'isFolder:true,' if($element->check_for_children || $element->check_for_properties);
         $json .=  'childIconSrc:"testopia/img/circle.gif"},'; 
     }
@@ -768,6 +770,13 @@ sub case_run_count {
           
     return $count;
 }
+
+sub type {
+    my $self = shift;
+    $self->{'type'} = 'environment';
+    return $self->{'type'};
+}
+
 =head1 TODO
 
 

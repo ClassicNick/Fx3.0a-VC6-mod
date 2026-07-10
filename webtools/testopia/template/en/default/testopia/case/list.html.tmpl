@@ -89,7 +89,7 @@ No test cases
 [% END %]
 found.</b>
 </p>
-[% IF table.list_count > 0 && Param('allow-test-deletion') %]
+[% IF candelete %]
 <p style="float: right;"><input type="submit" name="action" value="Delete Selected"></p>
 [% END %]
 [% IF dotweak AND table.list_count %]
@@ -213,7 +213,7 @@ found.</b>
     <div class="links">
         <span class="label">Export:</span>
         <a href="tr_list_cases.cgi?[% urlquerypart FILTER remove('&viewall=.') FILTER html %]&amp;ctype=csv&amp;viewall=1"><img src="testopia/img/csv.png" class="image"></a>
-        <img src="https://secure-www.novell.com/img/link_divbar.gif" width="1" height="20" alt="line" class="bar">
+        |
         <a href="tr_list_cases.cgi?[% urlquerypart FILTER remove('&viewall=.') FILTER html %]&amp;ctype=xml&amp;viewall=1"><img src="testopia/img/xml.png" class="image"></a>
     </div>
 </div>

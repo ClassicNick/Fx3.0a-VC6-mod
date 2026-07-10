@@ -198,13 +198,31 @@ protected:
   }
 };
 
-static InlineBackgroundData gInlineBGData;
+static InlineBackgroundData* gInlineBGData = nsnull;
 
 static void GetPath(nsFloatPoint aPoints[],nsPoint aPolyPath[],PRInt32 *aCurIndex,ePathTypes  aPathType,PRInt32 &aC1Index,float aFrac=0);
 
 // FillRect or InvertRect depending on the renderingaInvert parameter
 static void FillOrInvertRect(nsIRenderingContext& aRC,nscoord aX, nscoord aY, nscoord aWidth, nscoord aHeight, PRBool aInvert);
 static void FillOrInvertRect(nsIRenderingContext& aRC,const nsRect& aRect, PRBool aInvert);
+
+// Initialize any static variables used by nsCSSRendering.
+nsresult nsCSSRendering::Init()
+{  
+  NS_ASSERTION(!gInlineBGData, "Init called twice");
+  gInlineBGData = new InlineBackgroundData();
+  if (!gInlineBGData)
+    return NS_ERROR_OUT_OF_MEMORY;
+
+  return NS_OK;
+}
+
+// Clean up any global variables used by nsCSSRendering.
+void nsCSSRendering::Shutdown()
+{
+  delete gInlineBGData;
+  gInlineBGData = nsnull;
+}
 
 // Draw a line, skipping that portion which crosses aGap. aGap defines a rectangle gap
 // This services fieldset legends and only works for coords defining horizontal lines.
@@ -926,14 +944,16 @@ PRBool  skippedSide = PR_FALSE;
       // (because invert is not supported on cur platform)
       nscolor sideColor(aColorStyle->mColor);
 
-      PRBool  isInvert=PR_FALSE;
+      PRBool  isInvert = PR_FALSE;
       if (aDoOutline) {
-        // see if the outline color is 'invert'
-        if (aOutlineStyle->GetOutlineInvert()) { 
-          isInvert = PR_TRUE;
-        } else {
+        if (!aOutlineStyle->GetOutlineInitialColor()) {
           aOutlineStyle->GetOutlineColor(sideColor);
         }
+#ifdef GFX_HAS_INVERT
+        else {
+          isInvert = PR_TRUE;
+        }
+#endif
       } else {
         PRBool transparent; 
         PRBool foreground;
@@ -2079,14 +2099,18 @@ nscoord width, offset;
   // and the platform does not support that
   nscolor outlineColor(ourColor->mColor);
   PRBool  canDraw = PR_FALSE;
+#ifdef GFX_HAS_INVERT
   PRBool  modeChanged=PR_FALSE;
+#endif
 
-  // see if the outline color is 'invert' or can invert.
-  if (aOutlineStyle.GetOutlineInvert()) {
+  // see if the outline color is special color.
+  if (aOutlineStyle.GetOutlineInitialColor()) {
     canDraw = PR_TRUE;
+#ifdef GFX_HAS_INVERT
     if( NS_SUCCEEDED(aRenderingContext.SetPenMode(nsPenMode_kInvert)) ) {
       modeChanged=PR_TRUE;
     }
+#endif
   } else {
     canDraw = aOutlineStyle.GetOutlineColor(outlineColor);
   }
@@ -2115,10 +2139,11 @@ nscoord width, offset;
              outlineColor,
              bgColor->mBackgroundColor,outside, inside,aSkipSides,
              twipsPerPixel, aGap);
-
+#ifdef GFX_HAS_INVERT
     if(modeChanged ) {
       aRenderingContext.SetPenMode(nsPenMode_kNone);
-    }  
+    }
+#endif
   }
 }
 
@@ -2624,7 +2649,7 @@ nsCSSRendering::FindBackground(nsPresContext* aPresContext,
 void
 nsCSSRendering::DidPaint()
 {
-  gInlineBGData.Reset();
+  gInlineBGData->Reset();
 }
 
 void
@@ -2856,14 +2881,14 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
       bgOriginArea = aBorderArea;
       break;
     case NS_STYLE_BG_INLINE_POLICY_BOUNDING_BOX:
-      bgOriginArea = gInlineBGData.GetBoundingRect(aForFrame) +
+      bgOriginArea = gInlineBGData->GetBoundingRect(aForFrame) +
                      aBorderArea.TopLeft();
       break;
     default:
       NS_ERROR("Unknown background-inline-policy value!  "
                "Please, teach me what to do.");
     case NS_STYLE_BG_INLINE_POLICY_CONTINUOUS:
-      bgOriginArea = gInlineBGData.GetContinuousRect(aForFrame) +
+      bgOriginArea = gInlineBGData->GetContinuousRect(aForFrame) +
                      aBorderArea.TopLeft();
       break;
     }
@@ -4014,26 +4039,26 @@ QBCurve::MidPointDivide(QBCurve *A,QBCurve *B)
 
 void FillOrInvertRect(nsIRenderingContext& aRC, nscoord aX, nscoord aY, nscoord aWidth, nscoord aHeight, PRBool aInvert)
 {
-#ifndef MOZ_CAIRO_GFX
+#ifdef GFX_HAS_INVERT
   if (aInvert) {
     aRC.InvertRect(aX, aY, aWidth, aHeight);
   } else {
 #endif
     aRC.FillRect(aX, aY, aWidth, aHeight);
-#ifndef MOZ_CAIRO_GFX
+#ifdef GFX_HAS_INVERT
   }
 #endif
 }
 
 void FillOrInvertRect(nsIRenderingContext& aRC, const nsRect& aRect, PRBool aInvert)
 {
-#ifndef MOZ_CAIRO_GFX
+#ifdef GFX_HAS_INVERT
   if (aInvert) {
     aRC.InvertRect(aRect);
   } else {
 #endif
     aRC.FillRect(aRect);
-#ifndef MOZ_CAIRO_GFX
+#ifdef GFX_HAS_INVERT
   }
 #endif
 }

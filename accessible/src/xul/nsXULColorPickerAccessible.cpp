@@ -58,7 +58,7 @@ nsFormControlAccessible(aNode, aShell)
   */
 NS_IMETHODIMP nsXULColorPickerTileAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_PUSHBUTTON;
+  *_retval = nsIAccessibleRole::ROLE_PUSHBUTTON;
   return NS_OK;
 }
 
@@ -69,7 +69,7 @@ NS_IMETHODIMP nsXULColorPickerTileAccessible::GetState(PRUint32 *_retval)
 {
   // get focus and disable status from base class
   nsFormControlAccessible::GetState(_retval);
-  *_retval |= STATE_FOCUSABLE;
+  *_retval |= nsIAccessibleStates::STATE_FOCUSABLE;
 
   // Focused?
   nsCOMPtr<nsIDOMElement> element(do_QueryInterface(mDOMNode));
@@ -77,12 +77,12 @@ NS_IMETHODIMP nsXULColorPickerTileAccessible::GetState(PRUint32 *_retval)
   PRBool isFocused = PR_FALSE;
   element->HasAttribute(NS_LITERAL_STRING("hover"), &isFocused);
   if (isFocused)
-    *_retval |= STATE_FOCUSED;
+    *_retval |= nsIAccessibleStates::STATE_FOCUSED;
 
   PRBool isSelected = PR_FALSE;
   element->HasAttribute(NS_LITERAL_STRING("selected"), &isSelected);
   if (isFocused)
-    *_retval |= STATE_SELECTED;
+    *_retval |= nsIAccessibleStates::STATE_SELECTED;
 
   return NS_OK;
 }
@@ -118,14 +118,15 @@ NS_IMETHODIMP nsXULColorPickerAccessible::GetState(PRUint32 *_retval)
 {
   // get focus and disable status from base class
   nsFormControlAccessible::GetState(_retval);
-  *_retval |= STATE_FOCUSABLE | STATE_HASPOPUP;
+  *_retval |= nsIAccessibleStates::STATE_FOCUSABLE |
+              nsIAccessibleStates::STATE_HASPOPUP;
 
   return NS_OK;
 }
 
 NS_IMETHODIMP nsXULColorPickerAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_BUTTONDROPDOWNGRID;
+  *_retval = nsIAccessibleRole::ROLE_BUTTONDROPDOWNGRID;
   return NS_OK;
 }
 

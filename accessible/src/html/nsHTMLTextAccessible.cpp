@@ -105,7 +105,7 @@ NS_IMETHODIMP nsHTMLTextAccessible::GetRole(PRUint32 *aRole)
   NS_ENSURE_TRUE(frame, NS_ERROR_NULL_POINTER);
 
   if (frame->IsGeneratedContentFrame()) {
-    *aRole = ROLE_STATICTEXT;
+    *aRole = nsIAccessibleRole::ROLE_STATICTEXT;
     return NS_OK;
   }
 
@@ -121,8 +121,8 @@ NS_IMETHODIMP nsHTMLTextAccessible::GetState(PRUint32 *aState)
   if (docAccessible) {
      PRUint32 extState;
      docAccessible->GetExtState(&extState);
-     if (0 == (extState & EXT_STATE_EDITABLE)) {
-       *aState |= STATE_READONLY; // Links not focusable in editor
+     if (0 == (extState & nsIAccessibleStates::EXT_STATE_EDITABLE)) {
+       *aState |= nsIAccessibleStates::STATE_READONLY; // Links not focusable in editor
      }
   }
 
@@ -139,7 +139,7 @@ NS_IMETHODIMP nsHTMLTextAccessible::GetAttributes(nsIPersistentProperties **aAtt
 
   PRUint32 role;
   GetRole(&role);
-  if (role == ROLE_STATICTEXT) {
+  if (role == nsIAccessibleRole::ROLE_STATICTEXT) {
     nsCOMPtr<nsIPersistentProperties> attributes =
         do_CreateInstance(NS_PERSISTENTPROPERTIES_CONTRACTID);
     NS_ENSURE_TRUE(attributes, NS_ERROR_OUT_OF_MEMORY);
@@ -159,14 +159,14 @@ nsLeafAccessible(aDomNode, aShell)
 
 NS_IMETHODIMP nsHTMLHRAccessible::GetRole(PRUint32 *aRole)
 {
-  *aRole = ROLE_SEPARATOR;
+  *aRole = nsIAccessibleRole::ROLE_SEPARATOR;
   return NS_OK;
 }
 
 NS_IMETHODIMP nsHTMLHRAccessible::GetState(PRUint32 *aState)
 {
   nsLeafAccessible::GetState(aState);
-  *aState &= ~STATE_FOCUSABLE;
+  *aState &= ~nsIAccessibleStates::STATE_FOCUSABLE;
   return NS_OK;
 }
 
@@ -177,13 +177,13 @@ nsLeafAccessible(aDomNode, aShell)
 
 NS_IMETHODIMP nsHTMLBRAccessible::GetRole(PRUint32 *aRole)
 {
-  *aRole = ROLE_WHITESPACE;
+  *aRole = nsIAccessibleRole::ROLE_WHITESPACE;
   return NS_OK;
 }
 
 NS_IMETHODIMP nsHTMLBRAccessible::GetState(PRUint32 *aState)
 {
-  *aState = STATE_READONLY;
+  *aState = nsIAccessibleStates::STATE_READONLY;
   return NS_OK;
 }
 
@@ -218,14 +218,15 @@ NS_IMETHODIMP nsHTMLLabelAccessible::GetName(nsAString& aReturn)
 
 NS_IMETHODIMP nsHTMLLabelAccessible::GetRole(PRUint32 *aRole)
 {
-  *aRole = ROLE_LABEL;
+  *aRole = nsIAccessibleRole::ROLE_LABEL;
   return NS_OK;
 }
 
 NS_IMETHODIMP nsHTMLLabelAccessible::GetState(PRUint32 *aState)
 {
   nsTextAccessible::GetState(aState);
-  *aState &= (STATE_LINKED|STATE_TRAVERSED);  // Only use link states
+  *aState &= (nsIAccessibleStates::STATE_LINKED |
+              nsIAccessibleStates::STATE_TRAVERSED);  // Only use link states
   return NS_OK;
 }
 

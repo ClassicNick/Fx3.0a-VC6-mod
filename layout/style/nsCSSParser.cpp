@@ -2399,6 +2399,8 @@ CSSParserImpl::ParseAttributeSelector(PRInt32&       aDataMask,
               "onmousemove",
               "onmouseout",
               "onmouseup",
+              "onoffline",
+              "ononline",
               "onreset",
               "onselect",
               "onsubmit",
@@ -5797,7 +5799,11 @@ PRBool CSSParserImpl::ParseOutline(nsresult& aErrorCode)
 
   // Provide default values
   if ((found & 1) == 0) {
+#ifdef GFX_HAS_INVERT
     values[0].SetIntValue(NS_STYLE_COLOR_INVERT, eCSSUnit_Enumerated);
+#else
+    values[0].SetIntValue(NS_STYLE_COLOR_MOZ_USE_TEXT_COLOR, eCSSUnit_Enumerated);
+#endif
   }
   if ((found & 2) == 0) {
     values[1].SetNoneValue();

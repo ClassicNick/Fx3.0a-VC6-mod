@@ -302,18 +302,18 @@ sub switch {
        $self = Bugzilla::Testopia::TestCaseRun->new($self->clone($build_id,$env_id));
        
        if ($oldbuild != $build_id){
-           my $build = Bugzilla::Testopia::Build->new($build_id);
+           my $build = Bugzilla::Testopia::Build->new($oldbuild);
            my $note  = "Build Changed by ". Bugzilla->user->login; 
-              $note .= ". Old build: '". $self->build->name;
-              $note .= "' New build: '". $build->name;
+              $note .= ". Old build: '". $build->name;
+              $note .= "' New build: '". $self->build->name;
               $note .= "'. Resetting to IDLE.";
            $self->append_note($note);
        }
        if ($oldenv != $env_id){
-           my $environment = Bugzilla::Testopia::Environment->new($env_id);
+           my $environment = Bugzilla::Testopia::Environment->new($oldenv);
            my $note  = "Environment Changed by ". Bugzilla->user->login;
-              $note .= ". Old environment: '". $self->environment->name;
-              $note .= "' New environment: '". $environment->name;
+              $note .= ". Old environment: '". $environment->name;
+              $note .= "' New environment: '". $self->environment->name;
               $note .= "'. Resetting to IDLE.";
            $self->append_note($note);
        }
@@ -658,23 +658,32 @@ passed it will mark RESOLVED bugs VERIFIED.
 sub update_bugs {
     my $self = shift;
     my ($status) = @_;
+    my $resolution;
     my $dbh = Bugzilla->dbh;
     my $timestamp = Bugzilla::Testopia::Util::get_time_stamp();
     foreach my $bug (@{$self->bugs}){
         my $oldstatus = $bug->bug_status;
+        my $oldresolution = $bug->resolution;
         
-        return if ($status eq 'VERIFIED' && $oldstatus ne 'RESOLVED');
-        return if ($status eq 'REOPENED' && $oldstatus !~ /(RESOLVED|VERIFIED|CLOSED)/);
-        
+        next if ($status eq 'VERIFIED' && $oldstatus ne 'RESOLVED');
+        next if ($status eq 'REOPENED' && $oldstatus !~ /(RESOLVED|VERIFIED|CLOSED)/);
+        next if $oldresolution eq 'DUPLICATE';
+        if ($status eq 'REOPENED'){
+            $resolution = '';
+        }
+        else{
+            $resolution = $oldresolution;
+        }
         my $comment  = "Status updated by Testopia:  ". Param('urlbase');
            $comment .= "tr_show_caserun.cgi?caserun_id=" . $self->id;
-            
+          
         $dbh->bz_lock_tables("bugs WRITE, fielddefs READ, longdescs WRITE, bugs_activity WRITE");
         $dbh->do("UPDATE bugs 
                      SET bug_status = ?,
+                        resolution = ?,
                          delta_ts = ?
                      WHERE bug_id = ?", 
-                     undef,($status, $timestamp, $bug->bug_id));
+                     undef,($status, $resolution, $timestamp, $bug->bug_id));
         LogActivityEntry($bug->bug_id, 'bug_status', $oldstatus, 
                          $status, Bugzilla->user->id, $timestamp);
         LogActivityEntry($bug->bug_id, 'resolution', $bug->resolution, '', 
@@ -695,11 +704,11 @@ Removes this caserun, its history, and all things that reference it.
 sub obliterate {
     my $self = shift;
     my $dbh = Bugzilla->dbh;
-    
-    $dbh->do("DELETE FROM test_case_bugs WHERE case_run_id IN (" . 
-              join(",", @{$self->get_case_run_list}) . ")", undef, $self->id)
-                  if $self->get_case_run_list;
-                  
+    my $sth = $dbh->prepare_cached("DELETE FROM test_case_bugs WHERE case_run_id = ?");
+    foreach my $id (@{$self->get_case_run_list}){
+        $sth->execute($id);
+    }
+        
     $dbh->do("DELETE FROM test_case_runs WHERE case_id = ? AND run_id = ?", 
               undef, ($self->case_id, $self->run_id));
     return 1;

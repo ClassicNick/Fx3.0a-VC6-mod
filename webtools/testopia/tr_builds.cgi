@@ -48,7 +48,7 @@ my $product_id = $cgi->param('product_id');
 
 ThrowUserError("testopia-missing-parameter", {param => "product_id"}) unless $product_id;
 my $product = Bugzilla::Testopia::Product->new($product_id);
-ThrowUserError('testopia-read-only', {'object' => 'Build'}) unless $product->canedit;
+ThrowUserError('testopia-read-only', {'object' => $product}) unless $product->canedit;
 
 $vars->{'plan_id'} = $cgi->param('plan_id');
 $vars->{'product'} = $product;   
@@ -66,6 +66,8 @@ elsif ($action eq 'do_add'){
     my $cname = $cgi->param('name');
     my $desc  = $cgi->param('desc');
     my $tm    = $cgi->param('milestone');
+    
+    ThrowUserError('testopia-missing-required-field', {'field' => 'build name'}) unless $cname;
     
     trick_taint($cname);
     trick_taint($desc);
@@ -104,6 +106,8 @@ elsif ($action eq 'do_edit'){
     my $desc  = $cgi->param('desc');
     my $milestone  = $cgi->param('milestone');
     my $bid   = $cgi->param('build_id');
+    
+    ThrowUserError('testopia-missing-required-field', {'field' => 'build name'}) unless $cname;
     
     my $build = Bugzilla::Testopia::Build->new($bid);
     

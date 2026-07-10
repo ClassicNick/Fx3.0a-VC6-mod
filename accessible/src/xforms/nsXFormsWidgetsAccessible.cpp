@@ -51,7 +51,7 @@ nsXFormsDropmarkerWidgetAccessible::GetRole(PRUint32 *aRole)
 {
   NS_ENSURE_ARG_POINTER(aRole);
 
-  *aRole = ROLE_PUSHBUTTON;
+  *aRole = nsIAccessibleRole::ROLE_PUSHBUTTON;
   return NS_OK;
 }
 
@@ -67,7 +67,7 @@ nsXFormsDropmarkerWidgetAccessible::GetState(PRUint32 *aState)
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (isOpen)
-    *aState = STATE_PRESSED;
+    *aState = nsIAccessibleStates::STATE_PRESSED;
 
   return NS_OK;
 }
@@ -123,7 +123,7 @@ nsXFormsCalendarWidgetAccessible::GetRole(PRUint32 *aRole)
 {
   NS_ENSURE_ARG_POINTER(aRole);
 
-  *aRole = ROLE_CALENDAR;
+  *aRole = nsIAccessibleRole::ROLE_CALENDAR;
   return NS_OK;
 }
 
@@ -141,7 +141,7 @@ nsXFormsComboboxPopupWidgetAccessible::GetRole(PRUint32 *aRole)
 {
   NS_ENSURE_ARG_POINTER(aRole);
 
-  *aRole = ROLE_LIST;
+  *aRole = nsIAccessibleRole::ROLE_LIST;
   return NS_OK;
 }
 
@@ -156,12 +156,12 @@ nsXFormsComboboxPopupWidgetAccessible::GetState(PRUint32 *aState)
   nsresult rv = sXFormsService->IsDropmarkerOpen(mDOMNode, &isOpen);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  *aState |= STATE_FOCUSABLE;
+  *aState |= nsIAccessibleStates::STATE_FOCUSABLE;
 
   if (isOpen)
-    *aState = STATE_FLOATING;
+    *aState = nsIAccessibleStates::STATE_FLOATING;
   else
-    *aState = STATE_INVISIBLE;
+    *aState = nsIAccessibleStates::STATE_INVISIBLE;
 
   return NS_OK;
 }

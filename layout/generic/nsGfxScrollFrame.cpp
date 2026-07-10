@@ -1738,11 +1738,11 @@ void
 nsGfxScrollFrameInner::InternalScrollPositionDidChange(nscoord aX, nscoord aY)
 {
   if (mVScrollbarBox)
-    SetCoordAttribute(mVScrollbarBox, nsGkAtoms::curpos,
+    SetCoordAttribute(mVScrollbarBox->GetContent(), nsGkAtoms::curpos,
                       aY - GetScrolledRect(GetScrollPortSize()).y);
   
   if (mHScrollbarBox)
-    SetCoordAttribute(mHScrollbarBox, nsGkAtoms::curpos,
+    SetCoordAttribute(mHScrollbarBox->GetContent(), nsGkAtoms::curpos,
                       aX - GetScrolledRect(GetScrollPortSize()).x);
 }
 
@@ -2303,6 +2303,21 @@ nsXULScrollFrame::Layout(nsBoxLayoutState& aState)
   return NS_OK;
 }
 
+void
+nsGfxScrollFrameInner::FinishReflowForScrollbar(nsIContent* aContent,
+                                                nscoord aMinXY, nscoord aMaxXY,
+                                                nscoord aCurPosXY,
+                                                nscoord aPageIncrement,
+                                                nscoord aIncrement)
+{
+  // Scrollbars assume zero is the minimum position, so translate for them.
+  SetCoordAttribute(aContent, nsGkAtoms::curpos, aCurPosXY - aMinXY);
+  SetScrollbarEnabled(aContent, aMaxXY - aMinXY);
+  SetCoordAttribute(aContent, nsGkAtoms::maxpos, aMaxXY - aMinXY);
+  SetCoordAttribute(aContent, nsGkAtoms::pageincrement, aPageIncrement);
+  SetCoordAttribute(aContent, nsGkAtoms::increment, aIncrement);
+}
+
 PRBool
 nsGfxScrollFrameInner::ReflowFinished()
 {
@@ -2333,28 +2348,28 @@ nsGfxScrollFrameInner::ReflowFinished()
   NS_ASSERTION(!mFrameInitiatedScroll, "We shouldn't be reentering here");
   mFrameInitiatedScroll = PR_TRUE;
 
-  if (mVScrollbarBox) {
-    NS_PRECONDITION(mVScrollbarBox->IsBoxFrame(), "Must be a box frame!");
-    nscoord curPosX, curPosY;
-    scrollable->GetScrollPosition(curPosX, curPosY);
-    // Scrollbars assume zero is the minimum position, so translate for them.
-    SetCoordAttribute(mVScrollbarBox, nsGkAtoms::curpos, curPosY - minY);
-    SetScrollbarEnabled(mVScrollbarBox, maxY - minY);
-    SetCoordAttribute(mVScrollbarBox, nsGkAtoms::maxpos, maxY - minY);
-    SetCoordAttribute(mVScrollbarBox, nsGkAtoms::pageincrement, nscoord(scrollArea.height - fontHeight));
-    SetCoordAttribute(mVScrollbarBox, nsGkAtoms::increment, fontHeight);
-  }
+  nsCOMPtr<nsIContent> vScroll =
+    mVScrollbarBox ? mVScrollbarBox->GetContent() : nsnull;
+  nsCOMPtr<nsIContent> hScroll =
+    mHScrollbarBox ? mHScrollbarBox->GetContent() : nsnull;
 
-  if (mHScrollbarBox) {
-    NS_PRECONDITION(mHScrollbarBox->IsBoxFrame(), "Must be a box frame!");
+  // Note, in some cases mOuter may get deleted while finishing reflow
+  // for scrollbars.
+  if (vScroll || hScroll) {
+    nsWeakFrame weakFrame(mOuter);
     nscoord curPosX, curPosY;
     scrollable->GetScrollPosition(curPosX, curPosY);
-    // Scrollbars assume zero is the minimum position, so translate for them.
-    SetCoordAttribute(mHScrollbarBox, nsGkAtoms::curpos, curPosX - minX);
-    SetScrollbarEnabled(mHScrollbarBox, maxX - minX);
-    SetCoordAttribute(mHScrollbarBox, nsGkAtoms::maxpos, maxX - minX);
-    SetCoordAttribute(mHScrollbarBox, nsGkAtoms::pageincrement, nscoord(float(scrollArea.width)*0.8));
-    SetCoordAttribute(mHScrollbarBox, nsGkAtoms::increment, 10*mOnePixel);
+    if (vScroll) {
+      FinishReflowForScrollbar(vScroll, minY, maxY, curPosY,
+                               nscoord(scrollArea.height - fontHeight),
+                               fontHeight);
+    }
+    if (hScroll) {
+      FinishReflowForScrollbar(hScroll, minX, maxX, curPosX,
+                               nscoord(float(scrollArea.width) * 0.8),
+                               10*mOnePixel);
+    }
+    NS_ENSURE_TRUE(weakFrame.IsAlive(), PR_FALSE);
   }
 
   mFrameInitiatedScroll = PR_FALSE;
@@ -2471,19 +2486,18 @@ nsGfxScrollFrameInner::ScrollbarChanged(nsPresContext* aPresContext, nscoord aX,
 }
 
 void
-nsGfxScrollFrameInner::SetScrollbarEnabled(nsIBox* aBox, nscoord aMaxPos)
+nsGfxScrollFrameInner::SetScrollbarEnabled(nsIContent* aContent, nscoord aMaxPos)
 {
-  nsIContent* content = aBox->GetContent();
   if (aMaxPos) {
-    content->UnsetAttr(kNameSpaceID_None, nsGkAtoms::disabled, PR_TRUE);
+    aContent->UnsetAttr(kNameSpaceID_None, nsGkAtoms::disabled, PR_TRUE);
   } else {
-    content->SetAttr(kNameSpaceID_None, nsGkAtoms::disabled,
-      NS_LITERAL_STRING("true"), PR_TRUE);
+    aContent->SetAttr(kNameSpaceID_None, nsGkAtoms::disabled,
+                      NS_LITERAL_STRING("true"), PR_TRUE);
   }
 }
 
 void
-nsGfxScrollFrameInner::SetCoordAttribute(nsIBox* aBox, nsIAtom* aAtom,
+nsGfxScrollFrameInner::SetCoordAttribute(nsIContent* aContent, nsIAtom* aAtom,
                                          nscoord aSize)
 {
   // convert to pixels
@@ -2494,11 +2508,10 @@ nsGfxScrollFrameInner::SetCoordAttribute(nsIBox* aBox, nsIAtom* aAtom,
   nsAutoString newValue;
   newValue.AppendInt(aSize);
 
-  nsIContent* content = aBox->GetContent();
-  if (content->AttrValueIs(kNameSpaceID_None, aAtom, newValue, eCaseMatters))
+  if (aContent->AttrValueIs(kNameSpaceID_None, aAtom, newValue, eCaseMatters))
     return;
 
-  content->SetAttr(kNameSpaceID_None, aAtom, newValue, PR_TRUE);
+  aContent->SetAttr(kNameSpaceID_None, aAtom, newValue, PR_TRUE);
 }
 
 nsRect

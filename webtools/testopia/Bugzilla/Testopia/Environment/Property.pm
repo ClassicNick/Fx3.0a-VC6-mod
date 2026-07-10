@@ -330,6 +330,13 @@ sub obliterate {
     
 }
 
+sub canview {
+    my $self = shift;
+    my $element = Bugzilla::Testopia::Environment::Element->new($self->element_id);
+    return 1 if $element->canview;
+    return 0;
+}
+
 sub canedit {
     my $self = shift;
     my $element = Bugzilla::Testopia::Environment::Element->new($self->element_id);
@@ -374,5 +381,18 @@ sub id              { return $_[0]->{'property_id'}; }
 sub name            { return $_[0]->{'name'}; }
 sub validexp        { return $_[0]->{'validexp'}; }
 sub element_id      { return $_[0]->{'element_id'}; }
+
+
+=head2 type
+
+Returns 'property'
+
+=cut
+
+sub type {
+    my $self = shift;
+    $self->{'type'} = 'property';
+    return $self->{'type'};
+}
 
 1;

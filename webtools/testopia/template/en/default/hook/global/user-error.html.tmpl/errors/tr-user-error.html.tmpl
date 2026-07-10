@@ -20,19 +20,22 @@
   
   [% IF error == "testopia-permission-denied" %]
     [% title = "Insufficient Permissions" %]
-    You are not authorized to view this [% object FILTER html %]
+    You are not authorized to view [% object.type FILTER html %]&nbsp;[% object.id FILTER html %]
   [% ELSIF error == "testopia-read-only" %]
     [% title = "Insufficient Permissions" %]
-    You are not authorized to edit [% object FILTER html %]&nbsp;[% id FILTER html %]
+    You are not authorized to edit [% object.type FILTER html %]&nbsp;[% object.id FILTER html %]
   [% ELSIF error == "testopia-no-delete" %]
     [% title = "Insufficient Permissions" %]
-    You are not authorized to delete this [% object FILTER html %]
+    You are not authorized to delete [% object.type FILTER html %]&nbsp;[% object.id FILTER html %]
+    [% IF UserInGroup('admin') %]
     If you are the administrator, you can check that your installation
     allows deletion of Testopia objects in the 
     <a href="editparams.cgi">paramaters </a>.
+    [% END %]
   [% ELSIF error == "testopia-create-denied" %]
     [% title = "Cannot Create Object" %]
-    You do not have sufficient rights to create new [% object FILTER html %]s.
+    You do not have sufficient rights to create new [% object FILTER html %]s 
+      [% IF plan %] for plan [% plan.id %][% END %].
   [% ELSIF error == "testopia-missing-parameter" %]
     [% title = "Missing Parameter" %]
     Missing required parameter [% param FILTER html %]

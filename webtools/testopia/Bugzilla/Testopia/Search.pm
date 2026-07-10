@@ -329,7 +329,7 @@ sub init {
     # TODO: is there a better way to do this? 
     if ($obj eq 'environment'){
         my @prod_ids;
-        foreach my $p (Bugzilla->user->get_selectable_products){
+        foreach my $p (@{Bugzilla->user->get_selectable_products}){
             push @prod_ids, $p->id;
         }
         my $prod_ids = join(',',@prod_ids);
@@ -489,9 +489,14 @@ sub init {
                $f = 'case_status.name';      
          },
          "^priority," => sub {
+             if ($obj eq 'case_run'){
+                    push(@supptables,
+                        "INNER JOIN test_cases 
+                         ON test_cases.case_id = test_case_runs.case_id");
+               }
                push(@supptables,
                     "INNER JOIN priority ".
-                    "ON test_". $obj ."s.priority_id = priority.id");
+                    "ON test_cases.priority_id = priority.id");
                $f = 'priority.value';      
          },
          "^environment," => sub {

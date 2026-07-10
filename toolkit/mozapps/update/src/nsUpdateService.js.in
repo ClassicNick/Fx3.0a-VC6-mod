@@ -2475,8 +2475,7 @@ Downloader.prototype = {
           createInstance();
       return prompt.QueryInterface(iid);
     }
-    Components.returnCode = Components.results.NS_ERROR_NO_INTERFACE;
-    return null;
+    throw Components.results.NS_ERROR_NO_INTERFACE;
   },
    
   /**

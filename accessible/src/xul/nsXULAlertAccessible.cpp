@@ -49,15 +49,15 @@ nsXULAlertAccessible::nsXULAlertAccessible(nsIDOMNode* aNode, nsIWeakReference* 
 
 NS_IMETHODIMP nsXULAlertAccessible::GetRole(PRUint32 *aRole)
 {
-  *aRole = ROLE_ALERT;
+  *aRole = nsIAccessibleRole::ROLE_ALERT;
   return NS_OK;
 }
 
 NS_IMETHODIMP nsXULAlertAccessible::GetState(PRUint32 *aState)
 {
   nsAccessible::GetState(aState);
-  *aState &= ~STATE_FOCUSABLE;
-  *aState |= STATE_ALERT_MEDIUM; // XUL has no markup for low, medium or high
+  *aState &= ~nsIAccessibleStates::STATE_FOCUSABLE;
+  *aState |= nsIAccessibleStates::STATE_ALERT_MEDIUM; // XUL has no markup for low, medium or high
   return NS_OK;
 }
 

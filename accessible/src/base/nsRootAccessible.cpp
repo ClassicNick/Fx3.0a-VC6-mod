@@ -158,7 +158,7 @@ NS_IMETHODIMP nsRootAccessible::GetRole(PRUint32 *aRole)
     return NS_ERROR_FAILURE;
   }
 
-  // If it's a <dialog> or <wizard>, use ROLE_DIALOG instead
+  // If it's a <dialog> or <wizard>, use nsIAccessibleRole::ROLE_DIALOG instead
   nsIContent *rootContent = mDocument->GetRootContent();
   if (rootContent) {
     nsCOMPtr<nsIDOMElement> rootElement(do_QueryInterface(rootContent));
@@ -166,7 +166,7 @@ NS_IMETHODIMP nsRootAccessible::GetRole(PRUint32 *aRole)
       nsAutoString name;
       rootElement->GetLocalName(name);
       if (name.EqualsLiteral("dialog") || name.EqualsLiteral("wizard")) {
-        *aRole = ROLE_DIALOG; // Always at the root
+        *aRole = nsIAccessibleRole::ROLE_DIALOG; // Always at the root
         return NS_OK;
       }
     }
@@ -212,20 +212,20 @@ NS_IMETHODIMP nsRootAccessible::GetState(PRUint32 *aState)
     nsCOMPtr<nsIDOMDocument> focusedDoc;
     gLastFocusedNode->GetOwnerDocument(getter_AddRefs(focusedDoc));
     if (rootAccessibleDoc == focusedDoc) {
-      *aState |= STATE_FOCUSED;
+      *aState |= nsIAccessibleStates::STATE_FOCUSED;
     }
   }
 
 #ifdef MOZ_XUL
   PRUint32 chromeFlags = GetChromeFlags();
   if (chromeFlags & nsIWebBrowserChrome::CHROME_WINDOW_RESIZE) {
-    *aState |= STATE_SIZEABLE;
+    *aState |= nsIAccessibleStates::STATE_SIZEABLE;
   }
   if (chromeFlags & nsIWebBrowserChrome::CHROME_TITLEBAR) {
     // If it has a titlebar it's movable
     // XXX unless it's minimized or maximized, but not sure
     //     how to detect that
-    *aState |= STATE_MOVEABLE;
+    *aState |= nsIAccessibleStates::STATE_MOVEABLE;
   }
 #endif
 
@@ -245,12 +245,12 @@ NS_IMETHODIMP nsRootAccessible::GetExtState(PRUint32 *aExtState)
     PRBool isActive = PR_FALSE;
     focusController->GetActive(&isActive);
     if (isActive) {
-      *aExtState |= EXT_STATE_ACTIVE;
+      *aExtState |= nsIAccessibleStates::EXT_STATE_ACTIVE;
     }
   }
 #ifdef MOZ_XUL
   if (GetChromeFlags() & nsIWebBrowserChrome::CHROME_MODAL) {
-    *aExtState |= EXT_STATE_MODAL;
+    *aExtState |= nsIAccessibleStates::EXT_STATE_MODAL;
   }
 #endif
 
@@ -427,7 +427,7 @@ void nsRootAccessible::TryFireEarlyLoadEvent(nsIDOMNode *aDocNode)
     }
     PRUint32 state;
     rootContentAccessible->GetFinalState(&state);
-    if (state & STATE_BUSY) {
+    if (state & nsIAccessibleStates::STATE_BUSY) {
       // Don't fire page load events on subdocuments for initial page load of entire page
       return;
     }
@@ -502,15 +502,15 @@ void nsRootAccessible::FireAccessibleFocusEvent(nsIAccessible *aAccessible,
 
   // Use focus events on DHTML menuitems to indicate when to fire menustart and menuend
   // Special dynamic content handling
-  PRUint32 role = ROLE_NOTHING;
+  PRUint32 role = nsIAccessibleRole::ROLE_NOTHING;
   finalFocusAccessible->GetFinalRole(&role);
-  if (role == ROLE_MENUITEM) {
+  if (role == nsIAccessibleRole::ROLE_MENUITEM) {
     if (!mIsInDHTMLMenu) {  // Entering menus
       PRUint32 naturalRole; // The natural role is the role that this type of element normally has
       finalFocusAccessible->GetRole(&naturalRole);
       if (role != naturalRole) { // Must be a DHTML menuitem
          FireToolkitEvent(nsIAccessibleEvent::EVENT_MENUSTART, this, nsnull);
-         mIsInDHTMLMenu = ROLE_MENUITEM;
+         mIsInDHTMLMenu = nsIAccessibleRole::ROLE_MENUITEM;
       }
     }
   }
@@ -768,7 +768,7 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
   else if (eventType.EqualsLiteral("ValueChange")) {
     PRUint32 role;
     accessible->GetFinalRole(&role);
-    if (role == ROLE_PROGRESSBAR) {
+    if (role == nsIAccessibleRole::ROLE_PROGRESSBAR) {
       // For progressmeter, fire EVENT_SHOW on 1st value change
       nsAutoString value;
       accessible->GetValue(value);
@@ -789,7 +789,8 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
                               accessible, nsnull);
     PRUint32 finalState;
     accessible->GetFinalState(&finalState);
-    if (finalState & (STATE_CHECKED | STATE_SELECTED)) {
+    if (finalState & (nsIAccessibleStates::STATE_CHECKED |
+        nsIAccessibleStates::STATE_SELECTED)) {
       FireAccessibleFocusEvent(accessible, aTargetNode, aEvent);
     }
   }
@@ -822,16 +823,16 @@ nsresult nsRootAccessible::HandleEventWithTarget(nsIDOMEvent* aEvent,
     nsCOMPtr<nsIAccessible> containerAccessible;
     accessible->GetParent(getter_AddRefs(containerAccessible));
     NS_ENSURE_TRUE(containerAccessible, NS_OK);
-    if (Role(containerAccessible) == ROLE_MENUBAR) {
+    if (Role(containerAccessible) == nsIAccessibleRole::ROLE_MENUBAR) {
       // It is top level menuitem
       // Only fire focus event if it is not collapsed
-      if (State(accessible) & STATE_COLLAPSED)
+      if (State(accessible) & nsIAccessibleStates::STATE_COLLAPSED)
         return NS_OK;
     }
     else {
       // It is not top level menuitem
       // Only fire focus event if it is not inside collapsed popup
-      if (State(containerAccessible) & STATE_COLLAPSED)
+      if (State(containerAccessible) & nsIAccessibleStates::STATE_COLLAPSED)
         return NS_OK;
     }
     FireAccessibleFocusEvent(accessible, aTargetNode, aEvent, PR_TRUE);
@@ -913,7 +914,7 @@ nsRootAccessible::GetContentDocShell(nsIDocShellTreeItem *aStart)
     // don't use this one. This happens for example if it's inside
     // a background tab (tabbed browsing)
     while (accessible) {
-      if (State(accessible) & STATE_INVISIBLE) {
+      if (State(accessible) & nsIAccessibleStates::STATE_INVISIBLE) {
         return nsnull;
       }
       nsCOMPtr<nsIAccessible> ancestor;

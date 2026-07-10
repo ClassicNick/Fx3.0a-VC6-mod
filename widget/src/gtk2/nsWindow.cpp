@@ -74,6 +74,7 @@
 #include "nsGfxCIID.h"
 
 #ifdef ACCESSIBILITY
+#include "nsIAccessibleRole.h"
 #include "nsPIAccessNode.h"
 #include "nsPIAccessible.h"
 #include "nsIAccessibleEvent.h"
@@ -4928,7 +4929,7 @@ nsWindow::GetRootAccessible(nsIAccessible** aAccessible)
             break;
         }
         parentAccessible->GetRole(&role);
-        if (role == nsIAccessible::ROLE_APP_ROOT) {
+        if (role == nsIAccessibleRole::ROLE_APP_ROOT) {
             NS_ADDREF(*aAccessible = accessible);
             break;
         }

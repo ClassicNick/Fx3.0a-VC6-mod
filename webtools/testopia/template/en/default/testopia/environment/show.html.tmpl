@@ -189,13 +189,13 @@ dojo.addOnLoad(function() {
                              widgetId="environment[% environment.id %]" 
                              objectId="[% environment.id %]" 
                              isFolder="[% environment.element_count ? 'true' : 'false' %]" 
-                             actionsDisabled="edit;move"></div>
+                             actionsDisabled="[% 'remove;' UNLESS environment.canedit %]edit;move"></div>
                     </div>
                 </td>
                 </tr>
             </table>
         </td>
-        
+[% IF environment.canedit %]        
         <td valign="top">
             <table>
                 <tr>
@@ -215,7 +215,7 @@ dojo.addOnLoad(function() {
                          controller="env_items_treeController">
                     [% IF type == 'classification' %]
                     <div dojoType="TreeNode" 
-                         title="--ALL--" 
+                         title="--ANY PRODUCT--" 
                          widgetId="product0" 
                          objectId="0" 
                          actionsDisabled="remove;edit;move" 
@@ -236,6 +236,7 @@ dojo.addOnLoad(function() {
                 </tr>
             </table>
         </td>
+[% END %]
     </tr>
 </table>
 

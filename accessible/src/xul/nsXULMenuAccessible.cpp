@@ -281,16 +281,17 @@ NS_IMETHODIMP nsXULMenuitemAccessible::GetState(PRUint32 *_retval)
   PRBool isFocused = PR_FALSE;
   element->HasAttribute(NS_LITERAL_STRING("_moz-menuactive"), &isFocused); 
   if (isFocused)
-    *_retval |= STATE_FOCUSED;
+    *_retval |= nsIAccessibleStates::STATE_FOCUSED;
 
   // Has Popup?
   nsAutoString tagName;
   element->GetLocalName(tagName);
   if (tagName.EqualsLiteral("menu")) {
-    *_retval |= STATE_HASPOPUP;
+    *_retval |= nsIAccessibleStates::STATE_HASPOPUP;
     PRBool isOpen;
     element->HasAttribute(NS_LITERAL_STRING("open"), &isOpen);
-    *_retval |= isOpen ? STATE_EXPANDED : STATE_COLLAPSED;
+    *_retval |= isOpen ? nsIAccessibleStates::STATE_EXPANDED :
+                         nsIAccessibleStates::STATE_COLLAPSED;
   }
 
   nsAutoString menuItemType;
@@ -300,13 +301,13 @@ NS_IMETHODIMP nsXULMenuitemAccessible::GetState(PRUint32 *_retval)
     // Checkable?
     if (menuItemType.EqualsIgnoreCase("radio") ||
         menuItemType.EqualsIgnoreCase("checkbox"))
-      *_retval |= STATE_CHECKABLE;
+      *_retval |= nsIAccessibleStates::STATE_CHECKABLE;
 
     // Checked?
     nsAutoString checkValue;
     element->GetAttribute(NS_LITERAL_STRING("checked"), checkValue);
     if (checkValue.EqualsLiteral("true")) {
-      *_retval |= STATE_CHECKED;
+      *_retval |= nsIAccessibleStates::STATE_CHECKED;
     }
   }
 
@@ -315,8 +316,8 @@ NS_IMETHODIMP nsXULMenuitemAccessible::GetState(PRUint32 *_retval)
   // We get it by replacing the current offscreen bit with the parent's
   nsCOMPtr<nsIAccessible> parentAccessible(GetParent());
   if (parentAccessible) {
-    *_retval &= ~STATE_OFFSCREEN;  // clear the old OFFSCREEN bit
-    *_retval |= (State(parentAccessible) & STATE_OFFSCREEN);  // or it with the parent's offscreen bit
+    *_retval &= ~nsIAccessibleStates::STATE_OFFSCREEN;  // clear the old OFFSCREEN bit
+    *_retval |= (State(parentAccessible) & nsIAccessibleStates::STATE_OFFSCREEN);  // or it with the parent's offscreen bit
   }
 
   return NS_OK;
@@ -360,7 +361,7 @@ NS_IMETHODIMP nsXULMenuitemAccessible::GetKeyboardShortcut(nsAString& _retval)
     if (parentAccessible) {
       PRUint32 role;
       parentAccessible->GetRole(&role);
-      if (role == ROLE_MENUBAR) {
+      if (role == nsIAccessibleRole::ROLE_MENUBAR) {
         // If top level menu item, add Alt+ or whatever modifier text to string
         // No need to cache pref service, this happens rarely
         if (gMenuAccesskeyModifier == -1) {
@@ -408,9 +409,9 @@ nsXULMenuitemAccessible::GetDefaultKeyBinding(nsAString& aKeyBinding)
 
 NS_IMETHODIMP nsXULMenuitemAccessible::GetRole(PRUint32 *aRole)
 {
-  *aRole = ROLE_MENUITEM;
-  if (mParent && Role(mParent) == ROLE_COMBOBOX_LIST) {
-    *aRole = ROLE_COMBOBOX_LISTITEM;
+  *aRole = nsIAccessibleRole::ROLE_MENUITEM;
+  if (mParent && Role(mParent) == nsIAccessibleRole::ROLE_COMBOBOX_LIST) {
+    *aRole = nsIAccessibleRole::ROLE_COMBOBOX_LISTITEM;
     return NS_OK;
   }
   nsCOMPtr<nsIDOMElement> element(do_QueryInterface(mDOMNode));
@@ -419,14 +420,14 @@ NS_IMETHODIMP nsXULMenuitemAccessible::GetRole(PRUint32 *aRole)
   nsAutoString menuItemType;
   element->GetAttribute(NS_LITERAL_STRING("type"), menuItemType);
   if (menuItemType.EqualsIgnoreCase("radio"))
-    *aRole = ROLE_RADIO_MENU_ITEM;
+    *aRole = nsIAccessibleRole::ROLE_RADIO_MENU_ITEM;
   else if (menuItemType.EqualsIgnoreCase("checkbox"))
-    *aRole = ROLE_CHECK_MENU_ITEM;
+    *aRole = nsIAccessibleRole::ROLE_CHECK_MENU_ITEM;
   else { // Fortunately, radio/checkbox menuitems don't typically have children
     PRInt32 childCount;
     GetChildCount(&childCount);
     if (childCount > 0) {
-      *aRole = ROLE_PARENT_MENUITEM;
+      *aRole = nsIAccessibleRole::ROLE_PARENT_MENUITEM;
     }
   }
 
@@ -479,7 +480,7 @@ NS_IMETHODIMP nsXULMenuSeparatorAccessible::GetState(PRUint32 *_retval)
 {
   // Isn't focusable, but can be offscreen
   nsXULMenuitemAccessible::GetState(_retval);
-  *_retval &= STATE_OFFSCREEN;
+  *_retval &= nsIAccessibleStates::STATE_OFFSCREEN;
 
   return NS_OK;
 }
@@ -492,7 +493,7 @@ NS_IMETHODIMP nsXULMenuSeparatorAccessible::GetName(nsAString& _retval)
 
 NS_IMETHODIMP nsXULMenuSeparatorAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_SEPARATOR;
+  *_retval = nsIAccessibleRole::ROLE_SEPARATOR;
   return NS_OK;
 }
 
@@ -541,7 +542,7 @@ NS_IMETHODIMP nsXULMenupopupAccessible::GetState(PRUint32 *_retval)
   }
 
   if (!isActive)
-    *_retval |= STATE_OFFSCREEN;
+    *_retval |= nsIAccessibleStates::STATE_OFFSCREEN;
 
   return NS_OK;
 }
@@ -607,11 +608,11 @@ NS_IMETHODIMP nsXULMenupopupAccessible::GetName(nsAString& _retval)
 
 NS_IMETHODIMP nsXULMenupopupAccessible::GetRole(PRUint32 *aRole)
 {
-  if (mParent && Role(mParent) == ROLE_COMBOBOX) {
-    *aRole = ROLE_COMBOBOX_LIST;
+  if (mParent && Role(mParent) == nsIAccessibleRole::ROLE_COMBOBOX) {
+    *aRole = nsIAccessibleRole::ROLE_COMBOBOX_LIST;
   }
   else {
-    *aRole = ROLE_MENUPOPUP;
+    *aRole = nsIAccessibleRole::ROLE_MENUPOPUP;
   }
   return NS_OK;
 }
@@ -626,7 +627,7 @@ nsXULMenubarAccessible::nsXULMenubarAccessible(nsIDOMNode* aDOMNode, nsIWeakRefe
 NS_IMETHODIMP nsXULMenubarAccessible::GetState(PRUint32 *_retval)
 {
   nsresult rv = nsAccessible::GetState(_retval);
-  *_retval &= ~STATE_FOCUSABLE; // Menu bar iteself is not actually focusable
+  *_retval &= ~nsIAccessibleStates::STATE_FOCUSABLE; // Menu bar iteself is not actually focusable
   return rv;
 }
 
@@ -640,7 +641,7 @@ NS_IMETHODIMP nsXULMenubarAccessible::GetName(nsAString& _retval)
 
 NS_IMETHODIMP nsXULMenubarAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_MENUBAR;
+  *_retval = nsIAccessibleRole::ROLE_MENUBAR;
   return NS_OK;
 }
 

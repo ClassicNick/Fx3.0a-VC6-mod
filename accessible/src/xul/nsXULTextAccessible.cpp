@@ -75,7 +75,7 @@ NS_IMETHODIMP nsXULTextAccessible::GetState(PRUint32 *aState)
 
   // Labels and description have read only state
   // They are not focusable or selectable
-  *aState |= STATE_READONLY;
+  *aState |= nsIAccessibleStates::STATE_READONLY;
   return NS_OK;
 }
 
@@ -95,14 +95,14 @@ NS_IMETHODIMP nsXULTooltipAccessible::GetName(nsAString& aName)
 NS_IMETHODIMP nsXULTooltipAccessible::GetState(PRUint32 *_retval)
 {
   nsLeafAccessible::GetState(_retval);
-  *_retval &= ~STATE_FOCUSABLE;
-  *_retval |= STATE_READONLY;
+  *_retval &= ~nsIAccessibleStates::STATE_FOCUSABLE;
+  *_retval |= nsIAccessibleStates::STATE_READONLY;
   return NS_OK;
 }
 
 NS_IMETHODIMP nsXULTooltipAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_TOOLTIP;
+  *_retval = nsIAccessibleRole::ROLE_TOOLTIP;
   return NS_OK;
 }
 
@@ -141,10 +141,10 @@ NS_IMETHODIMP nsXULLinkAccessible::GetName(nsAString& aName)
 NS_IMETHODIMP nsXULLinkAccessible::GetRole(PRUint32 *aRole)
 {
   if (mIsLink) {
-    *aRole = ROLE_LINK;
+    *aRole = nsIAccessibleRole::ROLE_LINK;
   } else {
     // default to calling the link a button; might have javascript
-    *aRole = ROLE_PUSHBUTTON;
+    *aRole = nsIAccessibleRole::ROLE_PUSHBUTTON;
   }
   // should there be a third case where it becomes just text?
   return NS_OK;

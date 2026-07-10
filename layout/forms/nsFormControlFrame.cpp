@@ -80,15 +80,19 @@ nsFormControlFrame::QueryInterface(const nsIID& aIID, void** aInstancePtr)
 nscoord
 nsFormControlFrame::GetIntrinsicWidth()
 {
-  // Actual width is set in forms.css
-  return 0;
+  // Intrinsic width is 144 twips.  Why?  I have no idea; that's what
+  // it was before I touched this code, and the original checkin
+  // comment is not so helpful.
+  return 144;
 }
 
 nscoord
 nsFormControlFrame::GetIntrinsicHeight()
 {
-  // Actual width is set in forms.css
-  return 0;
+  // Intrinsic height is 144 twips.  Why?  I have no idea; that's what
+  // it was before I touched this code, and the original checkin
+  // comment is not so helpful.
+  return 144;
 }
 
 NS_METHOD

@@ -60,7 +60,7 @@ nsFormControlAccessible(aNode, aShell)
 
 NS_IMETHODIMP nsHTMLCheckboxAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_CHECKBUTTON;
+  *_retval = nsIAccessibleRole::ROLE_CHECKBUTTON;
   return NS_OK;
 }
 
@@ -77,7 +77,7 @@ NS_IMETHODIMP nsHTMLCheckboxAccessible::GetActionName(PRUint8 aIndex, nsAString&
     PRUint32 state;
     GetState(&state);
 
-    if (state & STATE_CHECKED)
+    if (state & nsIAccessibleStates::STATE_CHECKED)
       aName.AssignLiteral("uncheck"); 
     else
       aName.AssignLiteral("check"); 
@@ -105,7 +105,7 @@ NS_IMETHODIMP nsHTMLCheckboxAccessible::GetState(PRUint32 *_retval)
     htmlCheckboxElement->GetChecked(&checked);
 
   if (checked) 
-    *_retval |= STATE_CHECKED;
+    *_retval |= nsIAccessibleStates::STATE_CHECKED;
   
   return NS_OK;
 }
@@ -127,7 +127,7 @@ NS_IMETHODIMP nsHTMLRadioButtonAccessible::GetState(PRUint32 *_retval)
     htmlRadioElement->GetChecked(&checked);
 
   if (checked) 
-    *_retval |= STATE_CHECKED;
+    *_retval |= nsIAccessibleStates::STATE_CHECKED;
 
   return NS_OK;
 }
@@ -172,14 +172,14 @@ NS_IMETHODIMP nsHTMLButtonAccessible::GetState(PRUint32 *_retval)
   nsAutoString buttonType;
   element->GetAttribute(NS_LITERAL_STRING("type"), buttonType);
   if (buttonType.LowerCaseEqualsLiteral("submit"))
-    *_retval |= STATE_DEFAULT;
+    *_retval |= nsIAccessibleStates::STATE_DEFAULT;
 
   return NS_OK;
 }
 
 NS_IMETHODIMP nsHTMLButtonAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_PUSHBUTTON;
+  *_retval = nsIAccessibleRole::ROLE_PUSHBUTTON;
   return NS_OK;
 }
 
@@ -258,7 +258,7 @@ NS_IMETHODIMP nsHTML4ButtonAccessible::DoAction(PRUint8 index)
 
 NS_IMETHODIMP nsHTML4ButtonAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_PUSHBUTTON;
+  *_retval = nsIAccessibleRole::ROLE_PUSHBUTTON;
   return NS_OK;
 }
 
@@ -269,12 +269,12 @@ NS_IMETHODIMP nsHTML4ButtonAccessible::GetState(PRUint32 *_retval)
     return NS_ERROR_FAILURE;  // Button accessible shut down
   }
   nsHyperTextAccessible::GetState(_retval);
-  *_retval |= STATE_FOCUSABLE;
+  *_retval |= nsIAccessibleStates::STATE_FOCUSABLE;
 
   nsAutoString buttonType;
   element->GetAttribute(NS_LITERAL_STRING("type"), buttonType);
   if (buttonType.LowerCaseEqualsLiteral("submit"))
-    *_retval |= STATE_DEFAULT;
+    *_retval |= nsIAccessibleStates::STATE_DEFAULT;
 
   return NS_OK;
 }
@@ -286,8 +286,7 @@ nsHyperTextAccessible(aNode, aShell)
 {
 }
 
-NS_IMPL_ISUPPORTS_INHERITED1(nsHTMLTextFieldAccessible, nsHyperTextAccessible,
-                             nsIAccessibleText)
+NS_IMPL_ISUPPORTS_INHERITED2(nsHTMLTextFieldAccessible, nsAccessible, nsIAccessibleText, nsIAccessibleEditableText)
 
 NS_IMETHODIMP nsHTMLTextFieldAccessible::Init()
 {
@@ -306,12 +305,12 @@ NS_IMETHODIMP nsHTMLTextFieldAccessible::Shutdown()
 
 NS_IMETHODIMP nsHTMLTextFieldAccessible::GetRole(PRUint32 *aRole)
 {
-  *aRole = ROLE_ENTRY;
+  *aRole = nsIAccessibleRole::ROLE_ENTRY;
   nsCOMPtr<nsIContent> content(do_QueryInterface(mDOMNode));
   if (content &&
       content->AttrValueIs(kNameSpaceID_None, nsAccessibilityAtoms::type,
                            nsAccessibilityAtoms::password, eIgnoreCase)) {
-    *aRole = ROLE_PASSWORD_TEXT;
+    *aRole = nsIAccessibleRole::ROLE_PASSWORD_TEXT;
   }
   return NS_OK;
 }
@@ -320,7 +319,7 @@ NS_IMETHODIMP nsHTMLTextFieldAccessible::GetValue(nsAString& _retval)
 {
   PRUint32 state;
   GetState(&state);
-  if (state & STATE_PROTECTED)    // Don't return password text!
+  if (state & nsIAccessibleStates::STATE_PROTECTED)    // Don't return password text!
     return NS_ERROR_FAILURE;
 
   nsCOMPtr<nsIDOMHTMLTextAreaElement> textArea(do_QueryInterface(mDOMNode));
@@ -349,18 +348,18 @@ NS_IMETHODIMP nsHTMLTextFieldAccessible::GetState(PRUint32 *aState)
 
   if (content->AttrValueIs(kNameSpaceID_None, nsAccessibilityAtoms::type,
                            nsAccessibilityAtoms::password, eIgnoreCase)) {
-    *aState |= STATE_PROTECTED;
+    *aState |= nsIAccessibleStates::STATE_PROTECTED;
   }
   else {
     nsCOMPtr<nsIAccessible> parent;
     GetParent(getter_AddRefs(parent));
-    if (parent && Role(parent) == ROLE_AUTOCOMPLETE) {
-      *aState |= STATE_HASPOPUP;
+    if (parent && Role(parent) == nsIAccessibleRole::ROLE_AUTOCOMPLETE) {
+      *aState |= nsIAccessibleStates::STATE_HASPOPUP;
     }
   }
 
   if (content->HasAttr(kNameSpaceID_None, nsAccessibilityAtoms::readonly)) {
-    *aState |= STATE_READONLY;
+    *aState |= nsIAccessibleStates::STATE_READONLY;
   }
 
   return NS_OK;
@@ -369,42 +368,46 @@ NS_IMETHODIMP nsHTMLTextFieldAccessible::GetState(PRUint32 *aState)
 NS_IMETHODIMP nsHTMLTextFieldAccessible::GetExtState(PRUint32 *aExtState)
 {
   nsresult rv = nsHyperTextAccessible::GetExtState(aExtState);
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
 
   nsCOMPtr<nsIDOMHTMLInputElement> htmlInput(do_QueryInterface(mDOMNode, &rv));
   // Is it an <input> or a <textarea> ?
-  *aExtState |= htmlInput ? EXT_STATE_SINGLE_LINE : EXT_STATE_MULTI_LINE;
-
-  if (!(*aExtState & EXT_STATE_EDITABLE))
-    return NS_OK;
+  *aExtState |= htmlInput ? nsIAccessibleStates::EXT_STATE_SINGLE_LINE :
+                            nsIAccessibleStates::EXT_STATE_MULTI_LINE;
 
   PRUint32 state;
-  rv = GetState(&state);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIContent> content = do_QueryInterface(mDOMNode);
-  if (content && (content = content->GetBindingParent()) != nsnull &&
-      content->NodeInfo()->Equals(nsAccessibilityAtoms::textbox, kNameSpaceID_XUL)) {
-    // If parent is XUL textbox, then it supports autocompletion if type="autocomplete"
-    if (content->AttrValueIs(kNameSpaceID_None, nsAccessibilityAtoms::type,
-                             NS_LITERAL_STRING("autocomplete"), eIgnoreCase)) {
-      *aExtState |= EXT_STATE_SUPPORTS_AUTOCOMPLETION;
-    }
-  } else if (gIsFormFillEnabled && htmlInput && !(state & STATE_PROTECTED)) {
-    // Check to see if autocompletion is allowed on this input
-    // We don't expose it for password fields even though the entire password can
-    // be remembered for a page if the user asks it to be.
-    // However, the kind of autocomplete we're talking here is based on what
-    // the user types, where a popup of possible choices comes up.
-    nsAutoString autocomplete;
-    htmlInput->GetAttribute(NS_LITERAL_STRING("autocomplete"), autocomplete);
-    if (!autocomplete.LowerCaseEqualsLiteral("off")) {
-      nsCOMPtr<nsIDOMHTMLFormElement> form;
-      htmlInput->GetForm(getter_AddRefs(form));
-      if (form)
-        form->GetAttribute(NS_LITERAL_STRING("autocomplete"), autocomplete);
-      if (!form || !autocomplete.LowerCaseEqualsLiteral("off")) {
-        *aExtState |= EXT_STATE_SUPPORTS_AUTOCOMPLETION;
+  GetState(&state);
+  const PRUint32 kNonEditableStates = nsIAccessibleStates::STATE_READONLY |
+                                      nsIAccessibleStates::STATE_UNAVAILABLE;
+  if (0 == (state & kNonEditableStates)) {
+    *aExtState |= nsIAccessibleStates::EXT_STATE_EDITABLE;
+    nsCOMPtr<nsIContent> content = do_QueryInterface(mDOMNode);
+    if (content && (content = content->GetBindingParent()) != nsnull &&
+        content->NodeInfo()->Equals(nsAccessibilityAtoms::textbox, kNameSpaceID_XUL)) {
+      // If parent is XUL textbox, then it supports autocompletion if type="autocomplete"
+      if (content->AttrValueIs(kNameSpaceID_None, nsAccessibilityAtoms::type,
+                               NS_LITERAL_STRING("autocomplete"), eIgnoreCase)) {
+        *aExtState |= nsIAccessibleStates::EXT_STATE_SUPPORTS_AUTOCOMPLETION;
+      }
+    } else if (gIsFormFillEnabled && htmlInput &&
+               !(state & nsIAccessibleStates::STATE_PROTECTED)) {
+      // Check to see if autocompletion is allowed on this input
+      // We don't expose it for password fields even though the entire password can
+      // be remembered for a page if the user asks it to be.
+      // However, the kind of autocomplete we're talking here is based on what
+      // the user types, where a popup of possible choices comes up.
+      nsAutoString autocomplete;
+      htmlInput->GetAttribute(NS_LITERAL_STRING("autocomplete"), autocomplete);
+      if (!autocomplete.LowerCaseEqualsLiteral("off")) {
+        nsCOMPtr<nsIDOMHTMLFormElement> form;
+        htmlInput->GetForm(getter_AddRefs(form));
+        if (form)
+          form->GetAttribute(NS_LITERAL_STRING("autocomplete"), autocomplete);
+        if (!form || !autocomplete.LowerCaseEqualsLiteral("off")) {
+          *aExtState |= nsIAccessibleStates::EXT_STATE_SUPPORTS_AUTOCOMPLETION;
+        }
       }
     }
   }
@@ -475,7 +478,7 @@ nsAccessibleWrap(aNode, aShell)
 
 NS_IMETHODIMP nsHTMLGroupboxAccessible::GetRole(PRUint32 *_retval)
 {
-  *_retval = ROLE_GROUPING;
+  *_retval = nsIAccessibleRole::ROLE_GROUPING;
   return NS_OK;
 }
 
