@@ -9337,6 +9337,7 @@ DoDeletingFrameSubtree(nsFrameManager* aFrameManager,
       childListName = aFrame->GetAdditionalChildListName(childListIndex++);
     } while (childListName == nsGkAtoms::floatList    ||
              childListName == nsGkAtoms::absoluteList ||
+             childListName == nsGkAtoms::overflowOutOfFlowList ||
              childListName == nsGkAtoms::fixedList);
   } while (childListName);
 

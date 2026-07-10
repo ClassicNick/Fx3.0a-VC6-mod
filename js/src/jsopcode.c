@@ -1974,10 +1974,6 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 }
                 break;
 
-              case JSOP_STARTITER:
-                todo = -2;
-                break;
-
               case JSOP_PUSH:
 #if JS_HAS_DESTRUCTURING
                 sn = js_GetSrcNote(jp->script, pc);
@@ -2570,9 +2566,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 start = ss->offsets[pos];
                 LOCAL_ASSERT(ss->sprinter.base[start] == '[' ||
                              ss->sprinter.base[start] == '#');
-                pos = blockpos;
-                while (ss->opcodes[++pos] == JSOP_STARTITER)
-                    LOCAL_ASSERT(pos < ss->top);
+                pos = blockpos + 1;
                 LOCAL_ASSERT(pos < ss->top);
                 xval = OFF2STR(&ss->sprinter, ss->offsets[pos]);
                 lval = OFF2STR(&ss->sprinter, start);
@@ -2798,6 +2792,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 goto do_fornameinloop;
 
               case JSOP_FORVAR:
+              case JSOP_FORCONST:
                 atom = GetSlotAtom(jp, js_GetLocalVariable, GET_VARNO(pc));
                 LOCAL_ASSERT(atom);
                 goto do_fornameinloop;
@@ -4046,13 +4041,11 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
                 break;
 
               case JSOP_TOXML:
-                inXML = JS_FALSE;
-                /* FALL THROUGH */
-
               case JSOP_CALLXMLNAME:
               case JSOP_XMLNAME:
               case JSOP_FILTER:
-                /* Conversion and prefix ops do nothing in the decompiler. */
+                /* These ops indicate the end of XML expressions. */
+                inXML = JS_FALSE;
                 todo = -2;
                 break;
 
@@ -4125,12 +4118,14 @@ Decompile(SprintStack *ss, jsbytecode *pc, intN nb)
         } else {
             if (!PushOff(ss, todo, saveop))
                 return NULL;
-            if (cs->format & JOF_CALLOP) {
-                todo = Sprint(&ss->sprinter, "");
-                if (todo < 0 || !PushOff(ss, todo, saveop))
-                    return NULL;
-            }
         }
+
+        if (cs->format & JOF_CALLOP) {
+            todo = Sprint(&ss->sprinter, "");
+            if (todo < 0 || !PushOff(ss, todo, saveop))
+                return NULL;
+        }
+
         pc += len;
     }
 
@@ -4616,6 +4611,8 @@ js_DecompileValueGenerator(JSContext *cx, intN spindex, jsval v,
     switch (cs->format & JOF_MODEMASK) {
       case JOF_PROP:
       case JOF_ELEM:
+      case JOF_XMLNAME:
+      case 0:
         sn = js_GetSrcNote(script, pc);
         if (!sn)
             goto do_fallback;

@@ -3,10 +3,11 @@
 #
 
 # Make Options
-mk_add_options MOZ_MAKE_FLAGS="-j3"
+mk_add_options MOZ_MAKE_FLAGS="-j2"
 
 # Set line below to your desired object directory
 mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-fx95-release
+WIN32_REDIST_DIR="/j/Browsers/VC5SP3Compat/Redist/VC5SP3/"
 
 # Configure Options
 ac_add_options --target=i586-pc-msvc

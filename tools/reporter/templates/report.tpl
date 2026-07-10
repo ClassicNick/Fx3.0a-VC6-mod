@@ -33,13 +33,13 @@ function show(aItem){
 {/literal}
 
 {if $error != ''}
-<div class="error">
+<div id="error">
 	<h3>Error</h3>
 	<p>{$error}.  <a href="javascript:history.go(-1);">Back</a></p>
 </div>
 {else}
 <div id="reporterReport">
-	<div class="header">Report RMO11301752363661</div>
+	<div class="header">Report {$report_id}</div>
 	<div id="report_data">
 		<div>
 			<div class="title">URL:</div>
@@ -88,6 +88,10 @@ function show(aItem){
 		<div>
 			<div class="title">Build Config:</div>
 			<div class="data">{$report_buildconfig}</div>
+		</div>
+		<div>
+			<div class="title">Date Reported:</div>
+			<div class="data">{$report_file_date}</div>
 		</div>
 		{if $is_admin == true}
 		<div>

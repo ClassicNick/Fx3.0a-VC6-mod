@@ -257,9 +257,33 @@ var PlacesOrganizer = {
    * Show the migration wizard for importing from a file.
    */
   importBookmarks: function PO_import() {
+    // XXX: ifdef it to be non-modal (non-"sheet") on mac (see bug 259039)
     var features = "modal,centerscreen,chrome,resizable=no";
+
+    // The migrator window will set this to true when it closes, if the user
+    // chose to migrate from a specific file.
+    window.fromFile = false;
     openDialog("chrome://browser/content/migration/migration.xul",
-               "", features, "bookmarks");
+               "migration", features, "bookmarks");
+    if (window.fromFile)
+    this.importFromFile();
+  },
+  
+  /**
+   * Open a file-picker and import the selected file into the bookmarks store
+   */
+  importFromFile: function PO_importFromFile() {
+    var fp = Cc["@mozilla.org/filepicker;1"].
+             createInstance(Ci.nsIFilePicker);
+    fp.init(window, PlacesUtils.getString("SelectImport"),
+            Ci.nsIFilePicker.modeOpen);
+    fp.appendFilters(Ci.nsIFilePicker.filterHTML | Ci.nsIFilePicker.filterAll);
+    if (fp.show() != Ci.nsIFilePicker.returnCancel) {
+      var ioService = Cc["@mozilla.org/network/io-service;1"].
+                      getService(Ci.nsIIOService);
+      if (fp.file)
+        PlacesUtils.bookmarks.importBookmarksHTML(ioService.newFileURI(fp.file));
+    }
   },
 
   /**
@@ -268,7 +292,8 @@ var PlacesOrganizer = {
   exportBookmarks: function PO_exportBookmarks() {
     var fp = Cc["@mozilla.org/filepicker;1"].
              createInstance(Ci.nsIFilePicker);
-    fp.init(window, "", Ci.nsIFilePicker.modeSave);
+    fp.init(window, PlacesUtils.getString("EnterExport"),
+            Ci.nsIFilePicker.modeSave);
     fp.appendFilters(Ci.nsIFilePicker.filterHTML);
     fp.defaultString = "bookmarks.html";
     if (fp.show() != Ci.nsIFilePicker.returnCancel)
@@ -307,16 +332,18 @@ var PlacesSearchBox = {
 
   /**
    * Run a search for the specified text, over the collection specified by
-   * the dropdown arrow. The default is all bookmarks and history, but can be
+   * the dropdown arrow. The default is all bookmarks, but can be
    * localized to the active collection. 
    * @param   filterString
    *          The text to search for. 
    */
   search: function PSB_search(filterString) {
-    // Do not search for "" since it will match all history. Assume if the user
+    // for non-"bookmarks" collections, 
+    // do not search for "" since it will match all history. Assume if the user
     // deleted everything that they want to type something else and don't 
     // update the view.
-    if (filterString == "" || this.searchFilter.hasAttribute("empty")) 
+    if (PlacesSearchBox.filterCollection != "bookmarks" &&
+        (filterString == "" || this.searchFilter.hasAttribute("empty")))
       return;
 
     var content = PlacesOrganizer._content;
@@ -328,6 +355,12 @@ var PlacesSearchBox = {
       content.applyFilter(filterString, true, folderId, OptionsFilter);
       PO.setHeaderText(PO.HEADER_TYPE_SEARCH, filterString);
       break;
+    case "bookmarks":
+      if (filterString != "")
+        content.applyFilter(filterString, true);
+      else
+        PlacesOrganizer.onPlaceSelected();
+      break;
     case "all":
       content.applyFilter(filterString, false, 0, OptionsFilter);
       PO.setHeaderText(PO.HEADER_TYPE_SEARCH, filterString);
@@ -338,7 +371,7 @@ var PlacesSearchBox = {
   },
 
   /**
-   * Finds across all bookmarks and history.
+   * Finds across all bookmarks
    */
   findAll: function PSB_findAll() {
     this.filterCollection = "all";

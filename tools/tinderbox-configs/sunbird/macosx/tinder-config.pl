@@ -1,6 +1,8 @@
+
+
 #
-## hostname: bm-xserve10
-## uname: Darwin bm-xserve10.build.mozilla.org 8.8.4 Darwin Kernel Version 8.8.4: Sun Oct 29 15:26:54 PST 2006; root:xnu-792.16.4.obj~1/RELEASE_I386 i386 i386
+## hostname: bm-xserve07
+## uname: Darwin bm-xserve07.build.mozilla.org 8.8.4 Darwin Kernel Version 8.8.4: Sun Oct 29 15:26:54 PST 2006; root:xnu-792.16.4.obj~1/RELEASE_I386 i386 i386
 #
 
 #- tinder-config.pl - Tinderbox configuration file.
@@ -154,7 +156,7 @@ $Tinderbox_server = 'tinderbox-daemon@tinderbox.mozilla.org';
 #$moz_client_mk = 'client.mk';
 
 #- Set if you want to build in a separate object tree
-$ObjDir = '../build/unisunbird';
+$ObjDir = 'build/unisunbird';
 
 # Extra build name, if needed.
 $BuildNameExtra = 'Sb-Release';
@@ -167,10 +169,10 @@ $BuildNameExtra = 'Sb-Release';
 #$ConfigureOnly = 0;
 %WGetFiles = (
 	      "http://stage.mozilla.org/pub/mozilla.org/calendar/sunbird/nightly/latest-trunk/sunbird-0.3.1.en-US.mac.dmg" =>
-	      "/builds/tinderbox/Sb-Trunk/Darwin_8.8.4_Depend/sunbird.dmg"
+	      "/builds/tinderbox/Sunbird-Trunk/Darwin_8.8.4_Depend/sunbird.dmg"
 	      );
 
-$BuildLocalesArgs = "ZIP_IN=/builds/tinderbox/Sb-Trunk/Darwin_8.8.4_Depend/sunbird.dmg";
+$BuildLocalesArgs = "ZIP_IN=/builds/tinderbox/Sunbird-Trunk/Darwin_8.8.4_Depend/sunbird.dmg";
 
 #-
 #- The rest should not need to be changed
