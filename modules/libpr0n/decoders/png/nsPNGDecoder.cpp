@@ -114,7 +114,7 @@ void nsPNGDecoder::CreateFrame(png_uint_32 x_offset, png_uint_32 y_offset,
   if (NS_FAILED(rv))
     longjmp(mPNG->jmpbuf, 5); // NS_ERROR_OUT_OF_MEMORY
 
-  if (png_get_valid(mPNG, mInfo, PNG_INFO_acTL))
+  if (png_get_valid(mPNG, mInfo, PNG_INFO_acTl))
     SetAnimFrameInfo();
   
   mImage->AppendFrame(mFrame);
@@ -644,7 +644,7 @@ end_callback(png_structp png_ptr, png_infop info_ptr)
 
   nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*, png_get_progressive_ptr(png_ptr));
   
-  if (png_get_valid(png_ptr, info_ptr, PNG_INFO_acTL)) {
+  if (png_get_valid(png_ptr, info_ptr, PNG_INFO_acTl)) {
     PRInt32 num_iterations = png_get_num_iterations(png_ptr, info_ptr);
     if (num_iterations <= 0) /* forever */
       num_iterations = -1;
