@@ -48,7 +48,9 @@
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsAutoPtr.h"
 
+#ifdef MOZ_CAIRO_GFX
 #include "gfxContext.h"
+#endif
 
 NS_IMPL_ISUPPORTS3(imgContainer, imgIContainer, nsITimerCallback, nsIProperties)
 
