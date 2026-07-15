@@ -22,6 +22,7 @@
  *
  * Contributor(s):
  *   Stuart Parmenter <stuart@mozilla.com>
+ *   Andrew Smith
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -57,9 +58,15 @@
 #include "nspr.h"
 #include "png.h"
 
+// for nsPNGDecoder.apngFlags
+enum { 
+  FRAME_HIDDEN         = 0x01
+};
+
 static void PNGAPI info_callback(png_structp png_ptr, png_infop info_ptr);
 static void PNGAPI row_callback(png_structp png_ptr, png_bytep new_row,
                            png_uint_32 row_num, int pass);
+static void PNGAPI frame_info_callback(png_structp png_ptr, png_uint_32 frame_num);
 static void PNGAPI end_callback(png_structp png_ptr, png_infop info_ptr);
 static void PNGAPI error_callback(png_structp png_ptr, png_const_charp error_msg);
 static void PNGAPI warning_callback(png_structp png_ptr, png_const_charp warning_msg);
@@ -75,6 +82,8 @@ nsPNGDecoder::nsPNGDecoder() :
 #ifndef MOZ_CAIRO_GFX
   colorLine(nsnull),
   alphaLine(nsnull),
+#else
+  apngFlags(0),
 #endif
   interlacebuf(nsnull), ibpr(0),
   mError(PR_FALSE)
@@ -91,6 +100,59 @@ nsPNGDecoder::~nsPNGDecoder()
 #endif
   if (interlacebuf)
     nsMemory::Free(interlacebuf);
+}
+
+// CreateFrame() is used for both simple and animated images
+void nsPNGDecoder::CreateFrame(png_uint_32 x_offset, png_uint_32 y_offset, 
+                                PRInt32 width, PRInt32 height, gfx_format format)
+{
+  mFrame = do_CreateInstance("@mozilla.org/gfx/image/frame;2");
+  if (!mFrame)
+    longjmp(mPNG->jmpbuf, 5); // NS_ERROR_OUT_OF_MEMORY
+
+  nsresult rv = mFrame->Init(x_offset, y_offset, width, height, format, 24);
+  if (NS_FAILED(rv))
+    longjmp(mPNG->jmpbuf, 5); // NS_ERROR_OUT_OF_MEMORY
+
+  if (png_get_valid(mPNG, mInfo, PNG_INFO_acTL))
+    SetAnimFrameInfo();
+  
+  mImage->AppendFrame(mFrame);
+  
+  if (mObserver)
+    mObserver->OnStartFrame(nsnull, mFrame);
+}
+
+// set timeout and frame disposal method for the current frame
+void nsPNGDecoder::SetAnimFrameInfo()
+{
+  png_uint_16 delay_num, delay_den; /* in seconds */
+  png_byte render_op;
+  PRInt32 timeout; /* in milliseconds */
+  
+  delay_num = png_get_next_frame_delay_num(mPNG, mInfo);
+  delay_den = png_get_next_frame_delay_den(mPNG, mInfo);
+  render_op = png_get_next_frame_render_op(mPNG, mInfo);
+  
+  if (delay_num == 0) {
+    timeout = 0; // gfxImageFrame::SetTimeout() will set to a minimum
+  } else {
+    if (delay_den == 0)
+      delay_den = 100; // so sais the APNG spec
+    
+    // Need to cast delay_num to float to have a proper division and
+    // the result to int to avoid compiler warning
+    timeout = NS_STATIC_CAST( PRInt32,
+              NS_STATIC_CAST(PRFloat64, delay_num) * 1000 / delay_den );
+  }
+  mFrame->SetTimeout(timeout);
+  
+  if (render_op & PNG_RENDER_OP_DISPOSE_PREVIOUS)
+      mFrame->SetFrameDisposalMethod(imgIContainer::kDisposeRestorePrevious);
+  else if (render_op & PNG_RENDER_OP_DISPOSE_BACKGROUND)
+      mFrame->SetFrameDisposalMethod(imgIContainer::kDisposeClear);
+  else
+      mFrame->SetFrameDisposalMethod(imgIContainer::kDisposeKeep);
 }
 
 
@@ -225,20 +287,19 @@ info_callback(png_structp png_ptr, png_infop info_ptr)
   int channels;
   double aGamma;
 
-  png_bytep trans=NULL;
-  int num_trans =0;
+  png_bytep trans = NULL;
+  int num_trans = 0;
+
+  nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*, png_get_progressive_ptr(png_ptr));
 
   /* always decode to 24-bit RGB or 32-bit RGBA  */
   png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type,
                &interlace_type, &compression_type, &filter_type);
-
+  
   /* limit image dimensions (bug #251381) */
 #define MOZ_PNG_MAX_DIMENSION 1000000L
-  if (width > MOZ_PNG_MAX_DIMENSION || height > MOZ_PNG_MAX_DIMENSION) {
-    nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*,
-                                           png_get_progressive_ptr(png_ptr));
+  if (width > MOZ_PNG_MAX_DIMENSION || height > MOZ_PNG_MAX_DIMENSION)
     longjmp(decoder->mPNG->jmpbuf, 1);
-  }
 #undef MOZ_PNG_MAX_DIMENSION
 
   if (color_type == PNG_COLOR_TYPE_PALETTE)
@@ -310,8 +371,6 @@ info_callback(png_structp png_ptr, png_infop info_ptr)
     }
   }
 
-  nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*, png_get_progressive_ptr(png_ptr));
-
   if (decoder->mObserver)
     decoder->mObserver->OnStartDecode(nsnull);
 
@@ -321,25 +380,18 @@ info_callback(png_structp png_ptr, png_infop info_ptr)
 
   decoder->mImageLoad->SetImage(decoder->mImage);
 
-  // since the png is only 1 frame, initialize the container to the width and height of the frame
   decoder->mImage->Init(width, height, decoder->mObserver);
 
   if (decoder->mObserver)
     decoder->mObserver->OnStartContainer(nsnull, decoder->mImage);
 
-  decoder->mFrame = do_CreateInstance("@mozilla.org/gfx/image/frame;2");
-  if (!decoder->mFrame)
-    longjmp(decoder->mPNG->jmpbuf, 5); // NS_ERROR_OUT_OF_MEMORY
-
-  gfx_format format;
-
   if (channels == 3) {
-    format = gfxIFormats::RGB;
+    decoder->format = gfxIFormats::RGB;
   } else if (channels > 3) {
     if (alpha_bits == 8) {
-      decoder->mImage->GetPreferredAlphaChannelFormat(&format);
+      decoder->mImage->GetPreferredAlphaChannelFormat(&(decoder->format));
     } else if (alpha_bits == 1) {
-      format = gfxIFormats::RGB_A1;
+      decoder->format = gfxIFormats::RGB_A1;
     }
   }
 
@@ -375,9 +427,12 @@ info_callback(png_structp png_ptr, png_infop info_ptr)
     decoder->interlacebuf = (PRUint8 *)nsMemory::Alloc(decoder->ibpr*height);
     if (!decoder->interlacebuf) {
       longjmp(decoder->mPNG->jmpbuf, 5); // NS_ERROR_OUT_OF_MEMORY
-    }            
+    }
   }
-
+  
+  if (png_first_frame_is_hidden(png_ptr, info_ptr))
+    decoder->mFrame = nsnull;
+  
   return;
 }
 
@@ -413,6 +468,11 @@ row_callback(png_structp png_ptr, png_bytep new_row,
    * old row and the new row.
    */
   nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*, png_get_progressive_ptr(png_ptr));
+  
+  // do nothing
+  // is it ok that we're not telling the observer there is some data?
+  if (decoder->apngFlags & FRAME_HIDDEN)
+    return;
 
   png_bytep line;
   if (decoder->interlacebuf) {
@@ -540,7 +600,32 @@ row_callback(png_structp png_ptr, png_bytep new_row,
   }
 }
 
-
+// got the header of a new frame that's coming
+void
+frame_info_callback(png_structp png_ptr, png_uint_32 frame_num)
+{
+  png_uint_32 x_offset, y_offset;
+  PRInt32 width, height;
+  
+  nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*, png_get_progressive_ptr(png_ptr));
+  
+  // old frame is done
+  if (!(decoder->apngFlags & FRAME_HIDDEN)) {
+    PRInt32 timeout;
+    decoder->mFrame->GetTimeout(&timeout);
+    decoder->mImage->EndFrameDecode(frame_num, timeout);
+    decoder->mObserver->OnStopFrame(nsnull, decoder->mFrame);
+  }
+  
+  decoder->apngFlags &= ~FRAME_HIDDEN;
+  
+  x_offset = png_get_next_frame_x_offset(png_ptr, decoder->mInfo);
+  y_offset = png_get_next_frame_y_offset(png_ptr, decoder->mInfo);
+  width = png_get_next_frame_width(png_ptr, decoder->mInfo);
+  height = png_get_next_frame_height(png_ptr, decoder->mInfo);
+  
+  decoder->CreateFrame(x_offset, y_offset, width, height, decoder->format);
+}
 
 void
 end_callback(png_structp png_ptr, png_infop info_ptr)
@@ -558,16 +643,29 @@ end_callback(png_structp png_ptr, png_infop info_ptr)
    */
 
   nsPNGDecoder *decoder = NS_STATIC_CAST(nsPNGDecoder*, png_get_progressive_ptr(png_ptr));
-
+  
+  if (png_get_valid(png_ptr, info_ptr, PNG_INFO_acTL)) {
+    PRInt32 num_iterations = png_get_num_iterations(png_ptr, info_ptr);
+    if (num_iterations <= 0) /* forever */
+      num_iterations = -1;
+    
+    decoder->mImage->SetLoopCount(num_iterations);
+  }
+  
+  if (!(decoder->apngFlags & FRAME_HIDDEN)) {
+    PRInt32 timeout;
+    decoder->mFrame->GetTimeout(&timeout);
+    decoder->mImage->EndFrameDecode(decoder->mPNG->num_frames_read, timeout);
+  }
+  
+  decoder->mImage->DecodingComplete();
+  
   if (decoder->mObserver) {
-    decoder->mObserver->OnStopFrame(nsnull, decoder->mFrame);
+    if (!(decoder->apngFlags & FRAME_HIDDEN))
+      decoder->mObserver->OnStopFrame(nsnull, decoder->mFrame);
     decoder->mObserver->OnStopContainer(nsnull, decoder->mImage);
     decoder->mObserver->OnStopDecode(nsnull, NS_OK, nsnull);
   }
-
-  // We are never going to change the data of this frame again.  Let the OS
-  // do what it wants with this image.
-  decoder->mFrame->SetMutable(PR_FALSE);
 }
 
 

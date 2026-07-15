@@ -102,7 +102,7 @@ public:
                                nsIContent* aChild, PRInt32 aIndexInContainer);
   virtual void ContentRemoved(nsIDocument* aDocument, nsIContent* aContainer,
                               nsIContent* aChild, PRInt32 aIndexInContainer);
-  virtual void NodeWillBeDestroyed(const nsINode *aNode);
+  virtual void ParentChainChanged(nsIContent *aContent);
 
 private:
   void DoUpdate();
@@ -186,12 +186,16 @@ nsSVGFilterProperty::ContentRemoved(nsIDocument *aDocument,
 }
 
 void
-nsSVGFilterProperty::NodeWillBeDestroyed(const nsINode *aNode)
+nsSVGFilterProperty::ParentChainChanged(nsIContent *aContent)
 {
+  if (aContent->IsInDoc())
+    return;
+
   nsSVGOuterSVGFrame *outerSVGFrame = nsSVGUtils::GetOuterSVGFrame(mFrame);
   if (outerSVGFrame)
     outerSVGFrame->InvalidateRect(mFilterRect);
 
+  RemoveMutationObserver();
   mFrame->RemoveStateBits(NS_STATE_SVG_FILTERED);
   mFrame->DeleteProperty(nsGkAtoms::filter);
 }
@@ -427,18 +431,16 @@ nsSVGUtils::CoordToFloat(nsPresContext *aPresContext,
     break;
 
   case eStyleUnit_Percent: {
-      nsSVGSVGElement *ctx = aContent->GetCtx();
-
       nsCOMPtr<nsISVGLength> length;
       NS_NewSVGLength(getter_AddRefs(length),
                       aCoord.GetPercentValue() * 100.0f,
                       nsIDOMSVGLength::SVG_LENGTHTYPE_PERCENTAGE);
 
-      if (!ctx || !length)
+      if (!length)
         break;
 
       nsWeakPtr weakCtx =
-        do_GetWeakReference(NS_STATIC_CAST(nsGenericElement*, ctx));
+        do_GetWeakReference(NS_STATIC_CAST(nsGenericElement*, aContent));
       length->SetContext(weakCtx, nsSVGUtils::XY);
       length->GetValue(&val);
       break;

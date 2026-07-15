@@ -588,15 +588,6 @@ nsContentUtils::Shutdown()
   }
 }
 
-// static
-nsISupports *
-nsContentUtils::GetClassInfoInstance(nsDOMClassInfoID aID)
-{
-  nsIDOMScriptObjectFactory *factory = GetDOMScriptObjectFactory();
-
-  return factory ? factory->GetClassInfoInstance(aID) : nsnull;
-}
-
 /**
  * Checks whether two nodes come from the same origin. aTrustedNode is
  * considered 'safe' in that a user can operate on it and that it isn't
@@ -728,11 +719,10 @@ nsContentUtils::doReparentContentWrapper(nsIContent *aNode,
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (aOldDocument) {
-    nsCOMPtr<nsISupports> old_ref = aOldDocument->RemoveReference(aNode);
-    
+    nsCOMPtr<nsISupports> old_ref = aOldDocument->GetReference(aNode);
     if (old_ref) {
       // Transfer the reference from aOldDocument to aNewDocument
-      
+      aOldDocument->RemoveReference(aNode);
       aNewDocument->AddReference(aNode, old_ref);
     }
   }

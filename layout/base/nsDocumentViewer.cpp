@@ -865,6 +865,7 @@ DocumentViewerImpl::InitInternal(nsIWidget* aParentWidget,
         devctx->GetDeviceSurfaceDimensions(pageWidth, pageHeight);
         mPresContext->SetPageSize(nsSize(pageWidth, pageHeight));
         mPresContext->SetIsRootPaginatedDocument(PR_TRUE);
+        mPresContext->SetPageScale(1.0f);
       }
 #endif
     }
@@ -4071,6 +4072,8 @@ DocumentViewerImpl::OnDonePrinting()
 
 NS_IMETHODIMP DocumentViewerImpl::SetPageMode(PRBool aPageMode, nsIPrintSettings* aPrintSettings)
 {
+  // XXX Page mode is only partially working; it's currently used for
+  // reftests that require a paginated context
   mIsPageMode = aPageMode;
   // Get the current size of what is being viewed
   nsRect bounds;

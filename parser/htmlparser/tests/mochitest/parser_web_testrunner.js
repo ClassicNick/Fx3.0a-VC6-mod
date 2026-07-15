@@ -72,17 +72,19 @@ function makeTestChecker(input, expected, errors) {
     var domAsString = docToTestOutput(e.target.contentDocument);
     // It's possible we need to reorder attributes to get these to match
     if (expected == domAsString) {
-      is(domAsString, expected, "HTML5 expected success.");
+      is(domAsString, expected, "HTML5 expected success. " + new Date());
     } else {
       var reorderedDOM = reorderToMatchExpected(domAsString, expected);
       if (html5Exceptions[input]) {
-	todo(reorderedDOM == expected, "HTML5 expected failure.");
-	writeErrorSummary(input, expected, reorderedDOM, true);
+        todo(reorderedDOM == expected, "HTML5 expected failure. " + new Date());
+        writeErrorSummary(input, expected, reorderedDOM, true);
       } else {
-	is(reorderedDOM, expected, "HTML5 unexpected failure.");
-	if (reorderedDOM != expected) {
-	  writeErrorSummary(input, expected, reorderedDOM, false);
-	}
+	      if (reorderedDOM != expected) {
+          is(reorderedDOM, expected, "HTML5 unexpected failure. " + input + " " + new Date());
+	        writeErrorSummary(input, expected, reorderedDOM, false);
+        } else {
+          is(reorderedDOM, expected, "HTML5 expected success. " + new Date());
+        }
       }
     }
     nextTest(e.target);

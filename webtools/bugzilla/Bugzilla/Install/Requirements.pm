@@ -25,7 +25,7 @@ package Bugzilla::Install::Requirements;
 
 use strict;
 
-use Bugzilla::Install::Util qw(vers_cmp);
+use Bugzilla::Install::Util qw(vers_cmp install_string is_web);
 use List::Util qw(max);
 use Safe;
 
@@ -107,18 +107,18 @@ sub OPTIONAL_MODULES {
         feature => 'Graphical Reports, New Charts, Old Charts'
     },
     {
+        package => 'Chart',
+        module  => 'Chart::Base',
+        version => '1.0',
+        feature => 'New Charts, Old Charts'
+    },
+    {
         package => 'Template-GD',
         # This module tells us whether or not Template-GD is installed
         # on Template-Toolkits after 2.14, and still works with 2.14 and lower.
         module  => 'Template::Plugin::GD::Image',
         version => 0,
         feature => 'Graphical Reports'
-    },
-    {
-        package => 'Chart',
-        module  => 'Chart::Base',
-        version => '1.0',
-        feature => 'New Charts, Old Charts'
     },
     {
         package => 'GDGraph',
@@ -262,11 +262,11 @@ sub _get_extension_requirements {
 sub check_requirements {
     my ($output) = @_;
 
-    print "\nChecking perl modules...\n" if $output;
+    print "\n", install_string('checking_modules'), "\n" if $output;
     my $root = ROOT_USER;
-    my %missing = _check_missing(REQUIRED_MODULES, $output);
+    my $missing = _check_missing(REQUIRED_MODULES, $output);
 
-    print "\nChecking available perl DBD modules...\n" if $output;
+    print "\n", install_string('checking_dbd'), "\n" if $output;
     my $have_one_dbd = 0;
     my $db_modules = DB_MODULE;
     foreach my $db (keys %$db_modules) {
@@ -274,20 +274,20 @@ sub check_requirements {
         $have_one_dbd = 1 if have_vers($dbd, $output);
     }
 
-    print "\nThe following Perl modules are optional:\n" if $output;
-    my %missing_optional = _check_missing(OPTIONAL_MODULES, $output);
+    print "\n", install_string('checking_optional'), "\n" if $output;
+    my $missing_optional = _check_missing(OPTIONAL_MODULES, $output);
 
     # If we're running on Windows, reset the input line terminator so that
     # console input works properly - loading CGI tends to mess it up
     $/ = "\015\012" if ON_WINDOWS;
 
-    my $pass = !scalar(keys %missing) && $have_one_dbd;
+    my $pass = !scalar(@$missing) && $have_one_dbd;
     return {
         pass     => $pass,
         one_dbd  => $have_one_dbd,
-        missing  => \%missing,
-        optional => \%missing_optional,
-        any_missing => !$pass || scalar(keys %missing_optional),
+        missing  => $missing,
+        optional => $missing_optional,
+        any_missing => !$pass || scalar(@$missing_optional),
     };
 }
 
@@ -295,14 +295,14 @@ sub check_requirements {
 sub _check_missing {
     my ($modules, $output) = @_;
 
-    my %missing;
+    my @missing;
     foreach my $module (@$modules) {
         unless (have_vers($module, $output)) {
-            $missing{$module->{package}} = $module;
+            push(@missing, $module);
         }
     }
 
-    return %missing;
+    return \@missing;
 }
 
 sub print_module_instructions {
@@ -337,7 +337,7 @@ EOT
     }
 
     # Required Modules
-    if (my %missing = %{$check_results->{missing}}) {
+    if (my @missing = @{$check_results->{missing}}) {
         print <<EOT;
 ***********************************************************************
 * REQUIRED MODULES                                                    *
@@ -351,8 +351,8 @@ EOT
 EOT
 
         print "COMMANDS:\n\n";
-        foreach my $package (keys %missing) {
-            my $command = install_command($missing{$package});
+        foreach my $package (@missing) {
+            my $command = install_command($package);
             print "    $command\n";
         }
         print "\n";
@@ -386,7 +386,7 @@ EOT
 
     return unless $output;
 
-    if (my %missing = %{$check_results->{optional}}) {
+    if (my @missing = @{$check_results->{optional}}) {
         print <<EOT;
 **********************************************************************
 * OPTIONAL MODULES                                                   *
@@ -402,12 +402,8 @@ EOT
 **********************************************************************
 
 EOT
-        # We want to sort them so that they are ordered by feature.
-        my @missing_names = sort {$missing{$a}->{feature} 
-                                  cmp $missing{$b}->{feature}} (keys %missing);
-
         # Now we have to determine how large the table cols will be.
-        my $longest_name = max(map(length($_), @missing_names));
+        my $longest_name = max(map(length($_->{package}), @missing));
 
         # The first column header is at least 11 characters long.
         $longest_name = 11 if $longest_name < 11;
@@ -420,16 +416,16 @@ EOT
         printf "* \%${longest_name}s * %-${remaining_space}s *\n",
                'MODULE NAME', 'ENABLES FEATURE(S)';
         print '*' x 71 . "\n";
-        foreach my $name (@missing_names) {
+        foreach my $package (@missing) {
             printf "* \%${longest_name}s * %-${remaining_space}s *\n",
-                   $name, $missing{$name}->{feature};
+                   $package->{package}, $package->{feature};
         }
         print '*' x 71 . "\n";
 
         print "COMMANDS TO INSTALL:\n\n";
-        foreach my $module (@missing_names) {
-            my $command = install_command($missing{$module});
-            printf "%15s: $command\n", $module;
+        foreach my $module (@missing) {
+            my $command = install_command($module);
+            printf "%15s: $command\n", $module->{package};
         }
     }
 }
@@ -476,15 +472,10 @@ sub have_vers {
     }
     my $wanted  = $params->{version};
 
-    my ($msg, $vnum, $vstr);
-    no strict 'refs';
-    printf("Checking for %15s %-9s ", $package, !$wanted?'(any)':"(v$wanted)") 
-        if $output;
-
     eval "require $module;";
 
     # VERSION is provided by UNIVERSAL::
-    $vnum = eval { $module->VERSION } || -1;
+    my $vnum = eval { $module->VERSION } || -1;
 
     # CGI's versioning scheme went 2.75, 2.751, 2.752, 2.753, 2.76
     # That breaks the standard version tests, so we need to manually correct
@@ -493,14 +484,15 @@ sub have_vers {
         $vnum = $1 . "." . $2;
     }
 
+    my $vstr;
     if ($vnum eq "-1") { # string compare just in case it's non-numeric
-        $vstr = "not found";
+        $vstr = install_string('module_not_found');
     }
     elsif (vers_cmp($vnum,"0") > -1) {
-        $vstr = "found v$vnum";
+        $vstr = install_string('module_found', { ver => $vnum });
     }
     else {
-        $vstr = "found unknown version";
+        $vstr = install_string('module_unknown_version');
     }
 
     my $vok = (vers_cmp($vnum,$wanted) > -1);
@@ -510,9 +502,29 @@ sub have_vers {
         $vok = 0 if $blacklisted;
     }
 
-    my $ok = $vok ? "ok:" : "";
-    my $black_string = $blacklisted ? "(blacklisted)" : "";
-    print "$ok $vstr $black_string\n" if $output;
+    if ($output) {
+        my $ok           = $vok ? install_string('module_ok') : '';
+        my $black_string = $blacklisted ? install_string('blacklisted') : '';
+        my $want_string  = $wanted ? "v$wanted" : install_string('any');
+
+        # It's impossible to do the printf formatting in the install_string
+        # system, so we do it manually below.
+        if (is_web()) {
+            print install_string('module_details',
+                { package => $package,
+                  wanted  => $want_string,
+                  found   => $vstr,
+                  ok      => $ok,
+                  blacklisted => $black_string,
+                  row_class => $vok ? 'mod_ok' : 'mod_not_ok' });
+        }
+        else {
+            $ok = "$ok:" if $ok;
+            printf "%s %19s %-9s $ok $vstr $black_string\n",
+                install_string('checking_for'), $package, "($want_string)";
+        }
+    }
+    
     return $vok ? 1 : 0;
 }
 
@@ -532,7 +544,6 @@ sub install_command {
     }
     return sprintf $command, $package;
 }
-
 
 1;
 
@@ -565,26 +576,46 @@ represent the name of the module and the version that we require.
 
 =over 4
 
-=item C<check_requirements($output)>
+=item C<check_requirements>
 
- Description: This checks what optional or required perl modules
-              are installed, like C<checksetup.pl> does.
+=over
 
- Params:      C<$output> - C<true> if you want the function to print
-                           out information about what it's doing,
-                           and the versions of everything installed.
-                           If you don't pass the minimum requirements,
-                           the will always print out something, 
-                           regardless of this parameter.
+=item B<Description>
 
- Returns:    A hashref containing three values:
-             C<pass> - Whether or not we have all the mandatory 
-                       requirements.
-             C<missing> - A hash showing which mandatory requirements
-                          are missing. The key is the module name,
-                          and the value is the version we require.
-             C<optional> - Which optional modules are installed and
-                           up-to-date enough for Bugzilla.
+This checks what optional or required perl modules are installed, like
+C<checksetup.pl> does.
+
+=item B<Params>
+
+=over
+
+=item C<$output> - C<true> if you want the function to print out information
+about what it's doing, and the versions of everything installed.
+
+=back
+
+=item B<Returns>
+
+A hashref containing these values:
+
+=over
+
+=item C<pass> - Whether or not we have all the mandatory requirements.
+
+=item C<missing> - An arrayref containing any required modules that
+are not installed or that are not up-to-date. Each item in the array is
+a hashref in the format of items from L</REQUIRED_MODULES>.
+
+=item C<optional> - The same as C<missing>, but for optional modules.
+
+=item C<have_one_dbd> - True if at least one C<DBD::> module is installed.
+
+=item C<any_missing> - True if there are any missing modules, even optional
+modules.
+
+=back
+
+=back
 
 =item C<check_graphviz($output)>
 

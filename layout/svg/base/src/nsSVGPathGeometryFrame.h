@@ -42,8 +42,6 @@
 #include "nsFrame.h"
 #include "nsISVGChildFrame.h"
 #include "nsWeakReference.h"
-#include "nsISVGValue.h"
-#include "nsISVGValueObserver.h"
 #include "nsGkAtoms.h"
 #include "nsSVGGeometryFrame.h"
 
@@ -51,7 +49,7 @@ class nsPresContext;
 class nsIDOMSVGMatrix;
 class nsSVGMarkerFrame;
 class nsISVGFilterFrame;
-struct nsSVGMarkerProperty;
+class nsSVGMarkerProperty;
 class nsISVGCairoCanvas;
 
 typedef nsSVGGeometryFrame nsSVGPathGeometryFrameBase;
@@ -94,14 +92,9 @@ public:
 
   // nsISVGGeometrySource interface:
   NS_IMETHOD GetCanvasTM(nsIDOMSVGMatrix * *aCTM);
+  virtual nsresult UpdateGraphic(PRBool suppressInvalidation = PR_FALSE);
 
 protected:
-  // nsISVGValueObserver
-  NS_IMETHOD WillModifySVGObservable(nsISVGValue* observable,
-                                     nsISVGValue::modificationType aModType);
-  NS_IMETHOD DidModifySVGObservable (nsISVGValue* observable,
-                                     nsISVGValue::modificationType aModType);
-
   // nsISVGChildFrame interface:
   NS_IMETHOD PaintSVG(nsISVGRendererCanvas* canvas, nsRect *aDirtyRect);
   NS_IMETHOD GetFrameForPointSVG(float x, float y, nsIFrame** hit);
@@ -117,9 +110,6 @@ protected:
   NS_IMETHOD_(PRBool) IsDisplayContainer() { return PR_FALSE; }
   NS_IMETHOD_(PRBool) HasValidCoveredRect() { return PR_TRUE; }
 
-  // nsISVGGeometrySource interface:
-  virtual nsresult UpdateGraphic(PRBool suppressInvalidation = PR_FALSE);
-  
 protected:
   virtual PRUint16 GetHittestMask();
 
@@ -144,9 +134,6 @@ private:
   }
 
   nsSVGMarkerProperty *GetMarkerProperty();
-  void GetMarkerFromStyle(nsSVGMarkerFrame   **aResult,
-                          nsSVGMarkerProperty *property,
-                          nsIURI              *aURI);
   void UpdateMarkerProperty();
 
   void RemovePathProperties();
