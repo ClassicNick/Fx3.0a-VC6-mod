@@ -163,8 +163,10 @@
 #include "nsEventDispatcher.h"
 #include "nsThreadUtils.h"
 #include "nsStyleSheetService.h"
+#ifdef MOZ_CAIRO_GFX
 #include "gfxImageSurface.h"
 #include "gfxContext.h"
+#endif
 
 // Drag & Drop, Clipboard
 #include "nsWidgetsCID.h"
@@ -924,6 +926,7 @@ public:
                              nscolor aBackgroundColor,
                              nsIRenderingContext** aRenderedContext);
 
+#ifdef MOZ_CAIRO_GFX
   virtual already_AddRefed<gfxASurface> RenderNode(nsIDOMNode* aNode,
                                                    nsIRegion* aRegion,
                                                    nsPoint& aPoint,
@@ -932,6 +935,7 @@ public:
   virtual already_AddRefed<gfxASurface> RenderSelection(nsISelection* aSelection,
                                                         nsPoint& aPoint,
                                                         nsRect* aScreenRect);
+#endif
 
   //nsIViewObserver interface
 
@@ -1124,6 +1128,7 @@ protected:
                                        nsIRenderingContext* aRenderingContext,
                                        nsRect& aSurfaceRect);
 
+#ifdef MOZ_CAIRO_GFX
   /*
    * Paint the items to a new surface and return it.
    *
@@ -1141,6 +1146,7 @@ protected:
                       nsRect aArea,
                       nsPoint& aPoint,
                       nsRect* aScreenRect);
+#endif
 
   /**
    * Methods to handle changes to user and UA sheet lists that we get
@@ -5130,6 +5136,7 @@ PresShell::CreateRangePaintInfo(nsIDOMRange* aRange,
   return info;
 }
 
+#ifdef MOZ_CAIRO_GFX
 already_AddRefed<gfxASurface>
 PresShell::PaintRangePaintInfo(nsTArray<nsAutoPtr<RangePaintInfo> >* aItems,
                                nsISelection* aSelection,
@@ -5329,6 +5336,7 @@ PresShell::RenderSelection(nsISelection* aSelection,
   return PaintRangePaintInfo(&rangeItems, aSelection, nsnull, area, aPoint,
                              aScreenRect);
 }
+#endif
 
 NS_IMETHODIMP
 PresShell::Paint(nsIView*             aView,

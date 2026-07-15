@@ -865,7 +865,6 @@ DocumentViewerImpl::InitInternal(nsIWidget* aParentWidget,
         devctx->GetDeviceSurfaceDimensions(pageWidth, pageHeight);
         mPresContext->SetPageSize(nsSize(pageWidth, pageHeight));
         mPresContext->SetIsRootPaginatedDocument(PR_TRUE);
-        mPresContext->SetPageScale(1.0f);
       }
 #endif
     }

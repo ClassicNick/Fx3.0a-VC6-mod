@@ -684,6 +684,7 @@ public:
                              nscolor aBackgroundColor,
                              nsIRenderingContext** aRenderedContext) = 0;
 
+#ifdef MOZ_CAIRO_GFX
   /**
    * Renders a node aNode to a surface and returns it. The aRegion may be used
    * to clip the rendering. This region is measured in device pixels from the
@@ -713,6 +714,7 @@ public:
   virtual already_AddRefed<gfxASurface> RenderSelection(nsISelection* aSelection,
                                                         nsPoint& aPoint,
                                                         nsRect* aScreenRect) = 0;
+#endif
 
   void AddWeakFrame(nsWeakFrame* aWeakFrame);
   void RemoveWeakFrame(nsWeakFrame* aWeakFrame);
