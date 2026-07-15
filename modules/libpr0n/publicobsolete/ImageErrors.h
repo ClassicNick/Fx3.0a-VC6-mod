@@ -1,5 +1,6 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+ *
+ * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -12,19 +13,19 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG project.
+ * The Original Code is mozilla.org code.
  *
  * The Initial Developer of the Original Code is
- * Bradley Baetz.
+ * Netscape Communications Corporation.
  * Portions created by the Initial Developer are Copyright (C) 2001
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Bradley Baetz <bbaetz@cs.mcgill.ca> (original author)
+ *   Stuart Parmenter <pavlov@netscape.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -36,26 +37,16 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef nsSVGDocument_h__
-#define nsSVGDocument_h__
+#include "nsError.h"
 
-#include "nsCOMPtr.h"
-#include "nsXMLDocument.h"
-#include "nsIDOMSVGDocument.h"
+/**
+ * imagelib specific nsresult success and error codes
+ */
+#define NS_IMAGELIB_SUCCESS_LOAD_FINISHED   NS_ERROR_GENERATE_SUCCESS(NS_ERROR_MODULE_IMGLIB, 0)
+#define NS_IMAGELIB_CHANGING_OWNER          NS_ERROR_GENERATE_SUCCESS(NS_ERROR_MODULE_IMGLIB, 1)
 
-class nsSVGDocument : public nsXMLDocument,
-                      public nsIDOMSVGDocument
-{
- public:
-  nsSVGDocument();
-  virtual ~nsSVGDocument();
+#define NS_IMAGELIB_ERROR_FAILURE           NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_IMGLIB, 5)
+#define NS_IMAGELIB_ERROR_NO_DECODER        NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_IMGLIB, 6)
+#define NS_IMAGELIB_ERROR_NOT_FINISHED      NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_IMGLIB, 7)
+#define NS_IMAGELIB_ERROR_LOAD_ABORTED      NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_IMGLIB, 8)
 
-  NS_DECL_NSIDOMSVGDOCUMENT
-  NS_FORWARD_NSIDOMDOCUMENT(nsXMLDocument::)
-  NS_FORWARD_NSIDOMNODE(nsXMLDocument::)
-  NS_FORWARD_NSIDOMDOCUMENTEVENT(nsXMLDocument::)
-  NS_DECL_ISUPPORTS_INHERITED
-
-};
-
-#endif

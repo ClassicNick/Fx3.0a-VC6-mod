@@ -1,5 +1,6 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+ *
+ * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -12,19 +13,19 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is the Mozilla SVG project.
+ * The Original Code is mozilla.org code.
  *
  * The Initial Developer of the Original Code is
- * Bradley Baetz.
+ * Netscape Communications Corporation.
  * Portions created by the Initial Developer are Copyright (C) 2001
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
- *   Bradley Baetz <bbaetz@cs.mcgill.ca> (original author)
+ *   Stuart Parmenter <pavlov@netscape.com>
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -36,26 +37,52 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef nsSVGDocument_h__
-#define nsSVGDocument_h__
+#ifndef nsPNGDecoder_h__
+#define nsPNGDecoder_h__
+
+#include "imgIDecoder.h"
+
+#include "imgIContainer.h"
+#include "imgIDecoderObserver.h"
+#include "gfxIImageFrame.h"
+#include "imgILoad.h"
+
 
 #include "nsCOMPtr.h"
-#include "nsXMLDocument.h"
-#include "nsIDOMSVGDocument.h"
 
-class nsSVGDocument : public nsXMLDocument,
-                      public nsIDOMSVGDocument
+#include "png.h"
+
+#define NS_PNGDECODER_CID \
+{ /* 36fa00c2-1dd2-11b2-be07-d16eeb4c50ed */         \
+     0x36fa00c2,                                     \
+     0x1dd2,                                         \
+     0x11b2,                                         \
+    {0xbe, 0x07, 0xd1, 0x6e, 0xeb, 0x4c, 0x50, 0xed} \
+}
+
+class nsPNGDecoder : public imgIDecoder
 {
- public:
-  nsSVGDocument();
-  virtual ~nsSVGDocument();
+public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_IMGIDECODER
 
-  NS_DECL_NSIDOMSVGDOCUMENT
-  NS_FORWARD_NSIDOMDOCUMENT(nsXMLDocument::)
-  NS_FORWARD_NSIDOMNODE(nsXMLDocument::)
-  NS_FORWARD_NSIDOMDOCUMENTEVENT(nsXMLDocument::)
-  NS_DECL_ISUPPORTS_INHERITED
+  nsPNGDecoder();
+  virtual ~nsPNGDecoder();
 
+public:
+  nsCOMPtr<imgIContainer> mImage;
+  nsCOMPtr<gfxIImageFrame> mFrame;
+  nsCOMPtr<imgILoad> mImageLoad;
+  nsCOMPtr<imgIDecoderObserver> mObserver; // this is just qi'd from mRequest for speed
+
+  png_structp mPNG;
+  png_infop mInfo;
+#ifndef MOZ_CAIRO_GFX
+  PRUint8 *colorLine, *alphaLine;
+#endif
+  PRUint8 *interlacebuf;
+  PRUint32 ibpr;
+  PRPackedBool mError;
 };
 
-#endif
+#endif // nsPNGDecoder_h__

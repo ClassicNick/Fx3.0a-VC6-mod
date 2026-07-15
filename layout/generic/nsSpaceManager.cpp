@@ -41,6 +41,7 @@
  * generally but actually specific to space occupied by floats
  */
 
+#include "nsCOMPtr.h"
 #include "nsSpaceManager.h"
 #include "nsPoint.h"
 #include "nsRect.h"
